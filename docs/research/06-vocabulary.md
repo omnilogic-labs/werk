@@ -2,12 +2,6 @@
 
 Fluency list. If a design conversation uses a term here, everyone should know it.
 
-> **Scope update (2026-09).** The PTY, terminal-emulation and OSC sections below
-> are unchanged and still the core vocabulary. Three new sections at the end
-> cover the terms the expanded scope introduces — placement and transport, git
-> orchestration, and packaging. The library shortlist has been rewritten for the
-> reopened language question.
-
 ## PTY and process control
 
 | Term                                                 | Meaning / why it matters                                                                                                                                           |
@@ -77,8 +71,8 @@ it may emit, resolved through terminfo **on the machine running the child**.
 - **Control mode** — tmux `-CC`. `%begin`/`%end`/`%error` blocks + `%`-prefixed
   async notifications on one stream.
 - **Tap, not stage** — zmx. The VT receives a copy of the stream for rehydration;
-  it is not in the latency path. Under the expanded scope it applies twice: the
-  VT taps the byte stream, and the fleet aggregator taps the daemons.
+  it is not in the latency path. It applies twice in werk: the VT taps the byte
+  stream, and the fleet aggregator taps the daemons.
 - **Snapshot as cache, never source of truth** — [01](01-libghostty-vt.md).
 - **Front-end / back-end split** — Tratt. One user binary, one daemon, a Unix
   socket, no signals.
@@ -139,8 +133,8 @@ it may emit, resolved through terminfo **on the machine running the child**.
 
 ## Library shortlist by role
 
-Rewritten for the reopened language question ([02](02-language-choice.md)). The
-Rust, Go and Zig lists remain valid if the fallback is taken.
+Organised by the language options in [02](02-language-choice.md). The Rust, Go
+and Zig lists apply if the fallback is taken.
 
 **TypeScript on Bun** (the current leading option):
 

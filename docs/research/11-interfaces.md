@@ -109,9 +109,9 @@ quality and `--compile` safety instead.
 **The strong argument for ghostty-web** — beyond correctness — is that the
 browser would then run **the same emulator as the daemon**, which is what makes
 mosh-style speculative echo and diff reconciliation tractable instead of a
-research project. That argument is made in [05 §E](05-control-surfaces.md) and it
-still holds. It is, however, contingent on the daemon actually using libghostty,
-which [02-language-choice.md](02-language-choice.md) has now reopened.
+research project. That argument is made in [05 §E](05-control-surfaces.md). It is
+contingent on the daemon actually using libghostty, which rides on
+[02-language-choice.md](02-language-choice.md).
 
 ### Rendering many terminals at once
 

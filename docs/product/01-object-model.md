@@ -155,12 +155,12 @@ question — but the _guarantee_ is not: **werk does not destroy unreturned work
 
 **A persistent, detachable terminal holding one process tree.**
 
-This is the layer the existing research covers exhaustively. Everything there
-still applies: the daemon holds the PTY master, the terminal state is
-reconstructed faithfully on reattach, detaching mid-escape-sequence is safe,
-sessions survive the daemon restarting.
+The layer [`../research/`](../research/) covers exhaustively: the daemon holds
+the PTY master, the terminal state is reconstructed faithfully on reattach,
+detaching mid-escape-sequence is safe, and sessions survive the daemon
+restarting.
 
-What the expanded scope adds:
+What the workspace layer adds on top of it:
 
 - **A workspace can hold several sessions.** Your agent in one, a dev server in
   another, a log tail in a third. `werk create` makes one; `werk run` adds more.

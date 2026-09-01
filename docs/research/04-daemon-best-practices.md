@@ -1,32 +1,33 @@
 # 04 — Ad-hoc daemons: best practices
 
-> **Scope update (2026-09).** This document assumed **one daemon on one machine,
-> written in Rust**. Under the expanded scope, three of its premises move:
->
-> - **There are now N daemons, one per machine**, and the local client is also a
->   client of remote ones. Everything in §3 (the ad-hoc spawn race), §4
->   (readiness), §5 (filesystem layout) and §9 (version skew) now has to work
->   over ssh, against a machine whose state you cannot see. §9 in particular gets
->   much harder: "the daemon outlives the binary" becomes "six daemons outlive
->   the binary". See [`../product/02-journeys.md`](../product/02-journeys.md) §11.
-> - **Windows is a first-class client.** §1's Unix socket becomes a named pipe;
->   §2's `setsid`/`fork` discussion does not apply; and §6's
->   `SIGHUP → grace → SIGKILL` teardown **does not work as designed** — Bun's
->   `proc.kill(signal)` ignores the signal argument on Windows
->   ([07 §6](07-packaging.md)).
-> - **The language is reopened** ([02](02-language-choice.md)), so the crate
->   shortlist at the end is conditional. The _principles_ are language-agnostic
->   and all still apply — especially §7 (keep running when things go wrong) and
->   §8 (backpressure), which get harder, not easier, with a network in the path.
->
-> The one item to promote in priority: **§11's `werk info` and `werk doctor`.**
-> With one machine they save support time. With six machines, two container
-> runtimes and a bastion in the middle they are the difference between a
-> debuggable product and an unusable one.
-
 Scope: a daemon that is **not** managed by systemd/launchd. It is spawned on
 demand by the first client that needs it, outlives that client, and is discovered
 by later clients. This is the tmux/zmx/shpool/hauntty model.
+
+Two things make werk's version of it harder than the usual one, and they colour
+everything below:
+
+- **There are N daemons, one per machine**, and the local client is also a client
+  of the remote ones. §3 (the ad-hoc spawn race), §4 (readiness), §5 (filesystem
+  layout) and §9 (version skew) all have to work over ssh, against a machine
+  whose state you cannot see. §9 is the worst of it: "the daemon outlives the
+  binary" becomes "six daemons outlive the binary". See
+  [`../product/02-journeys.md`](../product/02-journeys.md) §11.
+- **Windows is a first-class client.** §1's Unix socket becomes a named pipe;
+  §2's `setsid`/`fork` discussion does not apply; and §6's
+  `SIGHUP → grace → SIGKILL` teardown **does not work as designed**, because
+  Bun's `proc.kill(signal)` ignores the signal argument on Windows
+  ([07 §6](07-packaging.md)).
+
+The principles here are language-agnostic and hold whatever
+[02](02-language-choice.md) resolves to; the crate shortlist at the end is
+conditional on Rust. §7 (keep running when things go wrong) and §8
+(backpressure) get harder with a network in the path, not easier.
+
+The item to promote in priority is **§11's `werk info` and `werk doctor`.** With
+one machine they save support time. With six machines, two container runtimes and
+a bastion in the middle they are the difference between a debuggable product and
+an unusable one.
 
 The single best general reference is Laurence Tratt's
 [Some Reflections on Writing Unix Daemons](https://tratt.net/laurie/blog/2024/some_reflections_on_writing_unix_daemons.html),

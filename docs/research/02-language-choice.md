@@ -1,27 +1,24 @@
 # 02 — Language choice, and the binding landscape
 
-> **Scope update (2026-09).** This document originally compared Rust, Go and Zig
-> for a single-machine terminal daemon, and recommended Rust. The expanded scope
-> in [`../product/00-what-werk-is.md`](../product/00-what-werk-is.md) changes the
-> weighting substantially, and the stated intent is now **TypeScript on Bun,
-> shipped as one fat cross-platform binary with `git` and `ssh` inside it**.
->
-> Three findings reopen the question rather than settling it:
->
-> 1. **Bun shipped a native PTY API.** `Bun.Terminal` (v1.3.5 POSIX, v1.3.14
->    Windows ConPTY) removes `node-pty` — the scariest dependency in a
->    TypeScript version of this — from the critical path.
->    [07 §4](07-packaging.md).
-> 2. **The daemon is now the smaller half of the product.** Placement, git
->    orchestration, a fleet aggregator, a TUI, a web UI and a desktop shell are
->    all new, and all of them are work TypeScript does well.
-> 3. **Distribution became a product feature.** "One binary, nothing installed,
->    anywhere" is promise five, and Bun cross-compiles eight targets from one CI
->    runner with first-class asset embedding. [07 §2–3](07-packaging.md).
->
-> The counterweight is unchanged and sharp: **`libghostty-vt-node` is the
-> weakest binding in the ecosystem**, and native addons inside `bun build
---compile` are a live bug area. See the new section below.
+What werk should be written in, and how it reaches `libghostty-vt`. The stated
+intent is **TypeScript on Bun, shipped as one fat cross-platform binary with
+`git` and `ssh` inside it**; this document is what that has to survive.
+
+Three things weight the question the way they do:
+
+1. **Bun shipped a native PTY API.** `Bun.Terminal` (v1.3.5 POSIX, v1.3.14
+   Windows ConPTY) removes `node-pty` — the scariest dependency in a TypeScript
+   version of this — from the critical path. [07 §4](07-packaging.md).
+2. **The daemon is the smaller half of the product.** Placement, git
+   orchestration, a fleet aggregator, a TUI, a web UI and a desktop shell are
+   all work TypeScript does well, and there is more of them than there is
+   daemon.
+3. **Distribution is a product feature.** "One binary, nothing installed,
+   anywhere" is promise five, and Bun cross-compiles eight targets from one CI
+   runner with first-class asset embedding. [07 §2–3](07-packaging.md).
+
+The counterweight is sharp: **`libghostty-vt-node` is the weakest binding in the
+ecosystem**, and native addons inside `bun build --compile` are a live bug area.
 
 ## The binding landscape
 
@@ -144,18 +141,14 @@ thing. What differs is whether Zig is a _build_ dependency or _the language_.
 - Pre-1.0 churn is real ("Writergate" replaced the entire reader/writer stack in
   0.15/0.16). We'd be absorbing that churn in _our_ code, not just at a binding.
 
-### TypeScript on Bun — the option the original doc listed as a caveat
-
-Caveat 2 below was written as "consider not writing a daemon in a third language
-at all". Under the expanded scope it is the leading option, so it deserves the
-same treatment as the other three.
+### TypeScript on Bun
 
 **For**
 
 - **One language for the whole product.** Daemon, CLI, TUI, web server, web
-  frontend, and later a desktop shell. Under the original scope that saved a
-  little; under the current scope — six surfaces instead of two — it is a large
-  structural simplification, and it is the difference between one team and two.
+  frontend, and later a desktop shell. Six surfaces in one language is a large
+  structural simplification, and plausibly the difference between one team and
+  two.
 - **`Bun.Terminal` exists.** A native PTY API with `write`/`resize`/`setRawMode`,
   built [in response to a feature request](https://github.com/oven-sh/bun/issues/22468)
   that cited "CLI dev tools / TUI apps need interactive PTY subprocesses" — our
@@ -170,9 +163,9 @@ same treatment as the other three.
   requires ([08-bundled-tooling.md](08-bundled-tooling.md)).
 - **The serving surface is fine.** `Bun.serve` gives HTTP, WebSocket with native
   pub/sub topics, and HTML-import bundling that embeds the frontend in the binary
-  ([11 §4](11-interfaces.md)). The original doc's central argument for Rust — that
-  the ecosystem for websockets, HTTP and TLS is deepest there — is much weaker in
-  2026 than it was.
+  ([11 §4](11-interfaces.md)). The usual argument for Rust here — that the
+  ecosystem for websockets, HTTP and TLS is deepest there — is much weaker in
+  2026 than it used to be.
 - **Ink is the incumbent TUI framework for exactly this genre**, used by Claude
   Code and Gemini CLI.
 
@@ -212,13 +205,11 @@ maintaining the shim.
 
 ## Recommendation
 
-**Under the current scope, TypeScript on Bun is the defensible default**, and the
-original Rust recommendation should be read as advice for a product that no
-longer exists. The reasoning inverts cleanly: the original doc chose Rust because
-"the VT work is the part every language does well; the part that differs is
-everything around it." That is still true — but _everything around it_ has grown
-from a websocket server into six surfaces, a placement layer, and a distribution
-promise, and TypeScript is the better language for all of that.
+**TypeScript on Bun is the defensible default.** The principle that decides it
+is that the VT work is the part every language does well, and what differs is
+everything around it — and _everything around it_ here is six surfaces, a
+placement layer and a distribution promise rather than a websocket server.
+TypeScript is the better language for all of that.
 
 **Three things must be verified before committing**, in this order, because any
 one of them failing changes the answer:
@@ -234,39 +225,22 @@ one of them failing changes the answer:
 
 Those are three spikes, not three months. Do them before writing anything else.
 
-**If they fail**, the fallback ranking has changed from the original doc. It is
-**Go**, not Rust: `mitchellh/go-libghostty` is written by Ghostty's own author,
-`creack/pty` is boring and works, cross-compilation is trivial, `go:embed`
-handles bundling git and ssh, and the binary is 15 MB instead of 150. The
-original doc's argument for Rust over Go — a deeper serving ecosystem and richer
-bindings — matters much less now that the serving surface is a websocket fan-out
-and the binding needs are modest. Rust remains the right answer only if per-cell
-diffing across the FFI boundary turns out to be on the hot path, which the
-"tap, not stage" design specifically avoids.
+**If they fail**, the fallback is **Go**, not Rust: `mitchellh/go-libghostty` is
+written by Ghostty's own author, `creack/pty` is boring and works,
+cross-compilation is trivial, `go:embed` handles bundling git and ssh, and the
+binary is 15 MB instead of 150. The usual argument for Rust over Go — a deeper
+serving ecosystem and richer bindings — matters little when the serving surface
+is a websocket fan-out and the binding needs are modest. Rust is the right answer
+only if per-cell diffing across the FFI boundary turns out to be on the hot path,
+which the "tap, not stage" design specifically avoids.
 
-**What has not changed:** every path still needs the Zig toolchain at build time,
-because that is how `libghostty-vt.a` is produced. And the two caveats below are
-still worth reading, because they are still true.
+Go is also the answer if **"working next week" beats "right in six months"**:
+`wish` + `go-libghostty` + goroutines gets to a demo faster than anything else
+here, cgo overhead is a non-issue if we batch, and hauntty and agentapi are both
+existence proofs.
 
-### The original caveats, preserved
-
-Both still worth reading. One correction: caveat 2 assumes `node-pty`, which
-`Bun.Terminal` now supersedes — which is exactly why caveat 2 has been promoted
-from a footnote to the leading option.
-
-1. **If "working next week" beats "right in six months", pick Go.** `wish` +
-   `go-libghostty` + goroutines gets to a demo faster than anything else here,
-   and cgo overhead is a non-issue if we batch. hauntty and agentapi are both
-   existence proofs.
-2. **Consider not writing a daemon in a third language at all.** With
-   `libghostty-vt-node` (prebuilt, no compiler on the user's machine) plus
-   `node-pty`, `werkd` could be TypeScript, and the whole project is one
-   language. VibeTunnel does exactly this — a TypeScript server managing terminal
-   sessions with a browser frontend — and it works. The reasons not to: the Node
-   binding is minimal (no render state, no key encoder, no incremental snapshot
-   decoding) and very immature; and a Node process holding N PTYs at high
-   throughput has a worse latency floor than a native one. This is worth an
-   explicit decision rather than an assumption.
+Whatever wins, every path needs the **Zig toolchain at build time**, because that
+is how `libghostty-vt.a` is produced.
 
 ## Sources
 

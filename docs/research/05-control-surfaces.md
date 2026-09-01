@@ -1,16 +1,5 @@
 # 05 — Control surfaces: the design space
 
-> **Scope update (2026-09).** Still the right map, with one axis missing:
-> **placement**. §A asks "one daemon or one per session" and the answer now has a
-> third dimension — one daemon _per machine_, with a separate aggregator
-> spanning them ([09-remote-transport.md](09-remote-transport.md),
-> [12-placement-backends.md](12-placement-backends.md)). §E's web surface is now
-> explicitly multi-machine, which makes its security section more load-bearing,
-> not less: the blast radius of an authenticated session is every machine in the
-> fleet. §F's "don't write an SSH server" recommendation survives and gets
-> stronger — [09](09-remote-transport.md) finds that forwarding the daemon's Unix
-> socket over ssh removes the need for a remote protocol entirely.
-
 Not a design. A map of the decisions, with what prior art chose and why.
 
 ---
@@ -35,6 +24,14 @@ Zellij's "one web server per machine" combined with zmx's isolation.
 The cost is a second hop in the data path (session daemon → web server → browser).
 Given the browser path is already the slow path and the fast path is a local
 attach, that's probably acceptable — but measure before committing.
+
+There is a third dimension the two-column table misses: **placement**. werk runs
+a daemon _per machine_, so whichever way this fork is resolved locally, something
+has to aggregate across machines as well — see
+[09-remote-transport.md](09-remote-transport.md) and
+[12-placement-backends.md](12-placement-backends.md). The `werk serve` process
+above is the natural home for that aggregation, which makes the hybrid look
+better rather than worse.
 
 ## B. Invocation ergonomics
 
@@ -108,6 +105,11 @@ TS libraries.
 
 ## E. Web surface
 
+The web surface spans every machine in the fleet, not just the one it runs on,
+which makes the security discussion below more load-bearing rather than less: the
+blast radius of one authenticated session is code execution on every machine werk
+can reach.
+
 **Rendering.** Use [ghostty-web](https://github.com/coder/ghostty-web) rather than
 xterm.js: it's the same VT compiled to WASM, ~400 KB, xterm.js-API-compatible so
 migration is an import change, and it handles RTL/complex scripts/exotic sequences
@@ -145,7 +147,10 @@ Three genuinely different options:
    `werk attach` the thing it runs — as a `ForceCommand`, an
    `authorized_keys` `command=`, or the user's login shell. Zero new auth code,
    zero host-key management, inherits every hardening the box already has.
-   `ssh box werk attach my-session` just works today.
+   `ssh box werk attach my-session` just works today. This is the strongest
+   option by some distance: [09](09-remote-transport.md) finds that forwarding
+   the daemon's Unix socket over ssh removes the need for a remote protocol
+   entirely.
 2. **Embed an SSH server.** Go: [wish](https://github.com/charmbracelet/wish)
    makes this genuinely easy (middleware model, PTY and resize handled). Rust:
    [russh](https://github.com/Eugeny/russh) is a low-level building-block library —

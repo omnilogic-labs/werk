@@ -1,17 +1,5 @@
 # 01 — What libghostty-vt actually gives us
 
-> **Scope update (2026-09).** Everything here still holds, and two things matter
-> more than they did. **(1)** Snapshot-to-disk survival is worth more now that
-> daemons run on machines you are not sitting at — a rebooted build box that
-> gives you back the screen and the scrollback is the difference between "what
-> did it say before it died" and nothing. See the read-only-corpse journey in
-> [`../product/02-journeys.md`](../product/02-journeys.md) §9. **(2)** The
-> language question is reopened ([02](02-language-choice.md)), which makes _how_
-> we reach this C API — the thin Node binding, a `bun:ffi` shim, or natively —
-> a live decision rather than a settled one. The Node binding does **not**
-> expose the two-stage `READY`-then-history decode described below, which is the
-> single most valuable thing in this document.
-
 `libghostty-vt` is the terminal core extracted from [Ghostty](https://github.com/ghostty-org/ghostty)
 as a zero-dependency C API (it does not even require libc). Written in Zig,
 consumed via `include/ghostty/vt.h`. Reference implementation:
@@ -21,6 +9,13 @@ emulator in a single C file. API docs: <https://libghostty.tip.ghostty.org>.
 Per the project's own framing it handles _VT sequence parsing_, _terminal state
 management_ (cursor, styles, reflow, scrollback), and _renderer state_ — and
 explicitly not rendering, fonts, or PTY management. We supply the PTY and the pixels.
+
+Everything below describes the C API. _How_ werk reaches it — the thin Node
+binding, a `bun:ffi` shim, or natively — is a live decision that rides on the
+language question in [02](02-language-choice.md). It matters more than a binding
+choice usually does, because `libghostty-vt-node` does **not** expose the
+two-stage `READY`-then-history decode described in the next section, which is the
+single most valuable thing in this document.
 
 ## API groups (from `vt.h` on `main`)
 
@@ -87,6 +82,13 @@ Why this matters, concretely:
    and it is the thing to protect in the design. (The PTY child still dies with
    the daemon — you get the _screen_ back, not the process. See "what snapshot
    does not do".)
+
+   It is worth most on the machines you are not sitting at. A build box that
+   reboots overnight and gives you back the screen and the scrollback is the
+   difference between "what did it say before it died" and nothing at all — see
+   the read-only-corpse journey in
+   [`../product/02-journeys.md`](../product/02-journeys.md) §9.
+
 4. **It is a wire format, not just a file format.** The reader/writer callback
    interface (`GhosttyReader`/`GhosttyWriter`) means the same encoder feeds a
    file, a socket, or a websocket. This is exactly what the `ghostty-snap`

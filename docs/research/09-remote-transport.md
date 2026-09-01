@@ -1,7 +1,7 @@
 # 09 — Remote transport: getting werk onto a machine, and talking to it
 
-The scope expansion in [`../product/00-what-werk-is.md`](../product/00-what-werk-is.md)
-turns two things that were non-problems into load-bearing ones: **werk has to
+Two problems fall out of werk running on machines you are not sitting at
+([`../product/00-what-werk-is.md`](../product/00-what-werk-is.md)): **werk has to
 install itself on machines it has never seen**, and **the local client has to
 talk to daemons it does not share a filesystem with**. This is the research on
 both.

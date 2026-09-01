@@ -1,14 +1,13 @@
 # 03 — Prior art
 
-> **Scope update (2026-09).** This document covers the terminal-multiplexer
-> ancestry and remains accurate. The agent-orchestration wave, the vendor
-> products, and the remote-compute providers — all of which the expanded scope
-> now competes with or sits on top of — are in
-> [13-landscape.md](13-landscape.md). Read this one for _how to build the
-> primitive_; read that one for _whether the product is differentiated_.
+The terminal-multiplexer ancestry: how to build the primitive. The
+agent-orchestration wave, the vendor products and the remote-compute providers —
+who werk competes with and sits on top of — are in
+[13-landscape.md](13-landscape.md). Read this one for _how to build it_, that one
+for _whether it is differentiated_.
 
-Ordered by how close it is to what werk is trying to be. The first section is
-the "read these before designing anything" list.
+Ordered by how close each project is to what werk is trying to be. The first
+section is the "read these before designing anything" list.
 
 ## Directly adjacent: libghostty-vt session persistence
 

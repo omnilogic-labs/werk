@@ -9,17 +9,14 @@ laptop closing, and shows you every one of those in one list.
 collected so that the design decisions we make next are informed ones. The
 product scope those decisions serve is in [`../product/`](../product/).
 
-Docs 01–06 predate the scope expansion and carry a **scope update** banner where
-their premises moved. Docs 07–13 are new.
-
 ## The primitive
 
 | Doc                                                        | What's in it                                                                                          |
 | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | [01-libghostty-vt.md](01-libghostty-vt.md)                 | What the library actually gives us. The snapshot API is the whole ballgame.                           |
-| [02-language-choice.md](02-language-choice.md)             | **Reopened.** Was Rust vs Go vs Zig; is now TypeScript-on-Bun vs those, with the binding landscape.   |
+| [02-language-choice.md](02-language-choice.md)             | TypeScript-on-Bun against Rust, Go and Zig, plus the libghostty binding landscape.                    |
 | [03-prior-art.md](03-prior-art.md)                         | The terminal-multiplexer ancestry: zmx, hauntty, shpool, dtach, tmux, mosh, VibeTunnel, sshx, Zellij. |
-| [04-daemon-best-practices.md](04-daemon-best-practices.md) | Ad-hoc daemons that nothing supervises. Still the core discipline — now × N machines.                 |
+| [04-daemon-best-practices.md](04-daemon-best-practices.md) | Ad-hoc daemons that nothing supervises. The core discipline, × N machines.                            |
 | [05-control-surfaces.md](05-control-surfaces.md)           | The design space for CLI / web / SSH / programmatic control.                                          |
 | [06-vocabulary.md](06-vocabulary.md)                       | Terms, escape sequences and libraries to be fluent in.                                                |
 

@@ -45,21 +45,20 @@ $ werk
 
 Same list, live, in a browser via `werk serve`. Click any row, get the terminal.
 
-## What changed from the original scope
+## Three rings
 
-The first pass at this project (see [`../research/`](../research/)) framed werk as
-a **detachable terminal-session daemon** — a better tmux, built on libghostty's
-snapshot format. That is still the beating heart of it, and none of that research
-is wasted. But it described only the innermost layer. The scope is now three
-concentric rings:
+werk is one product in three layers, each depending on the one inside it.
 
-| Ring          | What it is                                                                    | Covered by original research?                          |
-| ------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------ |
-| **Session**   | A persistent, detachable terminal holding a process tree.                     | Yes, thoroughly.                                       |
-| **Workspace** | A _place_ for work: somewhere to run, a repo checkout, a branch, a lifecycle. | No. New.                                               |
-| **Fleet**     | Every workspace on every machine, in one view, from anywhere.                 | Partially — the web surface was scoped to one machine. |
+| Ring          | What it is                                                                    |
+| ------------- | ----------------------------------------------------------------------------- |
+| **Session**   | A persistent, detachable terminal holding a process tree.                     |
+| **Workspace** | A _place_ for work: somewhere to run, a repo checkout, a branch, a lifecycle. |
+| **Fleet**     | Every workspace on every machine, in one view, from anywhere.                 |
 
-The two consequences that reshape everything downstream:
+The session is the beating heart of it — a detachable terminal-session daemon
+built on libghostty's snapshot format, and the subject of most of
+[`../research/`](../research/). But two properties of the outer rings reshape
+everything downstream:
 
 1. **werk runs on machines you are not sitting at.** Which makes _getting werk
    onto those machines_ a product feature, not a packaging detail. Hence the fat
@@ -216,7 +215,7 @@ it yet.
 Not a roadmap — a statement of what has to be true before the next thing is worth
 building.
 
-1. **Sessions that survive, locally.** The original scope. If reattach isn't
+1. **Sessions that survive, locally.** The innermost ring. If reattach isn't
    perfect this product has no foundation.
 2. **The fleet view.** `werk` with no arguments, and `werk serve`. Worth building
    before remote placement, because it is what makes even three local sessions
