@@ -4,15 +4,16 @@ What each way of talking to werk is _for_. Not a spec — the flags will change.
 The point is that each surface has a distinct job, and none of them is a
 degraded copy of another.
 
-| Surface           | Its job                                                         | Status |
-| ----------------- | --------------------------------------------------------------- | ------ |
-| **CLI**           | Do a thing and get out of the way. Scriptable, reflexive, fast. | v1     |
-| **The terminal**  | Be inside a session. This is where you actually work.           | v1     |
-| **TUI**           | Browse and steer the fleet without leaving the terminal.        | v1     |
-| **Web**           | The same, from a browser, from any device on your network.      | v1     |
-| **Notifications** | Tell you when something needs you, when you're not looking.     | v1-ish |
-| **Programmatic**  | Let other software — including agents — drive werk.             | later  |
-| **Desktop**       | The web UI in a window, with OS integration.                    | later  |
+| Surface           | Its job                                                          | Status |
+| ----------------- | ---------------------------------------------------------------- | ------ |
+| **CLI**           | Do a thing and get out of the way. Scriptable, reflexive, fast.  | v1     |
+| **The terminal**  | Be inside a session. This is where you actually work.            | v1     |
+| **TUI**           | Browse and steer the fleet without leaving the terminal.         | v1     |
+| **Web**           | The same, from a browser, from any device on your network.       | v1     |
+| **Notifications** | Tell you when something needs you, when you're not looking.      | v1-ish |
+| **Programmatic**  | Let other software — including agents — drive werk.              | later  |
+| **Editor**        | Run an editor-hosted agent in a werk workspace, from the editor. | later  |
+| **Desktop**       | The web UI in a window, with OS integration.                     | later  |
 
 ---
 
@@ -164,8 +165,6 @@ prior art here:
 - **Loopback by default**, with a printed one-time token.
 - **If it listens on a non-loopback interface, HTTPS is mandatory** and not
   disableable.
-- The documented remote story is **Tailscale or an ssh tunnel**, not werk
-  exposing itself to the internet.
 - Honest threat model, stated in the docs: once authenticated, a user has full
   ability to run code as you on every machine in your fleet. A web terminal is
   remote code execution by design; the auth boundary is the entire security
@@ -222,6 +221,31 @@ meaning on OSC 133 command boundaries, OSC 9;4 progress, OSC 7 cwd, and
 notification/bell events — labelling anything heuristic as heuristic.
 
 ---
+
+## Editor
+
+The sixth promise says werk eventually reaches every coding agent, and a growing
+share of them do not live in a terminal at all — VS Code's agent mode, Cursor,
+Antigravity. Those users should get werk's actual value (a workspace somewhere
+else, on its own branch, that outlives the window, alongside every other one in
+the fleet) without being told to go and use a CLI instead.
+
+The shape is a plugin per environment: pick a placement, `werk create`, and have
+the editor's agent run _there_ rather than on the laptop, with the workspace's
+files reachable and the fleet list visible in the editor.
+
+What is genuinely undecided is how deep this goes. Two ends of the range:
+
+- **Thin.** The plugin is a client of the same API `werk serve` exposes — create,
+  list, attach, open a terminal — and the editor's agent runs in a werk workspace
+  the same way any other process does.
+- **Deep.** Per-environment integration with how that agent is actually
+  launched and how it reports state, so "needs you" surfaces in the editor's own
+  UI.
+
+Same design constraint as everything else here: whatever depth we go to, it is
+built on the API and the structured signals, so a new environment is a plugin
+and not a fork.
 
 ## Desktop
 

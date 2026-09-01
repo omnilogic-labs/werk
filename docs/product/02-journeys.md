@@ -147,8 +147,9 @@ One page, every workspace across every machine, live terminals, click a row to
 open it full-size. Same information architecture as the CLI list, because it's
 the same fleet.
 
-This is also the answer to "check on it from my phone", via Tailscale or an ssh
-tunnel — deliberately _not_ by werk exposing itself to the internet. See
+Reaching it from a phone means reaching it across a network, and how that works
+is unresolved — a mesh VPN, an ssh tunnel, an exposed listener with real auth, or
+something werk hosts. See
 [`../research/05-control-surfaces.md`](../research/05-control-surfaces.md) §E;
 the honest framing is that a web terminal is remote code execution by design and
 the auth boundary is the entire security model.

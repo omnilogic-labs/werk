@@ -166,12 +166,12 @@ combine a persistent multiplexed connection with piped stdin exec, test for it.
 
 ### The rest, briefly
 
-| Tool                    | Mechanism worth knowing                                                                                                                                                                                                   |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Nix** `--target-host` | No bootstrap binary at all: copies store paths over `ssh-ng://` and activates remotely. Separates ssh transport config from behaviour via one env var (`NIX_SSHOPTS`).                                                    |
-| **Teleport**            | Agent installed once, registers with a cluster; `tsh` gets **session resumption from its own protocol**, not from ssh multiplexing — which is why it works identically on Windows.                                        |
-| **Tailscale SSH**       | No bootstrap: tailnet identity _is_ the credential, `tailscaled` intercepts :22 and uses ssh's `none` auth. Only applies if both ends already run Tailscale — which is exactly our documented remote-access story anyway. |
-| **distrobox / toolbx**  | The negative case, and the useful one — see below.                                                                                                                                                                        |
+| Tool                    | Mechanism worth knowing                                                                                                                                                            |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Nix** `--target-host` | No bootstrap binary at all: copies store paths over `ssh-ng://` and activates remotely. Separates ssh transport config from behaviour via one env var (`NIX_SSHOPTS`).             |
+| **Teleport**            | Agent installed once, registers with a cluster; `tsh` gets **session resumption from its own protocol**, not from ssh multiplexing — which is why it works identically on Windows. |
+| **Tailscale SSH**       | No bootstrap: tailnet identity _is_ the credential, `tailscaled` intercepts :22 and uses ssh's `none` auth. Only applies if both ends already run Tailscale.                       |
+| **distrobox / toolbx**  | The negative case, and the useful one — see below.                                                                                                                                 |
 
 ### distrobox: the argument against ssh-everywhere
 

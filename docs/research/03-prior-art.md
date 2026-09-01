@@ -192,8 +192,8 @@ built by and for people running fleets of Claude Code sessions.
   glance what each Claude instance is doing. We get this more robustly via
   libghostty's `TITLE_CHANGED` / `PROGRESS_REPORT` / notification effects.
 - Security: multiple auth modes, localhost-only mode, or tunneling via Tailscale
-  or ngrok. **Tailscale is the pragmatic answer to remote access** and probably
-  belongs in our docs rather than in our code.
+  or ngrok. Worth noting that VibeTunnel's own answer to remote access is
+  documentation — point at a mesh VPN or a tunnel — rather than code.
 
 ### ttyd / gotty / wetty
 

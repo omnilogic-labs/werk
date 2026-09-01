@@ -21,9 +21,10 @@ discoverable from any of your machines"**?
 | `werk` on a second laptop | Empty                                                               | Shows everything                                         |
 | Failure mode              | Lose the laptop, lose the index (though the workspaces still exist) | Needs an answer to "where does the index live"           |
 
-The second is much better and much harder. It also smuggles in a question werk
-has otherwise avoided: **is there any werk state that isn't on one of your
-machines?** A hosted index would be the first crack in "not a hosted service".
+The second is much better and much harder. It also smuggles in the question
+[`00-what-werk-is.md`](00-what-werk-is.md) leaves open: **is there any werk state
+that isn't on one of your machines?** A hosted index would be the first piece of
+it, and sharing, handoff and a phone app all want one too.
 
 **Lean:** laptop-scoped index, but with **discovery as a first-class recovery
 path** — `werk hosts add bigbox` scans that machine and re-adopts everything werk
@@ -155,35 +156,66 @@ is nobody's intent. The UI must show how many are attached either way.
 
 ### 10. Is there a fan-out primitive?
 
-[`../product/02-journeys.md`](../product/02-journeys.md) §8 shows three
-`werk create` calls. `uzi` has `--agents claude:3,codex:2` and it is genuinely
-neat.
+**Fan-out** here means one command that starts several workspaces on the same
+task at once — the same prompt handed to three agents, or to the same agent
+three times, so you can pick the best result. `uzi` spells it
+`--agents claude:3,codex:2`.
 
-**Lean:** don't build it. See whether people ask. Three shell invocations is not
-a hardship, and a fan-out primitive drags in a comparison view, resource
-policies, and a scheduler — none of which are in scope.
+[`../product/02-journeys.md`](../product/02-journeys.md) §8 shows the manual
+version: three `werk create` calls. The primitive is a small amount of sugar on
+top of that, and probably wanted — but it drags things in behind it. Once you
+have run the same task five ways you need a way to compare the five results,
+which is a review surface (§11). You also need a policy for how much of the
+machine one command is allowed to consume.
 
-### 11. Is there a diff/review UI?
+Open: whether fan-out is just the sugar, or the sugar plus the comparison view
+plus resource limits — and whether it ships before or after the review surface
+it implies.
+
+### 11. What does the diff/review surface look like?
 
 Every competitor has one. Conductor, Kiro's three-pane, vibe-kanban all treat
-"review is the bottleneck, not generation" as the thesis.
+"review is the bottleneck, not generation" as the thesis, and that thesis looks
+right — a fleet of agents producing branches faster than you can read them makes
+review _the_ constraint, so werk shipping its own review surface is likely.
 
-**Lean: no.** `werk pull` puts the branch in your repo and you review it with the
-tools you already like. Building a worse `git diff` is how a session manager
-becomes an IDE, and
-[`../research/13-landscape.md`](../research/13-landscape.md) is full of tools
-that died of exactly that. `werk diff` showing _what changed and how much_ — a
-summary, not a review surface — is the honest middle.
+The question is what it is, not whether:
 
-### 12. Does the phone story compete with Happy Coder, or hand off to it?
+- **A summary.** `werk diff <name>` says what changed and how much. Enough to
+  triage which workspace to look at first, no reading.
+- **A real review UI**, in the TUI and the web surface: side-by-side diffs,
+  per-file navigation, comments, approve-and-merge.
+- **Both, and a handoff.** The summary in the list, the full review in the web
+  UI, and `werk pull` still there for the times you'd rather read it in the
+  editor you already like.
 
-Happy Coder has 23.6k stars for "monitor your local Claude session from your
-phone and unblock it". That is a solved problem with a clear winner.
+The risk worth naming: [`../research/13-landscape.md`](../research/13-landscape.md)
+is full of session managers that became bad IDEs. Shipping a diff viewer worse
+than the one the user already has is the failure mode to design against — not a
+reason to skip it.
 
-**Lean:** don't compete. werk's phone story is the responsive web UI plus a
-notification channel, and that's enough. The thing werk has that Happy doesn't is
-_many sessions on many machines_ — lead with that, not with a better remote
-control.
+### 12. What is the phone story?
+
+"Check on it from anywhere" is most of the pitch, and the phone is where
+"anywhere" actually happens. Three shapes, not mutually exclusive:
+
+- **The responsive web UI plus notifications.** Free — it's the same `werk serve`
+  page. No app store, no second client to maintain, and it works today for
+  anything with a browser.
+- **A werk app.** Real push notifications without a browser permission dance,
+  proper background behaviour, and a UI built for a phone rather than
+  reflowed onto one.
+- **Someone else's app.** Claude and Codex both have mobile clients that already
+  handle their own agent; werk's job could be getting the agent running in the
+  right workspace and letting the vendor's app be the phone surface for it.
+
+Prior art: Happy Coder has 23.6k stars for "monitor your local Claude session
+from your phone and unblock it", so the demand is demonstrated and the bar for a
+werk app is not low. What werk has that none of them do is _many sessions on
+many machines_.
+
+The third option interacts with §14 — using a vendor's own phone client is
+per-agent knowledge of a fairly deep kind.
 
 ### 13. Do we ship an MCP server?
 
@@ -197,11 +229,46 @@ separately. The strategic version of this question is in
 a protocol-neutral interface and a complete end-user product is a position nobody
 currently occupies.
 
+### 14. How far does per-agent support go?
+
+The sixth promise is that werk eventually supports every coding agent. The floor
+is settled by the architecture: structured terminal signals mean any CLI agent
+works with no per-agent code. The question is what sits above that floor.
+
+- **The floor only.** werk knows nothing about `claude` beyond what it emits.
+  Every agent is equal because none is special. Nothing to maintain, nothing to
+  break when a vendor ships a UI change.
+- **Per-agent knowledge where it pays.** Recognising which agent is running, what
+  it is asking, what it has queued. Better "needs you", better fleet rows — and a
+  per-vendor maintenance burden, plus the risk of the good experience being the
+  one for whichever agent we happened to build for.
+
+The middle position worth naming: per-agent knowledge is fine when it is
+_additive_ — a nicer row when we recognise the agent, a correct row when we
+don't — and not fine when the product only works well for agents we know.
+
+### 15. Which editor environments, and in what order?
+
+VS Code, Cursor, Antigravity, JetBrains, Zed. They have different extension
+models, different agent architectures and different amounts of "let a plugin
+decide where the agent runs".
+
+Two things to find out before picking: which of them will actually let an
+extension point their agent at a remote workspace (VS Code's own remote
+extension host is the obvious lever, and the Cursor/Antigravity forks may or may
+not inherit it), and which of them have users who want work happening somewhere
+other than the laptop in the first place.
+
+Not urgent — it sits behind sequencing steps 1–5 — but it is worth knowing the
+answer before the API that the plugins would consume is frozen, since
+[`03-surfaces.md`](03-surfaces.md) commits to those plugins being clients of
+that API rather than a second implementation.
+
 ---
 
 ## Trust and safety
 
-### 14. How much does werk trust the workspace?
+### 16. How much does werk trust the workspace?
 
 Workspaces run autonomous agents. Anthropic's own guidance is blunt: a malicious
 repo can exfiltrate anything reachable in the container, **including `~/.claude`
@@ -224,24 +291,25 @@ Concrete decisions this forces:
 trivially easy to run unattended agents has an obligation to make the safe
 configuration the default one, and to say plainly what the boundary is.
 
-### 15. What is the web UI's honest threat model?
+### 17. What is the web UI's honest threat model?
 
 Stated in [`03-surfaces.md`](03-surfaces.md): a web terminal is remote code
 execution by design, and the auth boundary is the entire security model. Spanning
 multiple machines makes the blast radius **bigger**.
 
-The open part is how far to go: loopback + token is right for v1, but does werk
-ever support a genuinely exposed deployment, or does it permanently say "use
-Tailscale or an ssh tunnel"?
-
-**Lean:** permanently say Tailscale. Building public-internet exposure is a
-different product with different obligations.
+The open part is how far to go. Loopback plus a one-time token is the safe
+starting point, but it doesn't reach a phone on a different network, and §12
+wants it to. The options run from "document a tunnel or a mesh VPN and build
+nothing" through "support an exposed listener with auth werk is willing to stand
+behind" to "werk hosts the relay" — each one a bigger obligation than the last,
+and the last one collides with the state question in
+[`00-what-werk-is.md`](00-what-werk-is.md).
 
 ---
 
 ## Positioning
 
-### 16. What is the monetisation thesis, and does it avoid the pattern that keeps failing?
+### 18. What is the monetisation thesis, and does it avoid the pattern that keeps failing?
 
 [`../research/13-landscape.md`](../research/13-landscape.md) §1 documents a
 casualty list: Terragon shut down; Crystal discontinued; vibe-kanban's commercial
@@ -253,7 +321,7 @@ This does not have to be answered now, but it should be answered before it start
 shaping the architecture — because "free OSS core with an infra upsell" and
 "paid desktop app" imply quite different products.
 
-### 17. Is the name available?
+### 19. Is the name available?
 
 Two unrelated tools are already both called "cmux". **Check that "werk" isn't
 claimed in this niche before committing publicly.** Cheap to check now,

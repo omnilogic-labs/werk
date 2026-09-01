@@ -200,10 +200,13 @@ A session needs you when it:
 
 The first four are structured signals any well-behaved program emits, and werk
 gets them for free from the terminal emulator layer. The fifth is a heuristic and
-must be labelled as one. The explicit non-goal from
-[00](00-what-werk-is.md): **do not screen-scrape a TUI to infer semantics.**
-agentapi's documented fragility is the cautionary tale — every Claude Code UI
-change breaks a regex-based approach.
+must be labelled as one.
+
+Building attention on emitted signals rather than on the rendered screen is what
+makes it work for every agent and every process without a werk release per
+vendor — the sixth promise in [00](00-what-werk-is.md). agentapi's documented
+fragility is the cautionary tale in the other direction: it diffs rendered text,
+and every Claude Code UI change breaks it.
 
 Attention has a **read state**. Once you've looked at a session, it stops
 shouting. This is the difference between a useful list and a list of eleven

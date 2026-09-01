@@ -132,9 +132,10 @@ which we should meet or exceed:
 - Honest threat model: once authenticated, a user has full access to that Unix
   user's sessions on that machine.
 
-Default should be **loopback-only, no TLS needed, printed one-time token**, and
-the documented remote story should be **Tailscale** (what VibeTunnel recommends)
-or an SSH tunnel — not us building public-internet exposure.
+The obvious default is **loopback-only, no TLS needed, printed one-time token**.
+Reaching it from elsewhere is the unsolved part: VibeTunnel documents a mesh VPN
+(Tailscale) or an SSH tunnel and builds nothing, which is the cheapest option and
+also the one that does least for a user on a phone.
 
 ## F. SSH surface
 

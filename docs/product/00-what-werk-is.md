@@ -68,10 +68,10 @@ The two consequences that reshape everything downstream:
    your terminal" to "a thing that holds your work", and raises the stakes on
    never losing any of it.
 
-## The five promises
+## The promises
 
-Everything werk does should be justifiable as serving one of these. If a feature
-serves none of them, it is out of scope.
+What werk appears to be for, as best it can currently be stated. Useful as
+something to check an idea against — not a gate that rules things out.
 
 ### 1. The process outlives the connection
 
@@ -132,44 +132,64 @@ This is a _product_ promise, not an engineering vanity. The whole value of
 "placement is a parameter" evaporates if using a new machine means a twenty
 minute setup ritual.
 
-## What werk is not
+### 6. Every coding agent, eventually
 
-Stating these plainly, because each one is a real temptation.
+Coding agents are the motivating workload, and the ambition is to support all of
+them — not one vendor well and the rest by accident. Claude Code, Codex, Gemini
+CLI, Aider, and whatever ships next month.
 
-**Not a window manager.** No panes, no splits, no tabs, no layouts. zmx, shpool
-and abduco all reached the same conclusion and it is correct: managing terminals
-on your screen is your terminal emulator's job, and doing it ourselves means
-breaking native scrollback and copy/paste. werk gives you _one_ terminal per
-session and a _list_ of sessions. Your window manager arranges them.
+They do not all have the same shape, so this arrives in stages:
 
-**Not in the middle of the stream.** tmux's structural mistake is that it sits
-between the program and your terminal, so both tmux and your terminal have to
-support every terminal feature forever. werk observes the stream to be able to
-rehydrate it; it does not gate it.
+- **CLI agents first.** They are already terminal processes, which is exactly
+  the thing werk holds. A CLI agent works in a werk workspace on day one with no
+  per-agent work at all.
+- **Then the agents that live in editors.** VS Code, Cursor, Antigravity. The
+  intent is a werk plugin for each — the agent runs in a werk workspace, with
+  its own placement and its own branch, driven from the editor it lives in —
+  rather than telling those users to go and use the CLI.
 
-**Not an agent harness.** werk does not know what `claude` is. It runs
-processes. Coding agents are the motivating workload and werk should be
-_excellent_ at them — surfacing "this one is waiting on you" is a headline
-feature — but that is achieved by reading signals any well-behaved terminal
-program emits, not by special-casing a vendor. `werk create --run 'npm run dev'`
-must be as good a citizen as `werk create --run claude`.
+The floor under all of it is that werk works on **signals any well-behaved
+terminal program emits** — bell, OSC 9/777, OSC 9;4, OSC 133 — so
+`werk create --run 'npm run dev'` is as good a citizen as `werk create --run
+claude` and a brand-new agent needs no werk release to be useful. How much
+per-agent knowledge werk adds on top of that floor, and which editor
+environments come in what order, are open — see
+[04-open-questions.md](04-open-questions.md).
 
-**Not a CI system, not a scheduler, not a queue.** werk starts things you asked
-it to start and shows you what they're doing. It does not decide what to run,
-retry failures, or manage dependencies between jobs.
+## Directions, none of them settled
 
-**Not a hosted service.** There is no werk cloud. It is your machines, your
-containers, your ssh keys, your repository. The web UI runs on your machine
-against your daemons. (Cloud sandbox providers as a _placement backend_ is a
-different thing, and is on the table — that's still your account and your bill.)
+Speculation, written down so that the absence of a feature doesn't read as a
+closed door, and so there's something concrete to argue with later.
 
-**Not multi-user, not a collaboration tool.** One human's fleet. Everything werk
-can reach, it can reach as _you_. This constrains the security model
-enormously and simplifies it accordingly. Shared/observable sessions are a
-plausible later product; they are not this one.
+**More than one terminal on screen at once.** Not tmux-style panes — werk gives
+you one terminal per session and a list of sessions, and your terminal emulator
+arranges the windows. But a TUI that shows workspace status and live terminal
+previews at the same time, and lets you tab or page through the active sessions,
+is close to what you'd actually want, and is likely to get built. Where that
+stops short of being a window manager is not worked out.
 
-**Not a replacement for the terminal emulator you like.** Ghostty, WezTerm,
-iTerm2, Windows Terminal — werk runs inside whatever you use.
+**Sharing and handoff.** Passing a workspace to a coworker, or two people
+watching one run. Everything currently written assumes one human's fleet —
+everything werk can reach, it reaches as _you_ — which is a convenient
+simplifying assumption for the security model rather than a position anyone has
+taken.
+
+**Being the terminal you live in.** Depending on how you work, werk could end up
+being where every terminal is, rather than something you open alongside the
+emulator you like.
+
+**Pull requests, and their CI.** werk deciding what to run, retrying failures and
+managing dependencies between jobs is a CI system, and that's a different
+product. But if a workspace opened a pull request, "is it green?" is part of
+knowing what that workspace is doing and belongs near "does it need me?".
+Reading CI status — and plausibly triggering runs — is a different thing from
+being a CI system, and the line between them hasn't been drawn.
+
+**Where the state lives.** What's written so far assumes your machines, your
+containers, your ssh keys, your repository, with no werk cloud and the web UI
+running against your own daemons. Sharing, handoff and a phone app all push
+against that assumption, so it's an open question rather than a principle — see
+[04-open-questions.md](04-open-questions.md).
 
 ## Platform scope
 
@@ -185,9 +205,11 @@ probably "Windows clients place work in WSL2 or a container", and the aggressive
 answer is "ConPTY works, do it properly". Flagged in
 [`04-open-questions.md`](04-open-questions.md).
 
-"Modern" is doing deliberate work in that sentence. The team's stated posture is
-to pin the newest `git` and not carry compatibility for old versions; the same
-posture applies to OS versions. We are not supporting CentOS 7.
+How far back "modern" reaches is unexamined. The stated intent for bundled
+tooling is the newest `git` with no back-compatibility for old versions (see
+[`../research/08-bundled-tooling.md`](../research/08-bundled-tooling.md)); how
+old an OS werk should still run on is a separate question and nobody has asked
+it yet.
 
 ## Sequencing
 
@@ -204,14 +226,14 @@ building.
 4. **Git workspaces.** Branch creation, seeding, and getting work back. Local
    worktrees first, since that exercises the whole model without the network.
 5. **Container placement.** werk provisions the somewhere.
-6. **Everything else.** Cloud sandboxes, desktop app, phone notifications,
-   programmatic/MCP surface.
+6. **Everything else.** Editor and IDE plugins, cloud sandboxes, desktop app,
+   phone notifications, programmatic/MCP surface.
 
 ## Reading order
 
 | Doc                                          | What's in it                                                                           |
 | -------------------------------------------- | -------------------------------------------------------------------------------------- |
-| **00-what-werk-is.md**                       | This. Scope, promises, non-goals.                                                      |
+| **00-what-werk-is.md**                       | This. Scope, the promises, and the directions still open.                              |
 | [01-object-model.md](01-object-model.md)     | The nouns: workspace, placement, session, project. What they mean and how they relate. |
 | [02-journeys.md](02-journeys.md)             | Worked user journeys, written as transcripts.                                          |
 | [03-surfaces.md](03-surfaces.md)             | CLI, TUI, web, notifications, programmatic. What each one is for.                      |

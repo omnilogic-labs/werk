@@ -306,9 +306,10 @@ Ona shows how fast a neutral backend becomes a vertically-integrated competitor.
 **What werk has to be to survive this:**
 
 - **Genuinely agent-neutral.** Works identically well for Claude Code, Codex,
-  Gemini CLI, Aider, `npm run dev`, or `tail -f`. This is already the stated
-  non-goal in [`../product/00-what-werk-is.md`](../product/00-what-werk-is.md)
-  and it is load-bearing, not principle.
+  Gemini CLI, Aider, `npm run dev`, or `tail -f` — and reaches the agents that
+  live inside editors rather than ceding them. This is the sixth promise in
+  [`../product/00-what-werk-is.md`](../product/00-what-werk-is.md) and it is
+  load-bearing, not principle.
 - **Genuinely backend-neutral**, with a real provider-plugin architecture rather
   than one hardcoded path per placement.
 - **The fleet layer has to actually exist and work well.** It is the gap
