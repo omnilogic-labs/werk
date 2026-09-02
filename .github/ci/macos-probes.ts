@@ -55,7 +55,9 @@ if (want("sysctl")) {
   const parts: string[] = [];
   for (const k of keys) {
     const r = await sh(["sysctl", "-n", k]);
-    parts.push(`${k}=${r.code === 0 ? r.out : `(${r.out})`}`);
+    parts.push(
+      `${k}=${r.code === 0 ? r.out || "(absent)" : `(${r.out || `exit ${r.code}`})`}`,
+    );
   }
   say("sysctl", parts.join(" "));
 }
@@ -67,15 +69,20 @@ if (want("sysctl")) {
 // handler: the bytes the kernel accepts are exactly the in-flight capacity
 // between the two sockets.
 
-type ServerSock = { write: (b: Uint8Array) => number; end: () => void };
+type ServerSock = {
+  write: (b: Uint8Array) => number;
+  end: () => void;
+  fd?: unknown;
+};
+type Listener = { stop: (force?: boolean) => void; fd?: unknown };
 
 function listenAndTakeOne(addr: string): {
-  listener: { stop: (force?: boolean) => void };
+  listener: Listener;
   accepted: Promise<ServerSock>;
 } {
   let resolve!: (s: ServerSock) => void;
   const accepted = new Promise<ServerSock>((r) => (resolve = r));
-  const listener = Bun.listen<undefined>({
+  const listener: Listener = Bun.listen<undefined>({
     unix: addr,
     socket: {
       open(socket) {
@@ -360,6 +367,7 @@ if (want("ffi-client-rcvbuf")) {
       throw new Error(`connect() failed, errno ${errno()}`);
     const events: string[] = [];
     let echoed = "";
+    let rcvAtOpen = -1;
     const opened = await withTimeout(
       new Promise<string>((resolve, reject) => {
         Bun.connect<undefined>({
@@ -368,6 +376,7 @@ if (want("ffi-client-rcvbuf")) {
           socket: {
             open(socket) {
               events.push("open");
+              rcvAtOpen = getBuf(fd, SO_RCVBUF);
               socket.write("ping");
             },
             data(socket, chunk) {
@@ -393,7 +402,7 @@ if (want("ffi-client-rcvbuf")) {
     );
     say(
       "ffi-client-adopt-fd",
-      `Bun.connect({fd}) ${echoed === "ping" ? "ok — accepted the connected fd and round-tripped" : "opened but did not round-trip"}: events ${opened}, echoed ${JSON.stringify(echoed)}; rcvbuf on that fd after adoption ${getBuf(fd, SO_RCVBUF)} (setsockopt ${set})`,
+      `Bun.connect({fd}) ${echoed === "ping" ? "ok — accepted the connected fd and round-tripped" : "opened but did not round-trip"}: events ${opened}, echoed ${JSON.stringify(echoed)}; rcvbuf on that fd at open ${rcvAtOpen}, after close ${getBuf(fd, SO_RCVBUF)} (setsockopt ${set})`,
     );
   } catch (e) {
     say("ffi-client-adopt-fd", `fail — ${firstLine(e)}`);
@@ -489,10 +498,134 @@ if (want("ffi-server-sndbuf")) {
   } finally {
     if (fd >= 0) f.libc.close(fd);
   }
-  say(
-    "setsockopt-after-accept",
-    "skipped — Bun.listen exposes no fd for the listener or the accepted socket, so there is nothing to call setsockopt on",
-  );
+
+  // The listener object does carry `fd`. Raise the buffers on it before the
+  // first connect and see what the accepted socket inherits, with a plain
+  // Bun.connect client and with a hand-built client whose SO_RCVBUF is
+  // raised too. The answer is the number the daemon could reach without any
+  // change to Bun.
+  async function thresholdWithListenerFd(
+    configureListener: (fd: number) => string,
+    client: "bun" | "ffi-rcvbuf",
+  ): Promise<string> {
+    const addr = sockPath();
+    const l = listenAndTakeOne(addr);
+    let cfd = -1;
+    let bunClient: { end: () => void } | undefined;
+    try {
+      const lfd = l.listener.fd;
+      if (typeof lfd !== "number") return `listener.fd is ${typeof lfd}`;
+      const before = `sndbuf=${getBuf(lfd, SO_SNDBUF)} rcvbuf=${getBuf(lfd, SO_RCVBUF)}`;
+      const conf = configureListener(lfd);
+      const after = `sndbuf=${getBuf(lfd, SO_SNDBUF)} rcvbuf=${getBuf(lfd, SO_RCVBUF)}`;
+      let clientNote: string;
+      if (client === "bun") {
+        bunClient = await withTimeout(
+          Bun.connect<undefined>({
+            unix: addr,
+            socket: { data() {}, error() {}, close() {} },
+          }),
+          5000,
+          "connect",
+        );
+        clientNote = "Bun.connect client";
+      } else {
+        cfd = f.libc.socket(AF_UNIX, SOCK_STREAM, 0);
+        const s = setBuf(cfd, SO_RCVBUF, 212992);
+        const sa = sockaddrUn(addr);
+        if (f.libc.connect(cfd, f.ptr(sa), SOCKADDR_UN_LEN) !== 0)
+          return `connect() failed, errno ${errno()}`;
+        clientNote = `ffi client SO_RCVBUF=212992 ${s}`;
+      }
+      const server = await withTimeout(l.accepted, 5000, "accept");
+      const sfd = server.fd;
+      const inherited =
+        typeof sfd === "number"
+          ? `accepted fd ${sfd} sndbuf=${getBuf(sfd, SO_SNDBUF)} rcvbuf=${getBuf(sfd, SO_RCVBUF)}`
+          : `accepted socket fd is ${typeof sfd}`;
+      const r = floodUntilShort(server);
+      server.end();
+      return `${r.accepted} B accepted before the first short write (listener fd ${lfd} ${before} -> ${conf} -> ${after}; ${inherited}; ${clientNote})`;
+    } finally {
+      if (cfd >= 0) f.libc.close(cfd);
+      try {
+        bunClient?.end();
+      } catch {}
+      try {
+        l.listener.stop(true);
+      } catch {}
+    }
+  }
+
+  for (const [name, configure, client] of [
+    [
+      "listener-fd-sndbuf",
+      (fd: number) => `SO_SNDBUF=212992 ${setBuf(fd, SO_SNDBUF, 212992)}`,
+      "bun",
+    ],
+    [
+      "listener-fd-both",
+      (fd: number) =>
+        `SO_SNDBUF=212992 ${setBuf(fd, SO_SNDBUF, 212992)}, SO_RCVBUF=212992 ${setBuf(fd, SO_RCVBUF, 212992)}`,
+      "bun",
+    ],
+    [
+      "listener-fd-both-client-rcvbuf",
+      (fd: number) =>
+        `SO_SNDBUF=212992 ${setBuf(fd, SO_SNDBUF, 212992)}, SO_RCVBUF=212992 ${setBuf(fd, SO_RCVBUF, 212992)}`,
+      "ffi-rcvbuf",
+    ],
+  ] as const) {
+    try {
+      say(name, await thresholdWithListenerFd(configure, client));
+    } catch (e) {
+      say(name, `fail — ${firstLine(e)}`);
+    }
+  }
+
+  // And after accept: if the accepted socket carries an fd of its own,
+  // setsockopt on that, with the listener untouched.
+  {
+    const addr = sockPath();
+    const l = listenAndTakeOne(addr);
+    let bunClient: { end: () => void } | undefined;
+    try {
+      bunClient = await withTimeout(
+        Bun.connect<undefined>({
+          unix: addr,
+          socket: { data() {}, error() {}, close() {} },
+        }),
+        5000,
+        "connect",
+      );
+      const server = await withTimeout(l.accepted, 5000, "accept");
+      const proto = Object.getOwnPropertyNames(Object.getPrototypeOf(server));
+      const sfd = server.fd;
+      if (typeof sfd !== "number") {
+        say(
+          "setsockopt-after-accept",
+          `no path — the accepted socket has no numeric fd (fd is ${typeof sfd}; proto [${proto.join(",")}])`,
+        );
+      } else {
+        const set = `SO_SNDBUF=212992 ${setBuf(sfd, SO_SNDBUF, 212992)}, SO_RCVBUF=212992 ${setBuf(sfd, SO_RCVBUF, 212992)}`;
+        const r = floodUntilShort(server);
+        say(
+          "setsockopt-after-accept",
+          `${r.accepted} B accepted before the first short write (accepted fd ${sfd}: ${set} -> sndbuf=${getBuf(sfd, SO_SNDBUF)} rcvbuf=${getBuf(sfd, SO_RCVBUF)}; Bun.connect client; accepted-socket proto [${proto.join(",")}])`,
+        );
+      }
+      server.end();
+    } catch (e) {
+      say("setsockopt-after-accept", `fail — ${firstLine(e)}`);
+    } finally {
+      try {
+        bunClient?.end();
+      } catch {}
+      try {
+        l.listener.stop(true);
+      } catch {}
+    }
+  }
 }
 
 // --------------------------------------------------------------- codesign
@@ -527,10 +660,54 @@ if (want("codesign")) {
       "codesign-verify",
       `exit ${verify.code}; ${verify.out.replace(/\n/g, " | ").slice(0, 300)}`,
     );
+    const lax = await sh(["codesign", "--verify", "--verbose=2", wp]);
+    say(
+      "codesign-verify-lax",
+      `exit ${lax.code}; ${lax.out.replace(/\n/g, " | ").slice(0, 300)}`,
+    );
     const xattr = await sh(["xattr", "-l", wp]);
     say(
       "codesign-xattr",
       xattr.out ? xattr.out.replace(/\n/g, " | ") : "no extended attributes",
+    );
+    const spctl = await sh([
+      "spctl",
+      "--assess",
+      "--type",
+      "execute",
+      "-vv",
+      wp,
+    ]);
+    say(
+      "codesign-spctl",
+      `exit ${spctl.code}; ${spctl.out.replace(/\n/g, " | ").slice(0, 300)}`,
+    );
+    const runs = await sh([wp, "--help"]);
+    say(
+      "codesign-runs",
+      `./dist/wp --help exit ${runs.code}, ${runs.out.split("\n").length} lines`,
+    );
+
+    // What an ad-hoc re-sign does to it: the cheapest thing a build could do
+    // on the way out.
+    const copy = path.join(tmpRoot, "wp-resigned");
+    fs.copyFileSync(wp, copy);
+    fs.chmodSync(copy, 0o755);
+    const resign = await sh(["codesign", "--force", "--sign", "-", copy]);
+    const reverify = await sh([
+      "codesign",
+      "--verify",
+      "--strict",
+      "--verbose=2",
+      copy,
+    ]);
+    const redvv = await sh(["codesign", "-dvv", copy]);
+    const reflags =
+      redvv.out.split("\n").find((l) => l.startsWith("CodeDirectory")) ?? "";
+    const reruns = await sh([copy, "--help"]);
+    say(
+      "codesign-adhoc-resign",
+      `codesign --force --sign - exit ${resign.code}${resign.out ? ` (${resign.out.replace(/\n/g, " | ").slice(0, 120)})` : ""}; verify --strict exit ${reverify.code} ${reverify.out.replace(/\n/g, " | ").slice(0, 160)}; ${reflags}; --help exit ${reruns.code}`,
     );
 
     // Extract the ffi prebuild by asking the binary for its capabilities,
