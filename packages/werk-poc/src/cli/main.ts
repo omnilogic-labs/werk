@@ -11,9 +11,10 @@ usage:
   wp kill <id>                                 stop a session
   wp serve                                     loopback web UI
   wp bench                                     the measurements in the proposal, §6
+  wp caps                                      the capability matrix, one column per engine
   wp __daemon                                  hidden; not typed by a human
 
-none of these do anything yet.`;
+only caps does anything yet.`;
 
 const KNOWN = new Set([
   "run",
@@ -26,12 +27,22 @@ const KNOWN = new Set([
   "__daemon",
 ]);
 
-export function main(argv: string[]): number {
+async function caps(): Promise<number> {
+  const { capabilityMatrix } = await import("../engine/caps.ts");
+  const { engineIds, getEngine } = await import("../engine/registry.ts");
+  await import("../engine/ghostty-wasm/bun.ts");
+  const engines = await Promise.all(engineIds().map((id) => getEngine(id)));
+  console.log(capabilityMatrix(engines));
+  return 0;
+}
+
+export function main(argv: string[]): number | Promise<number> {
   const cmd = argv[0];
   if (cmd === undefined || cmd === "-h" || cmd === "--help" || cmd === "help") {
     console.log(USAGE);
     return 0;
   }
+  if (cmd === "caps") return caps();
   if (KNOWN.has(cmd)) {
     console.error(`wp ${cmd}: not implemented yet`);
     return 2;
@@ -42,5 +53,5 @@ export function main(argv: string[]): number {
 }
 
 if (import.meta.main) {
-  process.exit(main(process.argv.slice(2)));
+  process.exit(await main(process.argv.slice(2)));
 }

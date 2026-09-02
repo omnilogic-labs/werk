@@ -275,6 +275,87 @@ export class Layout {
     const t = this.packed(name);
     return decodeBits(t.bits, value, this);
   }
+
+  /**
+   * The same decoding compiled once from the descriptor into a function
+   * over the value's two 32-bit halves, for the per-cell hot path: no
+   * BigInt, no descriptor walk per cell. Fields wider than 32 bits are not
+   * supported; GhosttyCell has none.
+   */
+  packedDecoder(name: string): PackedDecoder {
+    const t = this.packed(name);
+    if (t.underlying !== "u64")
+      throw new Error(`packedDecoder: "${name}" is ${t.underlying}, not u64`);
+    return compileBits(t.bits, 0, this);
+  }
+}
+
+export type PackedDecoder = (lo: number, hi: number) => Record<string, unknown>;
+
+/** An extractor for `width` bits at absolute position `lsb` of a u64 held as (lo, hi). */
+function bitExtractor(
+  lsb: number,
+  width: number,
+): (lo: number, hi: number) => number {
+  if (width > 32 || lsb + width > 64)
+    throw new Error(
+      `packedDecoder: field at bit ${lsb} width ${width} is too wide`,
+    );
+  const mask = width === 32 ? -1 : (1 << width) - 1;
+  if (lsb + width <= 32) return (lo) => ((lo >>> lsb) & mask) >>> 0;
+  if (lsb >= 32) {
+    const s = lsb - 32;
+    return (_, hi) => ((hi >>> s) & mask) >>> 0;
+  }
+  const loBits = 32 - lsb;
+  return (lo, hi) => (((lo >>> lsb) | (hi << loBits)) & mask) >>> 0;
+}
+
+function compileBits(
+  bits: Record<string, BitDesc>,
+  base: number,
+  layout: Layout,
+): PackedDecoder {
+  type Step = (lo: number, hi: number, out: Record<string, unknown>) => void;
+  const steps: Step[] = [];
+  for (const [name, b] of Object.entries(bits)) {
+    if (b.kind === "union" && b.tag && b.arms) {
+      const tagBit = bits[b.tag];
+      const tag = tagBit
+        ? bitExtractor(base + tagBit.lsb, tagBit.width)
+        : () => 0;
+      // arm decoders indexed by tag value
+      const arms = new Map<number, PackedDecoder>();
+      if (tagBit?.type) {
+        for (const [armName, arm] of Object.entries(b.arms)) {
+          if (!arm) continue;
+          const v = layout.enum(tagBit.type).values[armName];
+          if (v !== undefined)
+            arms.set(v, compileBits(arm.bits, base + b.lsb, layout));
+        }
+      }
+      steps.push((lo, hi, out) => {
+        const arm = arms.get(tag(lo, hi));
+        out[name] = arm ? arm(lo, hi) : null;
+      });
+      continue;
+    }
+    const get = bitExtractor(base + b.lsb, b.width);
+    steps.push(
+      b.type === "bool"
+        ? (lo, hi, out) => {
+            out[name] = get(lo, hi) !== 0;
+          }
+        : (lo, hi, out) => {
+            out[name] = get(lo, hi);
+          },
+    );
+  }
+  return (lo, hi) => {
+    const out: Record<string, unknown> = {};
+    for (const step of steps) step(lo, hi, out);
+    return out;
+  };
 }
 
 function extractBits(value: bigint, lsb: number, width: number): number {

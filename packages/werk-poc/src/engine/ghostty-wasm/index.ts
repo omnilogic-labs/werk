@@ -1,10 +1,9 @@
 // The `ghostty-wasm` adapter: the seam in ../types.ts over upstream's
 // freestanding libghostty-vt build, reached through loader.ts.
 //
-// Covers create / write / resize / plainText / styledCells / emitVt /
-// effects / encodeState / decodeState / dispose. Both input encoders and the
-// render consumer return Unsupported until they are built; the C surface for
-// each is already exported by the module.
+// Covers the whole seam: create / write / resize / plainText / styledCells /
+// emitVt / effects / encodeState / decodeState / renderConsumer / modes /
+// dispose on the terminal, encodeKey / encodeMouse on the engine.
 //
 // Routes chosen, and why (findings/m1.md has the detail):
 //
@@ -33,6 +32,19 @@
 //   decodeState the incremental decoder over a copy of the bytes in wasm
 //               memory: ready() yields the renderable prefix as a terminal
 //               the caller owns, next() prepends one history page at a time.
+//   renderConsumer
+//               one render state per terminal, not per consumer: the dirty
+//               flags live on the terminal and are consumed by whichever
+//               render state updates first, so a second render state would
+//               see nothing. Every update of the shared state merges what it
+//               reports into each consumer's own dirty set before the state
+//               is cleaned; a consumer then reads its rows off the shared
+//               state, which is stable until the next update.
+//   encodeKey / encodeMouse
+//               libghostty's encoders (encoders.ts), one of each per engine,
+//               reconfigured from the seam's TerminalModes on every call.
+//               modes() reads those off a terminal through
+//               ghostty_terminal_get(MODE) and KITTY_KEYBOARD_FLAGS.
 //
 // Reading plainText and styledCells through different APIs is deliberate:
 // the tests compare them.
@@ -41,28 +53,39 @@ import type {
   Capabilities,
   Cell,
   Color,
+  CursorState,
   DecodedState,
   Effect,
   EmitVtOptions,
+  Frame,
   KeyEvent,
   MouseEvent,
   Page,
   RenderConsumer,
+  Row,
   TerminalModes,
+  Viewport,
   VtEngine,
   VtTerminal,
 } from "../types.ts";
 import { Unsupported } from "../types.ts";
+import { KeyEncoder, MouseEncoder } from "./encoders.ts";
 import {
   GhosttyModule,
   type GhosttySource,
   type WasmSignature,
 } from "./loader.ts";
 
+import type { PackedDecoder } from "./layout.ts";
+
 export { GhosttyModule, GhosttyError } from "./loader.ts";
 export { Layout } from "./layout.ts";
-
-const NOT_YET = "not yet implemented";
+export {
+  KeyEncoder,
+  MouseEncoder,
+  keyMemberName,
+  modsBits,
+} from "./encoders.ts";
 
 /** ghostty_terminal_resize wants a cell size in pixels; the daemon has no font, so a plausible constant. */
 const CELL_WIDTH_PX = 8;
@@ -84,10 +107,10 @@ const CAPS: Capabilities = {
   emitVt: true,
   encodeState: true,
   decodeState: true,
-  renderConsumer: false,
+  renderConsumer: true,
   effects: true,
-  encodeKey: false,
-  encodeMouse: false,
+  encodeKey: true,
+  encodeMouse: true,
 };
 
 export interface CreateOptions {
@@ -117,13 +140,82 @@ export class GhosttyWasmEngine implements VtEngine {
     return new GhosttyWasmDecodedState(this.module, bytes);
   }
 
-  encodeKey(_ev: KeyEvent, _mode: TerminalModes): Uint8Array | Unsupported {
-    return new Unsupported(NOT_YET);
+  private keyEncoder: KeyEncoder | null = null;
+  private mouseEncoder: MouseEncoder | null = null;
+
+  /**
+   * A key event as the bytes to write to the PTY, for a terminal in the
+   * given modes. An empty array is a valid answer: a bare modifier, a
+   * release outside the Kitty protocol, or a composing event.
+   */
+  encodeKey(ev: KeyEvent, modes: TerminalModes): Uint8Array {
+    this.keyEncoder ??= new KeyEncoder(this.module);
+    this.keyEncoder.configure(modes);
+    return this.keyEncoder.encode(ev);
   }
 
-  encodeMouse(_ev: MouseEvent, _mode: TerminalModes): Uint8Array | Unsupported {
-    return new Unsupported(NOT_YET);
+  /** A mouse event as PTY bytes; empty when the modes do not report it (no tracking, or motion the mode ignores). */
+  encodeMouse(ev: MouseEvent, modes: TerminalModes): Uint8Array {
+    this.mouseEncoder ??= new MouseEncoder(this.module);
+    this.mouseEncoder.configure(modes);
+    return this.mouseEncoder.encode(ev);
   }
+
+  /**
+   * The same encoders configured by libghostty's own
+   * `setopt_from_terminal` rather than through the seam's modes. The tests
+   * use these as the reference that `modes()` is validated against; a
+   * daemon holding the terminal may prefer them.
+   */
+  encodeKeySynced(term: GhosttyWasmTerminal, ev: KeyEvent): Uint8Array {
+    this.keyEncoder ??= new KeyEncoder(this.module);
+    this.keyEncoder.syncFromTerminal(term.rawHandle());
+    return this.keyEncoder.encode(ev);
+  }
+
+  encodeMouseSynced(term: GhosttyWasmTerminal, ev: MouseEvent): Uint8Array {
+    this.mouseEncoder ??= new MouseEncoder(this.module);
+    this.mouseEncoder.syncFromTerminal(term.rawHandle());
+    return this.mouseEncoder.encode(ev);
+  }
+}
+
+type BooleanMode = {
+  [K in keyof TerminalModes]-?: TerminalModes[K] extends boolean | undefined
+    ? K
+    : never;
+}[keyof TerminalModes];
+
+/** The DEC private modes `modes()` reads, and the seam field each one feeds. */
+const DEC_MODE_FIELDS: [number, BooleanMode][] = [
+  [1, "cursorKeyApplication"],
+  [66, "keypadApplication"],
+  [1035, "ignoreKeypadWithNumlock"],
+  [1036, "altEscPrefix"],
+  [67, "backarrowKeyMode"],
+  [2004, "bracketedPaste"],
+  [1004, "focusEvents"],
+];
+
+/** Strongest first, which is the precedence libghostty's own `setopt_from_terminal` applies. */
+const MOUSE_TRACKING_MODES: [number, TerminalModes["mouseTracking"]][] = [
+  [1003, "any"],
+  [1002, "button"],
+  [1000, "normal"],
+  [9, "x10"],
+];
+const MOUSE_FORMAT_MODES: [number, TerminalModes["mouseFormat"]][] = [
+  [1016, "sgr-pixels"],
+  [1006, "sgr"],
+  [1015, "urxvt"],
+  [1005, "utf8"],
+];
+
+/** Per-consumer dirty bookkeeping; the cells themselves live in the shared render state. */
+interface ConsumerState {
+  all: boolean;
+  rows: Set<number>;
+  lastCursor: CursorState | null;
 }
 
 /** Scratch allocations a terminal keeps for the life of the instance. */
@@ -152,6 +244,11 @@ interface Scratch {
   /** A u32 for terminal_get / terminal_set values, and a GhosttyString for borrowed strings. */
   u32: number;
   str: number;
+  /** For the render consumer: next_dirty's out-y, the sized cursor struct, the scrollbar, and a mode query. */
+  u16: number;
+  cursor: number;
+  scrollbar: number;
+  modeConfig: number;
 }
 
 /** A terminal handle to wrap rather than create; the decoder hands these out. */
@@ -171,6 +268,7 @@ export class GhosttyWasmTerminal implements VtTerminal {
   /** The first exception a listener threw during the current write(); rethrown once the write returns. */
   private listenerError: unknown = undefined;
   private readonly onDispose: (() => void) | undefined;
+  private readonly consumers = new Set<ConsumerState>();
 
   constructor(
     private readonly g: GhosttyModule,
@@ -368,8 +466,232 @@ export class GhosttyWasmTerminal implements VtTerminal {
     return out;
   }
 
-  renderConsumer(): RenderConsumer | Unsupported {
-    return new Unsupported(NOT_YET);
+  /**
+   * A consumer with its own dirty cursor. Its first frame is the whole
+   * screen; after that, each frame is what changed since its previous
+   * one, however many other consumers read in between.
+   */
+  renderConsumer(): RenderConsumer {
+    this.assertLive();
+    const state: ConsumerState = {
+      all: true,
+      rows: new Set(),
+      lastCursor: null,
+    };
+    this.consumers.add(state);
+    const frame = (): Frame => {
+      this.assertLive();
+      if (!this.consumers.has(state)) throw new Error("consumer is disposed");
+      this.refreshRenderState();
+      const dirtyAll = state.all;
+      const want = state.rows;
+      const changed = this.readRows((y) => dirtyAll || want.has(y));
+      state.all = false;
+      state.rows = new Set();
+      const cursor = this.readCursor();
+      const cursorChanged =
+        state.lastCursor === null || !sameCursor(state.lastCursor, cursor);
+      state.lastCursor = cursor;
+      return {
+        cols: this.cols,
+        rows: this.rows,
+        dirtyAll,
+        changed,
+        cursor,
+        cursorChanged,
+        viewport: this.viewport(),
+      };
+    };
+    return {
+      frame,
+      dirtyRows: () => frame().changed,
+      dispose: () => {
+        this.consumers.delete(state);
+      },
+    };
+  }
+
+  /**
+   * Update the shared render state from the terminal and hand what it
+   * reports to every consumer before cleaning it. This is the only place
+   * the render state is updated: the terminal's dirty flags are consumed
+   * by the update, so a path that skipped the merge would lose rows for
+   * every consumer.
+   */
+  private refreshRenderState(): void {
+    const g = this.g;
+    const s = this.ensureScratch();
+    g.check("ghostty_render_state_update", s.renderState, this.handle);
+    if (this.consumers.size > 0) {
+      g.check(
+        "ghostty_render_state_get",
+        s.renderState,
+        g.enumValue("GhosttyRenderStateData", "DIRTY"),
+        s.u32,
+      );
+      const dirty = g.enumName(
+        "GhosttyRenderStateDirty",
+        g.read(s.u32, "u32") as number,
+      );
+      if (dirty === "FULL") {
+        for (const c of this.consumers) c.all = true;
+      } else if (dirty === "PARTIAL") {
+        g.check(
+          "ghostty_render_state_get",
+          s.renderState,
+          g.enumValue("GhosttyRenderStateData", "ROW_ITERATOR"),
+          s.rowIterSlot,
+        );
+        while (
+          g.call(
+            "ghostty_render_state_row_iterator_next_dirty",
+            s.rowIter,
+            s.u16,
+          )
+        ) {
+          const y = g.read(s.u16, "u16") as number;
+          for (const c of this.consumers) if (!c.all) c.rows.add(y);
+        }
+      }
+    }
+    g.check("ghostty_render_state_clean", s.renderState);
+  }
+
+  /** The render state's cursor, after a refresh. */
+  private readCursor(): CursorState {
+    const g = this.g;
+    const s = this.ensureScratch();
+    g.check(
+      "ghostty_render_state_get",
+      s.renderState,
+      g.enumValue("GhosttyRenderStateData", "CURSOR"),
+      s.cursor,
+    );
+    const c = g.readStruct(s.cursor, "GhosttyRenderStateCursor") as {
+      viewport_has_value: boolean;
+      viewport_x: number;
+      viewport_y: number;
+      wide_tail: boolean;
+      visible: boolean;
+      blinking: boolean;
+      password_input: boolean;
+      visual_style: number;
+    };
+    const style = (
+      g.enumName("GhosttyRenderStateCursorVisualStyle", c.visual_style) ??
+      "BLOCK"
+    )
+      .toLowerCase()
+      .replace("_", "-") as CursorState["style"];
+    return {
+      x: c.viewport_has_value ? c.viewport_x : 0,
+      y: c.viewport_has_value ? c.viewport_y : 0,
+      inViewport: c.viewport_has_value,
+      visible: c.visible,
+      blinking: c.blinking,
+      style,
+      wideTail: c.viewport_has_value && c.wide_tail,
+      passwordInput: c.password_input,
+    };
+  }
+
+  /** Where the viewport sits: the terminal's scrollbar plus VIEWPORT_ACTIVE. */
+  viewport(): Viewport {
+    this.assertLive();
+    const g = this.g;
+    const s = this.ensureScratch();
+    const D = (m: string) => g.enumValue("GhosttyTerminalData", m);
+    g.check("ghostty_terminal_get", this.handle, D("SCROLLBAR"), s.scrollbar);
+    const sb = g.readStruct(s.scrollbar, "GhosttyTerminalScrollbar") as {
+      total: bigint;
+      offset: bigint;
+      len: bigint;
+    };
+    g.check("ghostty_terminal_get", this.handle, D("VIEWPORT_ACTIVE"), s.u32);
+    return {
+      total: Number(sb.total),
+      offset: Number(sb.offset),
+      rows: Number(sb.len),
+      active: g.read(s.u32, "bool") as boolean,
+    };
+  }
+
+  /** One DEC private mode, through ghostty_terminal_get(MODE). Throws INVALID_VALUE for a mode libghostty does not know. */
+  decMode(mode: number): boolean {
+    this.assertLive();
+    const g = this.g;
+    const s = this.ensureScratch();
+    g.writeStruct(s.modeConfig, "GhosttyTerminalModeConfig", {
+      mode: mode & 0x7fff,
+      value: false,
+    });
+    g.check(
+      "ghostty_terminal_get",
+      this.handle,
+      g.enumValue("GhosttyTerminalData", "MODE"),
+      s.modeConfig,
+    );
+    return g.readField(
+      s.modeConfig,
+      "GhosttyTerminalModeConfig",
+      "value",
+    ) as boolean;
+  }
+
+  /**
+   * The modes the encoders need, read off the live terminal: everything
+   * the encoders' `setopt_from_terminal` read, plus bracketed paste and
+   * focus events for a client wrapping its own input. DEC modes come
+   * through ghostty_terminal_get(MODE), the Kitty flags through their own
+   * data item, and modifyOtherKeys through the formatter (see
+   * modifyOtherKeys2()). About thirteen calls; a client can cache the
+   * result between writes.
+   */
+  modes(): TerminalModes {
+    this.assertLive();
+    const m: TerminalModes = {};
+    for (const [mode, field] of DEC_MODE_FIELDS) m[field] = this.decMode(mode);
+    m.kittyKeyboardFlags = this.getNumber("KITTY_KEYBOARD_FLAGS") & 0xff;
+    m.modifyOtherKeys2 = this.modifyOtherKeys2();
+    m.mouseTracking = "none";
+    for (const [mode, tracking] of MOUSE_TRACKING_MODES) {
+      if (this.decMode(mode)) {
+        m.mouseTracking = tracking;
+        break;
+      }
+    }
+    m.mouseFormat = "x10";
+    for (const [mode, format] of MOUSE_FORMAT_MODES) {
+      if (this.decMode(mode)) {
+        m.mouseFormat = format;
+        break;
+      }
+    }
+    return m;
+  }
+
+  /**
+   * xterm modifyOtherKeys state 2 (`CSI > 4 ; 2 m`). libghostty tracks it
+   * for the key encoder but has no getter for it; the formatter's
+   * `keyboard` extra re-emits it, so this formats one cell of the viewport
+   * with that extra on and looks for the sequence. A few microseconds.
+   */
+  modifyOtherKeys2(): boolean {
+    this.assertLive();
+    const out = this.format({
+      emit: "VT",
+      unwrap: false,
+      trim: true,
+      selection: this.viewportSelection(0, 0),
+      terminal: { keyboard: true },
+    });
+    return new TextDecoder().decode(out).includes("\x1b[>4;2m");
+  }
+
+  /** The GhosttyTerminal handle, for code that talks to libghostty directly (the synced encoders). */
+  rawHandle(): number {
+    this.assertLive();
+    return this.handle;
   }
 
   /**
@@ -428,7 +750,10 @@ export class GhosttyWasmTerminal implements VtTerminal {
   }
 
   /** Fill the scratch selection with the viewport, (0,0) .. (cols-1, rows-1), and return its address. */
-  private viewportSelection(): number {
+  private viewportSelection(
+    endX = this.cols - 1,
+    endY = this.rows - 1,
+  ): number {
     const g = this.g;
     const s = this.ensureScratch();
     g.writeStruct(s.point, "GhosttyPoint", { tag: "VIEWPORT" });
@@ -438,7 +763,7 @@ export class GhosttyWasmTerminal implements VtTerminal {
     const end = s.selection + g.layout.field("GhosttySelection", "end").offset;
     g.check("ghostty_terminal_grid_ref", this.handle, s.point, start);
     g.writeStruct(s.point, "GhosttyPoint", {
-      value: { x: this.cols - 1, y: this.rows - 1 },
+      value: { x: endX, y: endY },
     });
     g.check("ghostty_terminal_grid_ref", this.handle, s.point, end);
     g.writeField(s.selection, "GhosttySelection", "rectangle", false);
@@ -452,6 +777,7 @@ export class GhosttyWasmTerminal implements VtTerminal {
     trim: boolean;
     selection: number;
     screen?: Record<string, boolean>;
+    terminal?: Record<string, boolean>;
   }): Uint8Array {
     const g = this.g;
     const s = this.ensureScratch();
@@ -463,6 +789,7 @@ export class GhosttyWasmTerminal implements VtTerminal {
       // Nested sized structs each want their own size; allocType only sets the outer one.
       extra: {
         size: g.sizeOf("GhosttyFormatterTerminalExtra"),
+        ...o.terminal,
         screen: {
           size: g.sizeOf("GhosttyFormatterScreenExtra"),
           ...o.screen,
@@ -516,12 +843,21 @@ export class GhosttyWasmTerminal implements VtTerminal {
   /** The viewport as cells with attributes, `rows` arrays of `cols` cells. */
   styledCells(): Cell[][] {
     this.assertLive();
+    this.refreshRenderState();
+    return this.readRows(() => true).map((r) => r.cells);
+  }
+
+  /**
+   * Decode the rows `want` selects from the shared render state, which
+   * must have been refreshed first. Every row is visited (the iterator is
+   * sequential) but only the wanted ones are decoded.
+   */
+  private readRows(want: (y: number) => boolean): Row[] {
     const g = this.g;
     const s = this.ensureScratch();
     const RD = (m: string) => g.enumValue("GhosttyRenderStateRowData", m);
     const RC = (m: string) => g.enumValue("GhosttyRenderStateRowCellsData", m);
 
-    g.check("ghostty_render_state_update", s.renderState, this.handle);
     g.check(
       "ghostty_render_state_get",
       s.renderState,
@@ -529,8 +865,11 @@ export class GhosttyWasmTerminal implements VtTerminal {
       s.rowIterSlot,
     );
 
-    const out: Cell[][] = [];
+    const out: Row[] = [];
+    let y = -1;
     while (g.call("ghostty_render_state_row_iterator_next", s.rowIter)) {
+      y++;
+      if (!want(y)) continue;
       g.check(
         "ghostty_render_state_row_get",
         s.rowIter,
@@ -541,17 +880,18 @@ export class GhosttyWasmTerminal implements VtTerminal {
         ptr: number;
         len: number;
       };
-      const raw: bigint[] = [];
-      const dv = g.view();
-      for (let x = 0; x < view.len; x++)
-        raw.push(dv.getBigUint64(view.ptr + x * 8, true));
+      // Copy the row's words out first: the per-cell calls below can grow
+      // memory, which would detach a view over the borrowed cells.
+      const words = new Uint32Array(view.len * 2);
+      words.set(new Uint32Array(g.memory.buffer, view.ptr, view.len * 2));
+      const decode = cellDecoder(g);
 
       let cellsSelected = false;
       const row: Cell[] = [];
-      for (let x = 0; x < raw.length; x++) {
-        const d = g.layout.decodePacked(
-          "GhosttyCell",
-          raw[x]!,
+      for (let x = 0; x < view.len; x++) {
+        const d = decode(
+          words[x * 2]!,
+          words[x * 2 + 1]!,
         ) as unknown as PackedCell;
         const cell = defaultCell();
         const wide = d.wide;
@@ -597,7 +937,7 @@ export class GhosttyWasmTerminal implements VtTerminal {
         }
         row.push(cell);
       }
-      out.push(row);
+      out.push({ y, cells: row });
     }
     return out;
   }
@@ -634,8 +974,13 @@ export class GhosttyWasmTerminal implements VtTerminal {
     this.onDispose?.();
     const g = this.g;
     if (this.listeners.length) effectHooks(g).terminals.delete(this.handle);
+    this.consumers.clear();
     const s = this.scratch;
     if (s) {
+      g.free(s.u16, 2);
+      g.freeType(s.cursor, "GhosttyRenderStateCursor");
+      g.freeType(s.scrollbar, "GhosttyTerminalScrollbar");
+      g.freeType(s.modeConfig, "GhosttyTerminalModeConfig");
       g.call("ghostty_render_state_row_cells_free", s.rowCells);
       g.call("ghostty_render_state_row_iterator_free", s.rowIter);
       g.call("ghostty_render_state_free", s.renderState);
@@ -693,6 +1038,10 @@ export class GhosttyWasmTerminal implements VtTerminal {
       outLen: g.alloc(4),
       u32: g.alloc(4),
       str: g.allocType("GhosttyString"),
+      u16: g.alloc(2),
+      cursor: g.allocType("GhosttyRenderStateCursor"),
+      scrollbar: g.allocType("GhosttyTerminalScrollbar"),
+      modeConfig: g.allocType("GhosttyTerminalModeConfig"),
     };
     s.inLen = 64 * 1024;
     s.inPtr = g.alloc(s.inLen);
@@ -942,7 +1291,19 @@ export class GhosttyWasmDecodedState implements DecodedState {
   }
 }
 
-/** GhosttyCell as decodePacked returns it on the pinned build. */
+/** The GhosttyCell decoder compiled from the type JSON, once per module. */
+const cellDecoders = new WeakMap<GhosttyModule, PackedDecoder>();
+
+function cellDecoder(g: GhosttyModule): PackedDecoder {
+  let d = cellDecoders.get(g);
+  if (!d) {
+    d = g.layout.packedDecoder("GhosttyCell");
+    cellDecoders.set(g, d);
+  }
+  return d;
+}
+
+/** GhosttyCell as the packed decoder returns it on the pinned build. */
 interface PackedCell {
   content_tag: number;
   content: {
@@ -968,6 +1329,19 @@ interface PackedStyle {
   inverse: boolean;
   strikethrough: boolean;
   underline: number;
+}
+
+function sameCursor(a: CursorState, b: CursorState): boolean {
+  return (
+    a.x === b.x &&
+    a.y === b.y &&
+    a.inViewport === b.inViewport &&
+    a.visible === b.visible &&
+    a.blinking === b.blinking &&
+    a.style === b.style &&
+    a.wideTail === b.wideTail &&
+    a.passwordInput === b.passwordInput
+  );
 }
 
 function defaultCell(): Cell {

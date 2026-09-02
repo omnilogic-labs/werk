@@ -150,6 +150,35 @@ describe("marshalling", () => {
     g.freeType(p, "GhosttyRenderStateColors");
   });
 
+  test("the compiled cell decoder agrees with the descriptor walk", () => {
+    const decode = g.layout.packedDecoder("GhosttyCell");
+    let seed = 0x9e3779b9;
+    const next = () => {
+      // xorshift32, so the same values every run
+      seed ^= seed << 13;
+      seed ^= seed >>> 17;
+      seed ^= seed << 5;
+      return seed >>> 0;
+    };
+    for (let i = 0; i < 2000; i++) {
+      const lo = next();
+      const hi = next() & 0xffff; // GhosttyCell uses the low 48 bits
+      const value = (BigInt(hi) << 32n) | BigInt(lo);
+      expect(decode(lo, hi)).toEqual(
+        g.layout.decodePacked("GhosttyCell", value),
+      );
+    }
+    expect(decode(0, 0)).toEqual({
+      content_tag: 0,
+      content: { codepoint: 0 },
+      style_id: 0,
+      wide: 0,
+      protected: false,
+      hyperlink: false,
+      semantic_content: 0,
+    });
+  });
+
   test("packed GhosttyCell decodes by descriptor", () => {
     // content_tag bits 0-1 = 0 (codepoint), codepoint bits 2-22, style_id bits 26-41, wide bits 42-43
     const value =

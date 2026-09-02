@@ -228,22 +228,23 @@ describe("resize", () => {
 });
 
 describe("capabilities", () => {
-  test("what is missing returns Unsupported rather than throwing, and caps agree", () => {
+  test("nothing on the seam returns Unsupported, and caps agree", () => {
     const t = engine.create({ cols: 5, rows: 2, scrollback: 10 });
-    expect(isUnsupported(t.renderConsumer())).toBe(true);
+    expect(isUnsupported(t.renderConsumer())).toBe(false);
     expect(
       isUnsupported(
-        engine.encodeKey({ action: "press", key: "a", mods: {} }, {}),
+        engine.encodeKey({ action: "press", key: "KeyA", mods: {} }, {}),
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isUnsupported(
         engine.encodeMouse(
-          { action: "press", button: 0, x: 0, y: 0, mods: {} },
+          { action: "press", button: 1, x: 0, y: 0, mods: {} },
           {},
         ),
       ),
-    ).toBe(true);
+    ).toBe(false);
+    expect(isUnsupported(t.modes())).toBe(false);
     expect(isUnsupported(t.emitVt())).toBe(false);
     expect(isUnsupported(t.encodeState())).toBe(false);
     expect(isUnsupported(t.onEffect(() => {}))).toBe(false);
@@ -256,10 +257,10 @@ describe("capabilities", () => {
       emitVt: true,
       encodeState: true,
       decodeState: true,
-      renderConsumer: false,
+      renderConsumer: true,
       effects: true,
-      encodeKey: false,
-      encodeMouse: false,
+      encodeKey: true,
+      encodeMouse: true,
     });
     t.dispose();
   });
