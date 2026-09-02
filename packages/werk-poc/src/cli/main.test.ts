@@ -6,7 +6,7 @@ test("no arguments prints usage and exits 0", () => {
 });
 
 test("known commands are not implemented yet", () => {
-  expect(main(["ls"])).toBe(2);
+  expect(main(["attach"])).toBe(2);
 });
 
 test("unknown commands fail", () => {

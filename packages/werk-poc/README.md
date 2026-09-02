@@ -11,17 +11,19 @@ the product directly. What matters is what is written down in `findings/`.
 
 ## Layout
 
-| Path          | What it is                                                      |
-| ------------- | --------------------------------------------------------------- |
-| `src/engine/` | The terminal-engine seam and its adapters (M1, M6)              |
-| `src/daemon/` | The daemon: PTYs, the socket, client queues, snapshots (M2, M3) |
-| `src/cli/`    | The `wp` entry point and its commands                           |
-| `src/web/`    | The `wp serve` page (M4)                                        |
-| `spikes/m0/`  | M0's smoke probes, one file per question, plus a runner         |
-| `spikes/m1/`  | M1's compiled-binary check for the embedded WASM                |
-| `bench/`      | The `wp bench` measurements (M6)                                |
-| `vendor/`     | Pinned upstream artifacts (libghostty WASM, `ghostty-web`)      |
-| `findings/`   | What each milestone found, one file per milestone               |
+| Path            | What it is                                                      |
+| --------------- | --------------------------------------------------------------- |
+| `src/engine/`   | The terminal-engine seam and its adapters (M1, M6)              |
+| `src/protocol/` | The framed wire protocol the daemon, client and web share (M2)  |
+| `src/daemon/`   | The daemon: PTYs, the socket, client queues, snapshots (M2, M3) |
+| `src/client/`   | The programmatic client library the CLI and web build on (M2)   |
+| `src/cli/`      | The `wp` entry point and its commands                           |
+| `src/web/`      | The `wp serve` page (M4)                                        |
+| `spikes/m0/`    | M0's smoke probes, one file per question, plus a runner         |
+| `spikes/m1/`    | M1's compiled-binary check for the embedded WASM                |
+| `bench/`        | The `wp bench` measurements (M6)                                |
+| `vendor/`       | Pinned upstream artifacts (libghostty WASM, `ghostty-web`)      |
+| `findings/`     | What each milestone found, one file per milestone               |
 
 ## Running things
 
