@@ -187,6 +187,31 @@ case "${1:-}" in
     } >"$out"
     python3 -m json.tool "$out" >"$out.pretty" && mv "$out.pretty" "$out"
     cat "$out"
+
+    # Red overall when a suite that passes on this platform stops passing, so
+    # the job's conclusion means "something regressed" rather than "macOS
+    # gives a unix socket an 8 KiB buffer". `m2` and `test-full` are recorded
+    # but not gated, and only for that reason: under M2's 4 MB burst the
+    # daemon short-writes after about 8 KB where Linux manages about 218 KB,
+    # so a client that never lags on Linux is dropped and re-rendered here.
+    # findings/platforms.md records the sysctl and the numbers.
+    #
+    # The excuse is deliberately narrow: `test-full` is forgiven only when the
+    # single test it reports failing is that same scenario. Any other failing
+    # test is a real regression and turns the job red.
+    gate=0
+    ungated="$(jq -r '.suites[] | select(.status == "fail") | .id' "$out" |
+      grep -vxE 'm2|test-full' || true)"
+    if [ -n "$ungated" ]; then
+      echo "suites that should pass on macOS failed: $(echo "$ungated" | paste -sd' ' -)" >&2
+      gate=1
+    fi
+    tf="$(jq -r '.suites[] | select(.id == "test-full" and .status == "fail") | .detail' "$out")"
+    if [ -n "$tf" ] && ! printf '%s' "$tf" | grep -qE 'fidelity|slow client'; then
+      echo "test-full failed for something other than the m2 slow-client scenario: $tf" >&2
+      gate=1
+    fi
+    [ "$gate" -eq 0 ] || exit 1
     ;;
   *)
     echo "usage: macos.sh suite <id> | macos.sh summarize [out]" >&2

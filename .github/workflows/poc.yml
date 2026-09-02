@@ -286,7 +286,9 @@ jobs:
           bun run m2
 
       - name: Result
+        id: result
         if: always()
+        continue-on-error: true
         run: .github/ci/macos.sh summarize "$GITHUB_WORKSPACE/ci-result-macos.json"
 
       - name: Upload result
@@ -300,6 +302,12 @@ jobs:
             packages/werk-poc/dist/m0/**/*.log
             packages/werk-poc/dist/m0/results.json
           if-no-files-found: warn
+
+      - name: Fail the job when a gated suite failed
+        if: always() && steps.result.outcome != 'success'
+        run: |
+          echo "a suite that passes on macOS failed; see the summary and the ci-result-macos artefact" >&2
+          exit 1
 
   windows:
     if: >-
