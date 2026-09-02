@@ -14,7 +14,7 @@ const SO_SNDBUF = 0x1001;
 const SO_RCVBUF = 0x1002;
 
 /** Linux's default `net.core.wmem_default`, the figure the finding compares against. */
-const DEFAULT_DARWIN_BYTES = 0; // baseline run: buffers left at the kernel default
+const DEFAULT_DARWIN_BYTES = 212992;
 
 /**
  * How many bytes to ask for, or null to leave the kernel default alone.
