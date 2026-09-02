@@ -99,11 +99,23 @@ if (role === "daemon") {
     const psNow = psInfo(info.daemon);
     const childNow = psInfo(info.child);
     const gotHup = existsSync(join(dir, "sighup"));
+    // MSYS `ps` does not report native Windows processes, so on win32
+    // liveness is signal 0 plus the tick counter (spike/win32-daemon).
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const daemonAlive = alive(info.daemon);
     const obs = {
       scenario: name,
       daemonPsAtStart: info.ps,
       daemonPsAfter: psNow,
       childPsAfter: childNow,
+      daemonAlive,
       ticksGrew: t1 - t0,
       relayGrew: r1 - r0,
       daemonGotSighup: gotHup,
@@ -117,11 +129,13 @@ if (role === "daemon") {
     } catch {}
     rmSync(dir, { recursive: true, force: true });
     const ok =
-      !!psNow &&
-      psNow.sid === psNow.pid &&
-      psNow.ppid !== process.pid &&
-      t1 > t0 &&
-      r1 > r0;
+      process.platform === "win32"
+        ? daemonAlive && t1 > t0 && r1 > r0
+        : !!psNow &&
+          psNow.sid === psNow.pid &&
+          psNow.ppid !== process.pid &&
+          t1 > t0 &&
+          r1 > r0;
     return { ok, obs };
   }
 
