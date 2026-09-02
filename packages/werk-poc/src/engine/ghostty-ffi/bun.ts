@@ -12,7 +12,17 @@
 // `$ORIGIN` (`@loader_path` on darwin), so the two files have to land in
 // the same directory under the names the shim was linked against.
 //
-// All five prebuild pairs are imported statically, so a compiled `wp`
+// win32 needs the override in the interpreted path too, not only from
+// bunfs: the package ships no Windows prebuild at all, so the binding's own
+// platform detection has nothing to find either way. Its win32 artefact is
+// built here rather than installed — vendor/ghostty-vt-ffi/build.md — and
+// is one DLL with the shim compiled in, because Windows resolves a
+// dependent DLL from the loading process's directory rather than from the
+// directory of the DLL that depends on it, and has no `$ORIGIN`. The
+// binding dlopens the library and the shim separately and takes a path for
+// each, so both point at the same file.
+//
+// All six prebuild pairs are imported statically, so a compiled `wp`
 // carries every platform's; that is what the size delta in findings/m6.md
 // measures. A build per target would import one.
 
@@ -32,6 +42,7 @@ import linuxArm64GlibcLib from "../../../node_modules/libghostty-vt/prebuilds/li
 import linuxArm64GlibcShim from "../../../node_modules/libghostty-vt/prebuilds/linux-arm64-glibc/libghostty-vt-shim.so" with { type: "file" };
 import linuxArm64MuslLib from "../../../node_modules/libghostty-vt/prebuilds/linux-arm64-musl/libghostty-vt.so" with { type: "file" };
 import linuxArm64MuslShim from "../../../node_modules/libghostty-vt/prebuilds/linux-arm64-musl/libghostty-vt-shim.so" with { type: "file" };
+import win32X64Lib from "../../../vendor/ghostty-vt-ffi/win32-x64/ghostty-vt.dll" with { type: "file" };
 
 export const LIBGHOSTTY_VT_VERSION = "0.6.3";
 export const FFI_GHOSTTY_COMMIT = "e88c6c099152dd6d2d7e517516e1f3c183c152f7";
@@ -71,6 +82,13 @@ const PREBUILDS: Record<
     libName: "libghostty-vt.so.0",
     shimName: "libghostty-vt-shim.so",
   },
+  // One file under both names: the win32 DLL has the shim linked into it.
+  "win32-x64": {
+    lib: win32X64Lib,
+    shim: win32X64Lib,
+    libName: "ghostty-vt.dll",
+    shimName: "ghostty-vt.dll",
+  },
 };
 
 /** The binding's platform id for this process; mirrors its own detection. */
@@ -93,6 +111,15 @@ export function ffiPlatform(): string {
 }
 
 export const embeddedInBinary = linuxX64GlibcLib.startsWith("/$bunfs/");
+
+/**
+ * Whether the binding has to be pointed at a library rather than left to
+ * find its own. True from a compiled binary on every platform, and true on
+ * win32 either way, because the package ships no win32 prebuild for the
+ * binding's own resolver to find.
+ */
+export const needsPrebuildOverride =
+  embeddedInBinary || process.platform === "win32";
 
 /**
  * Where a compiled binary puts the extracted pair: a directory keyed by
@@ -136,7 +163,7 @@ export async function loadGhosttyFfiEngine(): Promise<GhosttyFfiEngine> {
   } catch (e) {
     throw new Error(`libghostty-vt failed to import: ${String(e)}`);
   }
-  if (embeddedInBinary && !lib.isLoaded()) {
+  if (needsPrebuildOverride && !lib.isLoaded()) {
     const { lib: libPath, shim } = await extractPrebuilds();
     lib.setLibraryPath(libPath);
     lib.setShimLibraryPath(shim);
