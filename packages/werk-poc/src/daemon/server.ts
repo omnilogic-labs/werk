@@ -591,6 +591,15 @@ class LagSampler {
 }
 
 function readRss(): number | null {
+  if (process.platform === "darwin") {
+    // No /proc; `ps -o rss=` reports the same figure in KiB.
+    const kb = Number(
+      Bun.spawnSync(["ps", "-o", "rss=", "-p", String(process.pid)])
+        .stdout.toString()
+        .trim(),
+    );
+    return Number.isFinite(kb) && kb > 0 ? kb * 1024 : null;
+  }
   try {
     const m = /VmRSS:\s+(\d+) kB/.exec(
       fs.readFileSync("/proc/self/status", "utf8"),
