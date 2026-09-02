@@ -32,19 +32,24 @@ macOS and Windows.
 
 **Not taken, and worth saying plainly.** The 24-hour soak (a 30-minute run
 stands in, with the command for the full one recorded); the ffi adapter's
-`linux-arm64`, musl and `darwin-x64` targets, which remain claims rather than
-measurements; and **loss or reordering** on the remote transport, which
+`darwin-x64` target, which has no build to measure (its `linux-arm64` and musl
+targets are measured in [platforms.md](./platforms.md)); and **loss or
+reordering** on the remote transport, which
 `netem` latency alone does not exercise. Where a row above reads "not hit",
 it is not hit _here_, on this machine, with these versions.
 
-macOS and Windows are taken separately, on hosted runners, in
-[platforms.md](./platforms.md). Two things it settles bear on the rows above:
-the controlling-terminal question `m0` leaves open does not reproduce on
-macOS either, and the `darwin-arm64` ffi build agrees with this one on the
-differential corpus byte for byte. Two things it opens: macOS gives a unix
-stream socket an 8 KiB buffer against Linux's 208 KiB, which changes when a
-client lags; and on Windows the PTY works while the daemon's readiness pipe
-does not, which is the opposite of the order everyone expected.
+The other seven targets are taken separately, on hosted runners, in
+[platforms.md](./platforms.md). What it settles that bears on the rows above:
+the PTY is the controlling terminal on macOS as on Linux; the `darwin-arm64`
+and vendored `win32-x64` ffi builds agree with this one on the differential
+corpus byte for byte, and the wasm engine's report is byte-identical on all
+eight targets. What it opens: macOS gives a unix stream socket an 8 KiB
+buffer against Linux's 208 KiB, which changes when a client lags — raising it
+on the listener's fd removes most of the lag episodes and none of the bytes
+lost; and on Windows the PTY works while the daemon's readiness pipe does
+not, which is the opposite of the order everyone expected, and a spike that
+replaces the pipe and the lock reaches ConPTY's re-encoded output and
+`TerminateProcess` kill semantics as the next questions.
 
 The one row the PoC does not simply clear is trap isolation, and it clears in
 werk's favour differently than feared: the shared instance is robust to
