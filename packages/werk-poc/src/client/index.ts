@@ -458,8 +458,9 @@ export class Client {
     return { ...r, bytes: new Uint8Array(Buffer.from(r.bytes, "base64")) };
   }
 
-  stats(): Promise<DaemonStats> {
-    return this.request<DaemonStats>({ t: "stats" });
+  /** The daemon's accounting; `gc` asks it to run a full collection first. */
+  stats(opts: { gc?: boolean } = {}): Promise<DaemonStats> {
+    return this.request<DaemonStats>({ t: "stats", gc: opts.gc });
   }
 
   /** Asks the daemon to exit; its sessions are killed. A socket round trip, not a signal. */

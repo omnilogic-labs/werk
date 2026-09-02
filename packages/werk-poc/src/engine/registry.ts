@@ -6,6 +6,7 @@ import type { VtEngine } from "./types.ts";
 
 const factories = new Map<string, () => Promise<VtEngine>>();
 const instances = new Map<string, Promise<VtEngine>>();
+const resolved = new Map<string, VtEngine>();
 
 export function registerEngine(
   id: string,
@@ -26,6 +27,12 @@ export function getEngine(id: string): Promise<VtEngine> {
     if (!f) return Promise.reject(new Error(`no engine registered as "${id}"`));
     p = f();
     instances.set(id, p);
+    void p.then((e) => resolved.set(id, e)).catch(() => {});
   }
   return p;
+}
+
+/** The engine if it has already been constructed; never constructs one. For `stats`. */
+export function peekEngine(id: string): VtEngine | undefined {
+  return resolved.get(id);
 }

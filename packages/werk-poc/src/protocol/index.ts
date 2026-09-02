@@ -156,7 +156,8 @@ export type ClientMessage =
   | { t: "logs"; rid: number; id: string; format: "text" | "vt" }
   | { t: "screen"; rid: number; id: string }
   | { t: "snapshot"; rid: number; id: string }
-  | { t: "stats"; rid: number }
+  /** `gc` runs a full collection first, so a reading after churn separates "not yet collected" from "retained". */
+  | { t: "stats"; rid: number; gc?: boolean }
   | { t: "shutdown"; rid: number };
 
 /** Per-connection backpressure accounting, reported by `stats`. */
@@ -193,6 +194,25 @@ export interface SnapshotStats {
   slowest: { id: string; bytes: number; encodeMs: number } | null;
   /** How long the whole restore pass took at start, and how many files it saw. */
   restore: { files: number; ms: number };
+  /** The most recent timer pass: when, how many sessions were looked at, how many were written, and how long the loop was held. */
+  lastPass: {
+    at: number;
+    sessions: number;
+    written: number;
+    ms: number;
+  } | null;
+}
+
+/**
+ * Event-loop lag, from a 100 ms `setInterval` inside the daemon whose
+ * drift past its due time is sampled: a GC pause, a long synchronous
+ * encode, or a busy PTY callback all show up here. `recent` is over the
+ * last few hundred samples (about a minute); `total` is since start.
+ */
+export interface LoopLagStats {
+  intervalMs: number;
+  recent: { samples: number; p50Ms: number; p99Ms: number; maxMs: number };
+  total: { samples: number; maxMs: number; buckets: Record<string, number> };
 }
 
 export interface DaemonStats {
@@ -203,6 +223,24 @@ export interface DaemonStats {
   connections: ConnectionStats[];
   queueBound: number;
   snapshots: SnapshotStats;
+  /** `memory.buffer.byteLength` of the wasm engine's instance; null when the engine has not been loaded yet. */
+  wasmMemoryBytes: number | null;
+  /** `process.memoryUsage()`. */
+  memory: {
+    rss: number;
+    heapTotal: number;
+    heapUsed: number;
+    external: number;
+    arrayBuffers: number;
+  };
+  /** `bun:jsc`'s `heapStats()`, the parts that are numbers. */
+  jsc: {
+    heapSize: number;
+    heapCapacity: number;
+    extraMemorySize: number;
+    objectCount: number;
+  } | null;
+  loop: LoopLagStats;
 }
 
 /** What the daemon sends. */

@@ -1,17 +1,24 @@
 # bench
 
-The `wp bench` measurements from the proposal, §6. So far: the differential
-corpus (`wp bench diff`). M0's latency probe lives in `../spikes/m0/`.
+The `wp bench` measurements from the proposal, §6: the differential corpus
+(`wp bench diff`), the performance axis (`wp bench perf`), the operational
+axis (`wp bench ops`) and the soak (`wp bench soak`). M0's latency probe
+lives in `../spikes/m0/`; `perf` re-runs its bare-PTY path for a same-run
+baseline.
 
-| Path                   | What it is                                                                                                                                                           |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `differential.ts`      | The runner: every corpus case into `ghostty-wasm`, `ghostty-ffi` and `xterm-oracle`; plainText, styledCells and effects compared pairwise; reattach strategies; fuzz |
-| `cast.ts`              | asciicast v2 read/write, plus a `"b"` event for a chunk that is not valid UTF-8                                                                                      |
-| `corpus/`              | The cases, one `.cast` each, and `index.ts`, the manifest the runner reads                                                                                           |
-| `generate.ts`          | Writes the synthetic cases; `bun run bench/generate.ts` after changing one                                                                                           |
-| `record.ts`            | Records a real program under `Bun.Terminal` into a `.cast`, with scripted input                                                                                      |
-| `record-all.sh`        | The recorded cases, re-recordable                                                                                                                                    |
-| `differential.test.ts` | A smoke case; the full run is `wp bench diff`                                                                                                                        |
+| Path                   | What it is                                                                                                                                                              |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `differential.ts`      | The runner: every corpus case into `ghostty-wasm`, `ghostty-ffi` and `xterm-oracle`; plainText, styledCells and effects compared pairwise; reattach strategies; fuzz    |
+| `perf.ts`              | VT throughput per engine, relay latency through the real daemon, snapshot cost, daemon RSS for 1/10/50 sessions and across churn, the slow client, wasm trap isolation  |
+| `ops.ts`               | Toolchain, platform matrix, `bun build --compile` survival and binary size per engine set (compiled into `../dist/bench-ops/`), cold start of `wp ls` and `wp __daemon` |
+| `soak.ts`              | Twenty sessions on a daemon of its own, sampled to a JSONL file every interval; `--report` summarises a log; `_lib.ts` holds what the three runners share               |
+| `bench.test.ts`        | One smoke case per runner at tiny parameters; the real numbers are in `../findings/m6.md`                                                                               |
+| `cast.ts`              | asciicast v2 read/write, plus a `"b"` event for a chunk that is not valid UTF-8                                                                                         |
+| `corpus/`              | The cases, one `.cast` each, and `index.ts`, the manifest the runner reads                                                                                              |
+| `generate.ts`          | Writes the synthetic cases; `bun run bench/generate.ts` after changing one                                                                                              |
+| `record.ts`            | Records a real program under `Bun.Terminal` into a `.cast`, with scripted input                                                                                         |
+| `record-all.sh`        | The recorded cases, re-recordable                                                                                                                                       |
+| `differential.test.ts` | A smoke case; the full run is `wp bench diff`                                                                                                                           |
 
 ## Running it
 
@@ -27,6 +34,22 @@ Output is one block per case with each pair's verdict and, for a
 disagreement, the first few differing rows, cells or effects, then the
 summary tables. Nothing is scored: a differing pair is a finding for a
 human to attribute, and `findings/m6.md` records the attributions.
+
+The other three:
+
+```console
+$ bun run bench/perf.ts                          # every section; ~3 min
+$ bun run bench/perf.ts --only throughput,trap   # a subset; --json for the numbers
+$ bun run bench/ops.ts                           # compiles five binaries into dist/bench-ops/; ~2 min
+$ bun run bench/ops.ts --no-compile              # report on the binaries an earlier run left
+$ bun run bench/soak.ts --duration 24h --out soak.jsonl --interval 60s
+$ bun run bench/soak.ts --report soak.jsonl      # the summary from a log, any time
+```
+
+`--quick` on any of them is what the smoke test uses: tiny parameters, no
+compiles. Every daemon these start lives on a temporary directory and is
+shut down at the end; `pgrep -af __daemon` should be empty afterwards. The
+soak writes the daemon's own log next to its JSONL as `<name>.daemon.log`.
 
 ## What is compared, and what is not
 

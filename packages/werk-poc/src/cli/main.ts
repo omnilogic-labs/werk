@@ -29,15 +29,23 @@ usage:
   wp serve [--port N]                          loopback web UI: session list, live terminals
   wp bench diff [--fuzz N] [--seed N] [--verbose] [case...]
                                                the differential corpus across the three engines
-  wp bench                                     the other measurements in the proposal, §6
+  wp bench perf [--only a,b] [--json] [--quick]
+                                               throughput, relay latency, snapshot cost, daemon
+                                               memory and churn, slow client, wasm trap isolation
+  wp bench ops [--json] [--quick] [--no-compile]
+                                               toolchain, platform matrix, --compile survival and
+                                               binary size, cold start
+  wp bench soak [--duration 24h] [--interval 60s] [--out f.jsonl] [--idle N] [--noisy N] [--keep]
+                                               twenty sessions on a daemon of their own, sampled
+                                               to a JSONL file; a summary at the end
+  wp bench soak --report <f.jsonl>             the summary from an existing soak log
   wp caps                                      the capability matrix, one column per engine
   wp __daemon                                  hidden; not typed by a human
 
 Every command but __daemon takes --socket <path> (or WP_SOCKET in the
 environment): talk to the daemon behind that socket — one forwarded with
-ssh -L from another machine, say — and never start one.
-
-bench diff is the only bench so far.`;
+ssh -L from another machine, say — and never start one. The benches run
+their daemons on temporary directories and never touch that one.`;
 
 interface Parsed {
   flags: Map<string, string | true>;
@@ -56,6 +64,15 @@ const VALUED = new Set([
   "socket",
   "fuzz",
   "seed",
+  "only",
+  "duration",
+  "interval",
+  "out",
+  "report",
+  "idle",
+  "noisy",
+  "attach-every",
+  "trap-child",
 ]);
 
 function parse(argv: string[]): Parsed {
@@ -117,20 +134,74 @@ async function caps(): Promise<number> {
 
 async function bench(p: Parsed): Promise<number> {
   const [sub, ...cases] = p.positional;
-  if (sub !== "diff") {
-    console.error("wp bench: only `wp bench diff` exists so far");
-    return 2;
+  const str = (name: string) => {
+    const v = p.flags.get(name);
+    return typeof v === "string" ? v : undefined;
+  };
+  switch (sub) {
+    case "diff": {
+      const { runDifferential } = await import("../../bench/differential.ts");
+      await runDifferential({
+        cases,
+        fuzz: intFlag(p, "fuzz"),
+        seed: intFlag(p, "seed"),
+        verbose: p.flags.has("verbose"),
+      });
+      return 0;
+    }
+    case "perf": {
+      const { runPerf, SECTIONS } = await import("../../bench/perf.ts");
+      const only = str("only")?.split(",");
+      for (const s of only ?? [])
+        if (!(SECTIONS as string[]).includes(s))
+          throw new UsageError(
+            `wp bench perf: unknown section "${s}"; one of ${SECTIONS.join(", ")}`,
+          );
+      await runPerf({
+        only: only as typeof SECTIONS | undefined,
+        json: p.flags.has("json"),
+        quick: p.flags.has("quick"),
+        trapChild: str("trap-child"),
+      });
+      return 0;
+    }
+    case "ops": {
+      const { runOps } = await import("../../bench/ops.ts");
+      await runOps({
+        json: p.flags.has("json"),
+        quick: p.flags.has("quick"),
+        compile: p.flags.has("no-compile") ? false : undefined,
+      });
+      return 0;
+    }
+    case "soak": {
+      const { runSoak, formatSummary, reportFile, parseDuration } =
+        await import("../../bench/soak.ts");
+      const report = str("report");
+      if (report) {
+        out(reportFile(report) + "\n");
+        return 0;
+      }
+      const summary = await runSoak({
+        durationMs: parseDuration(str("duration") ?? "30m"),
+        intervalMs: str("interval")
+          ? parseDuration(str("interval")!)
+          : undefined,
+        out: str("out"),
+        idle: intFlag(p, "idle"),
+        noisy: intFlag(p, "noisy"),
+        attachEveryMs: str("attach-every")
+          ? parseDuration(str("attach-every")!)
+          : undefined,
+        keep: p.flags.has("keep"),
+      });
+      out(formatSummary(summary) + "\n");
+      return 0;
+    }
+    default:
+      console.error("wp bench: expected one of diff, perf, ops, soak");
+      return 2;
   }
-  const { runDifferential } = await import("../../bench/differential.ts");
-  const fuzz = intFlag(p, "fuzz");
-  const seed = intFlag(p, "seed");
-  await runDifferential({
-    cases,
-    fuzz,
-    seed,
-    verbose: p.flags.has("verbose"),
-  });
-  return 0;
 }
 
 function age(since: number): string {

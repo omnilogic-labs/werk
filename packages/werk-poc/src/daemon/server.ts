@@ -7,8 +7,9 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { heapStats } from "bun:jsc";
 import { GHOSTTY_COMMIT } from "../engine/ghostty-wasm/bytes.ts";
-import { getEngine } from "../engine/registry.ts";
+import { getEngine, peekEngine } from "../engine/registry.ts";
 import type { VtEngine } from "../engine/types.ts";
 import {
   decodeControl,
@@ -23,6 +24,7 @@ import {
   type HelloInfo,
   type KillResult,
   type LogsResult,
+  type LoopLagStats,
   type RunResult,
   type ScreenResult,
   type SessionInfo,
@@ -87,7 +89,9 @@ export async function startServer(
     written: { timer: 0, exit: 0, shutdown: 0 },
     slowest: null,
     restore: { files: 0, ms: 0 },
+    lastPass: null,
   };
+  const lag = new LagSampler(LAG_INTERVAL_MS);
 
   // -- snapshots -------------------------------------------------------------
 
@@ -124,7 +128,16 @@ export async function startServer(
 
   function onTimer(): void {
     snapStats.ticks++;
-    for (const s of sessions.values()) if (s.dirty) snapshot(s, "timer");
+    const t0 = performance.now();
+    let written = 0;
+    for (const s of sessions.values())
+      if (s.dirty && snapshot(s, "timer")) written++;
+    snapStats.lastPass = {
+      at: Date.now(),
+      sessions: sessions.size,
+      written,
+      ms: performance.now() - t0,
+    };
   }
 
   /** Restore every file in the state directory as a corpse; runs before the socket is up. */
@@ -316,7 +329,21 @@ export async function startServer(
           encodeMs: snap.encodeMs,
         } satisfies SnapshotResult;
       }
-      case "stats":
+      case "stats": {
+        if (msg.gc) Bun.gc(true);
+        const wasm = peekEngine("ghostty-wasm") as
+          { module?: { memory?: WebAssembly.Memory } } | undefined;
+        const mem = process.memoryUsage();
+        let jsc: DaemonStats["jsc"] = null;
+        try {
+          const h = heapStats();
+          jsc = {
+            heapSize: h.heapSize,
+            heapCapacity: h.heapCapacity,
+            extraMemorySize: h.extraMemorySize,
+            objectCount: h.objectCount,
+          };
+        } catch {}
         return {
           pid: process.pid,
           rssBytes: readRss(),
@@ -325,7 +352,18 @@ export async function startServer(
           connections: [...connections].map((c) => c.stats()),
           queueBound: QUEUE_BOUND,
           snapshots: snapStats,
+          wasmMemoryBytes: wasm?.module?.memory?.buffer.byteLength ?? null,
+          memory: {
+            rss: mem.rss,
+            heapTotal: mem.heapTotal,
+            heapUsed: mem.heapUsed,
+            external: mem.external,
+            arrayBuffers: mem.arrayBuffers,
+          },
+          jsc,
+          loop: lag.stats(),
         } satisfies DaemonStats;
+      }
       case "shutdown":
         queueMicrotask(() => server.shutdown("shutdown message"));
         return {};
@@ -457,6 +495,7 @@ export async function startServer(
       stopping = true;
       log(`shutting down: ${reason}`);
       clearInterval(timer);
+      lag.stop();
       // Every session to disk before the children go, dirty or not: the
       // file's header records the status and exit code at this moment.
       const t0 = performance.now();
@@ -476,6 +515,79 @@ export async function startServer(
     },
   };
   return server;
+}
+
+const LAG_INTERVAL_MS = 100;
+const LAG_RECENT = 600;
+const LAG_BUCKETS_MS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
+
+/**
+ * A `setInterval` whose drift past its due time is the daemon's event-loop
+ * lag: whatever held the loop — a GC pause, a synchronous encode, a long
+ * PTY callback — shows up as a late tick. The proposal's soak asks for a
+ * GC pause distribution; this is the proxy a JavaScript process can give
+ * without a profiler attached.
+ */
+class LagSampler {
+  private readonly recent: number[] = [];
+  private samples = 0;
+  private maxMs = 0;
+  private readonly buckets = new Map<string, number>();
+  private last: number;
+  private readonly timer: ReturnType<typeof setInterval>;
+
+  constructor(readonly intervalMs: number) {
+    for (const b of LAG_BUCKETS_MS) this.buckets.set(`<${b}`, 0);
+    this.buckets.set(`>=${LAG_BUCKETS_MS[LAG_BUCKETS_MS.length - 1]}`, 0);
+    this.last = performance.now();
+    this.timer = setInterval(() => this.tick(), intervalMs);
+  }
+
+  private tick(): void {
+    // Each tick is measured against the previous one, not against a fixed
+    // schedule: `setInterval` re-arms after the callback, so a schedule
+    // would accumulate the timer's own drift as though it were lag.
+    const now = performance.now();
+    const lag = Math.max(0, now - this.last - this.intervalMs);
+    this.last = now;
+    this.samples++;
+    if (lag > this.maxMs) this.maxMs = lag;
+    let key = `>=${LAG_BUCKETS_MS[LAG_BUCKETS_MS.length - 1]}`;
+    for (const b of LAG_BUCKETS_MS)
+      if (lag < b) {
+        key = `<${b}`;
+        break;
+      }
+    this.buckets.set(key, (this.buckets.get(key) ?? 0) + 1);
+    this.recent.push(lag);
+    if (this.recent.length > LAG_RECENT) this.recent.shift();
+  }
+
+  stats(): LoopLagStats {
+    const sorted = [...this.recent].sort((a, b) => a - b);
+    const q = (p: number) =>
+      sorted.length === 0
+        ? 0
+        : sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]!;
+    return {
+      intervalMs: this.intervalMs,
+      recent: {
+        samples: sorted.length,
+        p50Ms: q(0.5),
+        p99Ms: q(0.99),
+        maxMs: sorted.length ? sorted[sorted.length - 1]! : 0,
+      },
+      total: {
+        samples: this.samples,
+        maxMs: this.maxMs,
+        buckets: Object.fromEntries(this.buckets),
+      },
+    };
+  }
+
+  stop(): void {
+    clearInterval(this.timer);
+  }
 }
 
 function readRss(): number | null {

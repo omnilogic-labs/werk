@@ -25,7 +25,7 @@ the product directly. What matters is what is written down in `findings/`.
 | `spikes/m3/`    | M3's cross-commit decode, snapshot cost, and fd-reuse probes    |
 | `spikes/m5/`    | M5's transport spike: the daemon in a container behind `ssh -L` |
 | `spikes/m6/`    | M6's compiled-binary check for the ffi binding and the oracle   |
-| `bench/`        | `wp bench diff`: the differential corpus and its runner (M6)    |
+| `bench/`        | `wp bench`: the differential corpus, perf, ops and soak runners |
 | `findings/m4/`  | Screenshots from M4's browser check                             |
 | `vendor/`       | Pinned upstream artifacts (libghostty WASM, `ghostty-web`)      |
 | `findings/`     | What each milestone found, one file per milestone               |
@@ -45,6 +45,9 @@ $ bun run m2                 # the reattach-fidelity scenarios, as a table
 $ bun run m3                 # snapshot cost and cross-commit decode tables
 $ bun run m5 -- --rtt 0,50,200   # the transport spike; needs Docker, ~6 min
 $ bun run bench/differential.ts --fuzz 50   # the differential corpus, all three engines
+$ bun run bench/perf.ts                     # throughput, latency, snapshot, memory, slow client, trap
+$ bun run bench/ops.ts                      # toolchain, platforms, --compile survival, size, cold start
+$ bun run bench/soak.ts --duration 30m --out soak.jsonl   # the soak; --report soak.jsonl summarises later
 ```
 
 And the program itself, once built:
@@ -54,6 +57,9 @@ $ ./dist/wp run -- claude    # spawn under a PTY in the daemon and attach; ctrl-
 $ ./dist/wp run --engine=ghostty-ffi -- claude   # the same on the ffi engine
 $ ./dist/wp caps             # the capability matrix, one column per engine
 $ ./dist/wp bench diff       # the differential corpus
+$ ./dist/wp bench perf       # the performance axis; --json for the numbers
+$ ./dist/wp bench ops        # the operational axis
+$ ./dist/wp bench soak --duration 24h --out soak.jsonl   # the soak, on temp dirs
 $ ./dist/wp ls
 $ ./dist/wp attach <id>
 $ ./dist/wp logs <id>
