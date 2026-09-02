@@ -22,3 +22,5 @@ Nothing here is a product design yet. There are three parts:
 - About to argue about a decision → [product/04-open-questions.md](product/04-open-questions.md)
 - About to write code → [proposals/00-stack-proof-of-concept.md](proposals/00-stack-proof-of-concept.md),
   and [research/README.md](research/README.md) for the three spikes behind it
+- Want to know what the proof of concept found →
+  [`../packages/werk-poc/findings/README.md`](../packages/werk-poc/findings/README.md)
