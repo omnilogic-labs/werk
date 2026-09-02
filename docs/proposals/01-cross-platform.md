@@ -45,7 +45,7 @@ Every "measured" cell names a run in §7. A cell is a claim until it does.
 | linux-arm64-musl  | Alpine 3.22 on arm | identical                 | starts, answers `ls`                | same                                                    |
 | darwin-arm64      | `macos-latest`     | identical                 | starts, answers `ls`                | same as Linux                                           |
 | darwin-x64        | `macos-15-intel`   | identical                 | starts, answers `ls`                | same; no ffi prebuild exists, so ffi tests fail         |
-| win32-x64         | `windows-latest`   | identical                 | fails at the lock (§3)              | seven suites fail, all from three daemon-layer causes   |
+| win32-x64         | `windows-latest`   | identical                 | fails at the lock (§3)              | six suites fail, all from three daemon-layer causes     |
 | win32-arm64       | `windows-11-arm`   | identical                 | fails at the lock; no `bun:ffi`     | as x64, plus no ffi engine at all in Bun 1.3.14         |
 
 Three things the table says that the research did not expect:
@@ -132,14 +132,14 @@ the test suite runs far enough to hit questions rather than blockers:
   `wp.exe` so the M2 harness cannot rebuild it, and `bench/ops.ts` has its own
   POSIX-shaped launcher.
 
-Three findings in the earlier platforms record turned out to be measurement
-artefacts, and the spike re-measured each:
+Three verdicts the Windows lane's suites report are artefacts of how the
+suites measure, not platform facts; the spike measured each directly:
 
 - The socket file **does** exist. `Bun.listen({ unix })` on Windows is a
   Winsock `AF_UNIX` socket whose path is a reparse point; Bun's `existsSync`,
   `lstat` and `stat` all fail on it (`EACCES`), while a directory listing
   shows it as a symlink. A stale one refuses rebinding until unlinked, and
-  the lock is what proves it stale.
+  the lock is probably what should prove it stale.
 - The detached daemon **does** survive its parent's ConPTY closing. The old
   scenario judged liveness by MSYS `ps` reporting `sid == pid`, which it
   never does for a native process. Judged by a tick file and `kill(pid, 0)`,
@@ -289,13 +289,13 @@ gated" is what the lanes do today and probably the right default.
 ## 6. What the measurements do to the open questions
 
 - **Windows as host** ([`../product/04-open-questions.md`](../product/04-open-questions.md) §4).
-  The "host too" row's costs were: output re-encoding, `proc.kill` ignoring
-  the signal, no `AF_UNIX`, and WSL2 teardown. One of those is wrong
-  (`AF_UNIX` exists and works), two are now measured and bounded (§3), and
-  the fourth is unchanged. The lean towards client-first with WSL2 as the
-  documented placement probably still holds on effort grounds — the seam is
-  small but the ConPTY semantics behind it are real work — but the argument
-  that the platform blocks native hosting no longer does.
+  The measured costs of hosting on Windows are output re-encoding, kill
+  being `TerminateProcess` with graceful teardown moved into the protocol,
+  ConPTY latency, and WSL2 teardown if that is the placement; `AF_UNIX` is
+  not one of them. The lean towards client-first with WSL2 as the documented
+  placement probably still holds on effort grounds — the seam is small but
+  the ConPTY semantics behind it are real work — but nothing measured says
+  the platform blocks native hosting.
 - **Windows transport** ([`../research/09-remote-transport.md`](../research/09-remote-transport.md)
   open question 3) is narrowed: unix-socket forwarding is confirmed absent on
   both sides of Win32-OpenSSH, so a Windows client of a remote daemon

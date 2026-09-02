@@ -303,7 +303,7 @@ the entry as a symlink. Bun unlinks it on `stop()`. A killed daemon's file
 refuses a rebind until it is unlinked; renaming a fresh socket over a stale
 one works; a second listen on a live socket is refused. So the daemon's
 bind-and-rename holds on Windows provided the stale file is removed first,
-and the lock is what proves it stale. The socket is reachable from Bun and
+and the lock is probably what should prove it stale. The socket is reachable from Bun and
 from little else: Node and libuv reach only `\\.\pipe\` names, and
 Win32-OpenSSH forwards neither sockets nor pipes
 ([`../../../docs/research/09-remote-transport.md`](../../../docs/research/09-remote-transport.md)
