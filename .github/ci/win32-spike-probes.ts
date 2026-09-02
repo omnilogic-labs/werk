@@ -27,6 +27,7 @@ const ALL_PROBES = [
   "ctrl-c",
   "kill-detached",
   "misc",
+  "crt-osfhandle",
 ];
 
 const argv = process.argv.slice(2);
@@ -267,8 +268,7 @@ if (role && role !== "run") {
     case "lock-holder": {
       // Hold the lock on argv[1] until killed.
       const p = argv[1]!;
-      const fd = fs.openSync(p, "w");
-      const h = ucrt()._get_osfhandle(fd);
+      const h = openHandle(p);
       const [ok, err] = lockHandle(h);
       say("holder", ok ? "locked" : `refused err=${err}`);
       if (ok) await sleep(60_000);
@@ -276,11 +276,10 @@ if (role && role !== "run") {
     }
     case "lock-try": {
       const p = argv[1]!;
-      const fd = fs.openSync(p, "w");
-      const h = ucrt()._get_osfhandle(fd);
+      const h = openHandle(p);
       const [ok, err] = lockHandle(h);
       say("try", `${ok ? "locked" : "refused"} err=${err}`);
-      fs.closeSync(fd);
+      kernel32().CloseHandle(h);
       process.exit(0);
     }
     case "fd3-write": {
@@ -461,6 +460,13 @@ if (want("ffi-basic")) {
   } catch (e) {
     say("ffi-kernel32", `fail — ${firstLine(e)}`);
   }
+}
+
+// ucrtbase.dll's fd table is not Bun's: fds 0-2 map (the UCRT seeds them
+// from the std handles) but `_get_osfhandle` on a Bun-opened fd takes the
+// whole process down with exit code 9 and no message (run 33688866439), so
+// this stays a probe of its own, last in the list, and nothing else uses it.
+if (want("crt-osfhandle")) {
   try {
     const c = ucrt();
     say("ffi-dlopen-ucrtbase", "ok");
@@ -476,6 +482,10 @@ if (want("ffi-basic")) {
     }
     const p = path.join(tempDir("wp-spike-ffi-"), "f");
     const fd = fs.openSync(p, "w");
+    say(
+      "ffi-osfhandle-file",
+      `fs.openSync gave fd ${fd}; calling _get_osfhandle on it`,
+    );
     const h = c._get_osfhandle(fd);
     say(
       "ffi-osfhandle-file",
@@ -589,7 +599,8 @@ if (want("socket-file")) {
       }
       ls.stop(true);
       await sleep(50);
-      const target = fs.existsSync(path.join(dir, "stale2.sock"))
+      // existsSync says false for a reparse point; ask the directory instead
+      const target = fs.readdirSync(dir).includes("stale2.sock")
         ? path.join(dir, "stale2.sock")
         : null;
       if (target) {
@@ -691,19 +702,20 @@ if (want("socket-file")) {
 if (want("lockfileex")) {
   const dir = tempDir("wp-spike-lock-");
   const p = path.join(dir, "wp.lock");
+  // All handles come from CreateFileW: Bun's fds belong to a CRT that is not
+  // ucrtbase.dll, so `_get_osfhandle` on one is fatal (see crt-osfhandle).
   try {
-    const fd = fs.openSync(p, "w");
-    let h: bigint = INVALID_HANDLE;
-    try {
-      h = ucrt()._get_osfhandle(fd);
+    const h = openHandle(p);
+    if (isInvalid(h)) {
       say(
-        "lock-osfhandle",
-        `fd ${fd} -> handle ${h} (${isInvalid(h) ? "INVALID" : `GetFileType=${kernel32().GetFileType(h)}`})`,
+        "lock-createfilew",
+        `CreateFileW failed, GetLastError=${kernel32().GetLastError()}`,
       );
-    } catch (e) {
-      say("lock-osfhandle", `fail — ${firstLine(e)}`);
-    }
-    if (!isInvalid(h)) {
+    } else {
+      say(
+        "lock-createfilew",
+        `ok — handle ${h}, GetFileType=${kernel32().GetFileType(h)} (1 = disk); the file ${fs.existsSync(p) ? "exists" : "does not exist"}`,
+      );
       const [ok, err] = lockHandle(h);
       say(
         "lock-take",
@@ -711,6 +723,14 @@ if (want("lockfileex")) {
           ? "ok — LockFileEx succeeded"
           : `fail — LockFileEx refused, GetLastError=${err}`,
       );
+      // a second handle in this same process (a re-entrant tryLock)
+      const hSame = openHandle(p);
+      const [okSame, errSame] = lockHandle(hSame);
+      say(
+        "lock-same-process",
+        `a second handle in the same process: ${okSame ? "locked too (LockFileEx is per handle, not per process)" : `refused err=${errSame}`}`,
+      );
+      kernel32().CloseHandle(hSame);
       const t = Bun.spawn(self("lock-try", p), {
         stdout: "pipe",
         stderr: "pipe",
@@ -731,26 +751,18 @@ if (want("lockfileex")) {
         "lock-release",
         `UnlockFileEx=${r}; other process says ${JSON.stringify((await new Response(t2.stdout).text()).trim())} (expect locked)`,
       );
-      fs.closeSync(fd);
-    }
-    // a CreateFileW handle, in case the CRT route is the wrong one
-    try {
-      const h2 = openHandle(p);
-      if (isInvalid(h2))
-        say(
-          "lock-createfilew",
-          `CreateFileW failed, GetLastError=${kernel32().GetLastError()}`,
-        );
-      else {
-        const [ok, err] = lockHandle(h2);
-        say(
-          "lock-createfilew",
-          ok ? "ok — a CreateFileW handle locks" : `refused err=${err}`,
-        );
-        kernel32().CloseHandle(h2);
-      }
-    } catch (e) {
-      say("lock-createfilew", `fail — ${firstLine(e)}`);
+      // lock again, then close the handle: is the lock gone with it?
+      lockHandle(h);
+      kernel32().CloseHandle(h);
+      const t3 = Bun.spawn(self("lock-try", p), {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      await t3.exited;
+      say(
+        "lock-release-on-close",
+        `after CloseHandle, other process says ${JSON.stringify((await new Response(t3.stdout).text()).trim())} (expect locked)`,
+      );
     }
     // release on death: a holder process is killed, how soon can we lock?
     const holder = Bun.spawn(self("lock-holder", p), {
@@ -766,8 +778,7 @@ if (want("lockfileex")) {
       first && first.value
         ? new TextDecoder().decode(first.value).trim()
         : "(nothing)";
-    const fd2 = fs.openSync(p, "w");
-    const h3 = ucrt()._get_osfhandle(fd2);
+    const h3 = openHandle(p);
     const [before, errBefore] = lockHandle(h3);
     holder.kill();
     const t0 = performance.now();
@@ -787,7 +798,24 @@ if (want("lockfileex")) {
       "lock-release-on-death",
       `holder said ${JSON.stringify(said)}; while held: ${before ? "we got it too (BAD)" : `refused err=${errBefore}`}; after kill: ${got ? `acquired after ${(performance.now() - t0).toFixed(0)} ms, ${tries} tries` : "not acquired within 5 s"}`,
     );
-    fs.closeSync(fd2);
+    kernel32().CloseHandle(h3);
+    // the daemon opens its log and a client may read it: does a locked file
+    // still open for others? (LockFileEx locks a byte range, not the file)
+    try {
+      const h4 = openHandle(p);
+      lockHandle(h4);
+      const text = fs.readFileSync(p, "utf8");
+      const fdw = fs.openSync(p, "a");
+      fs.writeSync(fdw, "x");
+      fs.closeSync(fdw);
+      say(
+        "lock-others-can-open",
+        `readFileSync ok (${text.length} bytes) and an append past the locked byte ok`,
+      );
+      kernel32().CloseHandle(h4);
+    } catch (e) {
+      say("lock-others-can-open", `${firstLine(e)}`);
+    }
   } catch (e) {
     say("lockfileex", `fail — ${firstLine(e)}`);
   } finally {
@@ -858,14 +886,11 @@ if (want("stdio3")) {
         resolve(`throw ${firstLine(e)}`);
       }
     });
-  const osfReadSync: ParentRead = async (fd) => {
+  const fileType: ParentRead = async (fd) => {
+    // Is the number a raw HANDLE? FILE_TYPE_PIPE is 3.
     if (!ffiAllowed) return "n/a (ffi off)";
-    // If stdio[3] is a raw HANDLE, wrap it in a CRT fd first.
     try {
-      const type = kernel32().GetFileType(BigInt(fd));
-      const crtFd = ucrt()._open_osfhandle(BigInt(fd), 0);
-      if (crtFd < 0) return `GetFileType=${type}; _open_osfhandle failed`;
-      return `GetFileType=${type}; crt fd ${crtFd}: ${await readSync(crtFd)}`;
+      return `GetFileType(${fd} as HANDLE)=${kernel32().GetFileType(BigInt(fd))} (3 = pipe, 0 = not a handle)`;
     } catch (e) {
       return `error ${firstLine(e)}`;
     }
@@ -874,7 +899,7 @@ if (want("stdio3")) {
     ["fs.readSync", readSync],
     ["Bun.file(fd).text", bunFile],
     ["net.Socket({fd})", netSocket],
-    ["_open_osfhandle+readSync", osfReadSync],
+    ["GetFileType", fileType],
   ];
   for (const child of ["fd3-write", "fd3-net"]) {
     for (const [pname, read] of parents) {
@@ -1041,12 +1066,12 @@ if (want("ctrl-c")) {
           },
         },
       });
-      await sleep(cmd[0] === "pwsh" ? 2500 : 500);
+      await sleep(cmd[0] === "pwsh" ? 5000 : 500);
       const h = openProcess(proc.pid);
       proc.terminal!.write("\x03");
       const died = await Promise.race([
         proc.exited.then(() => true),
-        sleep(4000).then(() => false),
+        sleep(6000).then(() => false),
       ]);
       const raw = rawExitCode(h);
       if (!died) proc.kill();
