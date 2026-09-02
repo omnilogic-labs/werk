@@ -1,10 +1,10 @@
 // The `ghostty-wasm` adapter: the seam in ../types.ts over upstream's
 // freestanding libghostty-vt build, reached through loader.ts.
 //
-// This half (M1a) covers create / write / resize / plainText / styledCells /
-// dispose. The formatter's VT emission, effects, the snapshot codec, both
-// input encoders and the render consumer return Unsupported until the other
-// half lands; the C surface for each is already exported by the module.
+// Covers create / write / resize / plainText / styledCells / emitVt /
+// effects / encodeState / decodeState / dispose. Both input encoders and the
+// render consumer return Unsupported until they are built; the C surface for
+// each is already exported by the module.
 //
 // Routes chosen, and why (findings/m1.md has the detail):
 //
@@ -17,8 +17,25 @@
 //               decoded with the packed descriptor from ghostty_type_json.
 //               Only cells that need more (a multi-codepoint grapheme, or a
 //               non-zero style id) go through the per-cell handle.
+//   emitVt      the same formatter with emit = VT and the screen extras
+//               (cursor, style, hyperlink, protection, kitty keyboard,
+//               charsets); the viewport selection again unless `scrollback`
+//               asks for the whole active screen.
+//   effects     libghostty's callbacks, registered with ghostty_terminal_set.
+//               A callback is a C function pointer, i.e. an index into the
+//               module's function table, and GhosttyModule.hostFunction puts
+//               a JS function there. One set of six host functions serves
+//               every terminal on a module; they dispatch on the terminal
+//               handle they are handed.
+//   encodeState ghostty_snapshot_encode_alloc. Continuation tracking is
+//               switched on at create() so a snapshot taken mid-sequence
+//               still encodes.
+//   decodeState the incremental decoder over a copy of the bytes in wasm
+//               memory: ready() yields the renderable prefix as a terminal
+//               the caller owns, next() prepends one history page at a time.
 //
-// Reading both through different APIs is deliberate: the tests compare them.
+// Reading plainText and styledCells through different APIs is deliberate:
+// the tests compare them.
 
 import type {
   Capabilities,
@@ -26,38 +43,60 @@ import type {
   Color,
   DecodedState,
   Effect,
+  EmitVtOptions,
   KeyEvent,
   MouseEvent,
+  Page,
   RenderConsumer,
   TerminalModes,
   VtEngine,
   VtTerminal,
 } from "../types.ts";
 import { Unsupported } from "../types.ts";
-import { GhosttyModule, type GhosttySource } from "./loader.ts";
+import {
+  GhosttyModule,
+  type GhosttySource,
+  type WasmSignature,
+} from "./loader.ts";
 
 export { GhosttyModule, GhosttyError } from "./loader.ts";
 export { Layout } from "./layout.ts";
 
-const NOT_YET = "not yet implemented in M1a";
+const NOT_YET = "not yet implemented";
 
 /** ghostty_terminal_resize wants a cell size in pixels; the daemon has no font, so a plausible constant. */
 const CELL_WIDTH_PX = 8;
 const CELL_HEIGHT_PX = 16;
+
+/**
+ * How much unfinished VT input a terminal retains so that a snapshot taken
+ * mid-sequence can still be encoded. Past this, the continuation becomes
+ * unavailable until the parser next reaches ground, and encodeState throws
+ * INVALID_VALUE in the meantime.
+ */
+const CONTINUATION_MAX_BYTES = 64 * 1024;
 
 const CAPS: Capabilities = {
   write: true,
   resize: true,
   plainText: true,
   styledCells: true,
-  emitVt: false,
-  encodeState: false,
-  decodeState: false,
+  emitVt: true,
+  encodeState: true,
+  decodeState: true,
   renderConsumer: false,
-  effects: false,
+  effects: true,
   encodeKey: false,
   encodeMouse: false,
 };
+
+export interface CreateOptions {
+  cols: number;
+  rows: number;
+  scrollback: number;
+  /** Override the continuation tracking limit; 0 disables tracking. */
+  continuationMaxBytes?: number;
+}
 
 export class GhosttyWasmEngine implements VtEngine {
   readonly id = "ghostty-wasm";
@@ -70,16 +109,12 @@ export class GhosttyWasmEngine implements VtEngine {
     return new GhosttyWasmEngine(await GhosttyModule.load(source));
   }
 
-  create(opts: {
-    cols: number;
-    rows: number;
-    scrollback: number;
-  }): GhosttyWasmTerminal {
+  create(opts: CreateOptions): GhosttyWasmTerminal {
     return new GhosttyWasmTerminal(this.module, opts);
   }
 
-  decodeState(_bytes: Uint8Array): DecodedState | Unsupported {
-    return new Unsupported(NOT_YET);
+  decodeState(bytes: Uint8Array): GhosttyWasmDecodedState | Unsupported {
+    return new GhosttyWasmDecodedState(this.module, bytes);
   }
 
   encodeKey(_ev: KeyEvent, _mode: TerminalModes): Uint8Array | Unsupported {
@@ -114,8 +149,16 @@ interface Scratch {
   point: number;
   outPtr: number;
   outLen: number;
-  /** A u32 for terminal_get / terminal_set values. */
+  /** A u32 for terminal_get / terminal_set values, and a GhosttyString for borrowed strings. */
   u32: number;
+  str: number;
+}
+
+/** A terminal handle to wrap rather than create; the decoder hands these out. */
+interface AdoptHandle {
+  adopt: number;
+  /** Runs first in dispose(), before the handle is freed. */
+  onDispose?: () => void;
 }
 
 export class GhosttyWasmTerminal implements VtTerminal {
@@ -124,15 +167,26 @@ export class GhosttyWasmTerminal implements VtTerminal {
   private rows: number;
   private scratch: Scratch | null = null;
   private disposed = false;
+  private listeners: ((e: Effect) => void)[] = [];
+  /** The first exception a listener threw during the current write(); rethrown once the write returns. */
+  private listenerError: unknown = undefined;
+  private readonly onDispose: (() => void) | undefined;
 
   constructor(
     private readonly g: GhosttyModule,
-    opts: { cols: number; rows: number; scrollback: number },
+    init: CreateOptions | AdoptHandle,
   ) {
-    this.cols = opts.cols;
-    this.rows = opts.rows;
+    if ("adopt" in init) {
+      this.handle = init.adopt;
+      this.onDispose = init.onDispose;
+      this.cols = this.getNumber("COLS");
+      this.rows = this.getNumber("ROWS");
+      return;
+    }
+    this.cols = init.cols;
+    this.rows = init.rows;
     this.handle = g.withOpaque("ghostty_terminal_new", (slot) =>
-      g.call("ghostty_terminal_new", 0, slot, opts.cols, opts.rows),
+      g.call("ghostty_terminal_new", 0, slot, init.cols, init.rows),
     );
     // Scrollback. libghostty has two caps, lines and bytes, and prunes whole
     // pages when either is crossed, so the retained count lands within a
@@ -141,7 +195,7 @@ export class GhosttyWasmTerminal implements VtTerminal {
     // a NULL value removes it so the seam's line count is the one applied.
     const s = this.ensureScratch();
     const O = (m: string) => g.enumValue("GhosttyTerminalOption", m);
-    g.write(s.u32, "u32", opts.scrollback);
+    g.write(s.u32, "u32", init.scrollback);
     g.check(
       "ghostty_terminal_set",
       this.handle,
@@ -149,6 +203,17 @@ export class GhosttyWasmTerminal implements VtTerminal {
       s.u32,
     );
     g.check("ghostty_terminal_set", this.handle, O("SCROLLBACK_MAX_BYTES"), 0);
+    // Continuation tracking, so encodeState works between two bytes of an
+    // escape sequence. Tracking must be on before the unfinished bytes
+    // arrive, hence here rather than lazily in encodeState.
+    const cont = init.continuationMaxBytes ?? CONTINUATION_MAX_BYTES;
+    g.write(s.u32, "u32", cont);
+    g.check(
+      "ghostty_terminal_set",
+      this.handle,
+      O("CONTINUATION_MAX_BYTES"),
+      cont === 0 ? 0 : s.u32,
+    );
   }
 
   /** The value libghostty reports for the configured line limit, or null for unlimited. */
@@ -198,6 +263,14 @@ export class GhosttyWasmTerminal implements VtTerminal {
       s.inPtr,
       bytes.byteLength,
     );
+    // Effects fire synchronously inside the call above. A throwing listener
+    // must not unwind through libghostty's frames, so dispatch() parks the
+    // exception and it surfaces here.
+    if (this.listenerError !== undefined) {
+      const e = this.listenerError;
+      this.listenerError = undefined;
+      throw e;
+    }
   }
 
   resize(cols: number, rows: number): void {
@@ -214,35 +287,150 @@ export class GhosttyWasmTerminal implements VtTerminal {
     this.rows = rows;
   }
 
-  emitVt(_opts?: {
-    cursor?: boolean;
-    style?: boolean;
-  }): Uint8Array | Unsupported {
-    return new Unsupported(NOT_YET);
+  /**
+   * The screen as VT bytes that reproduce it in a fresh terminal of the same
+   * size: text with SGR, hyperlinks, DECSCA protection, Kitty keyboard state
+   * and charset designations, then a CUP to the cursor and the SGR state
+   * active there. The stream assumes a cleared terminal with the cursor at
+   * home; it does not clear or home itself.
+   *
+   * Two things do not survive: soft-wrapped lines come out as hard
+   * newlines, so a copy reflows differently on resize; and a cell with a
+   * background colour but no text (a BCE erase) comes out blank.
+   * encodeState has neither defect.
+   *
+   * `scrollback: true` emits the whole active screen, scrollback first. The
+   * formatter drops the viewport's trailing blank rows, which would leave a
+   * copy scrolled short by that many rows, so the adapter pads them back with
+   * newlines and places the cursor itself.
+   */
+  emitVt(opts?: EmitVtOptions): Uint8Array {
+    this.assertLive();
+    const cursor = opts?.cursor ?? true;
+    const screen = {
+      cursor,
+      style: opts?.style ?? true,
+      hyperlink: true,
+      protection: true,
+      kitty_keyboard: true,
+      charsets: true,
+    };
+    if (!opts?.scrollback) {
+      return this.format({
+        emit: "VT",
+        unwrap: false,
+        trim: false,
+        selection: this.viewportSelection(),
+        screen,
+      });
+    }
+    const body = this.format({
+      emit: "VT",
+      unwrap: false,
+      trim: false,
+      selection: 0,
+      screen: { ...screen, cursor: false },
+    });
+    const lines = this.plainText().split("\n");
+    let blank = 0;
+    while (blank < lines.length && lines[lines.length - 1 - blank] === "")
+      blank++;
+    const { x, y } = this.cursor();
+    const tail = new TextEncoder().encode(
+      "\r\n".repeat(blank) + (cursor ? `\x1b[${y + 1};${x + 1}H` : ""),
+    );
+    const out = new Uint8Array(body.byteLength + tail.byteLength);
+    out.set(body, 0);
+    out.set(tail, body.byteLength);
+    return out;
   }
 
-  encodeState(): Uint8Array | Unsupported {
-    return new Unsupported(NOT_YET);
+  /**
+   * The complete terminal as a `GHOSTSNP` snapshot: every screen, the
+   * scrollback, and any unfinished VT input. Throws INVALID_VALUE if the
+   * parser is mid-sequence and the continuation has outgrown its limit.
+   */
+  encodeState(): Uint8Array {
+    this.assertLive();
+    const g = this.g;
+    const s = this.ensureScratch();
+    g.check(
+      "ghostty_snapshot_encode_alloc",
+      this.handle,
+      0,
+      s.outPtr,
+      s.outLen,
+    );
+    const ptr = g.read(s.outPtr, "pointer") as number;
+    const len = g.read(s.outLen, "u32") as number;
+    const out = g.readBytes(ptr, len);
+    g.libFree(ptr, len);
+    return out;
   }
 
   renderConsumer(): RenderConsumer | Unsupported {
     return new Unsupported(NOT_YET);
   }
 
-  onEffect(_cb: (e: Effect) => void): void | Unsupported {
-    return new Unsupported(NOT_YET);
+  /**
+   * Subscribe to the terminal's effects: title, pwd, bell, progress,
+   * notification and write-pty. Every listener sees every effect, in
+   * registration order, synchronously inside write(). A listener that
+   * throws does not stop the others; the first exception is rethrown by
+   * write() once libghostty has returned.
+   */
+  onEffect(cb: (e: Effect) => void): void {
+    this.assertLive();
+    if (this.listeners.length === 0) {
+      const hooks = effectHooks(this.g);
+      hooks.terminals.set(this.handle, this);
+      const O = (m: string) => this.g.enumValue("GhosttyTerminalOption", m);
+      for (const [option, fn] of Object.entries(hooks.fns))
+        this.g.check("ghostty_terminal_set", this.handle, O(option), fn);
+    }
+    this.listeners.push(cb);
   }
 
-  /**
-   * The viewport as text: exactly `rows` lines joined by "\n", each with
-   * trailing whitespace removed. Soft-wrapped lines stay split.
-   */
-  plainText(): string {
+  /** Called from the module-wide host functions with an effect for this terminal. */
+  dispatch(e: Effect): void {
+    for (const cb of this.listeners) {
+      try {
+        cb(e);
+      } catch (err) {
+        if (this.listenerError === undefined) this.listenerError = err;
+      }
+    }
+  }
+
+  /** A borrowed GhosttyString from ghostty_terminal_get, decoded. */
+  getString(data: string): string {
+    const s = this.ensureScratch();
+    this.g.check(
+      "ghostty_terminal_get",
+      this.handle,
+      this.g.enumValue("GhosttyTerminalData", data),
+      s.str,
+    );
+    return this.g.readString(s.str);
+  }
+
+  /** The cursor's viewport position, 0-based. */
+  cursor(): { x: number; y: number } {
+    return { x: this.getNumber("CURSOR_X"), y: this.getNumber("CURSOR_Y") };
+  }
+
+  /** The whole active screen, scrollback included, as trimmed plain text. For comparing buffers, not viewports. */
+  fullText(): string {
     this.assertLive();
+    return new TextDecoder().decode(
+      this.format({ emit: "PLAIN", unwrap: false, trim: true, selection: 0 }),
+    );
+  }
+
+  /** Fill the scratch selection with the viewport, (0,0) .. (cols-1, rows-1), and return its address. */
+  private viewportSelection(): number {
     const g = this.g;
     const s = this.ensureScratch();
-
-    // A selection spanning the viewport: (0,0) .. (cols-1, rows-1).
     g.writeStruct(s.point, "GhosttyPoint", { tag: "VIEWPORT" });
     g.writeStruct(s.point, "GhosttyPoint", { value: { x: 0, y: 0 } });
     const start =
@@ -254,21 +442,35 @@ export class GhosttyWasmTerminal implements VtTerminal {
     });
     g.check("ghostty_terminal_grid_ref", this.handle, s.point, end);
     g.writeField(s.selection, "GhosttySelection", "rectangle", false);
+    return s.selection;
+  }
 
+  /** One formatter run with the given options; the output bytes, copied out of wasm memory. */
+  private format(o: {
+    emit: "PLAIN" | "VT";
+    unwrap: boolean;
+    trim: boolean;
+    selection: number;
+    screen?: Record<string, boolean>;
+  }): Uint8Array {
+    const g = this.g;
+    const s = this.ensureScratch();
     const opts = g.allocType("GhosttyFormatterTerminalOptions");
     g.writeStruct(opts, "GhosttyFormatterTerminalOptions", {
-      emit: "PLAIN",
-      unwrap: false,
-      trim: true,
+      emit: o.emit,
+      unwrap: o.unwrap,
+      trim: o.trim,
       // Nested sized structs each want their own size; allocType only sets the outer one.
       extra: {
         size: g.sizeOf("GhosttyFormatterTerminalExtra"),
-        screen: { size: g.sizeOf("GhosttyFormatterScreenExtra") },
+        screen: {
+          size: g.sizeOf("GhosttyFormatterScreenExtra"),
+          ...o.screen,
+        },
       },
-      selection: s.selection,
+      selection: o.selection,
     });
     let formatter = 0;
-    let text: string;
     try {
       formatter = g.withOpaque("ghostty_formatter_terminal_new", (slot) =>
         g.call("ghostty_formatter_terminal_new", 0, slot, this.handle, opts),
@@ -282,13 +484,29 @@ export class GhosttyWasmTerminal implements VtTerminal {
       );
       const ptr = g.read(s.outPtr, "pointer") as number;
       const len = g.read(s.outLen, "u32") as number;
-      text = new TextDecoder().decode(g.readBytes(ptr, len));
+      const out = g.readBytes(ptr, len);
       g.libFree(ptr, len);
+      return out;
     } finally {
       if (formatter) g.call("ghostty_formatter_free", formatter);
       g.freeType(opts, "GhosttyFormatterTerminalOptions");
     }
+  }
 
+  /**
+   * The viewport as text: exactly `rows` lines joined by "\n", each with
+   * trailing whitespace removed. Soft-wrapped lines stay split.
+   */
+  plainText(): string {
+    this.assertLive();
+    const text = new TextDecoder().decode(
+      this.format({
+        emit: "PLAIN",
+        unwrap: false,
+        trim: true,
+        selection: this.viewportSelection(),
+      }),
+    );
     // The formatter drops trailing blank rows and trims each line; normalise to exactly `rows`.
     const lines = text.split("\n").map((l) => l.replace(/\s+$/, ""));
     while (lines.length < this.rows) lines.push("");
@@ -413,7 +631,9 @@ export class GhosttyWasmTerminal implements VtTerminal {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.onDispose?.();
     const g = this.g;
+    if (this.listeners.length) effectHooks(g).terminals.delete(this.handle);
     const s = this.scratch;
     if (s) {
       g.call("ghostty_render_state_row_cells_free", s.rowCells);
@@ -431,6 +651,7 @@ export class GhosttyWasmTerminal implements VtTerminal {
       g.free(s.outPtr, 4);
       g.free(s.outLen, 4);
       g.free(s.u32, 4);
+      g.freeType(s.str, "GhosttyString");
       g.free(s.inPtr, s.inLen);
       this.scratch = null;
     }
@@ -471,6 +692,7 @@ export class GhosttyWasmTerminal implements VtTerminal {
       outPtr: g.alloc(4),
       outLen: g.alloc(4),
       u32: g.alloc(4),
+      str: g.allocType("GhosttyString"),
     };
     s.inLen = 64 * 1024;
     s.inPtr = g.alloc(s.inLen);
@@ -479,6 +701,244 @@ export class GhosttyWasmTerminal implements VtTerminal {
     g.write(s.rowCellsSlot, "pointer", s.rowCells);
     this.scratch = s;
     return s;
+  }
+}
+
+// ---- effects: one set of host functions per module ---------------------------
+
+/**
+ * The six callbacks a module needs, as function-table indices, plus the
+ * terminals that have registered them keyed by handle. A callback's first
+ * argument is the terminal handle, which is how one table entry serves
+ * every terminal; userdata is unused.
+ */
+interface EffectHooks {
+  fns: Record<string, number>;
+  terminals: Map<number, GhosttyWasmTerminal>;
+}
+
+const hooksByModule = new WeakMap<GhosttyModule, EffectHooks>();
+
+function effectHooks(g: GhosttyModule): EffectHooks {
+  let hooks = hooksByModule.get(g);
+  if (hooks) return hooks;
+  const terminals = new Map<number, GhosttyWasmTerminal>();
+  const to = (handle: number, e: Effect) => terminals.get(handle)?.dispatch(e);
+  const plain: WasmSignature = { params: ["i32", "i32"], results: [] };
+  const withPtr: WasmSignature = { params: ["i32", "i32", "i32"], results: [] };
+  const field = (type: string, name: string) =>
+    g.layout.field(type, name).offset;
+  hooks = {
+    terminals,
+    fns: {
+      // GhosttyTerminalBellFn(terminal, userdata)
+      BELL: g.hostFunction(plain, (h) => to(h, { kind: "bell" })),
+      // GhosttyTerminalTitleChangedFn(terminal, userdata); the value is read back through terminal_get
+      TITLE_CHANGED: g.hostFunction(plain, (h) => {
+        const t = terminals.get(h);
+        if (t) t.dispatch({ kind: "title", title: t.getString("TITLE") });
+      }),
+      // GhosttyTerminalPwdChangedFn(terminal, userdata); raw bytes, a file:// URI for OSC 7
+      PWD_CHANGED: g.hostFunction(plain, (h) => {
+        const t = terminals.get(h);
+        if (t) t.dispatch({ kind: "pwd", pwd: t.getString("PWD") });
+      }),
+      // GhosttyTerminalWritePtyFn(terminal, userdata, data, len); data is borrowed, so copy
+      WRITE_PTY: g.hostFunction(
+        { params: ["i32", "i32", "i32", "i32"], results: [] },
+        (h, _ud, ptr, len) =>
+          to(h, { kind: "write-pty", bytes: g.readBytes(ptr, len) }),
+      ),
+      // GhosttyTerminalDesktopNotificationFn(terminal, userdata, const GhosttyTerminalDesktopNotification*)
+      DESKTOP_NOTIFICATION: g.hostFunction(withPtr, (h, _ud, p) =>
+        to(h, {
+          kind: "notification",
+          title: g.readString(
+            p + field("GhosttyTerminalDesktopNotification", "title"),
+          ),
+          body: g.readString(
+            p + field("GhosttyTerminalDesktopNotification", "body"),
+          ),
+        }),
+      ),
+      // GhosttyTerminalProgressReportFn(terminal, userdata, const GhosttyTerminalProgressReport*)
+      PROGRESS_REPORT: g.hostFunction(withPtr, (h, _ud, p) => {
+        const r = g.readStruct(p, "GhosttyTerminalProgressReport") as {
+          state: number;
+          progress: number;
+        };
+        to(h, {
+          kind: "progress",
+          state: (
+            g.enumName("GhosttyTerminalProgressState", r.state) ?? "unknown"
+          ).toLowerCase(),
+          progress: r.progress < 0 ? null : r.progress,
+        });
+      }),
+    },
+  };
+  hooksByModule.set(g, hooks);
+  return hooks;
+}
+
+// ---- snapshot decode -----------------------------------------------------------
+
+/**
+ * The incremental decoder over a snapshot. The bytes are copied into wasm
+ * memory and stay there until FINISH or dispose(), as the decoder borrows
+ * them. ready() returns a terminal the caller owns; the decoder borrows it
+ * for next() and is freed automatically after FINISH, or when the terminal
+ * is disposed first, or by dispose() to abandon the history.
+ */
+export class GhosttyWasmDecodedState implements DecodedState {
+  private decoder: number;
+  private src: number;
+  private readonly srcLen: number;
+  private terminal: GhosttyWasmTerminal | null = null;
+  private readonly slot: number;
+  private readonly u32: number;
+  private readonly u64: number;
+  private finished = false;
+
+  constructor(
+    private readonly g: GhosttyModule,
+    bytes: Uint8Array,
+  ) {
+    this.srcLen = bytes.byteLength;
+    this.src = bytes.byteLength ? g.allocBytes(bytes) : 0;
+    this.slot = g.alloc(4);
+    this.u32 = g.alloc(4);
+    this.u64 = g.alloc(8);
+    this.decoder = g.withOpaque("ghostty_snapshot_decoder_new_buf", (slot) =>
+      g.call(
+        "ghostty_snapshot_decoder_new_buf",
+        0,
+        slot,
+        this.src,
+        this.srcLen,
+      ),
+    );
+    // Keep continuation tracking on the restored terminal so it can be
+    // snapshotted again after live input, matching what create() does.
+    const O = (m: string) => g.enumValue("GhosttySnapshotDecoderOption", m);
+    g.write(this.u32, "u32", CONTINUATION_MAX_BYTES);
+    g.check(
+      "ghostty_snapshot_decoder_set",
+      this.decoder,
+      O("MAX_CONTINUATION_BYTES"),
+      this.u32,
+    );
+    g.write(this.u32, "bool", true);
+    g.check(
+      "ghostty_snapshot_decoder_set",
+      this.decoder,
+      O("RETAIN_CONTINUATION"),
+      this.u32,
+    );
+  }
+
+  /**
+   * Decode through READY and return the terminal: the active screens, cursor
+   * and unfinished input restored, with the newest page of scrollback.
+   * Idempotent; the same terminal comes back on every call.
+   */
+  ready(): GhosttyWasmTerminal {
+    if (this.terminal) return this.terminal;
+    if (!this.decoder) throw new Error("decoder is disposed");
+    const g = this.g;
+    g.write(this.slot, "pointer", 0);
+    g.check("ghostty_snapshot_decoder_ready", this.decoder, this.slot);
+    const handle = g.read(this.slot, "pointer") as number;
+    if (handle === 0) throw new Error("decoder_ready: success but NULL handle");
+    this.terminal = new GhosttyWasmTerminal(g, {
+      adopt: handle,
+      onDispose: () => this.dispose(),
+    });
+    return this.terminal;
+  }
+
+  /**
+   * Prepend one page of history to the terminal from ready(). Null once
+   * FINISH has been validated, after which the decoder and the source
+   * bytes are released; the terminal stays the caller's.
+   */
+  next(): Page | null {
+    if (this.finished || !this.decoder) return null;
+    if (!this.terminal) throw new Error("call ready() before next()");
+    const g = this.g;
+    const code = g.call("ghostty_snapshot_decoder_next", this.decoder);
+    if (g.resultName(code) === "NO_VALUE") {
+      this.finished = true;
+      this.dispose();
+      return null;
+    }
+    g.assertOk(code, "ghostty_snapshot_decoder_next");
+    const screen = this.get("PROGRESS_SCREEN", "u32") as number;
+    return {
+      screen:
+        g.enumName("GhosttyTerminalScreen", screen) === "ALTERNATE"
+          ? "alternate"
+          : "primary",
+      rows: this.get("PROGRESS_ROWS", "u32") as number,
+      remaining: this.get("PROGRESS_REMAINING", "u32") as number,
+    };
+  }
+
+  /**
+   * The snapshot's advisory row counts for scrollback, available after
+   * ready(): rows before the active area once every page is restored.
+   * Null for a screen the snapshot does not declare.
+   */
+  historyRows(): { primary: number | null; alternate: number | null } {
+    const n = (d: string) => {
+      const v = this.tryGet(d, "u64");
+      return v === null ? null : Number(v);
+    };
+    return {
+      primary: n("HISTORY_ROWS_PRIMARY"),
+      alternate: n("HISTORY_ROWS_ALTERNATE"),
+    };
+  }
+
+  /** Bytes of the snapshot consumed so far; after FINISH, where any trailing bytes begin. */
+  sourceOffset(): number | null {
+    const v = this.tryGet("SOURCE_OFFSET", "u32");
+    return v === null ? null : (v as number);
+  }
+
+  /** Free the decoder and the copied source bytes; the terminal, if any, is untouched. */
+  dispose(): void {
+    const g = this.g;
+    if (this.decoder) {
+      g.call("ghostty_snapshot_decoder_free", this.decoder);
+      this.decoder = 0;
+      g.free(this.src, this.srcLen);
+      this.src = 0;
+      g.free(this.slot, 4);
+      g.free(this.u32, 4);
+      g.free(this.u64, 8);
+    }
+  }
+
+  private get(data: string, type: "u32" | "u64"): number | bigint {
+    const v = this.tryGet(data, type);
+    if (v === null) throw new Error(`decoder_get(${data}): NO_VALUE`);
+    return v;
+  }
+
+  private tryGet(data: string, type: "u32" | "u64"): number | bigint | null {
+    if (!this.decoder) return null;
+    const g = this.g;
+    const out = type === "u64" ? this.u64 : this.u32;
+    const code = g.call(
+      "ghostty_snapshot_decoder_get",
+      this.decoder,
+      g.enumValue("GhosttySnapshotDecoderData", data),
+      out,
+    );
+    if (g.resultName(code) === "NO_VALUE") return null;
+    g.assertOk(code, `ghostty_snapshot_decoder_get(${data})`);
+    return g.read(out, type) as number | bigint;
   }
 }
 

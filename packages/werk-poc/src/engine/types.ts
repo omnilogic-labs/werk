@@ -66,7 +66,13 @@ export interface Row {
   cells: Cell[];
 }
 
-/** One step of history restored by `decodeState().next()`. Shape is provisional until M3 uses it. */
+/**
+ * One step of history restored by `decodeState().next()`: the screen the
+ * page belongs to, the rows it prepended (0 when the page was validated
+ * but could no longer be applied, say after a resize), and the pages still
+ * to come for that screen. `next()` returning null is the only signal that
+ * the whole snapshot is done. Shape is provisional until M3 uses it.
+ */
 export interface Page {
   screen: "primary" | "alternate";
   rows: number;
@@ -99,6 +105,19 @@ export interface TerminalModes {
   bracketedPaste?: boolean;
 }
 
+/**
+ * What `emitVt` writes beyond the styled text. `cursor` places the cursor
+ * (CUP); `style` restores the SGR state active at the cursor, so the next
+ * byte the program writes gets the attributes it expects; both default to
+ * on. `scrollback` selects the whole active screen, scrollback then
+ * viewport, rather than the viewport alone, which is the default.
+ */
+export interface EmitVtOptions {
+  cursor?: boolean;
+  style?: boolean;
+  scrollback?: boolean;
+}
+
 export interface RenderConsumer {
   dirtyRows(): Iterable<Row>;
   dispose(): void;
@@ -128,10 +147,7 @@ export interface VtTerminal {
   resize(cols: number, rows: number): void;
 
   // reattach mechanism 1 — for a CLI client in someone else's terminal
-  emitVt(opts?: {
-    cursor?: boolean;
-    style?: boolean;
-  }): Uint8Array | Unsupported;
+  emitVt(opts?: EmitVtOptions): Uint8Array | Unsupported;
 
   // reattach mechanism 2, encode side
   encodeState(): Uint8Array | Unsupported;

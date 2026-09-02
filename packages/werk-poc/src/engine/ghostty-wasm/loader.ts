@@ -22,6 +22,12 @@
 //     and cross as BigInt.
 //   - Any call into the module may grow memory; never hold a typed array
 //     across a call. `bytes()` and `view()` re-derive after growth.
+//   - C function pointers are indices into the exported
+//     `__indirect_function_table`. The module imports nothing, so a host
+//     function gets in through `hostFunction()`: a one-function trampoline
+//     module imports the JS function and exports it as a wasm function,
+//     which the table accepts. (`WebAssembly.Function` does not exist on
+//     Bun 1.3.14 / JSC, and `table.set` rejects a plain JS function.)
 
 import { Layout, isScalarName, type FieldDesc } from "./layout.ts";
 
@@ -40,6 +46,14 @@ export class GhosttyError extends Error {
 
 export type GhosttySource = Uint8Array | ArrayBuffer | WebAssembly.Module;
 
+/** The wasm value types a host function's signature may use. */
+export type WasmValType = "i32" | "i64" | "f32" | "f64";
+
+export interface WasmSignature {
+  params: WasmValType[];
+  results: WasmValType[];
+}
+
 /** A struct value as read from or written to memory: field name to value. */
 export type StructValue = Record<string, unknown>;
 
@@ -50,6 +64,8 @@ export class GhosttyModule {
   readonly fn: Record<string, WasmFn>;
   readonly exportCount: number;
   readonly importCount: number;
+  /** The module's `__indirect_function_table`; C function pointers are indices into it. */
+  readonly table: WebAssembly.Table;
 
   private cachedBuffer: ArrayBufferLike | null = null;
   private cachedLength = 0;
@@ -67,6 +83,10 @@ export class GhosttyModule {
     if (!(memory instanceof WebAssembly.Memory))
       throw new Error("wasm exports no memory");
     this.memory = memory;
+    const table = ex["__indirect_function_table"];
+    if (!(table instanceof WebAssembly.Table))
+      throw new Error("wasm exports no __indirect_function_table");
+    this.table = table;
     const fn: Record<string, WasmFn> = {};
     for (const [k, v] of Object.entries(ex))
       if (typeof v === "function") fn[k] = v as WasmFn;
@@ -108,6 +128,21 @@ export class GhosttyModule {
     return (
       this.layout.enumName("GhosttyResult", code) ?? `UNKNOWN_RESULT_${code}`
     );
+  }
+
+  // ---- host functions ------------------------------------------------------
+
+  /**
+   * Put a JS function into the module's function table and return its index,
+   * which is what C code sees as a function pointer of that signature. The
+   * slot is never reclaimed; a terminal registers its callbacks once.
+   */
+  hostFunction(sig: WasmSignature, fn: (...args: number[]) => unknown): number {
+    const mod = trampolineModule(sig);
+    const inst = new WebAssembly.Instance(mod, { e: { f: fn } });
+    const idx = this.table.grow(1);
+    this.table.set(idx, inst.exports["f"] as (...a: unknown[]) => unknown);
+    return idx;
   }
 
   // ---- memory views --------------------------------------------------------
@@ -473,6 +508,57 @@ export class GhosttyModule {
     }
     this.write(at, f.type, value);
   }
+}
+
+const VALTYPE: Record<WasmValType, number> = {
+  i32: 0x7f,
+  i64: 0x7e,
+  f32: 0x7d,
+  f64: 0x7c,
+};
+
+const trampolines = new Map<string, WebAssembly.Module>();
+
+/**
+ * A minimal wasm module with one imported function `e.f` of `sig`, exported
+ * as `f`. Compiled once per signature; a few dozen bytes each.
+ */
+function trampolineModule(sig: WasmSignature): WebAssembly.Module {
+  const key = `${sig.params.join(",")}->${sig.results.join(",")}`;
+  let mod = trampolines.get(key);
+  if (mod) return mod;
+  const type = [
+    1, // one type
+    0x60, // func
+    sig.params.length,
+    ...sig.params.map((p) => VALTYPE[p]),
+    sig.results.length,
+    ...sig.results.map((r) => VALTYPE[r]),
+  ];
+  const imports = [1, 1, 0x65, 1, 0x66, 0x00, 0]; // "e" "f" func type 0
+  const exports = [1, 1, 0x66, 0x00, 0]; // "f" func 0
+  const bytes = new Uint8Array([
+    0x00,
+    0x61,
+    0x73,
+    0x6d,
+    0x01,
+    0x00,
+    0x00,
+    0x00,
+    0x01,
+    type.length,
+    ...type,
+    0x02,
+    imports.length,
+    ...imports,
+    0x07,
+    exports.length,
+    ...exports,
+  ]);
+  mod = new WebAssembly.Module(bytes);
+  trampolines.set(key, mod);
+  return mod;
 }
 
 function num(v: unknown): number {

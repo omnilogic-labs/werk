@@ -12,14 +12,14 @@ The terminal engine seam and its adapters.
 
 ## `ghostty-wasm/`
 
-| File        | What it is                                                                                                                                                                                            |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `layout.ts` | Parses `ghostty_type_json()` into a `Layout`: sizes, alignments, struct fields and offsets, enum values, the packed `GhosttyCell` descriptor. No WASM dependency                                      |
-| `loader.ts` | `GhosttyModule`: instantiates the module, marshals through the layout. `alloc`/`free`, `allocType`, `read`/`write` for scalars, structs, arrays and tagged unions, `withOpaque`, `check`. No Bun APIs |
-| `bytes.ts`  | Bun only: the pinned artifact's bytes via `import ... with { type: "file" }`, which `bun build --compile` embeds                                                                                      |
-| `index.ts`  | `GhosttyWasmEngine` / `GhosttyWasmTerminal`: the seam over the loader                                                                                                                                 |
-| `bun.ts`    | `loadGhosttyWasmEngine()` and the registry entry                                                                                                                                                      |
-| `*.test.ts` | Loader and terminal tests; `spikes/m1/embedded.test.ts` covers the compiled binary                                                                                                                    |
+| File        | What it is                                                                                                                                                                                                                            |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `layout.ts` | Parses `ghostty_type_json()` into a `Layout`: sizes, alignments, struct fields and offsets, enum values, the packed `GhosttyCell` descriptor. No WASM dependency                                                                      |
+| `loader.ts` | `GhosttyModule`: instantiates the module, marshals through the layout. `alloc`/`free`, `allocType`, `read`/`write` for scalars, structs, arrays and tagged unions, `withOpaque`, `check`, `hostFunction` for C callbacks. No Bun APIs |
+| `bytes.ts`  | Bun only: the pinned artifact's bytes via `import ... with { type: "file" }`, which `bun build --compile` embeds                                                                                                                      |
+| `index.ts`  | `GhosttyWasmEngine` / `GhosttyWasmTerminal` / `GhosttyWasmDecodedState`: the seam over the loader                                                                                                                                     |
+| `bun.ts`    | `loadGhosttyWasmEngine()` and the registry entry                                                                                                                                                                                      |
+| `*.test.ts` | Loader, terminal and reattach (emitVt, effects, snapshot) tests; `spikes/m1/embedded.test.ts` covers the compiled binary                                                                                                              |
 
 A typical call through the loader:
 
@@ -36,4 +36,8 @@ const f = g.withOpaque("formatter", (slot) =>
 ```
 
 Functions taking a struct by value in C take a pointer to it in the wasm32
-ABI; 64-bit values (`GhosttyCell`, `GhosttyRow`) cross as `BigInt`.
+ABI; 64-bit values (`GhosttyCell`, `GhosttyRow`) cross as `BigInt`. A C
+function pointer is an index into the exported function table;
+`g.hostFunction(signature, fn)` puts a JS function there through a
+one-function trampoline module and returns the index, which is what
+`ghostty_terminal_set` takes for a callback option.

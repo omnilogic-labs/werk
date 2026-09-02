@@ -227,16 +227,40 @@ describe("resize", () => {
   });
 });
 
-describe("the other half", () => {
-  test("returns Unsupported rather than throwing", () => {
+describe("capabilities", () => {
+  test("what is missing returns Unsupported rather than throwing, and caps agree", () => {
     const t = engine.create({ cols: 5, rows: 2, scrollback: 10 });
-    expect(isUnsupported(t.emitVt())).toBe(true);
-    expect(isUnsupported(t.encodeState())).toBe(true);
     expect(isUnsupported(t.renderConsumer())).toBe(true);
-    expect(isUnsupported(t.onEffect(() => {}))).toBe(true);
-    expect(isUnsupported(engine.decodeState(new Uint8Array()))).toBe(true);
-    expect(engine.caps.plainText).toBe(true);
-    expect(engine.caps.emitVt).toBe(false);
+    expect(
+      isUnsupported(
+        engine.encodeKey({ action: "press", key: "a", mods: {} }, {}),
+      ),
+    ).toBe(true);
+    expect(
+      isUnsupported(
+        engine.encodeMouse(
+          { action: "press", button: 0, x: 0, y: 0, mods: {} },
+          {},
+        ),
+      ),
+    ).toBe(true);
+    expect(isUnsupported(t.emitVt())).toBe(false);
+    expect(isUnsupported(t.encodeState())).toBe(false);
+    expect(isUnsupported(t.onEffect(() => {}))).toBe(false);
+    expect(isUnsupported(engine.decodeState(new Uint8Array()))).toBe(false);
+    expect(engine.caps).toEqual({
+      write: true,
+      resize: true,
+      plainText: true,
+      styledCells: true,
+      emitVt: true,
+      encodeState: true,
+      decodeState: true,
+      renderConsumer: false,
+      effects: true,
+      encodeKey: false,
+      encodeMouse: false,
+    });
     t.dispose();
   });
 });
