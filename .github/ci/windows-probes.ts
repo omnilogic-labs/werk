@@ -146,14 +146,34 @@ if (want("terminal")) {
     "Bun.Terminal-type",
     typeof (Bun as unknown as { Terminal?: unknown }).Terminal,
   );
+  const chunks: string[] = [];
   try {
-    const proc = Bun.spawn({
-      cmd: ["cmd.exe", "/c", "echo hello-from-pty"],
-      // @ts-expect-error probing a POSIX-only option on Windows on purpose
-      terminal: { columns: 80, rows: 24 },
+    const proc = Bun.spawn(["cmd.exe", "/c", "echo hello-from-pty"], {
+      // @ts-expect-error the option is typed POSIX-only; probing it anyway
+      terminal: {
+        cols: 80,
+        rows: 24,
+        data: (_t: unknown, d: Uint8Array) =>
+          chunks.push(new TextDecoder().decode(d)),
+        exit: () => {},
+      },
     });
+    say(
+      "spawn-terminal-accepted",
+      `proc.terminal is ${String((proc as { terminal?: unknown }).terminal?.constructor?.name)}`,
+    );
+    const until = Date.now() + 5000;
+    while (Date.now() < until && chunks.join("").length === 0)
+      await Bun.sleep(25);
     await proc.exited;
-    say("spawn-terminal", "ok — spawn with terminal accepted");
+    await Bun.sleep(100);
+    const text = chunks.join("");
+    say(
+      "spawn-terminal",
+      text.length > 0
+        ? `ok — the child wrote ${text.length} bytes to the terminal: ${JSON.stringify(text.slice(0, 120))}`
+        : "no data — spawn returned but nothing came back through the terminal callback",
+    );
   } catch (e) {
     say("spawn-terminal", `fail — ${firstLine(e)}`);
   }
@@ -172,20 +192,43 @@ if (want("detached")) {
   } catch (e) {
     say("spawn-detached", `fail — ${firstLine(e)}`);
   }
+  // Exactly what src/daemon/launch.ts does: a fourth stdio pipe the child
+  // reports readiness on, read with fs.readSync off the returned fd number.
   try {
-    const p = path.join(os.tmpdir(), `wp-probe-fd3-${process.pid}.txt`);
-    const fd = fs.openSync(p, "w+");
-    const proc = Bun.spawn({
-      cmd: ["cmd.exe", "/c", "echo fd3"],
-      stdio: ["ignore", "ignore", "ignore"],
-      // @ts-expect-error extra fds are not in the public types
-      extraFds: [fd],
+    const proc = Bun.spawn(["cmd.exe", "/c", "echo ready>&3"], {
+      detached: true,
+      stdio: ["ignore", "ignore", "ignore", "pipe"],
     });
+    const fd = (proc as { stdio: unknown[] }).stdio[3];
+    say("readiness-pipe-fd", `stdio[3] is ${typeof fd} ${String(fd)}`);
+    if (typeof fd === "number") {
+      const buf = Buffer.alloc(4096);
+      const deadline = Date.now() + 3000;
+      let read = "";
+      let verdict = "no bytes before the deadline";
+      while (Date.now() < deadline) {
+        try {
+          const n = fs.readSync(fd, buf, 0, buf.length, null);
+          if (n === 0) {
+            verdict = `ok — EOF after ${JSON.stringify(read)}`;
+            break;
+          }
+          read += buf.subarray(0, n).toString("utf8");
+        } catch (e) {
+          const code = (e as NodeJS.ErrnoException).code;
+          if (code === "EAGAIN") {
+            await Bun.sleep(5);
+            continue;
+          }
+          verdict = `fail — ${firstLine(e)}`;
+          break;
+        }
+      }
+      say("readiness-pipe-read", verdict);
+    }
     await proc.exited;
-    fs.closeSync(fd);
-    say("spawn-extra-fd", `ok — exit ${proc.exitCode}`);
   } catch (e) {
-    say("spawn-extra-fd", `fail — ${firstLine(e)}`);
+    say("readiness-pipe-read", `fail — ${firstLine(e)}`);
   }
 }
 
