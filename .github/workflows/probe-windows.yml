@@ -25,8 +25,11 @@ env:
     ops probes daemon
   # The suites that pass on windows today. Everything else is expected to
   # fail and is recorded rather than gated, so a red gate means one of these
-  # regressed rather than "windows still does not run the daemon".
-  EXPECTED_PASS: install typecheck build-web build diff m3 probes
+  # regressed rather than "windows still does not run the daemon". `m3` is
+  # deliberately not here: every snapshot it encodes decodes identically, but
+  # on one run in four the process printed all of its tables and then did not
+  # exit, so gating on it would gate on that.
+  EXPECTED_PASS: install typecheck build-web build diff probes
 
 jobs:
   windows:
