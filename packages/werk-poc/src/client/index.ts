@@ -25,14 +25,22 @@ import {
   type ClientMessage,
   type DaemonMessage,
   type DaemonStats,
+  type DetachResult,
   type HelloInfo,
   type KillResult,
   type LogsResult,
   type RunResult,
+  type ScreenResult,
   type SessionInfo,
 } from "../protocol/index.ts";
 
-export type { DaemonStats, SessionInfo, HelloInfo } from "../protocol/index.ts";
+export type {
+  DaemonStats,
+  DetachResult,
+  ScreenResult,
+  SessionInfo,
+  HelloInfo,
+} from "../protocol/index.ts";
 
 export interface ConnectOptions {
   /** The runtime directory holding `wp.sock`; defaults to `$XDG_RUNTIME_DIR/werk-poc`. */
@@ -42,6 +50,8 @@ export interface ConnectOptions {
   /** Override the hello the client sends; for testing the mismatch path. */
   hello?: HelloInfo;
   timeoutMs?: number;
+  /** Reject a request the daemon has not answered within this long; unbounded by default. */
+  requestTimeoutMs?: number;
 }
 
 export interface RunOptions {
@@ -69,7 +79,8 @@ export interface AttachOptions {
 export interface Attachment extends AttachResult {
   input(bytes: Uint8Array | string): void;
   resize(cols: number, rows: number): Promise<void>;
-  detach(): Promise<void>;
+  /** Leaves the session running. Reports whether it was on the alternate screen. */
+  detach(): Promise<DetachResult>;
 }
 
 export class DaemonError extends Error {
@@ -100,6 +111,16 @@ export class Client {
   private closeWaiters: (() => void)[] = [];
   /** The daemon's hello. */
   daemon!: HelloInfo & { pid: number };
+  requestTimeoutMs: number | null = null;
+  /**
+   * Bytes the kernel would not take yet. Bun's `socket.write` returns what
+   * it wrote and queues nothing; under load it was seen to return 0 for a
+   * 23-byte frame on an idle Unix socket, and a request dropped there is a
+   * reply that never comes. So every frame goes through `send`, which keeps
+   * the remainder and continues on `drain` (findings/m2.md).
+   */
+  private outbound: { bytes: Uint8Array; offset: number }[] = [];
+  shortWrites = 0;
 
   private constructor(
     private readonly socket: Socket<unknown>,
@@ -126,6 +147,7 @@ export class Client {
     } else {
       await ensureDaemon({ dir, probe, timeoutMs: opts.timeoutMs });
     }
+    client!.requestTimeoutMs = opts.requestTimeoutMs ?? null;
     return client!;
   }
 
@@ -166,12 +188,14 @@ export class Client {
               settled = true;
               resolve(client!);
             };
-            socket.write(encodeControl({ t: "hello", ...hello }));
+            client.send(encodeControl({ t: "hello", ...hello }));
           },
           data(_socket, chunk) {
             client?.onChunk(chunk);
           },
-          drain() {},
+          drain() {
+            client?.onDrain();
+          },
           close() {
             client?.onClose();
             fail(new Error("connection closed before hello"));
@@ -256,6 +280,32 @@ export class Client {
     }
   }
 
+  /** Writes `bytes` in order, keeping what the kernel refuses until `drain`. */
+  private send(bytes: Uint8Array): void {
+    if (this.closed) return;
+    this.outbound.push({ bytes, offset: 0 });
+    if (this.outbound.length === 1) this.flush();
+  }
+
+  private flush(): void {
+    while (this.outbound.length > 0) {
+      const head = this.outbound[0]!;
+      const remaining = head.bytes.length - head.offset;
+      const n = this.socket.write(head.bytes, head.offset, remaining);
+      if (n < 0) return; // closing; onClose rejects what is pending
+      if (n < remaining) {
+        head.offset += n;
+        this.shortWrites++;
+        return; // drain will call flush again
+      }
+      this.outbound.shift();
+    }
+  }
+
+  private onDrain(): void {
+    this.flush();
+  }
+
   private onClose(err?: Error): void {
     if (this.closed) return;
     this.closed = true;
@@ -271,11 +321,28 @@ export class Client {
     if (this.closed) return Promise.reject(new Error("connection closed"));
     const rid = ++this.rid;
     return new Promise<T>((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      if (this.requestTimeoutMs !== null) {
+        timer = setTimeout(() => {
+          this.pending.delete(rid);
+          reject(
+            new Error(
+              `daemon did not answer ${msg.t} (rid ${rid}) within ${this.requestTimeoutMs} ms`,
+            ),
+          );
+        }, this.requestTimeoutMs);
+      }
       this.pending.set(rid, {
-        resolve: resolve as (v: unknown) => void,
-        reject,
+        resolve: (v) => {
+          if (timer) clearTimeout(timer);
+          resolve(v as T);
+        },
+        reject: (e) => {
+          if (timer) clearTimeout(timer);
+          reject(e);
+        },
       });
-      this.socket.write(encodeControl({ ...msg, rid } as ClientMessage));
+      this.send(encodeControl({ ...msg, rid } as ClientMessage));
     });
   }
 
@@ -313,8 +380,7 @@ export class Client {
     return {
       ...result,
       input: (bytes) => {
-        if (this.closed) return;
-        this.socket.write(
+        this.send(
           encodeFrame(
             FrameType.input,
             typeof bytes === "string" ? new TextEncoder().encode(bytes) : bytes,
@@ -323,10 +389,11 @@ export class Client {
       },
       resize: (cols, rows) => this.request<void>({ t: "resize", cols, rows }),
       detach: async () => {
-        if (this.attachedId !== id) return;
+        if (this.attachedId !== id) return { altScreen: false };
         this.attachment = null;
         this.attachedId = null;
-        if (!this.closed) await this.request<void>({ t: "detach" });
+        if (this.closed) return { altScreen: false };
+        return this.request<DetachResult>({ t: "detach" });
       },
     };
   }
@@ -343,6 +410,11 @@ export class Client {
   /** `text`: the whole active screen, scrollback included, as plain text. `vt`: the same as escape sequences. */
   async logs(id: string, format: "text" | "vt" = "text"): Promise<string> {
     return (await this.request<LogsResult>({ t: "logs", id, format })).data;
+  }
+
+  /** The session's viewport as the daemon's emulator holds it. */
+  screen(id: string): Promise<ScreenResult> {
+    return this.request<ScreenResult>({ t: "screen", id });
   }
 
   stats(): Promise<DaemonStats> {

@@ -147,6 +147,13 @@ export class Connection {
         if (this.firstShortWriteAfterBytes === null)
           this.firstShortWriteAfterBytes = this.bytesSent;
         this.waitingDrain = true;
+        // A short write on a control frame means a reply is now waiting on
+        // `drain`; worth a line in the log, since a drain that never comes
+        // would look like a daemon that never answers.
+        if (!head.droppable)
+          this.host.log(
+            `conn ${this.seq}: short write on a control frame (${n} of ${remaining}), ${this.queuedBytes} B queued, waiting for drain`,
+          );
         return;
       }
       this.queue.shift();

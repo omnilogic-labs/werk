@@ -15,11 +15,13 @@ import {
   type AttachResult,
   type ClientMessage,
   type DaemonStats,
+  type DetachResult,
   type Frame,
   type HelloInfo,
   type KillResult,
   type LogsResult,
   type RunResult,
+  type ScreenResult,
   type SessionInfo,
 } from "../protocol/index.ts";
 import { Connection, QUEUE_BOUND } from "./connection.ts";
@@ -124,11 +126,16 @@ export async function startServer(
           status: s.status,
           exitCode: s.exitCode,
           signalCode: s.signalCode,
+          altScreen: s.altScreen(),
         } satisfies AttachResult;
       }
-      case "detach":
+      case "detach": {
+        // The session's screen state at the moment of leaving, so a CLI
+        // can put the user's terminal back on the primary screen.
+        const s = conn.attached ? sessions.get(conn.attached.id) : undefined;
         detach(conn);
-        return {};
+        return { altScreen: s?.altScreen() ?? false } satisfies DetachResult;
+      }
       case "resize": {
         if (!conn.attached)
           throw new ProtocolError(
@@ -160,6 +167,8 @@ export async function startServer(
           data: s.logs(msg.format),
         } satisfies LogsResult;
       }
+      case "screen":
+        return session(msg.id).screen() satisfies ScreenResult;
       case "stats":
         return {
           pid: process.pid,

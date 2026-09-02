@@ -17,7 +17,8 @@ M2 (the CLI's interactive commands are the other half).
 | `session.ts`    | One child under a PTY, its `VtTerminal` tap, attach/detach, re-emission on attach.                   |
 
 The programmatic client that drives all of this is in [`../client/`](../client);
-the wire protocol they share is in [`../protocol/`](../protocol).
+the wire protocol they share is in [`../protocol/`](../protocol); the
+interactive commands on top are in [`../cli/`](../cli).
 
 ## Lifecycle, as [`04-daemon-best-practices.md`](../../../../docs/research/04-daemon-best-practices.md) asks
 

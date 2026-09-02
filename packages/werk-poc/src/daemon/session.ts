@@ -14,6 +14,7 @@ import {
   encodeFrame,
   FrameType,
   RENDER_CLEAR,
+  type ScreenResult,
   type SessionInfo,
 } from "../protocol/index.ts";
 import type { Connection } from "./connection.ts";
@@ -253,6 +254,30 @@ export class Session {
     return typeof full === "function"
       ? full.call(this.vt)
       : this.vt.plainText();
+  }
+
+  /** Whether the emulator is on the alternate screen (DEC 1049); false when the engine cannot say. */
+  altScreen(): boolean {
+    const dec = (this.vt as { decMode?: (m: number) => boolean }).decMode;
+    if (typeof dec !== "function") return false;
+    try {
+      return dec.call(this.vt, 1049);
+    } catch {
+      return false;
+    }
+  }
+
+  /** The viewport as plain text with the cursor, for comparing against a client's terminal. */
+  screen(): ScreenResult {
+    const cur = (this.vt as { cursor?: () => { x: number; y: number } }).cursor;
+    return {
+      id: this.id,
+      cols: this.cols,
+      rows: this.rows,
+      text: this.vt.plainText(),
+      cursor: typeof cur === "function" ? cur.call(this.vt) : { x: 0, y: 0 },
+      altScreen: this.altScreen(),
+    };
   }
 
   kill(signal: string): void {

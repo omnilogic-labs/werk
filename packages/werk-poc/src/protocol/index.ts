@@ -99,6 +99,7 @@ export type ClientMessage =
   | { t: "ls"; rid: number }
   | { t: "kill"; rid: number; id: string; signal?: string }
   | { t: "logs"; rid: number; id: string; format: "text" | "vt" }
+  | { t: "screen"; rid: number; id: string }
   | { t: "stats"; rid: number }
   | { t: "shutdown"; rid: number };
 
@@ -159,9 +160,22 @@ export type AttachResult = {
   status: SessionStatus;
   exitCode: number | null;
   signalCode: string | null;
+  /** The session's emulator is on the alternate screen (DEC 1049). */
+  altScreen: boolean;
 };
+export type DetachResult = { altScreen: boolean };
 export type KillResult = { id: string; action: "signalled" | "removed" };
 export type LogsResult = { id: string; format: "text" | "vt"; data: string };
+/** The session's viewport as the daemon's emulator sees it; for tests that compare it with a client's terminal. */
+export type ScreenResult = {
+  id: string;
+  cols: number;
+  rows: number;
+  /** `rows` lines joined by "\n", trailing whitespace trimmed. */
+  text: string;
+  cursor: { x: number; y: number };
+  altScreen: boolean;
+};
 
 // ---------------------------------------------------------------------------
 // Encoding
