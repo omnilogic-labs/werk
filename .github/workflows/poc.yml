@@ -331,7 +331,11 @@ jobs:
       # deliberately not here: every snapshot it encodes decodes identically, but
       # on one run in four the process printed all of its tables and then did not
       # exit, so gating on it would gate on that.
-      EXPECTED_PASS: install typecheck build-web build diff probes
+      EXPECTED_PASS: install typecheck test-pure build-web build diff probes
+      # The probes that fail on windows today, recorded rather than gated:
+      # `flock` dlopens libc, and the readiness pipe's fd cannot be read with
+      # fs.readSync here. Any other probe printing `fail` turns `probes` red.
+      PROBES_KNOWN_FAIL: flock readiness-pipe-read
     steps:
       # Git for Windows checks out with CRLF by default, which would rewrite
       # the .cast corpus fixtures and every source file before anything ran.
@@ -404,20 +408,31 @@ jobs:
         continue-on-error: true
         timeout-minutes: 3
         run: |
-          bash .github/ci/windows.sh build packages/werk-poc \
-            'bun run build && ls -l dist && WP=dist/wp.exe && test -f "$WP" || WP=dist/wp && echo "binary: $WP" && "./$WP" --help && echo "--- caps ---" && "./$WP" caps'
+          bash .github/ci/windows.sh build packages/werk-poc '
+            bun run build || exit 1
+            ls -l dist
+            if [ -f dist/wp.exe ]; then WP=dist/wp.exe; else WP=dist/wp; fi
+            echo "binary: $WP"
+            "./$WP" --help || exit 1
+            echo "--- caps ---"
+            "./$WP" caps >caps.log 2>&1; rc=$?; cat caps.log
+            if grep -aq "did not load" caps.log; then echo "DETAIL: wp caps: $(grep -am1 "did not load" caps.log)"; exit 1; fi
+            exit $rc'
 
       # The differential corpus, plus 200 fuzz iterations on a fixed seed so
-      # the numbers can be held against the same command on linux.
-      # `ghostty-ffi` will not load; whether the wasm engine and the xterm
-      # oracle still agree is the most interesting question this job asks.
+      # the numbers can be held against the same command on linux. All three
+      # engines load here — `ghostty-ffi` through the vendored win32 build of
+      # libghostty-vt — and an engine that does not load is a failure, not a
+      # smaller table: the script only logs it.
       - name: diff
         id: diff
         continue-on-error: true
         timeout-minutes: 4
         run: |
-          bash .github/ci/windows.sh diff packages/werk-poc \
-            'bun run bench/differential.ts --fuzz 200 --seed 7'
+          bash .github/ci/windows.sh diff packages/werk-poc '
+            bun run bench/differential.ts --fuzz 200 --seed 7 >diff.log 2>&1; rc=$?; cat diff.log
+            if grep -aq "did not load" diff.log; then echo "DETAIL: $(grep -am1 "did not load" diff.log)"; exit 1; fi
+            exit $rc'
 
       # The operational report: toolchain, platform matrix, cold start.
       - name: ops
@@ -434,7 +449,8 @@ jobs:
 
       # dlopen, flock, AF_UNIX, Bun.Terminal, the readiness pipe, the ffi
       # platform, `sh`, and the daemon started in process past the two layers
-      # that stop it. Seconds, not minutes.
+      # that stop it. Seconds, not minutes. Red when a probe outside
+      # PROBES_KNOWN_FAIL prints `fail`.
       - name: probes
         id: probes
         continue-on-error: true
@@ -470,7 +486,7 @@ jobs:
         timeout-minutes: 2
         run: |
           bash .github/ci/windows.sh wp-cli packages/werk-poc \
-            'WP=dist/wp.exe && test -f "$WP" || WP=dist/wp && "./$WP" ls'
+            'if [ -f dist/wp.exe ]; then WP=dist/wp.exe; else WP=dist/wp; fi; "./$WP" ls'
 
       # ---------------------------------------------------------------------
       # Whole-suite datapoints cheap enough to keep: both fail in seconds

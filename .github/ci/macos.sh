@@ -24,11 +24,6 @@ SUITE_ORDER="install typecheck test-pure build-web build test-full m0 m2 m3 ops 
 # runner image carries.
 now_ms() { python3 -c 'import time;print(int(time.time()*1000))'; }
 
-json_escape() {
-  # stdin -> a JSON string body (no surrounding quotes)
-  python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1])'
-}
-
 # The one line that best explains a failure: the first line that looks like an
 # error, else the last non-empty line.
 detail_from_log() {
@@ -43,11 +38,10 @@ detail_from_log() {
 
 record() {
   local id="$1" status="$2" ms="$3" detail="$4"
-  local esc
-  esc="$(printf '%s' "$detail" | json_escape)"
-  cat >"$RESULTS/$id.json" <<EOF
-{"id":"$id","name":"$id","status":"$status","ms":$ms,"detail":"$esc"}
-EOF
+  # jq builds the object, so whatever the detail contains — backslashes,
+  # quotes, control characters — lands as a valid JSON string.
+  jq -n --arg id "$id" --arg status "$status" --argjson ms "$ms" --arg detail "$detail" \
+    '{id: $id, name: $id, status: $status, ms: $ms, detail: $detail}' >"$RESULTS/$id.json"
   echo "=== SUITE $id: $status (${ms} ms) :: $detail"
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     local icon="x"
@@ -172,50 +166,91 @@ case "${1:-}" in
     ;;
   summarize)
     out="${2:-$ROOT/ci-result-macos.json}"
-    {
-      printf '{"os":"macos-latest","runner":"%s","bun":"%s","commit":"%s","suites":[' \
-        "${WP_CI_RUNNER:-unknown}" "$(bun --version 2>/dev/null || echo unknown)" "${GITHUB_SHA:-unknown}"
-      first=1
-      for id in $SUITE_ORDER; do
-        f="$RESULTS/$id.json"
-        if [ ! -f "$f" ]; then
-          esc="$(printf '%s' "did not run" | json_escape)"
-          f_content="{\"id\":\"$id\",\"name\":\"$id\",\"status\":\"skip\",\"ms\":0,\"detail\":\"$esc\"}"
-        else
-          f_content="$(cat "$f")"
-        fi
-        [ $first -eq 1 ] || printf ','
-        first=0
-        printf '%s' "$f_content"
-      done
-      printf ']}'
-    } >"$out"
-    python3 -m json.tool "$out" >"$out.pretty" && mv "$out.pretty" "$out"
+    # One verdict per suite, in suite order. A suite that left no file did
+    # not run to the point of recording one (killed by `timeout-minutes`, or
+    # the job was cancelled) and is recorded as a skip; one that left a file
+    # jq cannot read is recorded as an error. Neither is a pass, so both are
+    # red below.
+    entries="$RESULTS/.entries.json"
+    : >"$entries"
+    for id in $SUITE_ORDER; do
+      f="$RESULTS/$id.json"
+      if [ ! -f "$f" ]; then
+        jq -n --arg id "$id" '{id: $id, name: $id, status: "skip", ms: 0, detail: "did not run"}' >>"$entries"
+      elif jq -e . "$f" >/dev/null 2>&1; then
+        cat "$f" >>"$entries"
+      else
+        jq -n --arg id "$id" '{id: $id, name: $id, status: "error", ms: 0, detail: "the recorded verdict is not valid JSON"}' >>"$entries"
+      fi
+    done
+    jq -n \
+      --arg os "macos-latest" \
+      --arg runner "${WP_CI_RUNNER:-unknown}" \
+      --arg bun "$(bun --version 2>/dev/null || echo unknown)" \
+      --arg commit "${GITHUB_SHA:-unknown}" \
+      --slurpfile suites "$entries" \
+      '{os: $os, runner: $runner, bun: $bun, commit: $commit, suites: $suites}' >"$out"
     cat "$out"
+    # Fail closed: a report the gate cannot read must not read as green.
+    if ! jq -e '.suites | type == "array"' "$out" >/dev/null 2>&1; then
+      echo "$out is not valid JSON; refusing to gate on it" >&2
+      exit 1
+    fi
 
     # Red overall when a suite that passes on this platform stops passing, so
     # the job's conclusion means "something regressed" rather than "macOS
-    # gives a unix socket an 8 KiB buffer". `m2` and `test-full` are recorded
-    # but not gated, and only for that reason: under M2's 4 MB burst the
-    # daemon short-writes after about 8 KB where Linux manages about 218 KB,
-    # so a client that never lags on Linux is dropped and re-rendered here.
-    # findings/platforms.md records the sysctl and the numbers.
+    # gives a unix socket an 8 KiB buffer". Every suite in SUITE_ORDER has to
+    # have recorded a pass; a skip or an unreadable verdict is as red as a
+    # fail, so a hang cannot turn the job green.
     #
-    # The excuse is deliberately narrow: `test-full` is forgiven only when the
-    # single test it reports failing is that same scenario. Any other failing
-    # test is a real regression and turns the job red.
+    # `m2` and `test-full` may fail, and only for one reason: under M2's 4 MB
+    # burst the daemon short-writes after about 8 KB where Linux manages
+    # about 218 KB, so a client that never lags on Linux is dropped and
+    # re-rendered here. findings/platforms.md records the sysctl and the
+    # numbers.
+    #
+    # The excuse is deliberately narrow: each is forgiven only when the set
+    # of things its log reports failing is exactly that scenario (for
+    # `test-full`, the one test that runs it). Anything else failing
+    # alongside it is a real regression and turns the job red.
+    KNOWN_M2_FAIL='slow client: one wp attach SIGSTOPped under yes | head -c 4M'
+    KNOWN_TEST_FULL_FAIL='reattach fidelity: every scenario passes (spikes/m2/run-all.ts)'
+    failing_tests() { grep -aE '^\(fail\) ' "$1" 2>/dev/null | sed -E 's/^\(fail\) //; s/ \[[0-9.]+m?s\]$//' | sort -u; }
+    failing_scenarios() { grep -aE '^FAIL  ' "$1" 2>/dev/null | sed 's/^FAIL  //' | sort -u; }
+
     gate=0
-    ungated="$(jq -r '.suites[] | select(.status == "fail") | .id' "$out" |
-      grep -vxE 'm2|test-full' || true)"
-    if [ -n "$ungated" ]; then
-      echo "suites that should pass on macOS failed: $(echo "$ungated" | paste -sd' ' -)" >&2
+    red() {
+      echo "$1" >&2
       gate=1
-    fi
-    tf="$(jq -r '.suites[] | select(.id == "test-full" and .status == "fail") | .detail' "$out")"
-    if [ -n "$tf" ] && ! printf '%s' "$tf" | grep -qE 'reattach fidelity|slow client'; then
-      echo "test-full failed for something other than the m2 slow-client scenario: $tf" >&2
-      gate=1
-    fi
+    }
+    for id in $SUITE_ORDER; do
+      status="$(jq -r --arg id "$id" '.suites[] | select(.id == $id) | .status' "$out")"
+      case "$status" in
+      pass) ;;
+      fail)
+        case "$id" in
+        test-full)
+          got="$(failing_tests "$LOGS/test-full.log")"
+          known="$KNOWN_TEST_FULL_FAIL"
+          ;;
+        m2)
+          got="$(failing_scenarios "$LOGS/m2.log")"
+          known="$KNOWN_M2_FAIL"
+          ;;
+        *)
+          red "$id should pass on macOS and failed"
+          continue
+          ;;
+        esac
+        if [ "$got" = "$known" ]; then
+          echo "$id failed only on the known slow-client scenario; forgiven"
+        else
+          red "$id failed for something other than the m2 slow-client scenario: $(printf '%s' "$got" | paste -sd';' -)"
+        fi
+        ;;
+      *) red "$id has no usable verdict (${status:-missing}): its step was killed, never ran, or left nothing readable" ;;
+      esac
+    done
     [ "$gate" -eq 0 ] || exit 1
     ;;
   *)
