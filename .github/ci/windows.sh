@@ -49,7 +49,15 @@ echo "::endgroup::"
 # output when nothing does.
 body=$(grep -av -e '^[[:space:]]*$' -e '^[[:space:]]*[0-9][0-9]*[[:space:]]*|' -e '^[[:space:]]*\^*$' "$clean")
 
-if [ "$rc" -eq 0 ]; then
+# A suite that knows its own one-line verdict says so with a `DETAIL:` line;
+# the last one wins. Everything else falls back to the heuristic below.
+override=$(grep -a '^DETAIL: ' "$clean" | tail -1 | sed 's/^DETAIL: //')
+
+if [ -n "$override" ]; then
+  detail="$override"
+  status=pass
+  [ "$rc" -eq 0 ] || status=fail
+elif [ "$rc" -eq 0 ]; then
   status=pass
   detail=$(printf '%s\n' "$body" | tail -1)
 else

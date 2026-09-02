@@ -32,6 +32,6 @@ grep -a '^RESULT ' "$log" |
 
 bad=$(grep -a '^RESULT ' "$log" | grep -av '"status":"pass"' |
   sed -e 's/.*"probe":"\([^"]*\)".*/\1/' | tr '\n' ' ')
-echo "m0 probes not passing: ${bad:-none}"
+echo "DETAIL: m0 probes not passing: ${bad:-none}"
 
 exit "$rc"
