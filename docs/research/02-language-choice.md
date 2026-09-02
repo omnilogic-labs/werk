@@ -203,11 +203,13 @@ of how to write it carries across languages.
 - **Signing is version-fragile.** Three separate macOS SIGKILL/invalid-signature
   regressions in 2026, the most recent fixed ten days before this research
   ([07 §5](07-packaging.md)). This is ongoing maintenance, not setup.
-- **Windows sharp edges land squarely on a supervisor**: `kill(signal)` ignores
-  the signal, so `SIGHUP → grace → SIGKILL` teardown does not work as designed;
-  no `AF_UNIX`, so daemon IPC needs a named-pipe path; ConPTY re-encodes output
-  rather than passing bytes through, which is awkward for a product about
-  faithful terminal state.
+- **Windows sharp edges land squarely on a supervisor**: every `kill(signal)`
+  is `TerminateProcess`, so graceful teardown has to go through the protocol;
+  `AF_UNIX` works but only a Bun client reaches it, so daemon IPC probably wants
+  a loopback TCP option; ConPTY re-encodes output rather than passing bytes
+  through, which is awkward for a product about faithful terminal state. All
+  three are measured in
+  [`platforms.md`](../../packages/werk-poc/findings/platforms.md).
 - **The latency floor** for a JS process holding N PTYs at high throughput is
   worse than a native one. Probably irrelevant given the "tap, not stage" design
   from [03](03-prior-art.md) — the fast path is a byte copy — but it should be
@@ -217,9 +219,13 @@ of how to write it carries across languages.
 reaches the same C API natively. `dlopen` of an embedded shared library inside
 a compiled binary works,
 [after a recent fix](https://github.com/oven-sh/bun/issues/30717). It costs a
-prebuild matrix and gives up Windows, so it is measured against the WASM route
-on identical calls rather than proposed as the primary. If WASM is within noise
-of native, the platform matrix goes away for good.
+prebuild matrix — the tarball's five targets plus a vendored `win32-x64` build,
+with no `darwin-x64` build and no `bun:ffi` at all on `win32-arm64` in Bun
+1.3.14 — so it is measured against the WASM route on identical calls rather
+than proposed as the primary. On the one machine both ran, the WASM route was
+the faster ([`m6.md`](../../packages/werk-poc/findings/m6.md)); whether that
+holds elsewhere, and whether the matrix is worth carrying, remains a comparison
+rather than a verdict.
 
 ## Recommendation
 

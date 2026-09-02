@@ -83,10 +83,10 @@ is fairly bleak about how to do that safely.
 Windows is a first-class **client** — settled. Whether werk can _place_ a
 workspace on a Windows machine and run processes there is not.
 
-|                 | Cost                                                                                                                                                                                                                                                                              |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Client only** | Windows users place work in WSL2 or a container. Honest, much less work, and matches where the tooling actually is — Claude Code's own sandbox supports WSL2 and **not** native Windows                                                                                           |
-| **Host too**    | ConPTY works, but: `Bun.Terminal` on Windows re-encodes output rather than passing bytes through; `proc.kill(signal)` ignores the signal, so graceful teardown doesn't work as designed; no `AF_UNIX`; and WSL2 itself has **no guarantee for unattended long-running processes** |
+|                 | Cost                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Client only** | Windows users place work in WSL2 or a container. Honest, much less work, and matches where the tooling actually is — Claude Code's own sandbox supports WSL2 and **not** native Windows                                                                                                                                                                                                                      |
+| **Host too**    | ConPTY works, but: `Bun.Terminal` on Windows re-encodes output rather than passing bytes through (a session does not open with the prologue Linux produces); every `proc.kill(signal)` is `TerminateProcess`, so graceful teardown must go through the protocol; ConPTY round-trips in about 15 ms against under 0.1 ms on Linux; and WSL2 itself has **no guarantee for unattended long-running processes** |
 
 Details in [`../research/07-packaging.md`](../research/07-packaging.md) §6 and
 [`../research/12-placement-backends.md`](../research/12-placement-backends.md) §4.
@@ -94,6 +94,9 @@ Details in [`../research/07-packaging.md`](../research/07-packaging.md) §6 and
 **Lean:** client-first, WSL2 as the documented Windows placement, native Windows
 hosting explicitly out of scope for v1 and stated as such. But note the WSL2
 teardown problem is a real risk to the first promise and needs its own answer.
+The measurements in
+[`../proposals/01-cross-platform.md`](../proposals/01-cross-platform.md) §3
+bound the cost of the host-too row without changing the lean.
 
 ---
 

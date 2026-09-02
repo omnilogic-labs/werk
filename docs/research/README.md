@@ -84,7 +84,9 @@ genuine agent-neutrality and backend-neutrality, is the whole differentiation.
 Three spikes, in this order, because any one failing changes the plan:
 
 1. **Does `Bun.Terminal` work inside `bun build --compile`?** Undocumented either
-   way. Nothing else matters if it doesn't. [07 §4](07-packaging.md)
+   way; the proof of concept measured it, and it does, on all three operating
+   systems ([`platforms.md`](../../packages/werk-poc/findings/platforms.md)).
+   [07 §4](07-packaging.md)
 2. **Does `ssh -L local.sock:remote.sock` hold up under a live PTY stream?**
    Every citation is a request/response proxy; ours is many small latency-
    sensitive frames. [09 §0](09-remote-transport.md)
