@@ -18,6 +18,7 @@ the product directly. What matters is what is written down in `findings/`.
 | `src/cli/`    | The `wp` entry point and its commands                           |
 | `src/web/`    | The `wp serve` page (M4)                                        |
 | `spikes/m0/`  | M0's smoke probes, one file per question, plus a runner         |
+| `spikes/m1/`  | M1's compiled-binary check for the embedded WASM                |
 | `bench/`      | The `wp bench` measurements (M6)                                |
 | `vendor/`     | Pinned upstream artifacts (libghostty WASM, `ghostty-web`)      |
 | `findings/`   | What each milestone found, one file per milestone               |

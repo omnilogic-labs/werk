@@ -1,0 +1,6 @@
+# Only the pinned commit's directory is checked in. Other commits fetched with
+# fetch.ts (M3 decodes snapshots across tip commits) stay local.
+/*/
+!/3c1ef5b32fc5ea6b93d28493fabf193f595139cf/
+# The speed-optimised build is fetched on demand (fetch.ts --full), never committed.
+ghostty-vt.wasm

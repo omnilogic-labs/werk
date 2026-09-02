@@ -1,0 +1,17 @@
+{
+  "commit": "3c1ef5b32fc5ea6b93d28493fabf193f595139cf",
+  "chosen": "the commit the ghostty-org/ghostty `tip` release assets were built from on 2026-09-01 (release-tip.yml run on that head_sha; the release asset and tip.files.ghostty.org/<commit>/ are byte-identical)",
+  "artifacts": {
+    "ghostty-vt-small.wasm": {
+      "url": "https://tip.files.ghostty.org/3c1ef5b32fc5ea6b93d28493fabf193f595139cf/ghostty-vt-small.wasm",
+      "size": 738713,
+      "sha256": "df0cf5b020ac00c24ff58b202bc66fdd913377d1ca09ea10375946ac1da0e58a"
+    },
+    "ghostty-vt.wasm": {
+      "url": "https://tip.files.ghostty.org/3c1ef5b32fc5ea6b93d28493fabf193f595139cf/ghostty-vt.wasm",
+      "size": 1019793,
+      "sha256": "f3689c23647fe3886259e6c33b4a44adefadc9704bc57221725a165c6eef101b"
+    }
+  },
+  "headers": "https://raw.githubusercontent.com/ghostty-org/ghostty/3c1ef5b32fc5ea6b93d28493fabf193f595139cf/include/ghostty/"
+}
