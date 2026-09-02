@@ -35,6 +35,14 @@ Every suite step carries `continue-on-error`, so a run reports every suite's
 verdict rather than stopping at the first red one, and each job uploads a
 `ci-result-<os>.json`. The tables below are that JSON, not a retelling of it.
 
+The merged form of all three ran together as
+[33684207403](https://github.com/omnilogic-labs/werk/actions/runs/33684207403),
+green on every lane. Green there does not mean every suite passed: each lane
+gates on the suites that platform already passes, so that a red lane means
+something regressed. That run records 2 non-passing suites on Linux, 2 on
+macOS and 7 on Windows, and the artefacts carry all of them. Read the JSON
+rather than the badge.
+
 Bun is pinned to 1.3.14 on all three, matching the `bun-types` pin and the
 version the rest of `findings/` was measured on. Nothing needs the network
 beyond `bun install`. No runner needed a package installed: the ubuntu image
