@@ -1,0 +1,265 @@
+# What the werk proof of concept does, and where it stops, on windows-latest.
+#
+# The proof of concept is POSIX-only by construction, so much of this job is
+# expected to be red. That is the point: every suite runs, every suite records
+# its own verdict, and the job never stops at the first failure, so one run
+# produces the whole cascade with the real error text at each layer.
+#
+# The job is deliberately quick — a couple of minutes. Where a suite would
+# fail slowly, by waiting out an internal deadline that expires only because
+# the platform never answers, it is replaced by a probe that provokes the same
+# failure directly and prints the first line of it. The error message is the
+# finding; the suite's verdict around it is not worth the minutes.
+name: probe-windows
+
+on:
+  push:
+    branches: ["ci/os-windows"]
+
+concurrency:
+  group: probe-windows
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: 1.3.14
+  SUITE_TIMEOUT: "180"
+  SUITE_ORDER: >-
+    install typecheck test-pure build-web build diff ops probes m0-probes
+    daemon wp-cli test-full m2 m3
+  # The suites that pass on windows today. Everything else is expected to
+  # fail and is recorded rather than gated, so a red gate means one of these
+  # regressed rather than "windows still does not run the daemon". `m3` is
+  # deliberately not here: every snapshot it encodes decodes identically, but
+  # on one run in four the process printed all of its tables and then did not
+  # exit, so gating on it would gate on that.
+  EXPECTED_PASS: install typecheck build-web build diff probes
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Git for Windows checks out with CRLF by default, which would rewrite
+      # the .cast corpus fixtures and every source file before anything ran.
+      - name: Keep line endings as committed
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Record the runner
+        id: runner
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          echo "SUITE_DIR=$RUNNER_TEMP/suites" >>"$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/suites"
+          rel=$(bun -e 'console.log(require("node:os").release())')
+          echo "PROBE_RUNNER=$RUNNER_ARCH/$RUNNER_OS ${ImageOS:-?} ${ImageVersion:-?} nt-$rel" >>"$GITHUB_ENV"
+          bun --version
+          bun -e 'console.log(process.platform, process.arch, process.execPath)'
+          {
+            echo "## probe-windows"
+            echo
+            echo "runner: \`$RUNNER_ARCH/$RUNNER_OS ${ImageOS:-?} ${ImageVersion:-?} nt-$rel\`"
+            echo "bun: \`$(bun --version)\`  commit: \`$GITHUB_SHA\`"
+            echo
+            echo "| suite | status | ms | detail |"
+            echo "| --- | --- | --- | --- |"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # ---------------------------------------------------------------------
+      # The suites that work on windows. These are the deliverable: the part
+      # of the proof of concept that is already portable.
+      # ---------------------------------------------------------------------
+
+      - name: install
+        id: install
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/windows.sh install . 'bun install --frozen-lockfile'
+
+      - name: typecheck
+        id: typecheck
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/windows.sh typecheck packages/werk-poc 'bun run typecheck'
+
+      # The pure-computation tests: the VT engines, the capability matrix and
+      # the wire protocol. No PTY, no socket, no ffi.
+      - name: test-pure
+        id: test-pure
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/windows.sh test-pure packages/werk-poc 'bun test src/engine src/protocol'
+
+      - name: build-web
+        id: build-web
+        continue-on-error: true
+        timeout-minutes: 2
+        run: bash .github/ci/windows.sh build-web packages/werk-poc 'bun run build:web'
+
+      # The single-file binary, and what it can say without a daemon.
+      - name: build
+        id: build
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          bash .github/ci/windows.sh build packages/werk-poc \
+            'bun run build && ls -l dist && WP=dist/wp.exe && test -f "$WP" || WP=dist/wp && echo "binary: $WP" && "./$WP" --help && echo "--- caps ---" && "./$WP" caps'
+
+      # The differential corpus, plus 200 fuzz iterations on a fixed seed so
+      # the numbers can be held against the same command on linux.
+      # `ghostty-ffi` will not load; whether the wasm engine and the xterm
+      # oracle still agree is the most interesting question this job asks.
+      - name: diff
+        id: diff
+        continue-on-error: true
+        timeout-minutes: 4
+        run: |
+          bash .github/ci/windows.sh diff packages/werk-poc \
+            'bun run bench/differential.ts --fuzz 200 --seed 7'
+
+      # The operational report: toolchain, platform matrix, cold start.
+      - name: ops
+        id: ops
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/windows.sh ops packages/werk-poc 'bun run bench/ops.ts --quick --no-compile'
+
+      # ---------------------------------------------------------------------
+      # The layers underneath, probed directly. Each of these provokes one
+      # failure and prints its first line rather than waiting for a suite to
+      # discover it.
+      # ---------------------------------------------------------------------
+
+      # dlopen, flock, AF_UNIX, Bun.Terminal, the readiness pipe, the ffi
+      # platform, `sh`, and the daemon started in process past the two layers
+      # that stop it. Seconds, not minutes.
+      - name: probes
+        id: probes
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/windows.sh probes . 'bun run .github/ci/windows-probes.ts'
+
+      # The M0 PTY probes, run one file at a time rather than through
+      # `run-all.ts`, which also compiles each probe and runs the compiled
+      # copy — twenty minutes of it on windows, nearly all spent waiting out
+      # deadlines. `M0_LAT_N` shortens 07's 2,000 round trips; at 15 ms each
+      # the full count is a minute of pure benchmark.
+      - name: m0-probes
+        id: m0-probes
+        continue-on-error: true
+        timeout-minutes: 4
+        env:
+          M0_LAT_N: "200"
+        run: |
+          bash .github/ci/windows.sh m0-probes packages/werk-poc \
+            'bash "$GITHUB_WORKSPACE/.github/ci/windows-m0.sh"'
+
+      # The daemon, started the way `wp` starts it.
+      - name: daemon
+        id: daemon
+        continue-on-error: true
+        timeout-minutes: 2
+        run: bash .github/ci/windows.sh daemon packages/werk-poc 'bun run src/cli/main.ts __daemon'
+
+      # The compiled binary talking to a daemon it has to start itself.
+      - name: wp-cli
+        id: wp-cli
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          bash .github/ci/windows.sh wp-cli packages/werk-poc \
+            'WP=dist/wp.exe && test -f "$WP" || WP=dist/wp && "./$WP" ls'
+
+      # ---------------------------------------------------------------------
+      # Whole-suite datapoints cheap enough to keep: both fail in seconds
+      # rather than waiting out a deadline.
+      # ---------------------------------------------------------------------
+
+      - name: test-full
+        id: test-full
+        continue-on-error: true
+        timeout-minutes: 4
+        run: |
+          bash .github/ci/windows.sh test-full packages/werk-poc \
+            'bun test >full.log 2>&1; rc=$?; cat full.log; echo "--- files and failures ---"; grep -a "^::group::\|^(fail)" full.log; exit $rc'
+
+      - name: m2
+        id: m2
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/windows.sh m2 packages/werk-poc 'bun run m2'
+
+      - name: m3
+        id: m3
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/windows.sh m3 packages/werk-poc 'bun run m3'
+
+      - name: Collect
+        if: always()
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          bun run .github/ci/windows-collect.ts
+          mkdir -p suite-logs
+          cp "$SUITE_DIR"/*.log suite-logs/ 2>/dev/null || true
+          {
+            echo
+            echo '<details><summary>ci-result-windows.json</summary>'
+            echo
+            echo '```json'
+            cat ci-result-windows.json
+            echo '```'
+            echo
+            echo '</details>'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-result-windows
+          path: |
+            ci-result-windows.json
+            suite-logs/
+          if-no-files-found: warn
+
+      # The job's own verdict, after the report is safely uploaded: green over
+      # the subset that works on windows, red only when part of that subset
+      # stops working. The rest of the cascade is the finding, not a failure.
+      - name: Gate
+        if: always()
+        timeout-minutes: 2
+        run: |
+          set -uo pipefail
+          rc=0
+          for id in $EXPECTED_PASS; do
+            s=$(cat "$SUITE_DIR/$id.status" 2>/dev/null || echo missing)
+            if [ "$s" = pass ]; then
+              echo "ok      $id"
+            else
+              echo "::error::$id is expected to pass on windows and did not ($s)"
+              rc=1
+            fi
+          done
+          for id in $SUITE_ORDER; do
+            case " $EXPECTED_PASS " in
+              *" $id "*) continue ;;
+            esac
+            echo "known   $id: $(cat "$SUITE_DIR/$id.status" 2>/dev/null || echo missing)"
+          done
+          exit $rc
