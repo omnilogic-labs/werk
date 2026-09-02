@@ -44,8 +44,25 @@ run() {
 }
 
 # The first line of the log matching a pattern, trimmed to one summary line.
-pick() { grep -m1 -E "$1" "$LOG" | tr -d '\r' | cut -c1-240; }
-count() { grep -cE "$1" "$LOG"; }
+pick() { grep -am1 -E "$1" "$LOG" | tr -d '\r' | cut -c1-240; }
+count() { grep -acE "$1" "$LOG"; }
+
+# What to say about a failure with no better idea: the first `error:` line, or
+# failing that the last thing the command printed.
+why() {
+  local d
+  d="$(pick '^error')"
+  if [ -z "$d" ]; then d="$(grep -av '^[[:space:]]*$' "$LOG" | tail -1 | tr -d '\r' | cut -c1-240)"; fi
+  printf '%s' "$d"
+}
+
+# `bun test`: the count line, plus the names of the tests that failed.
+bun_test_detail() {
+  local ran fails
+  ran="$(pick 'Ran [0-9]+ tests')"
+  fails="$(grep -aE '^\(fail\) ' "$LOG" | sort -u | head -3 | paste -sd';' - | cut -c1-200)"
+  printf '%s%s' "$ran" "${fails:+ — failing: $fails}"
+}
 
 # ------------------------------------------------------------------ report
 
@@ -54,6 +71,12 @@ if [ "$SUITE" = "report" ]; then
   runner="$(uname -srm)"
   if [ -n "${ImageOS:-}" ]; then runner="$runner, image ${ImageOS}${ImageVersion:+/$ImageVersion}"; fi
   if [ -n "${RUNNER_ARCH:-}" ]; then runner="$runner, runner arch ${RUNNER_ARCH}"; fi
+  # A note the coordinator should not have to rediscover: the one scenario
+  # that wants more CPU headroom than a 4-vCPU hosted runner has.
+  notes=""
+  if grep -aq '^FAIL  slow client' "$OUT/logs/m2.log" 2>/dev/null; then
+    notes="m2's 'slow client' scenario asserts that the fast client never lags while a stopped one floods 4 MB through the daemon. On a 4-vCPU hosted runner the fast client's own queue crosses the daemon's 256 KiB drop bound, so it lags and loses bytes; it reproduces locally when the box is pinned to two cores. test-full fails for the same reason, through spikes/m2/fidelity.test.ts."
+  fi
   jq -n \
     --arg os "ubuntu-latest" \
     --arg runner "$runner" \
@@ -61,8 +84,9 @@ if [ "$SUITE" = "report" ]; then
     --arg commit "${GITHUB_SHA:-$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)}" \
     --arg caps "$(cat "$OUT/caps.txt" 2>/dev/null)" \
     --arg opsPlatforms "$(cat "$OUT/ops-platforms.txt" 2>/dev/null)" \
+    --arg notes "$notes" \
     --slurpfile suites "$OUT/suites.json" \
-    '{os: $os, runner: $runner, bun: $bun, commit: $commit, suites: $suites[0], caps: $caps, opsPlatforms: $opsPlatforms}' \
+    '{os: $os, runner: $runner, bun: $bun, commit: $commit, suites: $suites[0], caps: $caps, opsPlatforms: $opsPlatforms, notes: $notes}' \
     >"$OUT/ci-result-linux.json"
   echo "--- ci-result-linux.json"
   cat "$OUT/ci-result-linux.json"
@@ -126,8 +150,7 @@ test-pure)
   NAME="bun test src/engine src/protocol"
   run "$POC" bun test src/engine src/protocol
   CODE=$?
-  DETAIL="$(pick 'Ran [0-9]+ tests')"
-  if [ $CODE -ne 0 ]; then DETAIL="${DETAIL:-failed}; $(pick '^\(fail\)|error:')"; fi
+  DETAIL="$(bun_test_detail)"
   ;;
 
 build-web)
@@ -137,7 +160,7 @@ build-web)
   if [ $CODE -eq 0 ]; then
     DETAIL="src/web/bundle/app.js is $(stat -c %s "$POC/src/web/bundle/app.js" 2>/dev/null || echo '?') bytes"
   else
-    DETAIL="$(pick 'error|Error')"
+    DETAIL="$(why)"
   fi
   ;;
 
@@ -161,7 +184,7 @@ build)
   if [ $CODE -eq 0 ]; then
     DETAIL="dist/wp is $(stat -c %s "$POC/dist/wp" 2>/dev/null || echo '?') bytes; caps lists $(grep -cE '^\| ' "$OUT/caps.txt" 2>/dev/null || echo 0) matrix rows"
   else
-    DETAIL="${DETAIL:-$(pick 'error|Error')}"
+    DETAIL="${DETAIL:-$(why)}"
   fi
   ;;
 
@@ -169,8 +192,7 @@ test-full)
   NAME="bun test (whole package; runs build --compile transitively)"
   run "$POC" bun test
   CODE=$?
-  DETAIL="$(pick 'Ran [0-9]+ tests')"
-  if [ $CODE -ne 0 ]; then DETAIL="${DETAIL:-failed}; $(pick '^\(fail\)|error:')"; fi
+  DETAIL="$(bun_test_detail)"
   ;;
 
 m0)
@@ -193,7 +215,7 @@ m0)
     CODE=1
     DETAIL="run-all.ts exited 0 but wrote no dist/m0/results.json"
   else
-    DETAIL="$(pick 'error|Error')"
+    DETAIL="$(why)"
   fi
   ;;
 
@@ -204,7 +226,9 @@ m2)
   pass="$(count '^PASS  ')"
   fail="$(count '^FAIL  ')"
   DETAIL="$pass scenarios pass, $fail fail"
-  if [ $CODE -ne 0 ]; then DETAIL="$DETAIL; first: $(pick '^FAIL  ')"; fi
+  if [ "$fail" -gt 0 ]; then
+    DETAIL="$DETAIL — $(grep -aE '^FAIL  ' "$LOG" | sed 's/^FAIL  //' | paste -sd'; ' - | cut -c1-200)"
+  fi
   ;;
 
 m3)
@@ -215,7 +239,7 @@ m3)
   if [ $CODE -eq 0 ]; then
     DETAIL="snapshot-cost and cross-commit ran; $skipped ghostty tip builds not on disk (only the pinned one is committed)"
   else
-    DETAIL="$(pick 'error|Error')"
+    DETAIL="$(why)"
   fi
   ;;
 
@@ -225,9 +249,9 @@ ops)
   CODE=$?
   awk '/^## Platform matrix/{f=1} /^## Cold start/{f=0} f' "$LOG" >"$OUT/ops-platforms.txt"
   if [ $CODE -eq 0 ]; then
-    DETAIL="toolchain, platform matrix and cold start reported; ffi prebuilds: $(grep -m1 -oE 'linux-x64-glibc[^|]*' "$OUT/ops-platforms.txt" | cut -c1-120)"
+    DETAIL="toolchain, platform matrix and cold start reported; ghostty-ffi prebuilds: $(grep -am1 -oE '(linux|darwin|windows)-[a-z0-9-]+(, [a-z0-9-]+)*' "$OUT/ops-platforms.txt" | cut -c1-120)"
   else
-    DETAIL="$(pick 'error|Error')"
+    DETAIL="$(why)"
   fi
   ;;
 
@@ -243,7 +267,7 @@ diff)
     differ="$(count '\| differ:')"
     DETAIL="$agree pairwise comparisons agree, $differ differ (differences are reported, never scored)"
   else
-    DETAIL="$(pick 'error|Error')"
+    DETAIL="$(why)"
   fi
   ;;
 

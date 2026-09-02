@@ -32,6 +32,8 @@ jobs:
           bun --version
           echo "ImageOS=${ImageOS:-} ImageVersion=${ImageVersion:-}"
           nproc; free -m
+          # vim (m2, m0/03-sigwinch) and top (one m2 scenario) are both in the
+          # ubuntu-24 image; the install is only there in case that changes.
           for t in vim top tmux jq; do printf '%-6s %s\n' "$t" "$(command -v "$t" || echo absent)"; done
           if ! command -v vim >/dev/null; then
             sudo apt-get update -qq && sudo apt-get install -y -qq vim
@@ -116,22 +118,6 @@ jobs:
         continue-on-error: true
         timeout-minutes: 20
         run: .github/ci/linux.sh diff
-
-      - name: experiment m2 slow client
-        continue-on-error: true
-        timeout-minutes: 20
-        working-directory: packages/werk-poc
-        run: |
-          for i in 1 2 3 4 5; do
-            echo "--- plain run $i"
-            bun run spikes/m2/run-all.ts "slow client" 2>&1 |
-              grep -E '^(PASS|FAIL)  |FAIL:|fast client (never lagged|saw)|slow client: dropped' || true
-          done
-          for b in 524288 1048576; do
-            echo "--- WP_QUEUE_BOUND=$b"
-            WP_QUEUE_BOUND=$b bun run spikes/m2/run-all.ts "slow client" 2>&1 |
-              grep -E '^(PASS|FAIL)  |FAIL:|fast client (never lagged|saw)|slow client: dropped' || true
-          done
 
       - name: report
         id: report
