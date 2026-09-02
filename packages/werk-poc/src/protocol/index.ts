@@ -3,7 +3,7 @@
 // CLI and the web server can both use it and a browser bundle could too.
 //
 // Framing: a 4-byte little-endian length, then that many bytes: one type
-// byte and the payload. Control frames carry UTF-8 JSON; the three data
+// byte and the payload. Control frames carry UTF-8 JSON; the four data
 // frame types carry raw bytes and skip the JSON cost on the hot path.
 //
 //   ┌────────────┬──────┬─────────────────────┐
@@ -33,6 +33,15 @@ export const FrameType = {
    * after lagging.
    */
   render: 3,
+  /**
+   * daemon → client: the session's emulator as `GHOSTSNP` bytes, for a
+   * client running the same libghostty (the browser). Sent in place of
+   * `render` when the client attached with `mode: "snapshot"`: after the
+   * attach and whenever the client catches up after lagging. Every
+   * `output` frame that follows carries bytes the emulator consumed after
+   * the encode, so feeding them into the decoded terminal keeps it exact.
+   */
+  snapshot: 4,
 } as const;
 export type FrameTypeValue = (typeof FrameType)[keyof typeof FrameType];
 
@@ -48,6 +57,9 @@ export interface Frame {
 // Control messages
 
 export type SessionStatus = "running" | "exited" | "corpse";
+
+/** The two reattach mechanisms of the proposal's §2, as a client chooses between them. */
+export type AttachMode = "vt" | "snapshot";
 
 /**
  * Why a session is a corpse: restored from a snapshot the daemon could
@@ -121,8 +133,23 @@ export type ClientMessage =
       cols: number;
       rows: number;
       readOnly: boolean;
+      /**
+       * How the first paint and every post-lag repaint arrive: `vt` (the
+       * default) is a `render` frame of re-emitted escape sequences for a
+       * client in someone else's terminal; `snapshot` is a `snapshot` frame
+       * for a client running the same emulator.
+       */
+      mode?: AttachMode;
     }
   | { t: "detach"; rid: number }
+  /**
+   * Send this attacher a fresh paint (a `render` or a `snapshot`, per its
+   * attach mode) in the frame stream now. What the daemon does on its own
+   * when a lagging client drains; a client with a slow consumer of its
+   * own behind it (the web server's WebSocket) asks for the same thing
+   * when that consumer drains.
+   */
+  | { t: "repaint"; rid: number }
   | { t: "resize"; rid: number; cols: number; rows: number }
   | { t: "ls"; rid: number }
   | { t: "kill"; rid: number; id: string; signal?: string }
@@ -291,7 +318,7 @@ export class FrameParser {
       }
       if (buf.length - off < HEADER_BYTES + len) break;
       const type = buf[off + HEADER_BYTES] as FrameTypeValue;
-      if (type > FrameType.render) throw new Error(`bad frame type ${type}`);
+      if (type > FrameType.snapshot) throw new Error(`bad frame type ${type}`);
       const payload = buf.slice(
         off + HEADER_BYTES + 1,
         off + HEADER_BYTES + len,

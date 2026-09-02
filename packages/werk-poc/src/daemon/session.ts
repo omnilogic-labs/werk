@@ -21,13 +21,14 @@ import {
   encodeFrame,
   FrameType,
   RENDER_CLEAR,
+  type AttachMode,
   type CorpseInfo,
   type RestoreStats,
   type ScreenResult,
   type SessionInfo,
   WP_VERSION,
 } from "../protocol/index.ts";
-import type { Connection } from "./connection.ts";
+import type { Connection, Paint } from "./connection.ts";
 import type { SnapshotHeader } from "./snapshot.ts";
 
 export interface SessionOptions {
@@ -317,11 +318,21 @@ export class Session {
 
   // -- attach / detach ------------------------------------------------------
 
+  /**
+   * Registers the client, sizes the session to it, and sends the first
+   * paint. Everything here is one synchronous step: the client is in
+   * `clients` before the paint is taken, and nothing can run the PTY's
+   * `data` callback between the paint and the client's enqueue, so the
+   * `output` frames that follow carry exactly the bytes the emulator
+   * consumed after it. For a `snapshot` attacher that is what makes a
+   * decoded replica exact rather than approximately right.
+   */
   attach(
     conn: Connection,
     cols: number,
     rows: number,
     readOnly: boolean,
+    mode: AttachMode = "vt",
   ): void {
     this.clients.add(conn);
     conn.noticed = false;
@@ -330,9 +341,11 @@ export class Session {
     conn.attached = {
       id: this.id,
       readOnly: readOnly || this.status === "corpse",
+      mode,
     };
     if (this.status !== "corpse") this.resize(cols, rows);
-    conn.sendRender(this.render());
+    const paint = this.paint(mode, conn);
+    if (paint) conn.sendPaint(paint);
     if (this.status === "exited") {
       conn.sendControl({
         t: "exited",
@@ -384,6 +397,36 @@ export class Session {
         `this daemon runs ${c.daemonEngine.slice(0, 12)}; not decoded]`
       );
     return `[${this.id}: snapshot has no screen]`;
+  }
+
+  /**
+   * The first paint for an attacher, and the repaint after a lag: a
+   * `render` for a `vt` client, a `snapshot` for a `snapshot` client. A
+   * session with no emulator (a mismatch corpse) has nothing a snapshot
+   * client could decode, so it gets the placeholder as a notice and no
+   * frame; a live emulator that cannot encode right now (a continuation
+   * past its limit, findings/m1.md) is told so the same way.
+   */
+  paint(mode: AttachMode, conn?: Connection): Paint | null {
+    if (mode === "vt") return { kind: "render", bytes: this.render() };
+    if (!this.vt) {
+      conn?.sendControl({
+        t: "notice",
+        id: this.id,
+        message: this.placeholder(),
+      });
+      return null;
+    }
+    const snap = this.encode();
+    if (!snap) {
+      conn?.sendControl({
+        t: "notice",
+        id: this.id,
+        message: "snapshot unavailable: the emulator could not be encoded",
+      });
+      return null;
+    }
+    return { kind: "snapshot", bytes: snap.bytes };
   }
 
   /**
@@ -465,10 +508,11 @@ export class Session {
   /**
    * The emulator as `GHOSTSNP` bytes, and how long the encode held the
    * event loop. Null when there is no emulator or it cannot encode (a
-   * continuation past its limit, findings/m1.md). Clears `dirty`; the
-   * caller writes the file and sets `snapshotAt`.
+   * continuation past its limit, findings/m1.md). A read: `dirty` is left
+   * alone, so an attach or a `snapshot` request does not stop the timer
+   * from writing the file.
    */
-  snapshot(): { bytes: Uint8Array; encodeMs: number } | null {
+  encode(): { bytes: Uint8Array; encodeMs: number } | null {
     if (!this.vt) return null;
     const t0 = performance.now();
     let bytes: Uint8Array;
@@ -480,8 +524,14 @@ export class Session {
       this.log(`session ${this.id}: encodeState failed: ${String(e)}`);
       return null;
     }
-    this.dirty = false;
     return { bytes, encodeMs: performance.now() - t0 };
+  }
+
+  /** `encode()` as a checkpoint: clears `dirty`; the caller writes the file and sets `snapshotAt`. */
+  snapshot(): { bytes: Uint8Array; encodeMs: number } | null {
+    const snap = this.encode();
+    if (snap) this.dirty = false;
+    return snap;
   }
 
   /** The header for this session's snapshot file. */

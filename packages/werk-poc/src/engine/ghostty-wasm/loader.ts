@@ -97,10 +97,14 @@ export class GhosttyModule {
   }
 
   static async load(source: GhosttySource): Promise<GhosttyModule> {
+    // The cast is so the same line typechecks under Bun's types and the
+    // DOM's, whose Uint8Array generics differ; the bytes are the same.
     const module =
       source instanceof WebAssembly.Module
         ? source
-        : await WebAssembly.compile(source);
+        : await WebAssembly.compile(
+            source as ArrayBuffer | Uint8Array<ArrayBuffer>,
+          );
     const instance = await WebAssembly.instantiate(module, {});
     return new GhosttyModule(module, instance);
   }

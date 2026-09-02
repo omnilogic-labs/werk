@@ -26,12 +26,12 @@ usage:
   wp attach [--read-only] <id>                 come back to a session
   wp logs [--vt] <id>                          dump the whole screen incl. scrollback
   wp kill [--signal SIG] [--rm] <id>           signal a running session; --rm removes an exited one
-  wp serve                                     loopback web UI
+  wp serve [--port N]                          loopback web UI: session list, live terminals
   wp bench                                     the measurements in the proposal, §6
   wp caps                                      the capability matrix, one column per engine
   wp __daemon                                  hidden; not typed by a human
 
-serve and bench do nothing yet.`;
+bench does nothing yet.`;
 
 interface Parsed {
   flags: Map<string, string | true>;
@@ -41,7 +41,7 @@ interface Parsed {
 }
 
 /** Flags that take a value; every other `--x` is boolean. */
-const VALUED = new Set(["engine", "cols", "rows", "signal"]);
+const VALUED = new Set(["engine", "cols", "rows", "signal", "port"]);
 
 function parse(argv: string[]): Parsed {
   const out: Parsed = { flags: new Map(), positional: [], rest: [] };
@@ -217,6 +217,26 @@ async function logs(p: Parsed): Promise<number> {
   });
 }
 
+async function serve(p: Parsed): Promise<number> {
+  const port = p.flags.get("port");
+  const { serveWeb } = await import("../web/server.ts");
+  const web = await serveWeb({
+    port: typeof port === "string" ? intFlag(p, "port") : undefined,
+    log: (line) => console.error(line),
+  });
+  out(`${web.url}\n`);
+  // Runs until interrupted; SIGINT/SIGTERM stop the server and leave the daemon alone.
+  await new Promise<void>((resolve) => {
+    const stop = () => {
+      web.stop();
+      resolve();
+    };
+    process.on("SIGINT", stop);
+    process.on("SIGTERM", stop);
+  });
+  return 0;
+}
+
 async function kill(p: Parsed): Promise<number> {
   const id = oneId(p, "kill");
   const signal = p.flags.get("signal");
@@ -276,6 +296,7 @@ export async function main(argv: string[]): Promise<number> {
           m.daemonMain(argv.slice(1)),
         );
       case "serve":
+        return await serve(p);
       case "bench":
         console.error(`wp ${cmd}: not implemented yet`);
         return 2;

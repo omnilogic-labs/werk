@@ -13,8 +13,12 @@ test("run without a command is a usage error", async () => {
   expect(await main(["run"])).toBe(2);
 });
 
-test("serve and bench are not implemented yet", async () => {
-  expect(await main(["serve"])).toBe(2);
+test("bench is not implemented yet", async () => {
+  expect(await main(["bench"])).toBe(2);
+});
+
+test("serve refuses a bad port", async () => {
+  expect(await main(["serve", "--port", "nope"])).toBe(2);
 });
 
 test("unknown commands fail", async () => {

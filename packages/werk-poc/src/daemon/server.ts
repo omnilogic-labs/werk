@@ -169,9 +169,9 @@ export async function startServer(
 
   const host = {
     log,
-    renderFor(conn: Connection) {
+    paintFor(conn: Connection) {
       const s = conn.attached ? sessions.get(conn.attached.id) : undefined;
-      return s ? s.render() : null;
+      return s ? s.paint(conn.attached!.mode, conn) : null;
     },
   };
 
@@ -232,7 +232,7 @@ export async function startServer(
       case "attach": {
         const s = session(msg.id);
         detach(conn);
-        s.attach(conn, msg.cols, msg.rows, msg.readOnly);
+        s.attach(conn, msg.cols, msg.rows, msg.readOnly, msg.mode ?? "vt");
         return {
           id: s.id,
           status: s.status,
@@ -247,6 +247,16 @@ export async function startServer(
         const s = conn.attached ? sessions.get(conn.attached.id) : undefined;
         detach(conn);
         return { altScreen: s?.altScreen() ?? false } satisfies DetachResult;
+      }
+      case "repaint": {
+        if (!conn.attached)
+          throw new ProtocolError(
+            "not-attached",
+            "repaint with nothing attached",
+          );
+        const paint = session(conn.attached.id).paint(conn.attached.mode, conn);
+        if (paint) conn.sendPaint(paint);
+        return {};
       }
       case "resize": {
         if (!conn.attached)
@@ -284,10 +294,11 @@ export async function startServer(
         return session(msg.id).screen() satisfies ScreenResult;
       case "snapshot": {
         // The live emulator as GHOSTSNP bytes, for a client running the same
-        // libghostty (the browser, M4). Does not touch the file or `dirty`:
-        // this is a read, not a checkpoint.
+        // libghostty. Does not touch the file or `dirty`: this is a read,
+        // not a checkpoint. (Attaching with `mode: "snapshot"` is the
+        // ordered way to get one; this request is a point in time.)
         const s = session(msg.id);
-        const snap = s.snapshot();
+        const snap = s.encode();
         if (!snap)
           throw new ProtocolError(
             "no-snapshot",

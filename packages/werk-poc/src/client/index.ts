@@ -5,8 +5,9 @@
 // One connection holds at most one attachment. `run` does not attach; call
 // `attach` after it. A render frame's bytes start with a clear and are
 // written to the terminal verbatim; output frames are written verbatim
-// too. Detaching drops this connection from the session and the session
-// carries on.
+// too. A `snapshot` attacher gets `GHOSTSNP` bytes instead of renders and
+// feeds the output frames into its own decoded emulator. Detaching drops
+// this connection from the session and the session carries on.
 
 import type { Socket } from "bun";
 import { clientHello, ensureDaemon } from "../daemon/launch.ts";
@@ -21,6 +22,7 @@ import {
   encodeFrame,
   FrameParser,
   FrameType,
+  type AttachMode,
   type AttachResult,
   type ClientMessage,
   type DaemonMessage,
@@ -69,9 +71,13 @@ export interface AttachOptions {
   cols: number;
   rows: number;
   readOnly?: boolean;
+  /** `vt` (default): paints arrive as `render` frames. `snapshot`: as `GHOSTSNP` bytes for a client running the same emulator. */
+  mode?: AttachMode;
   onOutput?(bytes: Uint8Array): void;
   /** Starts with a clear; write verbatim. */
   onRender?(bytes: Uint8Array): void;
+  /** `GHOSTSNP` bytes; decode with the engine, then feed every `onOutput` that follows into the decoded terminal. */
+  onSnapshot?(bytes: Uint8Array): void;
   onExited?(info: { exitCode: number | null; signalCode: string | null }): void;
   onLag?(info: { droppedBytes: number }): void;
   onResumed?(): void;
@@ -83,6 +89,8 @@ export interface AttachOptions {
 export interface Attachment extends AttachResult {
   input(bytes: Uint8Array | string): void;
   resize(cols: number, rows: number): Promise<void>;
+  /** A fresh paint in the frame stream: `onRender` or `onSnapshot` fires before this resolves. */
+  repaint(): Promise<void>;
   /** Leaves the session running. Reports whether it was on the alternate screen. */
   detach(): Promise<DetachResult>;
 }
@@ -233,6 +241,8 @@ export class Client {
       if (f.type === FrameType.output) this.attachment?.onOutput?.(f.payload);
       else if (f.type === FrameType.render)
         this.attachment?.onRender?.(f.payload);
+      else if (f.type === FrameType.snapshot)
+        this.attachment?.onSnapshot?.(f.payload);
       else if (f.type === FrameType.control)
         this.onControl(decodeControl<DaemonMessage>(f.payload));
     }
@@ -379,6 +389,7 @@ export class Client {
         cols: opts.cols,
         rows: opts.rows,
         readOnly: opts.readOnly ?? false,
+        mode: opts.mode ?? "vt",
       });
     } catch (e) {
       this.attachment = null;
@@ -396,6 +407,7 @@ export class Client {
         );
       },
       resize: (cols, rows) => this.request<void>({ t: "resize", cols, rows }),
+      repaint: () => this.request<void>({ t: "repaint" }),
       detach: async () => {
         if (this.attachedId !== id) return { altScreen: false };
         this.attachment = null;

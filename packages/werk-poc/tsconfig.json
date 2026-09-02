@@ -12,5 +12,6 @@
     "verbatimModuleSyntax": true,
     "noUncheckedIndexedAccess": true
   },
-  "include": ["src", "spikes", "bench"]
+  "include": ["src", "spikes", "bench"],
+  "exclude": ["src/web/client"]
 }

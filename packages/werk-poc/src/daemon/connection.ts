@@ -2,12 +2,13 @@
 // queue that implements the proposal's §4 rule.
 //
 // Every frame the daemon wants to send goes through `send`. Control frames
-// and render frames are always queued. Raw output frames are droppable:
-// when the queue would grow past QUEUE_BOUND the queued output is thrown
-// away, the connection is marked lagging and told so, and no further output
-// is queued until the kernel has drained what was already in flight. At
-// that point the session re-emits its screen into one render frame, the
-// client is told it has resumed, and streaming continues. The PTY is never
+// and render/snapshot frames are always queued. Raw output frames are
+// droppable: when the queued output would grow past QUEUE_BOUND it is
+// thrown away, the connection is marked lagging and told so, and no further
+// output is queued until the kernel has drained what was already in flight.
+// At that point the session paints itself afresh into one frame — a
+// re-emission for a `vt` attacher, a snapshot for a `snapshot` attacher —
+// the client is told it has resumed, and streaming continues. The PTY is never
 // paused for a viewer, and a slow viewer never holds a fast one back,
 // because each connection has its own queue and its own socket.
 //
@@ -21,6 +22,7 @@ import {
   encodeFrame,
   FrameParser,
   FrameType,
+  type AttachMode,
   type ConnectionStats,
   type DaemonMessage,
 } from "../protocol/index.ts";
@@ -33,16 +35,22 @@ interface Queued {
   droppable: boolean;
 }
 
+/** A fresh paint for a client: which frame type carries it, and the bytes. */
+export interface Paint {
+  kind: "render" | "snapshot";
+  bytes: Uint8Array;
+}
+
 export interface ConnectionHost {
-  /** Bytes to send when this connection catches up after lagging. */
-  renderFor(conn: Connection): Uint8Array | null;
+  /** What to send when this connection catches up after lagging. */
+  paintFor(conn: Connection): Paint | null;
   log(line: string): void;
 }
 
 export class Connection {
   readonly parser = new FrameParser();
-  /** The session this connection is attached to, if any. */
-  attached: { id: string; readOnly: boolean } | null = null;
+  /** The session this connection is attached to, if any, and how it wants its paints. */
+  attached: { id: string; readOnly: boolean; mode: AttachMode } | null = null;
   helloDone = false;
   closed = false;
   /** This connection has been told once that its input is going nowhere (a corpse). */
@@ -50,6 +58,8 @@ export class Connection {
 
   private queue: Queued[] = [];
   private queuedBytes = 0;
+  /** The droppable part of `queuedBytes`; what the bound is measured against. */
+  private queuedDroppable = 0;
   private waitingDrain = false;
   lagging = false;
   private lastShortAt: number | null = null;
@@ -83,6 +93,15 @@ export class Connection {
     this.send(encodeFrame(FrameType.render, bytes), false);
   }
 
+  sendSnapshot(bytes: Uint8Array): void {
+    this.send(encodeFrame(FrameType.snapshot, bytes), false);
+  }
+
+  sendPaint(paint: Paint): void {
+    if (paint.kind === "snapshot") this.sendSnapshot(paint.bytes);
+    else this.sendRender(paint.bytes);
+  }
+
   private send(frame: Uint8Array, droppable: boolean): void {
     if (this.closed) return;
     if (droppable) {
@@ -90,10 +109,17 @@ export class Connection {
         this.droppedBytes += frame.length;
         return;
       }
-      if (this.queuedBytes + frame.length > QUEUE_BOUND) {
+      // The bound is on droppable bytes: a paint larger than the bound (a
+      // heavily styled snapshot runs to a megabyte) must not put the
+      // connection into lag on the next output byte and earn itself
+      // another paint on the drain, which is a loop for as long as output
+      // keeps coming. Memory stays bounded because the non-droppable part
+      // is one paint plus control messages.
+      if (this.queuedDroppable + frame.length > QUEUE_BOUND) {
         this.enterLag(frame.length);
         return;
       }
+      this.queuedDroppable += frame.length;
     }
     this.queue.push({ bytes: frame, offset: 0, droppable });
     this.queuedBytes += frame.length;
@@ -112,6 +138,7 @@ export class Connection {
       if (q.droppable && !partial) {
         dropped += q.bytes.length - q.offset;
         this.queuedBytes -= q.bytes.length - q.offset;
+        this.queuedDroppable -= q.bytes.length - q.offset;
       } else keep.push(q);
     });
     this.queue = keep;
@@ -142,6 +169,7 @@ export class Connection {
       }
       this.bytesSent += n;
       this.queuedBytes -= n;
+      if (head.droppable) this.queuedDroppable -= n;
       if (n < remaining) {
         head.offset += n;
         this.shortWrites++;
@@ -166,12 +194,12 @@ export class Connection {
 
   private resume(): void {
     this.lagging = false;
-    const render = this.host.renderFor(this);
-    if (render && this.attached) {
+    const paint = this.host.paintFor(this);
+    if (paint && this.attached) {
       this.host.log(
-        `conn ${this.seq}: resumed with a ${render.length}-byte render`,
+        `conn ${this.seq}: resumed with a ${paint.bytes.length}-byte ${paint.kind}`,
       );
-      this.sendRender(render);
+      this.sendPaint(paint);
       this.sendControl({ t: "resumed", id: this.attached.id });
     }
   }
