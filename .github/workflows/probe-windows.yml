@@ -23,6 +23,10 @@ env:
   SUITE_ORDER: >-
     install typecheck test-pure build-web build wp-cli diff test-full m0 m2 m3
     ops probes daemon
+  # The suites that pass on windows today. Everything else is expected to
+  # fail and is recorded rather than gated, so a red gate means one of these
+  # regressed rather than "windows still does not run the daemon".
+  EXPECTED_PASS: install typecheck build-web build diff m3 probes
 
 jobs:
   windows:
@@ -206,3 +210,28 @@ jobs:
             ci-result-windows.json
             suite-logs/
           if-no-files-found: warn
+
+      # The job's own verdict, after the report is safely uploaded: green over
+      # the subset that works on windows, red only when part of that subset
+      # stops working. The rest of the cascade is the finding, not a failure.
+      - name: Gate
+        if: always()
+        run: |
+          set -uo pipefail
+          rc=0
+          for id in $EXPECTED_PASS; do
+            s=$(cat "$SUITE_DIR/$id.status" 2>/dev/null || echo missing)
+            if [ "$s" = pass ]; then
+              echo "ok      $id"
+            else
+              echo "::error::$id is expected to pass on windows and did not ($s)"
+              rc=1
+            fi
+          done
+          for id in $SUITE_ORDER; do
+            case " $EXPECTED_PASS " in
+              *" $id "*) continue ;;
+            esac
+            echo "known   $id: $(cat "$SUITE_DIR/$id.status" 2>/dev/null || echo missing)"
+          done
+          exit $rc
