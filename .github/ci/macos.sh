@@ -99,6 +99,17 @@ summary_for() {
         sed -E 's/^\| (.*) \| (pass|FAIL) \| .*/\2/' | sort | uniq -c |
         tr -d '\n' | tr -s ' ' | cut -c1-200
       ;;
+    diff)
+      # The engine-agreement table, as a count of verdicts, so the JSON says
+      # something a reader can compare against another platform's run.
+      awk '/^\| case +\| ghostty-wasm/ { t = 1; next }
+           /^\| case +\| engine/ { t = 0; next }
+           t && /^\| [a-z0-9]/ {
+             n = split($0, f, "|")
+             for (i = 3; i < n; i++) { gsub(/^ +| +$/, "", f[i]); if (f[i] != "") c[f[i] ~ /^agree/ ? "agree" : "differ"]++ }
+           }
+           END { printf "engine-pair verdicts: %d agree, %d differ", c["agree"], c["differ"] }' "$log"
+      ;;
     *)
       tail -1 "$log" | cut -c1-200
       ;;

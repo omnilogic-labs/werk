@@ -101,20 +101,6 @@ jobs:
         timeout-minutes: 20
         run: .github/ci/macos.sh suite m2
 
-      # Diagnostic, not a gate and not part of ci-result-macos.json: macOS
-      # gives a unix stream socket an 8 KiB buffer where Linux gives 208 KiB,
-      # which is the suspect for the m2 slow-client scenario. Re-run it with
-      # Linux-sized buffers and see whether the failure goes away.
-      - name: m2 with Linux-sized socket buffers (diagnostic)
-        id: m2-bigbuf
-        continue-on-error: true
-        timeout-minutes: 20
-        working-directory: packages/werk-poc
-        run: |
-          sudo sysctl -w net.local.stream.sendspace=212992 net.local.stream.recvspace=212992
-          sysctl net.local.stream.sendspace net.local.stream.recvspace
-          bun run m2
-
       - name: m3
         id: m3
         continue-on-error: true
@@ -132,6 +118,20 @@ jobs:
         continue-on-error: true
         timeout-minutes: 15
         run: .github/ci/macos.sh suite diff
+
+      # Diagnostic, not a gate and not part of ci-result-macos.json: macOS
+      # gives a unix stream socket an 8 KiB buffer where Linux gives 208 KiB,
+      # which is the suspect for the m2 slow-client scenario. Re-run it with
+      # Linux-sized buffers and see whether the failure goes away.
+      - name: m2 with Linux-sized socket buffers (diagnostic)
+        id: m2-bigbuf
+        continue-on-error: true
+        timeout-minutes: 20
+        working-directory: packages/werk-poc
+        run: |
+          sudo sysctl -w net.local.stream.sendspace=212992 net.local.stream.recvspace=212992
+          sysctl net.local.stream.sendspace net.local.stream.recvspace
+          bun run m2
 
       - name: Result
         if: always()
