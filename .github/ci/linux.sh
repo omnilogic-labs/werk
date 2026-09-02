@@ -29,6 +29,7 @@ ORDER=(install format typecheck test-pure build-web build test-full m0 m2 m3 ops
 
 # `date +%3N` is not universally honoured; nanoseconds always are.
 now_ms() { echo $(($(date +%s%N) / 1000000)); }
+pretty_ms() { if [ "$1" -lt 1000 ]; then echo "$1 ms"; else awk -v m="$1" 'BEGIN { printf "%.1f s", m / 1000 }'; fi; }
 
 summary() {
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then printf '%s\n' "$1" >>"$GITHUB_STEP_SUMMARY"; fi
@@ -247,9 +248,10 @@ ops)
   NAME="bun run bench/ops.ts --quick --no-compile"
   run "$POC" bun run bench/ops.ts --quick --no-compile
   CODE=$?
-  awk '/^## Platform matrix/{f=1} /^## Cold start/{f=0} f' "$LOG" >"$OUT/ops-platforms.txt"
+  awk '/^## Platform matrix/{f = 1; print; next} /^## /{f = 0} f' "$LOG" >"$OUT/ops-platforms.txt"
   if [ $CODE -eq 0 ]; then
-    DETAIL="toolchain, platform matrix and cold start reported; ghostty-ffi prebuilds: $(grep -am1 -oE '(linux|darwin|windows)-[a-z0-9-]+(, [a-z0-9-]+)*' "$OUT/ops-platforms.txt" | cut -c1-120)"
+    ffi="$(grep -am1 '^| ghostty-ffi' "$OUT/ops-platforms.txt" | cut -d'|' -f3 | xargs)"
+    DETAIL="toolchain, platform matrix and cold start reported; ghostty-ffi prebuilds: ${ffi:-none found}"
   else
     DETAIL="$(why)"
   fi
@@ -295,6 +297,6 @@ jq -n \
 echo
 echo "==> $SUITE: $STATUS in ${MS} ms — $DETAIL"
 mark=$([ "$STATUS" = pass ] && echo ':white_check_mark: pass' || echo ':x: fail')
-summary "| \`$SUITE\` | $mark | $((MS / 1000)) s | $NAME | ${DETAIL//|/\\|} |"
+summary "| \`$SUITE\` | $mark | $(pretty_ms "$MS") | $NAME | ${DETAIL//|/\\|} |"
 
 exit "${CODE:-1}"
