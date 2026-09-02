@@ -16,8 +16,6 @@ jobs:
     name: werk-poc on ubuntu-latest
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    env:
-      CI_OUT_DIR: ${{ runner.temp }}/ci-out
 
     steps:
       - uses: actions/checkout@v5
@@ -28,6 +26,7 @@ jobs:
 
       - name: Environment
         run: |
+          echo "CI_OUT_DIR=$RUNNER_TEMP/ci-out" >> "$GITHUB_ENV"
           set -x
           uname -srm
           bun --version
@@ -37,7 +36,7 @@ jobs:
           if ! command -v vim >/dev/null; then
             sudo apt-get update -qq && sudo apt-get install -y -qq vim
           fi
-          vim --version | head -1
+          (vim --version || true) | head -1
           chmod +x .github/ci/linux.sh
           {
             echo "## werk-poc on ubuntu-latest"
