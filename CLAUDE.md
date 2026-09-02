@@ -13,12 +13,12 @@ list you can open from a terminal or a browser.
 The repo is a Bun workspace with Prettier on defaults; the design lives in
 `docs/`, and `packages/werk-poc/` holds the experiment that tested the stack.
 
-| Path                 | What's in it                                                                                                                     |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `docs/product/`      | What werk does. Scope and promises, the object model, worked journeys, surfaces, open questions.                                 |
-| `docs/research/`     | What we found out before deciding anything. Thirteen dossiers, terminal internals through competitive landscape.                 |
-| `docs/proposals/`    | Technical specifications for what to build. Currently the proof of concept that tests the stack.                                 |
-| `packages/werk-poc/` | The proof of concept: reference material, not product code. Its `findings/` are the output; start at `findings/README.md` there. |
+| Path                 | What's in it                                                                                                                                         |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/product/`      | What werk does. Scope and promises, the object model, worked journeys, surfaces, open questions.                                                     |
+| `docs/research/`     | What we found out before deciding anything. Thirteen dossiers, terminal internals through competitive landscape.                                     |
+| `docs/proposals/`    | Technical specifications for what to build. Currently the proof of concept that tests the stack, and how one binary runs on three operating systems. |
+| `packages/werk-poc/` | The proof of concept: reference material, not product code. Its `findings/` are the output; start at `findings/README.md` there.                     |
 
 Start at `docs/README.md`. The proof of concept is reference material for
 building the product; nothing in it is migrated across directly.
