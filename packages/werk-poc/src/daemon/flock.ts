@@ -5,13 +5,18 @@
 // kernel when the holder dies, which is the whole reason to prefer it over a
 // PID file. Linux only for now; macOS would want "libc.dylib" / "libSystem".
 //
-// Windows (spike/win32-daemon) has no flock; the same contract is met by
-// `LockFileEx` on one byte of the file, exclusive and fail-immediately, and
-// the kernel releases that too when the holder dies. The handle comes from
-// `CreateFileW` rather than from `fs.openSync`: Bun's fds belong to a CRT
-// that is not ucrtbase.dll, so `_get_osfhandle` on one is fatal rather than
-// wrong (win32-spike run 33688866439). On win32 `fd` therefore holds the raw
-// HANDLE and `release` is `CloseHandle`.
+// Windows (spike/win32-daemon) has no flock. The same contract — one holder,
+// refused immediately otherwise, released by the kernel when the holder
+// dies — is met by opening the lock file through `CreateFileW` with a share
+// mode that admits no other reader or writer: the second opener fails with
+// ERROR_SHARING_VIOLATION until the first handle closes or its process ends.
+// DELETE stays shared so a test can still remove the directory. The handle
+// comes from `CreateFileW` rather than from `fs.openSync` because Bun's fds
+// belong to a CRT that is not ucrtbase.dll, so `_get_osfhandle` on one is
+// fatal rather than wrong; and `LockFileEx` on such a handle was refused
+// with ERROR_ACCESS_DENIED on the runner (win32-spike runs 33688866439 and
+// 33689491351; the probe file carries a matrix of the ways it was asked).
+// On win32 `fd` holds the raw HANDLE and `release` is `CloseHandle`.
 
 import { dlopen, FFIType, ptr } from "bun:ffi";
 import fs from "node:fs";
@@ -19,14 +24,13 @@ import fs from "node:fs";
 const LOCK_EX = 2;
 const LOCK_NB = 4;
 
-const LOCKFILE_FAIL_IMMEDIATELY = 1;
-const LOCKFILE_EXCLUSIVE_LOCK = 2;
 const GENERIC_READ = 0x80000000;
 const GENERIC_WRITE = 0x40000000;
-const FILE_SHARE_READ_WRITE_DELETE = 1 | 2 | 4;
+const FILE_SHARE_DELETE = 4;
 const OPEN_ALWAYS = 4;
 const FILE_ATTRIBUTE_NORMAL = 0x80;
 const INVALID_HANDLE_VALUE = (1n << 64n) - 1n;
+const ERROR_SHARING_VIOLATION = 32;
 
 let kernel32: {
   symbols: {
@@ -39,14 +43,7 @@ let kernel32: {
       flags: number,
       template: bigint,
     ) => bigint;
-    LockFileEx: (
-      h: bigint,
-      flags: number,
-      reserved: number,
-      lo: number,
-      hi: number,
-      overlapped: ReturnType<typeof ptr>,
-    ) => number;
+    GetLastError: () => number;
     CloseHandle: (h: bigint) => number;
   };
 } | null = null;
@@ -66,17 +63,7 @@ function loadKernel32() {
       ],
       returns: FFIType.u64,
     },
-    LockFileEx: {
-      args: [
-        FFIType.u64,
-        FFIType.u32,
-        FFIType.u32,
-        FFIType.u32,
-        FFIType.u32,
-        FFIType.ptr,
-      ],
-      returns: FFIType.i32,
-    },
+    GetLastError: { args: [], returns: FFIType.u32 },
     CloseHandle: { args: [FFIType.u64], returns: FFIType.i32 },
   }) as unknown as typeof kernel32;
   return kernel32!;
@@ -88,26 +75,16 @@ function tryLockWin32(path: string): FileLock | null {
   const handle = k.CreateFileW(
     ptr(name),
     GENERIC_READ | GENERIC_WRITE,
-    FILE_SHARE_READ_WRITE_DELETE,
+    FILE_SHARE_DELETE,
     null,
     OPEN_ALWAYS,
     FILE_ATTRIBUTE_NORMAL,
     0n,
   );
-  if (handle === INVALID_HANDLE_VALUE || handle === 0n)
-    throw new Error(`cannot open ${path} for LockFileEx`);
-  const overlapped = new Uint8Array(32);
-  const r = k.LockFileEx(
-    handle,
-    LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
-    0,
-    1,
-    0,
-    ptr(overlapped),
-  );
-  if (r === 0) {
-    k.CloseHandle(handle);
-    return null;
+  if (handle === INVALID_HANDLE_VALUE || handle === 0n) {
+    const err = k.GetLastError();
+    if (err === ERROR_SHARING_VIOLATION) return null;
+    throw new Error(`cannot open ${path} exclusively: Windows error ${err}`);
   }
   return {
     fd: Number(handle),

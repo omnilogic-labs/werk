@@ -252,6 +252,176 @@ function closeHandle(h: bigint): void {
 const hex = (n: number | null) =>
   n === null ? "n/a" : `0x${n.toString(16).toUpperCase()} (${n})`;
 
+// Other ways of asking for the lock, for the matrix in the lockfileex probe.
+type Alt = {
+  SetLastError: (e: number) => void;
+  GetLastError: () => number;
+  LockFile: (
+    h: bigint,
+    oLo: number,
+    oHi: number,
+    lo: number,
+    hi: number,
+  ) => number;
+  UnlockFile: (
+    h: bigint,
+    oLo: number,
+    oHi: number,
+    lo: number,
+    hi: number,
+  ) => number;
+};
+type AltPtr = {
+  LockFileEx: (
+    h: number,
+    flags: number,
+    reserved: number,
+    lo: number,
+    hi: number,
+    ov: Pointer,
+  ) => number;
+  UnlockFileEx: (
+    h: number,
+    reserved: number,
+    lo: number,
+    hi: number,
+    ov: Pointer,
+  ) => number;
+  GetLastError: () => number;
+};
+let alt: Alt | null = null;
+let altPtr: AltPtr | null = null;
+let altI32: AltPtr | null = null;
+function altKernel32(): Alt {
+  if (alt) return alt;
+  alt = dlopen("kernel32.dll", {
+    SetLastError: { args: [FFIType.u32], returns: FFIType.void },
+    GetLastError: { args: [], returns: FFIType.u32 },
+    LockFile: {
+      args: [FFIType.u64, FFIType.u32, FFIType.u32, FFIType.u32, FFIType.u32],
+      returns: FFIType.i32,
+    },
+    UnlockFile: {
+      args: [FFIType.u64, FFIType.u32, FFIType.u32, FFIType.u32, FFIType.u32],
+      returns: FFIType.i32,
+    },
+  }).symbols as unknown as Alt;
+  return alt;
+}
+function handleAs(type: typeof FFIType.ptr | typeof FFIType.i32): AltPtr {
+  const cached = type === FFIType.ptr ? altPtr : altI32;
+  if (cached) return cached;
+  const lib = dlopen("kernel32.dll", {
+    LockFileEx: {
+      args: [
+        type,
+        FFIType.u32,
+        FFIType.u32,
+        FFIType.u32,
+        FFIType.u32,
+        FFIType.ptr,
+      ],
+      returns: FFIType.i32,
+    },
+    UnlockFileEx: {
+      args: [type, FFIType.u32, FFIType.u32, FFIType.u32, FFIType.ptr],
+      returns: FFIType.i32,
+    },
+    GetLastError: { args: [], returns: FFIType.u32 },
+  }).symbols as unknown as AltPtr;
+  if (type === FFIType.ptr) altPtr = lib;
+  else altI32 = lib;
+  return lib;
+}
+type LockVariant = {
+  name: string;
+  lock: (h: bigint) => [boolean, number];
+  unlock: (h: bigint) => number;
+};
+const LOCK_VARIANTS: LockVariant[] = [
+  {
+    name: "LockFileEx u64 handle, 1 byte",
+    lock: (h) => {
+      altKernel32().SetLastError(0);
+      return lockHandle(h);
+    },
+    unlock: (h) => {
+      const ov = new Uint8Array(32);
+      return kernel32().UnlockFileEx(h, 0, 1, 0, ptr(ov));
+    },
+  },
+  {
+    name: "LockFile u64 handle (5 args)",
+    lock: (h) => {
+      const a = altKernel32();
+      a.SetLastError(0);
+      const r = a.LockFile(h, 0, 0, 1, 0);
+      return [r !== 0, r !== 0 ? 0 : a.GetLastError()];
+    },
+    unlock: (h) => altKernel32().UnlockFile(h, 0, 0, 1, 0),
+  },
+  {
+    name: "LockFileEx ptr handle",
+    lock: (h) => {
+      const a = handleAs(FFIType.ptr);
+      altKernel32().SetLastError(0);
+      const ov = new Uint8Array(32);
+      const r = a.LockFileEx(Number(h), 3, 0, 1, 0, ptr(ov));
+      return [r !== 0, r !== 0 ? 0 : a.GetLastError()];
+    },
+    unlock: (h) => {
+      const ov = new Uint8Array(32);
+      return handleAs(FFIType.ptr).UnlockFileEx(Number(h), 0, 1, 0, ptr(ov));
+    },
+  },
+  {
+    name: "LockFileEx i32 handle",
+    lock: (h) => {
+      const a = handleAs(FFIType.i32);
+      altKernel32().SetLastError(0);
+      const ov = new Uint8Array(32);
+      const r = a.LockFileEx(Number(h), 3, 0, 1, 0, ptr(ov));
+      return [r !== 0, r !== 0 ? 0 : a.GetLastError()];
+    },
+    unlock: (h) => {
+      const ov = new Uint8Array(32);
+      return handleAs(FFIType.i32).UnlockFileEx(Number(h), 0, 1, 0, ptr(ov));
+    },
+  },
+  {
+    name: "LockFileEx u64 handle, whole file, Buffer OVERLAPPED",
+    lock: (h) => {
+      altKernel32().SetLastError(0);
+      const ov = Buffer.alloc(32);
+      const r = kernel32().LockFileEx(h, 3, 0, 0xffffffff, 0x7fffffff, ptr(ov));
+      return [r !== 0, r !== 0 ? 0 : kernel32().GetLastError()];
+    },
+    unlock: (h) => {
+      const ov = Buffer.alloc(32);
+      return kernel32().UnlockFileEx(h, 0, 0xffffffff, 0x7fffffff, ptr(ov));
+    },
+  },
+];
+
+/** CreateFileW sharing DELETE only: a second opener gets ERROR_SHARING_VIOLATION (32). */
+function exclusiveOpen(p: string): bigint {
+  const name = Buffer.from(p + "\0", "utf16le");
+  const GENERIC_READ = 0x80000000;
+  const GENERIC_WRITE = 0x40000000;
+  const FILE_SHARE_DELETE = 4;
+  const OPEN_ALWAYS = 4;
+  const FILE_ATTRIBUTE_NORMAL = 0x80;
+  return kernel32().CreateFileW(
+    ptr(name),
+    GENERIC_READ | GENERIC_WRITE,
+    FILE_SHARE_DELETE,
+    null,
+    OPEN_ALWAYS,
+    FILE_ATTRIBUTE_NORMAL,
+    0n,
+  );
+}
+
 // ================================================================ roles
 if (role && role !== "run") {
   const dir = process.env.WP_PROBE_DIR ?? os.tmpdir();
@@ -266,20 +436,36 @@ if (role && role !== "run") {
   };
   switch (role) {
     case "lock-holder": {
-      // Hold the lock on argv[1] until killed.
+      // Hold the lock on argv[1] through variant argv[2] until killed.
       const p = argv[1]!;
+      const v = LOCK_VARIANTS[Number(argv[2] ?? 0)]!;
       const h = openHandle(p);
-      const [ok, err] = lockHandle(h);
+      const [ok, err] = v.lock(h);
       say("holder", ok ? "locked" : `refused err=${err}`);
       if (ok) await sleep(60_000);
       process.exit(ok ? 0 : 1);
     }
     case "lock-try": {
       const p = argv[1]!;
+      const v = LOCK_VARIANTS[Number(argv[2] ?? 0)]!;
       const h = openHandle(p);
-      const [ok, err] = lockHandle(h);
+      const [ok, err] = v.lock(h);
       say("try", `${ok ? "locked" : "refused"} err=${err}`);
       kernel32().CloseHandle(h);
+      process.exit(0);
+    }
+    case "xopen-holder": {
+      const h = exclusiveOpen(argv[1]!);
+      const ok = !isInvalid(h);
+      say("holder", ok ? "opened" : `refused err=${kernel32().GetLastError()}`);
+      if (ok) await sleep(60_000);
+      process.exit(ok ? 0 : 1);
+    }
+    case "xopen-try": {
+      const h = exclusiveOpen(argv[1]!);
+      const ok = !isInvalid(h);
+      say("try", ok ? "opened" : `refused err=${kernel32().GetLastError()}`);
+      if (ok) kernel32().CloseHandle(h);
       process.exit(0);
     }
     case "fd3-write": {
@@ -704,6 +890,11 @@ if (want("lockfileex")) {
   const p = path.join(dir, "wp.lock");
   // All handles come from CreateFileW: Bun's fds belong to a CRT that is not
   // ucrtbase.dll, so `_get_osfhandle` on one is fatal (see crt-osfhandle).
+  // Run 33689491351 then saw LockFileEx refuse a good handle with
+  // ERROR_ACCESS_DENIED (5), so every way of asking is tried in turn, the
+  // first that works carries the contention tests, and an exclusive-share
+  // open — the other Windows way to hold a file until death — is measured
+  // beside it.
   try {
     const h = openHandle(p);
     if (isInvalid(h)) {
@@ -716,108 +907,209 @@ if (want("lockfileex")) {
         "lock-createfilew",
         `ok — handle ${h}, GetFileType=${kernel32().GetFileType(h)} (1 = disk); the file ${fs.existsSync(p) ? "exists" : "does not exist"}`,
       );
-      const [ok, err] = lockHandle(h);
+      let chosen = -1;
+      for (let i = 0; i < LOCK_VARIANTS.length; i++) {
+        const v = LOCK_VARIANTS[i]!;
+        try {
+          const [ok, err] = v.lock(h);
+          say(
+            `lock-variant ${v.name}`,
+            ok ? "ok — locked" : `refused err=${err}`,
+          );
+          if (ok) {
+            if (chosen < 0) chosen = i;
+            else v.unlock(h);
+          }
+        } catch (e) {
+          say(`lock-variant ${v.name}`, `threw ${firstLine(e)}`);
+        }
+      }
+      if (chosen < 0) {
+        say("lock-take", "fail — no LockFile variant took the lock");
+        kernel32().CloseHandle(h);
+      } else {
+        const v = LOCK_VARIANTS[chosen]!;
+        say("lock-take", `ok — held through ${v.name}`);
+        const hSame = openHandle(p);
+        const [okSame, errSame] = v.lock(hSame);
+        say(
+          "lock-same-process",
+          `a second handle in the same process: ${okSame ? "locked too (per handle, not per process)" : `refused err=${errSame}`}`,
+        );
+        kernel32().CloseHandle(hSame);
+        const t = Bun.spawn(self("lock-try", p, String(chosen)), {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        await t.exited;
+        say(
+          "lock-contend",
+          `other process says ${JSON.stringify((await new Response(t.stdout).text()).trim())} (expect refused err=33) ${(await new Response(t.stderr).text()).trim().split("\n")[0] ?? ""}`,
+        );
+        const r = v.unlock(h);
+        const t2 = Bun.spawn(self("lock-try", p, String(chosen)), {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        await t2.exited;
+        say(
+          "lock-release",
+          `unlock=${r}; other process says ${JSON.stringify((await new Response(t2.stdout).text()).trim())} (expect locked)`,
+        );
+        v.lock(h);
+        kernel32().CloseHandle(h);
+        const t3 = Bun.spawn(self("lock-try", p, String(chosen)), {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        await t3.exited;
+        say(
+          "lock-release-on-close",
+          `after CloseHandle, other process says ${JSON.stringify((await new Response(t3.stdout).text()).trim())} (expect locked)`,
+        );
+        // release on death: a holder process is killed, how soon can we lock?
+        const holder = Bun.spawn(self("lock-holder", p, String(chosen)), {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        const reader = holder.stdout.getReader();
+        const first = await Promise.race([
+          reader.read(),
+          sleep(5000).then(() => null),
+        ]);
+        const said =
+          first && first.value
+            ? new TextDecoder().decode(first.value).trim()
+            : "(nothing)";
+        const h3 = openHandle(p);
+        const [before, errBefore] = v.lock(h3);
+        holder.kill();
+        const t0 = performance.now();
+        await holder.exited;
+        let got = false;
+        let tries = 0;
+        while (performance.now() - t0 < 5000) {
+          tries++;
+          const [ok] = v.lock(h3);
+          if (ok) {
+            got = true;
+            break;
+          }
+          await sleep(5);
+        }
+        say(
+          "lock-release-on-death",
+          `holder said ${JSON.stringify(said)}; while held: ${before ? "we got it too (BAD)" : `refused err=${errBefore}`}; after kill: ${got ? `acquired after ${(performance.now() - t0).toFixed(0)} ms, ${tries} tries` : "not acquired within 5 s"}`,
+        );
+        kernel32().CloseHandle(h3);
+      }
+    }
+  } catch (e) {
+    say("lockfileex", `fail — ${firstLine(e)}`);
+  }
+  // The exclusive-share open: CreateFileW with no sharing at all beyond
+  // DELETE, so a second opener fails with ERROR_SHARING_VIOLATION (32) until
+  // the handle closes or its process dies. src/daemon/flock.ts uses this.
+  try {
+    const px = path.join(dir, "wp.xlock");
+    const hx = exclusiveOpen(px);
+    if (isInvalid(hx)) {
+      say("xopen-take", `fail — CreateFileW err=${kernel32().GetLastError()}`);
+    } else {
+      say("xopen-take", `ok — handle ${hx}`);
+      const again = exclusiveOpen(px);
       say(
-        "lock-take",
-        ok
-          ? "ok — LockFileEx succeeded"
-          : `fail — LockFileEx refused, GetLastError=${err}`,
+        "xopen-same-process",
+        isInvalid(again)
+          ? `refused err=${kernel32().GetLastError()} (expect 32)`
+          : "opened too (BAD)",
       );
-      // a second handle in this same process (a re-entrant tryLock)
-      const hSame = openHandle(p);
-      const [okSame, errSame] = lockHandle(hSame);
-      say(
-        "lock-same-process",
-        `a second handle in the same process: ${okSame ? "locked too (LockFileEx is per handle, not per process)" : `refused err=${errSame}`}`,
-      );
-      kernel32().CloseHandle(hSame);
-      const t = Bun.spawn(self("lock-try", p), {
+      if (!isInvalid(again)) kernel32().CloseHandle(again);
+      const t = Bun.spawn(self("xopen-try", px), {
         stdout: "pipe",
         stderr: "pipe",
       });
       await t.exited;
       say(
-        "lock-contend",
-        `other process says ${JSON.stringify((await new Response(t.stdout).text()).trim())} (expect refused err=33) ${(await new Response(t.stderr).text()).trim().split("\n")[0] ?? ""}`,
+        "xopen-contend",
+        `other process says ${JSON.stringify((await new Response(t.stdout).text()).trim())} (expect refused err=32)`,
       );
-      const ov = new Uint8Array(32);
-      const r = kernel32().UnlockFileEx(h, 0, 1, 0, ptr(ov));
-      const t2 = Bun.spawn(self("lock-try", p), {
+      let readable = "";
+      try {
+        fs.readFileSync(px);
+        readable = "readFileSync ok";
+      } catch (e) {
+        readable = `readFileSync ${(e as NodeJS.ErrnoException).code}`;
+      }
+      let stat = "";
+      try {
+        fs.statSync(px);
+        stat = "statSync ok";
+      } catch (e) {
+        stat = `statSync ${(e as NodeJS.ErrnoException).code}`;
+      }
+      say(
+        "xopen-others",
+        `${readable}; ${stat}; existsSync=${fs.existsSync(px)}`,
+      );
+      kernel32().CloseHandle(hx);
+      const t2 = Bun.spawn(self("xopen-try", px), {
         stdout: "pipe",
         stderr: "pipe",
       });
       await t2.exited;
       say(
-        "lock-release",
-        `UnlockFileEx=${r}; other process says ${JSON.stringify((await new Response(t2.stdout).text()).trim())} (expect locked)`,
+        "xopen-release-on-close",
+        `after CloseHandle, other process says ${JSON.stringify((await new Response(t2.stdout).text()).trim())} (expect opened)`,
       );
-      // lock again, then close the handle: is the lock gone with it?
-      lockHandle(h);
-      kernel32().CloseHandle(h);
-      const t3 = Bun.spawn(self("lock-try", p), {
+      const holder = Bun.spawn(self("xopen-holder", px), {
         stdout: "pipe",
         stderr: "pipe",
       });
-      await t3.exited;
-      say(
-        "lock-release-on-close",
-        `after CloseHandle, other process says ${JSON.stringify((await new Response(t3.stdout).text()).trim())} (expect locked)`,
-      );
-    }
-    // release on death: a holder process is killed, how soon can we lock?
-    const holder = Bun.spawn(self("lock-holder", p), {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const reader = holder.stdout.getReader();
-    const first = await Promise.race([
-      reader.read(),
-      sleep(5000).then(() => null),
-    ]);
-    const said =
-      first && first.value
-        ? new TextDecoder().decode(first.value).trim()
-        : "(nothing)";
-    const h3 = openHandle(p);
-    const [before, errBefore] = lockHandle(h3);
-    holder.kill();
-    const t0 = performance.now();
-    await holder.exited;
-    let got = false;
-    let tries = 0;
-    while (performance.now() - t0 < 5000) {
-      tries++;
-      const [ok] = lockHandle(h3);
-      if (ok) {
-        got = true;
-        break;
+      const reader = holder.stdout.getReader();
+      const first = await Promise.race([
+        reader.read(),
+        sleep(5000).then(() => null),
+      ]);
+      const said =
+        first && first.value
+          ? new TextDecoder().decode(first.value).trim()
+          : "(nothing)";
+      const before = exclusiveOpen(px);
+      const errBefore = isInvalid(before) ? kernel32().GetLastError() : 0;
+      holder.kill();
+      const t0 = performance.now();
+      await holder.exited;
+      let got = false;
+      let tries = 0;
+      while (performance.now() - t0 < 5000) {
+        tries++;
+        const hh = exclusiveOpen(px);
+        if (!isInvalid(hh)) {
+          got = true;
+          kernel32().CloseHandle(hh);
+          break;
+        }
+        await sleep(5);
       }
-      await sleep(5);
-    }
-    say(
-      "lock-release-on-death",
-      `holder said ${JSON.stringify(said)}; while held: ${before ? "we got it too (BAD)" : `refused err=${errBefore}`}; after kill: ${got ? `acquired after ${(performance.now() - t0).toFixed(0)} ms, ${tries} tries` : "not acquired within 5 s"}`,
-    );
-    kernel32().CloseHandle(h3);
-    // the daemon opens its log and a client may read it: does a locked file
-    // still open for others? (LockFileEx locks a byte range, not the file)
-    try {
-      const h4 = openHandle(p);
-      lockHandle(h4);
-      const text = fs.readFileSync(p, "utf8");
-      const fdw = fs.openSync(p, "a");
-      fs.writeSync(fdw, "x");
-      fs.closeSync(fdw);
       say(
-        "lock-others-can-open",
-        `readFileSync ok (${text.length} bytes) and an append past the locked byte ok`,
+        "xopen-release-on-death",
+        `holder said ${JSON.stringify(said)}; while held: ${isInvalid(before) ? `refused err=${errBefore}` : "we got it too (BAD)"}; after kill: ${got ? `acquired after ${(performance.now() - t0).toFixed(0)} ms, ${tries} tries` : "not acquired within 5 s"}`,
       );
-      kernel32().CloseHandle(h4);
-    } catch (e) {
-      say("lock-others-can-open", `${firstLine(e)}`);
+      let removed = "";
+      try {
+        const hh = exclusiveOpen(px);
+        fs.unlinkSync(px);
+        removed = `unlinkSync while held ok; listed after: ${fs.readdirSync(dir).includes("wp.xlock")}`;
+        kernel32().CloseHandle(hh);
+        removed += `; listed after close: ${fs.readdirSync(dir).includes("wp.xlock")}`;
+      } catch (e) {
+        removed = `unlinkSync while held ${(e as NodeJS.ErrnoException).code}`;
+      }
+      say("xopen-unlink-while-held", removed);
     }
   } catch (e) {
-    say("lockfileex", `fail — ${firstLine(e)}`);
+    say("xopen", `fail — ${firstLine(e)}`);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
