@@ -1,11 +1,12 @@
 # 00 — Proof of concept: does the stack survive contact
 
 > **Status:** a proposal for an experiment, not a design for the product. It
-> describes a throwaway program whose job is to find out whether TypeScript on
-> Bun, reaching libghostty-vt through upstream's own WebAssembly build, holds up
-> as the foundation for werk. Nothing here commits werk to a product shape.
-> Where it states a technical fact, the fact was checked; where it proposes, it
-> says so.
+> describes a program whose only job is to find out whether TypeScript on Bun,
+> reaching libghostty-vt through upstream's own WebAssembly build, holds up as
+> the foundation for werk. Its code is reference material for building the
+> product, not a first version of it. Nothing here commits werk to a product
+> shape. Where it states a technical fact, the fact was checked; where it
+> proposes, it says so.
 
 ## What this exists to decide
 
@@ -265,11 +266,11 @@ probably not available as stated, and the realistic routes are:
 | **Own renderer over the upstream WASM**                    | Exactly the surface werk needs, no foreign API shape, dirty-row and snapshot paths designed together          | It is a terminal renderer: fonts, graphemes, cursor styles, selection, IME, scrolling. Weeks, and the long tail is where the bugs live |
 | **Re-emit into xterm.js**                                  | Works today, well understood, and xterm.js parts (fit, web-links, search UI) come for free                    | Two emulators, no browser-side state transfer, and the §2 soft-wrap defect on every browser resize                                     |
 
-The lean is the first, with the third kept as the fallback for M4 if it stalls.
-Which of the first two the product ends up on is an open question at the end
-of this document, and the proof of concept should produce the evidence to
-answer it: how much of ghostty-web's renderer survives a rebase, and how much
-of it werk would keep.
+The proof of concept takes the first — rebase `ghostty-web` onto the pinned
+upstream artifact — with the third kept as the fallback for M4 if the rebase
+stalls. What the product does is decided after the PoC; what the PoC
+produces is the evidence for it — how much of ghostty-web's renderer survives
+a rebase, and how much of it would be worth keeping.
 
 ### Every libghostty in the fleet has to agree
 
@@ -281,12 +282,15 @@ decoding a snapshot produced by a daemon on another machine at a different
 werk version is the ordinary fleet-upgrade journey**, and it would break on a
 format change.
 
-The likely shape of the answer is that werk pins exactly one libghostty commit
-per werk release, ships the same bytes in the daemon and the browser bundle,
-and either verifies that the format is stable across the commits it has shipped
-or falls back to re-emission across a version mismatch. The proof of concept
-measures the first half of that — whether a snapshot from one `tip` commit
-decodes on another — in M3, and the update policy is an open question below.
+The working answer for now: one libghostty commit per werk version, the same
+bytes in the daemon and the browser bundle, and no attempt to bridge a
+mismatch. When a client meets a daemon on a different werk version, the user
+is told plainly that the two ends differ, that the server needs the client's
+version redeployed to it, and that the redeploy kills the sessions that daemon
+is holding. That stands until something better, such as migrating snapshots
+across versions, is worked out. None of that is built here. What the proof of
+concept contributes is one measurement, in M3: whether a snapshot from one
+`tip` commit decodes on another.
 
 ### xterm.js's remaining role
 
@@ -308,7 +312,9 @@ Two places, neither of them emulation:
 
 A deliberately small program: **a detachable process runner for the local
 machine, and nothing else.** Working name `werk-poc`, binary `wp` — the name is
-disposable and should not leak into the product.
+disposable and should not leak into the product. Neither should the code: the
+proof of concept stays in the repo as reference material for building the
+product, and nothing in it is migrated across directly.
 
 It is minimal in features and maximal in one dimension: every place where Bun
 or libghostty could fail is exercised for real rather than stubbed.
@@ -395,8 +401,8 @@ that signal arrives in time, is an M2 measurement.
 One interface, two libghostty adapters, chosen per session at runtime. The
 interface exists so that the WASM-versus-native question is answered by the
 same program on identical calls, so that the differential corpus can drive an
-oracle through the same calls, and so that the adapter is the piece that
-outlives the proof of concept.
+oracle through the same calls, and so that M2's daemon can be built against a
+raw relay while M1's loader is still being finished.
 
 ```ts
 interface VtEngine {
@@ -535,15 +541,15 @@ layer is native runtime code of the same vintage.
 Each milestone has a condition that means stop and reconsider rather than push
 on.
 
-| #      | Deliverable                                                                                                                                                                                   | Stop if                                                                                                               |
-| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| **M0** | Smoke tests only, no product code. Everything in the list below                                                                                                                               | `Bun.Terminal` does not work compiled, or cannot deliver `SIGINT`, or cannot deliver `SIGWINCH`                       |
-| **M1** | The `ghostty-wasm` adapter: loader, `ghostty_type_json` layout discovery, write / resize / plainText / emitVt / effects / both encoders                                                       | The ABI cannot be marshalled reliably from `ghostty_type_json`                                                        |
-| **M2** | Daemon + `wp run` / `attach` / `ls` / `kill`, re-emit VT on reattach, detach key, per-client bounded queues with the lagging-client rule from §4                                              | Reattach into a real terminal is visibly wrong for `vim` or an agent, or a slow client stalls a fast one              |
-| **M3** | Snapshot: encode to disk on a timer and on `SIGTERM`, restore on start, two-stage `READY` decode. Then encode on one `tip` commit and decode on the next two                                  | The snapshot cannot be round-tripped, the decoder's prefix is not renderable, or no two adjacent `tip` commits agree  |
-| **M4** | `wp serve`: one page, a session list, one live terminal rendered by the §3 lean, driven by state transfer plus per-consumer dirty rows, keys and mouse through the WASM encoders              | The browser cannot decode what the daemon encodes, or the renderer route costs more than the rest of the PoC combined |
-| **M5** | The transport spike: a container running `sshd`, the daemon inside it, `ssh -L` with a Unix socket on each end, `tc netem` for latency; `wp attach` through the forward under `yes` and `vim` | Frames coalesce badly enough that a TUI is unusable at 50 ms RTT, or the forward drops under load                     |
-| **M6** | The `ghostty-ffi` adapter and the `xterm-oracle`, then `wp bench` across all of it, including the soak                                                                                        | —                                                                                                                     |
+| #      | Deliverable                                                                                                                                                                                                         | Stop if                                                                                                               |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| **M0** | Smoke tests only, no product code. Everything in the list below                                                                                                                                                     | `Bun.Terminal` does not work compiled, or cannot deliver `SIGINT`, or cannot deliver `SIGWINCH`                       |
+| **M1** | The `ghostty-wasm` adapter: loader, `ghostty_type_json` layout discovery, write / resize / plainText / emitVt / effects / both encoders                                                                             | The ABI cannot be marshalled reliably from `ghostty_type_json`                                                        |
+| **M2** | Daemon + `wp run` / `attach` / `ls` / `kill`, re-emit VT on reattach, detach key, per-client bounded queues with the lagging-client rule from §4                                                                    | Reattach into a real terminal is visibly wrong for `vim` or an agent, or a slow client stalls a fast one              |
+| **M3** | Snapshot: encode to disk on a timer and on `SIGTERM`, restore on start, two-stage `READY` decode. Then encode on one `tip` commit and decode on the next two                                                        | The snapshot cannot be round-tripped, the decoder's prefix is not renderable, or no two adjacent `tip` commits agree  |
+| **M4** | `wp serve`: one page, a session list, one live terminal rendered by `ghostty-web` rebased onto the pinned artifact, driven by state transfer plus per-consumer dirty rows, keys and mouse through the WASM encoders | The browser cannot decode what the daemon encodes, or the renderer route costs more than the rest of the PoC combined |
+| **M5** | The transport spike: a container running `sshd`, the daemon inside it, `ssh -L` with a Unix socket on each end, `tc netem` for latency; `wp attach` through the forward under `yes` and `vim`                       | Frames coalesce badly enough that a TUI is unusable at 50 ms RTT, or the forward drops under load                     |
+| **M6** | The `ghostty-ffi` adapter and the `xterm-oracle`, then `wp bench` across all of it, including the soak                                                                                                              | —                                                                                                                     |
 
 **M0 is genuinely first**, and it is larger than a smoke test usually is,
 because everything downstream of it assumes answers nobody has written down.
@@ -604,19 +610,19 @@ cheaper than M4.
 Written before the measurements so they cannot be rationalised afterwards.
 These are proposed thresholds, and worth arguing with now rather than later.
 
-| Finding                                                                        | What it implies                                                                                                                                                   |
-| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Bun.Terminal` does not work under `--compile`, and node-pty is the only route | The TypeScript plan survives but inherits VibeTunnel's forked node-pty and its prebuild matrix                                                                    |
-| Ctrl+C or `SIGWINCH` cannot be made to work through `Bun.Terminal`             | Blocking. Either a fix upstream, or a different PTY layer, or the Go fallback — and per §1 the engine work carries across                                         |
-| The WASM ABI cannot be marshalled reliably                                     | The `bun:ffi` route becomes primary, Windows becomes a question again, and the browser needs its own loader anyway                                                |
-| VT throughput below ~20 MiB/s                                                  | Not fatal — the VT is a tap, not a stage — but it moves the fan-out design                                                                                        |
-| Per-session memory materially above ~5 MiB idle                                | Bounds how many sessions a machine holds; changes the fleet story before it is built                                                                              |
-| RSS grows without bound over the 24-hour soak                                  | The daemon cannot be long-lived in Bun as designed. Per-session daemons with periodic recycling, or the Go fallback                                               |
-| A wasm trap in one session poisons the shared instance                         | Instance-per-session at ~450 KiB each, rather than one shared instance                                                                                            |
-| A lagging client cannot be detected before its queue grows past the threshold  | Bun's socket write signal is not usable for backpressure; the daemon needs its own accounting on every write                                                      |
-| Snapshots do not decode across adjacent `tip` commits                          | State transfer works only within one werk version; the fleet needs re-emission across a mismatch, and the browser bundle must ship with the daemon that serves it |
-| Rebasing `ghostty-web` costs more than writing a renderer                      | The renderer is werk's own from the start, and M4 is scoped to that                                                                                               |
-| The forwarded socket coalesces or drops frames under a live PTY at modest RTT  | The remote transport needs framing of its own over the forward, or a TCP loopback landing — the architecture in `09-remote-transport.md` changes                  |
+| Finding                                                                        | What it implies                                                                                                                                  |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Bun.Terminal` does not work under `--compile`, and node-pty is the only route | The TypeScript plan survives but inherits VibeTunnel's forked node-pty and its prebuild matrix                                                   |
+| Ctrl+C or `SIGWINCH` cannot be made to work through `Bun.Terminal`             | Blocking. Either a fix upstream, or a different PTY layer, or the Go fallback — and per §1 the engine work carries across                        |
+| The WASM ABI cannot be marshalled reliably                                     | The `bun:ffi` route becomes primary, Windows becomes a question again, and the browser needs its own loader anyway                               |
+| VT throughput below ~20 MiB/s                                                  | Not fatal — the VT is a tap, not a stage — but it moves the fan-out design                                                                       |
+| Per-session memory materially above ~5 MiB idle                                | Bounds how many sessions a machine holds; changes the fleet story before it is built                                                             |
+| RSS grows without bound over the 24-hour soak                                  | The daemon cannot be long-lived in Bun as designed. Per-session daemons with periodic recycling, or the Go fallback                              |
+| A wasm trap in one session poisons the shared instance                         | Instance-per-session at ~450 KiB each, rather than one shared instance                                                                           |
+| A lagging client cannot be detected before its queue grows past the threshold  | Bun's socket write signal is not usable for backpressure; the daemon needs its own accounting on every write                                     |
+| Snapshots do not decode across adjacent `tip` commits                          | State transfer works only within one werk version, and the redeploy-on-mismatch answer in §3 is the only path across one                         |
+| Rebasing `ghostty-web` costs more than writing a renderer                      | The renderer is werk's own from the start, and M4 is scoped to that                                                                              |
+| The forwarded socket coalesces or drops frames under a live PTY at modest RTT  | The remote transport needs framing of its own over the forward, or a TCP loopback landing — the architecture in `09-remote-transport.md` changes |
 
 ---
 
@@ -632,41 +638,18 @@ These are proposed thresholds, and worth arguing with now rather than later.
   answer is open and this experiment does not inform it much either way — except
   that the soak result would push toward per-session if memory does not hold.
 - **Anything above the session ring.** Workspaces, placement, git, the fleet.
-- **The libghostty update policy.** The C API is explicitly unstable, the WASM
-  ships only from a rolling `tip` channel pinned by commit SHA, and there is no
-  versioned release. `ghostty_type_json` is upstream's answer to layout drift;
-  whether it absorbs a real breaking change is unverified. How often werk moves
-  its pin, and what a move does to snapshots on disk and daemons in the fleet,
-  is a policy nobody has set — M3 produces the evidence for it.
+- **How often the libghostty pin moves, and migrations across a move.** The
+  C API is explicitly unstable, the WASM ships only from a rolling `tip`
+  channel pinned by commit SHA, and there is no versioned release.
+  `ghostty_type_json` is upstream's answer to layout drift; whether it absorbs
+  a real breaking change is unverified. §3 says what happens on a mismatch
+  for now. How often the pin moves, and whether snapshots on disk can be
+  carried across a move, is unset; M3 produces the first evidence for it.
 - **The remote transport beyond one hop.** M5 measures a forward to one host.
   A container on a remote docker host, reached by ssh and then `docker exec`, is
   a second hop and is not measured here.
 
 ---
-
-## 10. Open questions for the reader
-
-Genuine forks where the answer changes what gets built.
-
-1. **Which renderer route for the browser?** §3 leans toward rebasing
-   `ghostty-web` onto the pinned upstream artifact, with an own renderer as the
-   alternative and re-emission into xterm.js as the fallback for the PoC only.
-   The rebase is the cheapest way to find out how much of ghostty-web werk would
-   keep; if the answer is "the shell and none of the internals", the own
-   renderer is the honest route and should be sized as such.
-2. **How does the fleet handle a libghostty version mismatch?** Refuse to
-   attach, fall back to re-emission, or forbid mismatches by upgrading every
-   daemon in lockstep. Each is coherent; the third is the simplest and the
-   least forgiving on a fleet where one host is asleep during `werk upgrade`.
-3. **Does the PoC's code survive into the product?** The proposal assumes the
-   seam, both libghostty adapters, the loader and the corpus are kept as
-   `packages/vt` — the corpus is the most valuable long-lived asset this work
-   produces regardless of anything else — and that the daemon is burnt. If the
-   daemon is meant to become `packages/werkd` instead, several of the
-   exclusions in §4 should move.
-4. **Is the oracle worth keeping after the PoC?** It costs one dependency and
-   earns a second opinion on every corpus case. The argument against is that it
-   is a dependency on the thing werk chose not to use.
 
 ## Sources
 
