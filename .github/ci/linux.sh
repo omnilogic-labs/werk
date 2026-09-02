@@ -105,29 +105,60 @@ if [ "$SUITE" = "report" ]; then
   summary '```'
   # Red overall when a suite that passes on this platform stops passing, so
   # the job's conclusion means "something regressed" rather than "the runner
-  # has four cores". `m2` and `test-full` are recorded but not gated, and only
-  # for one reason: M2's slow-client scenario asserts a fast client never lags
-  # while a stopped one floods 4 MB through the daemon, and on four shared
-  # vCPUs the fast client's own queue crosses the daemon's 256 KiB drop bound.
-  # It reproduces on a developer's box under `taskset -c 0-1` and passes under
-  # `taskset -c 0-3`. findings/platforms.md records the numbers.
+  # has four cores". Every suite in ORDER has to have recorded a pass. A suite
+  # with no verdict at all — its step was killed by `timeout-minutes` before
+  # it could write one — is as red as a fail, so a hang cannot turn the job
+  # green.
   #
-  # The excuse is deliberately narrow: `test-full` is forgiven only when the
-  # single test it reports failing is that same scenario. Any other failing
-  # test is a real regression and turns the job red.
+  # `m2` and `test-full` may fail, and only for one reason: M2's slow-client
+  # scenario asserts a fast client never lags while a stopped one floods 4 MB
+  # through the daemon, and on four shared vCPUs the fast client's own queue
+  # crosses the daemon's 256 KiB drop bound. It reproduces on a developer's
+  # box under `taskset -c 0-1` and passes under `taskset -c 0-3`.
+  # findings/platforms.md records the numbers.
+  #
+  # The excuse is deliberately narrow: each is forgiven only when the set of
+  # things its log reports failing is exactly that scenario (for `test-full`,
+  # the one test that runs it). Anything else failing alongside it is a real
+  # regression and turns the job red.
+  KNOWN_M2_FAIL='slow client: one wp attach SIGSTOPped under yes | head -c 4M'
+  KNOWN_TEST_FULL_FAIL='reattach fidelity: every scenario passes (spikes/m2/run-all.ts)'
+  failing_tests() { grep -aE '^\(fail\) ' "$1" 2>/dev/null | sed -E 's/^\(fail\) //; s/ \[[0-9.]+m?s\]$//' | sort -u; }
+  failing_scenarios() { grep -aE '^FAIL  ' "$1" 2>/dev/null | sed 's/^FAIL  //' | sort -u; }
+
   gate=0
-  ungated="$(jq -r '.suites[] | select(.status == "fail") | .id' "$OUT/ci-result-linux.json" |
-    grep -vxE 'm2|test-full' || true)"
-  if [ -n "$ungated" ]; then
-    echo "suites that should pass on linux failed: $(echo "$ungated" | paste -sd' ' -)" >&2
+  red() {
+    echo "$1" >&2
     gate=1
-  fi
-  tf="$(jq -r '.suites[] | select(.id == "test-full" and .status == "fail") | .detail' \
-    "$OUT/ci-result-linux.json")"
-  if [ -n "$tf" ] && ! printf '%s' "$tf" | grep -q 'reattach fidelity'; then
-    echo "test-full failed for something other than the m2 slow-client scenario: $tf" >&2
-    gate=1
-  fi
+  }
+  for id in "${ORDER[@]}"; do
+    status="$(jq -r --arg id "$id" '.suites[] | select(.id == $id) | .status' "$OUT/ci-result-linux.json")"
+    case "$status" in
+    pass) ;;
+    fail)
+      case "$id" in
+      test-full)
+        got="$(failing_tests "$OUT/logs/test-full.log")"
+        known="$KNOWN_TEST_FULL_FAIL"
+        ;;
+      m2)
+        got="$(failing_scenarios "$OUT/logs/m2.log")"
+        known="$KNOWN_M2_FAIL"
+        ;;
+      *)
+        red "$id should pass on linux and failed"
+        continue
+        ;;
+      esac
+      if [ "$got" = "$known" ]; then
+        echo "$id failed only on the known slow-client scenario; forgiven"
+      else
+        red "$id failed for something other than the m2 slow-client scenario: $(printf '%s' "$got" | paste -sd';' -)"
+      fi
+      ;;
+    *) red "$id has no usable verdict (${status:-missing}): its step was killed or never ran" ;;
+    esac
+  done
   [ "$gate" -eq 0 ] || exit 1
   exit 0
 fi

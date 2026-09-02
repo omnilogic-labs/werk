@@ -4,6 +4,10 @@
 // once. Run from the repository root:
 //
 //   bun run .github/ci/windows-probes.ts
+//
+// The exit code is the verdict: 1 when a probe printed `fail` that is not
+// named in `PROBES_KNOWN_FAIL` (space-separated), 0 otherwise. Every probe
+// runs either way.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -12,8 +16,11 @@ import path from "node:path";
 const probes = process.argv.slice(2);
 const want = (name: string) => probes.length === 0 || probes.includes(name);
 
+const verdicts: { name: string; failed: boolean }[] = [];
+
 function say(name: string, verdict: string): void {
   console.log(`PROBE ${name}: ${verdict}`);
+  verdicts.push({ name, failed: /\bfail\b/.test(verdict) });
 }
 
 function firstLine(e: unknown): string {
@@ -357,4 +364,26 @@ if (want("daemon-inproc")) {
   } catch (e) {
     say("daemon-inproc", `fail — did not get that far: ${firstLine(e)}`);
   }
+}
+
+// ---------------------------------------------------------------- verdict
+// The tally, as a `DETAIL:` line windows.sh lifts into the report, and the
+// exit code. A probe that is known to fail on this platform is recorded, not
+// gated; any other failing probe is a regression.
+{
+  const known = new Set(
+    (process.env.PROBES_KNOWN_FAIL ?? "").split(/[\s,]+/).filter(Boolean),
+  );
+  const failed = verdicts.filter((v) => v.failed).map((v) => v.name);
+  const unexpected = failed.filter((n) => !known.has(n));
+  const list = (xs: string[]) => (xs.length ? `: ${xs.join(", ")}` : "");
+  console.log(
+    `DETAIL: ${verdicts.length} probe verdicts, ${failed.length} fail${list(failed)}` +
+      (unexpected.length
+        ? ` — not on the known-fail list${list(unexpected)}`
+        : failed.length
+          ? " — all on the known-fail list"
+          : ""),
+  );
+  if (unexpected.length > 0) process.exitCode = 1;
 }
