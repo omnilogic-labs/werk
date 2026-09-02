@@ -44,4 +44,25 @@ bundler needs a static string; a test checks it against `PIN`), and update
 
 ## `ghostty-web/`
 
-Not vendored yet. M4 rebases it onto the pinned artifact.
+A shallow clone of [coder/ghostty-web](https://github.com/coder/ghostty-web),
+read and measured for the renderer evaluation in `findings/m4.md` and the
+source of `src/web/client/renderer-ghostty-web.ts` and
+`selection-ghostty-web.ts`. MIT-licensed (Copyright (c) 2025 Coder). The
+clone is not checked in and not formatted (`.gitignore` and
+`.prettierignore` at the repo root both list it); it is not needed to build
+or test anything, only to re-read the original next to the port.
+
+| Item    | Value                                                                                                                   |
+| ------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Commit  | `1858a5947767a3e1c9e98dbf53b2ff87fedb2aab` (default branch `main`, 2026-06-28, release 0.4.0)                           |
+| Ghostty | Pinned by the repo's `ghostty` submodule at a December 2025 commit, plus `patches/ghostty-wasm-api.patch` (1,620 lines) |
+
+To reproduce the clone:
+
+```console
+$ git clone --depth 1 https://github.com/coder/ghostty-web.git vendor/ghostty-web
+$ git -C vendor/ghostty-web rev-parse HEAD     # expect 1858a594…
+```
+
+For a later commit, `git -C vendor/ghostty-web fetch --depth 1 origin <sha> &&
+git -C vendor/ghostty-web checkout <sha>`.

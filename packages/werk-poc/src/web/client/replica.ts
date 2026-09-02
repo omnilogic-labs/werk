@@ -11,14 +11,33 @@
 // finishes. Live output is written straight into the terminal and a paint
 // is coalesced through `raf`.
 
+import type { ScrollViewport } from "../../engine/ghostty-wasm/index.ts";
 import type {
   Frame,
   RenderConsumer,
   TerminalModes,
+  Viewport,
   VtEngine,
   VtTerminal,
 } from "../../engine/types.ts";
 import { isUnsupported } from "../../engine/types.ts";
+
+/**
+ * What the ghostty-web renderer evaluation needed past the seam: the
+ * viewport moved through scrollback, the active screen, and a selection's
+ * text. The ghostty-wasm adapter has them; a terminal without them makes
+ * the page's scrolling and copying no-ops.
+ */
+interface ViewportTerminal {
+  scrollViewport(behaviour: ScrollViewport): void;
+  activeScreen(): "primary" | "alternate";
+  selectionText(
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+    space?: "screen" | "viewport",
+  ): string | null;
+  viewport(): Viewport;
+}
 
 export interface DecodeTimings {
   snapshotBytes: number;
@@ -164,6 +183,38 @@ export class Replica {
       this.cachedModes = isUnsupported(m) ? {} : m;
     }
     return this.cachedModes;
+  }
+
+  private viewportTerm(): ViewportTerminal | null {
+    const t = this.term as Partial<ViewportTerminal> | null;
+    return t && typeof t.scrollViewport === "function"
+      ? (t as ViewportTerminal)
+      : null;
+  }
+
+  /** Move the viewport through scrollback and repaint; false if the engine cannot. */
+  scrollViewport(behaviour: ScrollViewport): boolean {
+    const t = this.viewportTerm();
+    if (!t) return false;
+    t.scrollViewport(behaviour);
+    this.requestPaint();
+    return true;
+  }
+
+  activeScreen(): "primary" | "alternate" {
+    return this.viewportTerm()?.activeScreen() ?? "primary";
+  }
+
+  /** The text between two points in screen row space (row 0 is the top of scrollback). */
+  selectionText(
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+  ): string | null {
+    return this.viewportTerm()?.selectionText(start, end, "screen") ?? null;
+  }
+
+  viewport(): Viewport | null {
+    return this.viewportTerm()?.viewport() ?? null;
   }
 
   /** One frame now, for a caller that wants to paint synchronously (tests, measurements). */

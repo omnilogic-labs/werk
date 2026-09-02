@@ -17,7 +17,18 @@ import {
   wheelEventFromDom,
 } from "./input.ts";
 import { CanvasRenderer, type Renderer } from "./renderer.ts";
+import { GhosttyWebRenderer } from "./renderer-ghostty-web.ts";
 import { Replica, type DecodeTimings } from "./replica.ts";
+import { SelectionController } from "./selection-ghostty-web.ts";
+
+/**
+ * `?renderer=ghostty-web` paints with the renderer rebased from ghostty-web
+ * (findings/m4.md); the minimal one stays the default.
+ */
+const rendererName =
+  new URLSearchParams(location.search).get("renderer") === "ghostty-web"
+    ? "ghostty-web"
+    : "minimal";
 
 const id = decodeURIComponent(location.pathname.split("/").pop() ?? "");
 const statusEl = document.getElementById("status")!;
@@ -72,6 +83,9 @@ const state: State = {
 let renderer: Renderer;
 let replica: Replica;
 let ws: WebSocket;
+/** Only with the ghostty-web renderer: selection, and the viewport of the last frame. */
+let selection: SelectionController | null = null;
+let lastViewport: { offset: number; active: boolean } | null = null;
 
 function fmt(ms: number | null): string {
   return ms === null ? "…" : `${ms.toFixed(1)} ms`;
@@ -88,6 +102,7 @@ function renderStatus(): void {
   const parts = [
     `${id} ${state.status}`,
     `${state.cols}×${state.rows}`,
+    rendererName,
     state.title ? `“${state.title}”` : "",
     decode,
     paint,
@@ -213,7 +228,41 @@ function onKeyDown(e: KeyboardEvent): void {
   if (bytes.length > 0 || e.code === "Tab" || e.code === "Space") {
     e.preventDefault();
     send(bytes);
+    // A key scrolls the viewport back to the active area, as Ghostty does.
+    if (selection && lastViewport && !lastViewport.active)
+      replica.scrollViewport({ kind: "bottom" });
   }
+}
+
+/** Fractional wheel lines carried between events (ghostty-web accumulated these in its Terminal). */
+let wheelRemainder = 0;
+
+/**
+ * ghostty-web's wheel rule: on the alternate screen send arrow keys (the
+ * program scrolls itself); otherwise move the viewport through scrollback.
+ * Re-targeted onto libghostty's own viewport scrolling rather than a
+ * JavaScript `viewportY`; the smooth-scroll animation was not ported.
+ */
+function scrollByWheel(e: WheelEvent): void {
+  let deltaLines: number;
+  if (e.deltaMode === WheelEvent.DOM_DELTA_PIXEL) {
+    deltaLines = e.deltaY / renderer.cell.height;
+  } else if (e.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+    deltaLines = e.deltaY;
+  } else {
+    deltaLines = e.deltaY * state.rows;
+  }
+  if (replica.activeScreen() === "alternate") {
+    const count = Math.min(Math.abs(Math.round(deltaLines)), 5);
+    const seq = deltaLines < 0 ? "\x1b[A" : "\x1b[B";
+    if (count > 0) send(new TextEncoder().encode(seq.repeat(count)));
+    return;
+  }
+  wheelRemainder += deltaLines;
+  const whole = Math.trunc(wheelRemainder);
+  if (whole === 0) return;
+  wheelRemainder -= whole;
+  replica.scrollViewport({ kind: "delta", delta: whole });
 }
 
 function onPaste(e: ClipboardEvent): void {
@@ -251,7 +300,13 @@ async function main(): Promise<void> {
   });
   engine = await GhosttyWasmEngine.load(wasm);
   const loadMs = performance.now() - t0;
-  renderer = new CanvasRenderer(canvas);
+  renderer =
+    rendererName === "ghostty-web"
+      ? new GhosttyWebRenderer(canvas, {
+          fontSize: 14,
+          requestPaint: () => replica?.requestPaint(),
+        })
+      : new CanvasRenderer(canvas);
   const g = gridFor();
   state.cols = g.cols;
   state.rows = g.rows;
@@ -259,7 +314,11 @@ async function main(): Promise<void> {
   replica = new Replica(
     engine,
     {
-      paint: (f) => renderer.paint(f),
+      paint: (f) => {
+        lastViewport = f.viewport;
+        selection?.viewportChanged();
+        renderer.paint(f);
+      },
       raf: (fn) => requestAnimationFrame(fn),
       defer: (fn) => setTimeout(fn, 0),
       onHistoryDone: () => renderStatus(),
@@ -269,6 +328,18 @@ async function main(): Promise<void> {
   state.notices.push(
     `wasm ${(wasm.byteLength / 1024).toFixed(0)} KiB loaded in ${loadMs.toFixed(0)} ms`,
   );
+  if (renderer instanceof GhosttyWebRenderer) {
+    selection = new SelectionController(renderer, {
+      viewportOffset: () => lastViewport?.offset ?? 0,
+      cols: () => state.cols,
+      rows: () => state.rows,
+      textBetween: (a, b) => replica.selectionText(a, b),
+      scrollLines: (n) => replica.scrollViewport({ kind: "delta", delta: n }),
+      requestPaint: () => replica.requestPaint(),
+      // The program gets the mouse when it asked for it, unless Shift is held.
+      selectionEnabled: (e) => !mouseOn() || e.shiftKey,
+    });
+  }
 
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(
@@ -322,9 +393,13 @@ async function main(): Promise<void> {
   canvas.addEventListener(
     "wheel",
     (e) => {
-      if (!mouseOn()) return;
-      e.preventDefault();
-      sendMouse(wheelEventFromDom(e, renderer.cell));
+      if (mouseOn()) {
+        e.preventDefault();
+        sendMouse(wheelEventFromDom(e, renderer.cell));
+      } else if (selection) {
+        e.preventDefault();
+        scrollByWheel(e);
+      }
     },
     { passive: false },
   );
@@ -335,10 +410,13 @@ async function main(): Promise<void> {
 // For the browser automation and the findings.
 (window as unknown as { __wp: unknown }).__wp = {
   state,
+  renderer: rendererName,
   stats: () => ({
     status: state.status,
+    renderer: rendererName,
     cols: state.cols,
     rows: state.rows,
+    viewport: lastViewport,
     timings: state.timings,
     paint: renderer?.stats ?? null,
     snapshots: state.snapshots,
@@ -367,6 +445,16 @@ async function main(): Promise<void> {
     return performance.now() - t0;
   },
   send: (text: string) => send(new TextEncoder().encode(text)),
+  /** Move the viewport through scrollback (ghostty-web renderer only). */
+  scroll: (delta: number) => replica.scrollViewport({ kind: "delta", delta }),
+  scrollTo: (where: "top" | "bottom") =>
+    replica.scrollViewport({ kind: where }),
+  /** Select a viewport range as a drag would, copy it, and return its text (ghostty-web renderer only). */
+  select: (x0: number, y0: number, x1: number, y1: number) =>
+    selection?.selectViewport(x0, y0, x1, y1) ?? null,
+  selection: () => selection?.getSelection() ?? null,
+  lastCopied: () => selection?.lastCopied ?? null,
+  clearSelection: () => selection?.clearSelection(),
 };
 
 main().catch((e) => {

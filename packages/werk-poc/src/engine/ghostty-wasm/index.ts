@@ -113,6 +113,13 @@ const CAPS: Capabilities = {
   encodeMouse: true,
 };
 
+/** Where to move the viewport; see GhosttyWasmTerminal.scrollViewport. */
+export type ScrollViewport =
+  | { kind: "top" }
+  | { kind: "bottom" }
+  | { kind: "delta"; delta: number }
+  | { kind: "row"; row: number };
+
 export interface CreateOptions {
   cols: number;
   rows: number;
@@ -747,6 +754,118 @@ export class GhosttyWasmTerminal implements VtTerminal {
     return new TextDecoder().decode(
       this.format({ emit: "PLAIN", unwrap: false, trim: true, selection: 0 }),
     );
+  }
+
+  /**
+   * Move the viewport through scrollback: to the top, to the bottom (the
+   * active area), by a delta in rows (up is negative), or to an absolute
+   * row in the space `viewport().offset` reports. The render state marks
+   * every row dirty on the next frame, so a consumer repaints the whole
+   * viewport. Used by the browser page's wheel handling (web/client).
+   */
+  scrollViewport(behaviour: ScrollViewport): void {
+    this.assertLive();
+    const g = this.g;
+    const ptr = g.allocType("GhosttyTerminalScrollViewport");
+    try {
+      switch (behaviour.kind) {
+        case "top":
+        case "bottom":
+          g.writeStruct(ptr, "GhosttyTerminalScrollViewport", {
+            tag: behaviour.kind.toUpperCase(),
+          });
+          break;
+        case "delta":
+          g.writeStruct(ptr, "GhosttyTerminalScrollViewport", { tag: "DELTA" });
+          g.writeStruct(ptr, "GhosttyTerminalScrollViewport", {
+            value: Math.trunc(behaviour.delta),
+          });
+          break;
+        case "row":
+          g.writeStruct(ptr, "GhosttyTerminalScrollViewport", { tag: "ROW" });
+          g.writeStruct(ptr, "GhosttyTerminalScrollViewport", {
+            value: Math.max(0, Math.trunc(behaviour.row)),
+          });
+          break;
+      }
+      // A by-value struct arrives as a pointer under the wasm32 C ABI.
+      g.call("ghostty_terminal_scroll_viewport", this.handle, ptr);
+    } finally {
+      g.freeType(ptr, "GhosttyTerminalScrollViewport");
+    }
+  }
+
+  /** Which screen is active: the primary one, or the alternate one full-screen programs switch to. */
+  activeScreen(): "primary" | "alternate" {
+    const v = this.getNumber("ACTIVE_SCREEN");
+    return this.g.enumName("GhosttyTerminalScreen", v) === "ALTERNATE"
+      ? "alternate"
+      : "primary";
+  }
+
+  /**
+   * The text between two points, inclusive, as Ghostty itself copies a
+   * selection: plain, soft-wrapped rows rejoined, trailing whitespace
+   * trimmed. Points are in the screen's row space (`SCREEN`: row 0 is the
+   * top of scrollback, which is what `viewport().offset` counts in) or the
+   * viewport's. Null when the two points select nothing.
+   */
+  selectionText(
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+    space: "screen" | "viewport" = "screen",
+  ): string | null {
+    this.assertLive();
+    const g = this.g;
+    const s = this.ensureScratch();
+    const tag = space === "screen" ? "SCREEN" : "VIEWPORT";
+    const sel = this.pointSelection(tag, start, end);
+    const opts = g.allocType("GhosttyTerminalSelectionFormatOptions");
+    try {
+      g.writeStruct(opts, "GhosttyTerminalSelectionFormatOptions", {
+        emit: "PLAIN",
+        unwrap: true,
+        trim: true,
+        selection: sel,
+      });
+      const code = g.call(
+        "ghostty_terminal_selection_format_alloc",
+        this.handle,
+        0,
+        opts,
+        s.outPtr,
+        s.outLen,
+      );
+      if (g.resultName(code) === "NO_VALUE") return null;
+      g.assertOk(code, "ghostty_terminal_selection_format_alloc");
+      const ptr = g.read(s.outPtr, "pointer") as number;
+      const len = g.read(s.outLen, "u32") as number;
+      const out = g.readBytes(ptr, len);
+      g.libFree(ptr, len);
+      return new TextDecoder().decode(out);
+    } finally {
+      g.freeType(opts, "GhosttyTerminalSelectionFormatOptions");
+    }
+  }
+
+  /** Fill the scratch selection from two points in the given space and return its address. */
+  private pointSelection(
+    tag: "SCREEN" | "VIEWPORT",
+    a: { x: number; y: number },
+    b: { x: number; y: number },
+  ): number {
+    const g = this.g;
+    const s = this.ensureScratch();
+    const start =
+      s.selection + g.layout.field("GhosttySelection", "start").offset;
+    const end = s.selection + g.layout.field("GhosttySelection", "end").offset;
+    g.writeStruct(s.point, "GhosttyPoint", { tag });
+    g.writeStruct(s.point, "GhosttyPoint", { value: { x: a.x, y: a.y } });
+    g.check("ghostty_terminal_grid_ref", this.handle, s.point, start);
+    g.writeStruct(s.point, "GhosttyPoint", { value: { x: b.x, y: b.y } });
+    g.check("ghostty_terminal_grid_ref", this.handle, s.point, end);
+    g.writeField(s.selection, "GhosttySelection", "rectangle", false);
+    return s.selection;
   }
 
   /** Fill the scratch selection with the viewport, (0,0) .. (cols-1, rows-1), and return its address. */
