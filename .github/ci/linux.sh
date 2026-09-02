@@ -265,9 +265,10 @@ diff)
     CODE=1
     DETAIL="$(pick 'did not load')"
   elif [ $CODE -eq 0 ]; then
-    agree="$(count '\| agree ')"
-    differ="$(count '\| differ:')"
-    DETAIL="$agree pairwise comparisons agree, $differ differ (differences are reported, never scored)"
+    agree="$(grep -aoE '\| agree' "$LOG" | wc -l)"
+    differ="$(grep -aoE '\| differ:' "$LOG" | wc -l)"
+    cases="$(count '^\| [a-z0-9-]+ +\| (agree|differ)')"
+    DETAIL="$cases corpus cases, three engines: $agree of $((agree + differ)) pairwise cells agree, $differ differ (reported, never scored)"
   else
     DETAIL="$(why)"
   fi
