@@ -40,7 +40,10 @@ import {
 /** True when running from a `bun build --compile` binary. */
 export const compiled =
   import.meta.path.startsWith("/$bunfs/") ||
-  import.meta.path.startsWith("B:/~BUN/");
+  // Bun's Windows bunfs is the virtual drive `B:\~BUN\`; the path arrives
+  // with backslashes (spike/win32-daemon: a forward-slash check said
+  // "interpreted" inside wp.exe and re-launched the daemon as `wp run …`).
+  /^B:[\\/]~BUN[\\/]/.test(import.meta.path);
 
 /** How to run `wp __daemon` from here, interpreted or compiled. */
 export function daemonArgv(extra: string[]): string[] {

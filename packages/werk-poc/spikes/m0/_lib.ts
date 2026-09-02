@@ -17,7 +17,8 @@ export interface Result {
 /** True when running from a `bun build --compile` binary. */
 export const compiled =
   import.meta.path.startsWith("/$bunfs/") ||
-  import.meta.path.startsWith("B:/~BUN/");
+  // Bun's Windows bunfs is the virtual drive `B:\~BUN\`, with backslashes.
+  /^B:[\\/]~BUN[\\/]/.test(import.meta.path);
 
 export const log = (...a: unknown[]) => console.error("  ·", ...a);
 

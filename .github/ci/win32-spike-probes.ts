@@ -27,6 +27,7 @@ const ALL_PROBES = [
   "ctrl-c",
   "kill-detached",
   "misc",
+  "compiled-paths",
   "crt-osfhandle",
 ];
 
@@ -1473,6 +1474,57 @@ if (want("misc")) {
     "which",
     `sh=${Bun.which("sh")} bash=${Bun.which("bash")} sleep=${Bun.which("sleep")} pwsh=${Bun.which("pwsh")} ps=${Bun.which("ps")} pgrep=${Bun.which("pgrep")}`,
   );
+}
+
+// ------------------------------------- (i) what a compiled binary sees
+// launch.ts and spikes/m0/_lib.ts decide "compiled" from import.meta.path;
+// the poc run's wp.exe re-launched its daemon as `wp run …` (exit 2), which
+// is what a wrong answer there would do. Compile a script that prints the
+// values and run it with daemon-shaped arguments.
+if (want("compiled-paths")) {
+  const dir = tempDir("wp-spike-compiled-");
+  try {
+    const script = path.join(dir, "show.ts");
+    fs.writeFileSync(
+      script,
+      [
+        "console.log(JSON.stringify({",
+        "  importMetaPath: import.meta.path,",
+        "  importMetaDir: import.meta.dir,",
+        "  bunMain: Bun.main,",
+        "  execPath: process.execPath,",
+        "  argv: process.argv,",
+        '  startsWithBunfs: import.meta.path.startsWith("/$bunfs/"),',
+        '  startsWithBDrive: import.meta.path.startsWith("B:/~BUN/"),',
+        "  matchesEither: /^B:[\\\\/]~BUN[\\\\/]/.test(import.meta.path),",
+        "}));",
+      ].join("\n"),
+    );
+    const exe = path.join(dir, "show.exe");
+    const build = Bun.spawnSync(
+      [process.execPath, "build", "--compile", script, "--outfile", exe],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    if (build.exitCode !== 0) {
+      say(
+        "compiled-paths",
+        `build failed: ${build.stderr.toString().trim().split("\n")[0]}`,
+      );
+    } else {
+      const run = Bun.spawnSync([exe, "__daemon", "--dir=x"], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      say(
+        "compiled-paths",
+        `exit ${run.exitCode}: ${run.stdout.toString().trim() || run.stderr.toString().trim().split("\n")[0]}`,
+      );
+    }
+  } catch (e) {
+    say("compiled-paths", `fail — ${firstLine(e)}`);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 process.exit(0);
