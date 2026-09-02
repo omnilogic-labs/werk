@@ -23,9 +23,6 @@ env:
   SUITE_ORDER: >-
     install typecheck test-pure build-web build wp-cli diff test-full m0 m2 m3
     ops probes daemon
-  # Nothing here should reach the network past `bun install`, and the runner's
-  # home directory is not a place the daemon should be writing to.
-  WP_STATE_DIR: ""
 
 jobs:
   windows:
@@ -112,13 +109,19 @@ jobs:
           bash .github/ci/windows.sh wp-cli packages/werk-poc \
             'WP=dist/wp.exe && test -f "$WP" || WP=dist/wp && "./$WP" ls'
 
-      # 6 — the differential corpus. ghostty-ffi will not load, but the wasm
-      # engine and the xterm oracle should both be here; whether they agree is
-      # the most interesting question this job can answer.
+      # 6 — the differential corpus, plus 200 fuzz iterations on a fixed seed
+      # so the numbers can be held against the same command on linux.
+      # ghostty-ffi will not load, but the wasm engine and the xterm oracle
+      # should both be here; whether they agree is the most interesting
+      # question this job can answer.
       - name: diff
         id: diff
         continue-on-error: true
-        run: bash .github/ci/windows.sh diff packages/werk-poc 'bun run bench/differential.ts'
+        env:
+          SUITE_TIMEOUT: "600"
+        run: |
+          bash .github/ci/windows.sh diff packages/werk-poc \
+            'bun run bench/differential.ts --fuzz 200 --seed 7'
 
       # 7 — the whole test suite, PTY and daemon included.
       - name: test-full
@@ -136,7 +139,7 @@ jobs:
           SUITE_TIMEOUT: "1500"
         run: |
           bash .github/ci/windows.sh m0 packages/werk-poc \
-            'bun run m0 --timeout 30000; rc=$?; echo "--- per-probe logs ---"; for f in dist/m0/*/*.log; do echo "===== $f"; cat "$f"; done; exit $rc'
+            'timeout -k 15 1200 bun run ./spikes/m0/run-all.ts --timeout 20000; rc=$?; echo "--- per-probe logs ---"; for f in dist/m0/*/*.log; do echo "===== $f"; cat "$f"; done; exit $rc'
 
       - name: m2
         id: m2

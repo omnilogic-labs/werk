@@ -1,9 +1,9 @@
 // Direct probes of the platform primitives the werk proof of concept leans
 // on, run under Bun on a Windows runner. Each probe prints one `PROBE <name>:
 // <verdict>` line and never throws, so one run answers every question at
-// once. Run from packages/werk-poc so the relative imports resolve:
+// once. Run from the repository root:
 //
-//   bun run ../../.github/ci/windows-probes.ts
+//   bun run .github/ci/windows-probes.ts
 
 import fs from "node:fs";
 import os from "node:os";
@@ -116,9 +116,13 @@ async function socketProbe(name: string, addr: string): Promise<void> {
         reject(e);
       });
     });
+    let onDisk = "unknown";
+    try {
+      onDisk = fs.existsSync(addr) ? "yes" : "no";
+    } catch {}
     say(
       name,
-      `ok — listen and connect round-tripped ${JSON.stringify(echoed)}`,
+      `ok — listen and connect round-tripped ${JSON.stringify(echoed)} (address on disk: ${onDisk})`,
     );
   } catch (e) {
     say(name, `listen ok, connect fail — ${firstLine(e)}`);
@@ -285,8 +289,72 @@ if (want("sh")) {
     });
     const text = (await new Response(proc.stdout).text()).trim();
     await proc.exited;
-    say("sh-c", `ok — ${JSON.stringify(text)} (exit ${proc.exitCode})`);
+    say(
+      "sh-c",
+      `ok — ${JSON.stringify(text)} (exit ${proc.exitCode}); sh resolves to ${Bun.which("sh")}`,
+    );
   } catch (e) {
     say("sh-c", `fail — ${firstLine(e)}`);
+  }
+}
+
+// -------------------------------------------------- the daemon, in process
+// The launcher and the lock both stop before the daemon's socket is reached,
+// so start the server in this process instead and ask what the layers above
+// them can do: does the socket come up where the daemon would put it, does
+// the protocol handshake complete, and does a session spawn and produce
+// output. Nothing here is how werk runs; it is how to see past the first two
+// failures without changing the proof of concept.
+if (want("daemon-inproc")) {
+  try {
+    const { daemonPaths, ensureRuntimeDir } =
+      await import("../../packages/werk-poc/src/daemon/paths.ts");
+    const { startServer } =
+      await import("../../packages/werk-poc/src/daemon/server.ts");
+    const { connect } =
+      await import("../../packages/werk-poc/src/client/index.ts");
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wp-probe-daemon-"));
+    const paths = daemonPaths(dir, path.join(dir, "state"));
+    ensureRuntimeDir(dir);
+    fs.mkdirSync(paths.state, { recursive: true });
+
+    let server: { shutdown: (why: string) => void } | undefined;
+    try {
+      server = await startServer(paths, () => {});
+      say("daemon-listen", `ok — listening on ${paths.socket}`);
+    } catch (e) {
+      say("daemon-listen", `fail — ${firstLine(e)}`);
+    }
+
+    if (server) {
+      try {
+        const client = await connect({ socket: paths.socket });
+        say("daemon-hello", "ok — the client handshake completed");
+        try {
+          say("daemon-ls", `ok — ${(await client.ls()).length} sessions`);
+        } catch (e) {
+          say("daemon-ls", `fail — ${firstLine(e)}`);
+        }
+        try {
+          const r = await client.run({
+            argv: ["cmd.exe", "/c", "echo hello-from-session"],
+            cols: 80,
+            rows: 24,
+          });
+          say("daemon-run", `ok — session ${JSON.stringify(r)}`);
+        } catch (e) {
+          say("daemon-run", `fail — ${firstLine(e)}`);
+        }
+        client.close();
+      } catch (e) {
+        say("daemon-hello", `fail — ${firstLine(e)}`);
+      }
+      try {
+        server.shutdown("probe");
+      } catch {}
+    }
+  } catch (e) {
+    say("daemon-inproc", `fail — did not get that far: ${firstLine(e)}`);
   }
 }
