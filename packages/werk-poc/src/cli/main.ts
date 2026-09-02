@@ -31,6 +31,10 @@ usage:
   wp caps                                      the capability matrix, one column per engine
   wp __daemon                                  hidden; not typed by a human
 
+Every command but __daemon takes --socket <path> (or WP_SOCKET in the
+environment): talk to the daemon behind that socket — one forwarded with
+ssh -L from another machine, say — and never start one.
+
 bench does nothing yet.`;
 
 interface Parsed {
@@ -41,7 +45,7 @@ interface Parsed {
 }
 
 /** Flags that take a value; every other `--x` is boolean. */
-const VALUED = new Set(["engine", "cols", "rows", "signal", "port"]);
+const VALUED = new Set(["engine", "cols", "rows", "signal", "port", "socket"]);
 
 function parse(argv: string[]): Parsed {
   const out: Parsed = { flags: new Map(), positional: [], rest: [] };
@@ -110,6 +114,9 @@ function statusOf(s: import("../protocol/index.ts").SessionInfo): string {
   return s.status;
 }
 
+/** `--socket` on the command, else `WP_SOCKET`; undefined means the local daemon. */
+let socketOverride: string | undefined = process.env.WP_SOCKET || undefined;
+
 async function withClient(
   autostart: boolean,
   body: (client: import("../client/index.ts").Client) => Promise<number>,
@@ -117,7 +124,7 @@ async function withClient(
   const { connect, DaemonError } = await import("../client/index.ts");
   let client;
   try {
-    client = await connect({ autostart });
+    client = await connect({ autostart, socket: socketOverride });
   } catch (e) {
     if (e instanceof DaemonError) console.error(`wp: ${e.message}`);
     else console.error(`wp: ${(e as Error).message}`);
@@ -271,6 +278,14 @@ async function kill(p: Parsed): Promise<number> {
 }
 
 export async function main(argv: string[]): Promise<number> {
+  // `wp --socket <path> <command>` reads as naturally as `wp <command> --socket <path>`; take either.
+  if (argv[0]?.startsWith("--socket=")) {
+    socketOverride = argv[0].slice("--socket=".length);
+    argv = argv.slice(1);
+  } else if (argv[0] === "--socket" && argv[1] !== undefined) {
+    socketOverride = argv[1];
+    argv = argv.slice(2);
+  }
   const cmd = argv[0];
   if (cmd === undefined || cmd === "-h" || cmd === "--help" || cmd === "help") {
     console.log(USAGE);
@@ -278,6 +293,8 @@ export async function main(argv: string[]): Promise<number> {
   }
   try {
     const p = parse(argv.slice(1));
+    const sock = p.flags.get("socket");
+    if (typeof sock === "string") socketOverride = sock;
     switch (cmd) {
       case "caps":
         return await caps();

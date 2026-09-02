@@ -27,7 +27,16 @@ import {
   type DaemonMessage,
 } from "../protocol/index.ts";
 
-export const QUEUE_BOUND = 256 * 1024;
+/**
+ * 256 KiB, or `WP_QUEUE_BOUND` (bytes) in the daemon's environment. The
+ * override exists for M5, which raises it to show that the bound and a
+ * forward's bandwidth-delay product together set a remote client's
+ * throughput (findings/m5.md).
+ */
+export const QUEUE_BOUND =
+  Number(process.env.WP_QUEUE_BOUND) > 0
+    ? Number(process.env.WP_QUEUE_BOUND)
+    : 256 * 1024;
 
 interface Queued {
   bytes: Uint8Array;

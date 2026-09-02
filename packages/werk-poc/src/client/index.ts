@@ -49,6 +49,13 @@ export type {
 export interface ConnectOptions {
   /** The runtime directory holding `wp.sock`; defaults to `$XDG_RUNTIME_DIR/werk-poc`. */
   dir?: string;
+  /**
+   * An explicit socket path, for a daemon whose runtime directory is not
+   * this machine's: an `ssh -L` forward of a remote daemon's `wp.sock`, say.
+   * Overrides `dir`, and implies `autostart: false` — nothing here could
+   * start a daemon at the far end of a forward.
+   */
+  socket?: string;
   /** Start a daemon if none answers. Default true. */
   autostart?: boolean;
   /** Override the hello the client sends; for testing the mismatch path. */
@@ -144,6 +151,12 @@ export class Client {
     const dir = opts.dir ?? defaultRuntimeDir();
     const hello = opts.hello ?? clientHello();
     let client: Client | null = null;
+    if (opts.socket) {
+      const paths = { ...daemonPaths(dir), socket: opts.socket };
+      client = await Client.open(paths, hello, opts.timeoutMs ?? 5000);
+      client.requestTimeoutMs = opts.requestTimeoutMs ?? null;
+      return client;
+    }
     const probe = async (paths: DaemonPaths) => {
       try {
         client = await Client.open(paths, hello, opts.timeoutMs ?? 5000);

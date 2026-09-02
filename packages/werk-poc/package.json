@@ -14,6 +14,7 @@
     "m0": "bun run ./spikes/m0/run-all.ts",
     "m2": "bun run ./spikes/m2/run-all.ts",
     "m3": "bun run ./spikes/m3/snapshot-cost.ts && bun run ./spikes/m3/cross-commit.ts",
+    "m5": "bun run ./spikes/m5/run.ts",
     "build:web": "bun run ./src/web/build.ts"
   },
   "devDependencies": {

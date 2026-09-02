@@ -23,6 +23,7 @@ the product directly. What matters is what is written down in `findings/`.
 | `spikes/m1/`    | M1's compiled-binary check for the embedded WASM                |
 | `spikes/m2/`    | M2's reattach-fidelity harness: the compiled `wp` in a PTY      |
 | `spikes/m3/`    | M3's cross-commit decode, snapshot cost, and fd-reuse probes    |
+| `spikes/m5/`    | M5's transport spike: the daemon in a container behind `ssh -L` |
 | `bench/`        | The `wp bench` measurements (M6)                                |
 | `findings/m4/`  | Screenshots from M4's browser check                             |
 | `vendor/`       | Pinned upstream artifacts (libghostty WASM, `ghostty-web`)      |
@@ -41,6 +42,7 @@ $ bun run m0                 # run every M0 probe, interpreted and compiled
 $ bun run m0 -- --bun /path/to/other/bun   # the same under another Bun
 $ bun run m2                 # the reattach-fidelity scenarios, as a table
 $ bun run m3                 # snapshot cost and cross-commit decode tables
+$ bun run m5 -- --rtt 0,50,200   # the transport spike; needs Docker, ~6 min
 ```
 
 And the program itself, once built:
@@ -59,7 +61,10 @@ The daemon autostarts in `$XDG_RUNTIME_DIR/werk-poc` on the first `run` or
 (`~/.local/state/werk-poc`), written every 30 s and on exit; after a
 restart those come back as read-only `corpse` sessions in `ls`. Set
 `WP_STATE_DIR` and `WP_SNAPSHOT_INTERVAL_MS` in the environment of whatever
-starts the daemon to move or speed that up.
+starts the daemon to move or speed that up. `--socket <path>` on any command
+(or `WP_SOCKET`) talks to the daemon behind that socket instead — one forwarded
+from another machine with `ssh -N -L <local>:<remote> host`, say — and never
+starts one.
 
 Each probe under `spikes/m0/` also runs on its own with
 `bun run spikes/m0/<probe>.ts`, and compiles with

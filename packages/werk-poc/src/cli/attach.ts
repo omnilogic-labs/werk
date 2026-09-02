@@ -287,6 +287,19 @@ export async function attachInteractive(
 
   for (const b of early.splice(0)) feed(b);
 
+  // The socket can close under us with no `exited` and no detach reply: the
+  // daemon died, or an `ssh -L` forward carrying the socket was killed. The
+  // session is not known to be gone, so say so and leave (M5 found the
+  // loop waiting forever here).
+  void client.waitClosed().then(() => {
+    if (restored) return;
+    restore(false);
+    say(
+      `[wp: lost the connection to the daemon; session ${id} may still be running]`,
+    );
+    done(1);
+  });
+
   const onWinch = () => {
     const s = terminalSize();
     attached.resize(s.cols, s.rows).catch(() => {});

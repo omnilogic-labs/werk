@@ -4,6 +4,7 @@
 
 import { afterEach, expect, test } from "bun:test";
 import fs from "node:fs";
+import path from "node:path";
 import { connect, DaemonError } from "../client/index.ts";
 import { WP_VERSION } from "../protocol/index.ts";
 import { alive, sleep, stopDaemon, tempDir, waitFor } from "./_testlib.ts";
@@ -144,4 +145,23 @@ test("shutdown over the socket ends the daemon and its sessions", async () => {
   expect(await waitFor(() => !alive(pid), 3000)).toBe(true);
   expect(await waitFor(() => !alive(childPid), 3000)).toBe(true);
   expect(fs.existsSync(daemonPaths(dir).socket)).toBe(false);
+}, 20000);
+
+test("an explicit socket path is used as given and never autostarts", async () => {
+  const dir = fresh();
+  const client = await connect({ dir });
+  // A forwarded socket lives wherever ssh put it; a symlink elsewhere stands in for one.
+  const elsewhere = tempDir();
+  const socket = path.join(elsewhere, "forwarded.sock");
+  fs.symlinkSync(daemonPaths(dir).socket, socket);
+  const viaSocket = await connect({ socket });
+  expect(viaSocket.daemon.pid).toBe(client.daemon.pid);
+  expect(viaSocket.paths.socket).toBe(socket);
+  viaSocket.close();
+  // Nothing answers: the client reports that rather than starting a daemon there.
+  const missing = path.join(elsewhere, "nothing.sock");
+  await expect(connect({ socket: missing, timeoutMs: 1000 })).rejects.toThrow();
+  expect(fs.existsSync(path.join(elsewhere, "wp.lock"))).toBe(false);
+  client.close();
+  fs.rmSync(elsewhere, { recursive: true, force: true });
 }, 20000);
