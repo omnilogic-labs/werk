@@ -3,3 +3,5 @@ dist/
 packages/werk-poc/dist/
 packages/werk-poc/src/web/bundle/app.js
 packages/werk-poc/vendor/ghostty-web/
+packages/werk-poc/*.jsonl
+packages/werk-poc/bench/*.jsonl
