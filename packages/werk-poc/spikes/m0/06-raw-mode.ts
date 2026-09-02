@@ -23,8 +23,8 @@ const proc = Bun.spawn(["bash", "-c", script], {
   terminal: { data: (_t, d) => out.push(d) },
 });
 await Bun.sleep(100);
-// `ps -o tty=` says "pts/N" on Linux and "sNNN" on macOS, whose slave device
-// is /dev/ttysNNN; BSD `stty` reads another terminal with -f, not -F.
+// `ps -o tty=` says "pts/N" on Linux and "ttysNNN" on macOS; BSD `stty`
+// reads another terminal with -f, not -F.
 const DARWIN = process.platform === "darwin";
 const psTty = Bun.spawnSync([
   "ps",
@@ -34,7 +34,7 @@ const psTty = Bun.spawnSync([
   String(proc.pid),
 ]).stdout.toString();
 const pts = DARWIN
-  ? /\bs(\d+)/.exec(psTty)?.[1]
+  ? /ttys(\d+)/.exec(psTty)?.[1]
   : /pts\/(\d+)/.exec(psTty)?.[1];
 const ttyPath = pts ? (DARWIN ? `/dev/ttys${pts}` : `/dev/pts/${pts}`) : null;
 const stty = () =>
