@@ -67,7 +67,7 @@ it may emit, resolved through terminfo **on the machine running the child**.
   stream; diff any two states; modulate frame rate to conditions.
 - **Speculative / predictive local echo** — mosh. Both ends hold terminal state,
   so the client can predict a keystroke's effect and reconcile later. Feasible for
-  us because ghostty-web runs the same emulator in the browser.
+  us because the browser runs the same libghostty build as the daemon.
 - **Control mode** — tmux `-CC`. `%begin`/`%end`/`%error` blocks + `%`-prefixed
   async notifications on one stream.
 - **Tap, not stage** — zmx. The VT receives a copy of the stream for rehydration;
@@ -138,19 +138,19 @@ and Zig lists apply if the fallback is taken.
 
 **TypeScript on Bun** (the current leading option):
 
-| Need             | Library                                                                                                                     |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| PTY              | **`Bun.Terminal`** — native, no addon                                                                                       |
-| HTTP / WS        | **`Bun.serve`** — routes, native WS pub/sub topics, HTML-import bundling. Hono only if the route count grows                |
-| VT state         | `libghostty-vt-node` (thin — no render state), or a `bun:ffi` shim over `libghostty-vt.a`, or `@xterm/headless`             |
-| TUI              | **Ink** (React; used by Claude Code and Gemini CLI), or **OpenTUI** (Zig core, prebuilt native binaries — `--compile` risk) |
-| CLI              | **citty** or `util.parseArgs`. **Not oclif** — it introspects its own directory at runtime                                  |
-| Browser terminal | **`@xterm/xterm` v6** + `addon-webgl` + `addon-serialize`; **ghostty-web** worth a spike                                    |
-| Docker           | **`dockerode`** — solves hijacking, multiplex framing, resize. Smoke-test under Bun                                         |
-| Frontend         | Svelte 5 or Solid (smallest, best per-widget updates); React if Ink familiarity wins. Tailwind v4 + copy-paste components   |
-| Names            | **`human-id`** — `adjective+noun+verb`, 15M pool, actively maintained                                                       |
-| Desktop, later   | **Tauri v2**, the compiled binary as a signed sidecar                                                                       |
-| Notifications    | **ntfy.sh** by default; a webhook for teams                                                                                 |
+| Need             | Library                                                                                                                                                              |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PTY              | **`Bun.Terminal`** — native, no addon                                                                                                                                |
+| HTTP / WS        | **`Bun.serve`** — routes, native WS pub/sub topics, HTML-import bundling. Hono only if the route count grows                                                         |
+| VT state         | **libghostty-vt** via upstream's freestanding WASM, with a loader of our own; `ts-libghostty` over `bun:ffi` as the native comparison                                |
+| TUI              | **Ink** (React; used by Claude Code and Gemini CLI), or **OpenTUI** (Zig core, prebuilt native binaries — `--compile` risk)                                          |
+| CLI              | **citty** or `util.parseArgs`. **Not oclif** — it introspects its own directory at runtime                                                                           |
+| Browser terminal | **libghostty-vt**, the same WASM as the daemon; the renderer is open — rebase **ghostty-web** or build our own. `@xterm/headless` only as a differential test oracle |
+| Docker           | **`dockerode`** — solves hijacking, multiplex framing, resize. Smoke-test under Bun                                                                                  |
+| Frontend         | Svelte 5 or Solid (smallest, best per-widget updates); React if Ink familiarity wins. Tailwind v4 + copy-paste components                                            |
+| Names            | **`human-id`** — `adjective+noun+verb`, 15M pool, actively maintained                                                                                                |
+| Desktop, later   | **Tauri v2**, the compiled binary as a signed sidecar                                                                                                                |
+| Notifications    | **ntfy.sh** by default; a webhook for teams                                                                                                                          |
 
 **Rust daemon**: `tokio`, `axum`, `tokio-tungstenite`, `tower-http`, `portable-pty`
 or `pty-process`, `rustix`/`nix`, `libghostty-vt` (Uzaaft), `tracing`, `clap`,

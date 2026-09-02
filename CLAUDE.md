@@ -12,11 +12,12 @@ list you can open from a terminal or a browser.
 **Documentation.** There is no program yet. The repo is a Bun workspace with an
 empty `packages/` and Prettier on defaults; everything real is in `docs/`.
 
-| Path             | What's in it                                                                                                     |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `docs/product/`  | What werk does. Scope and promises, the object model, worked journeys, surfaces, open questions.                 |
-| `docs/research/` | What we found out before deciding anything. Thirteen dossiers, terminal internals through competitive landscape. |
-| `packages/`      | Empty. The program goes here.                                                                                    |
+| Path              | What's in it                                                                                                     |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `docs/product/`   | What werk does. Scope and promises, the object model, worked journeys, surfaces, open questions.                 |
+| `docs/research/`  | What we found out before deciding anything. Thirteen dossiers, terminal internals through competitive landscape. |
+| `docs/proposals/` | Technical specifications for what to build. Currently the proof of concept that tests the stack.                 |
+| `packages/`       | Empty. The program goes here.                                                                                    |
 
 Start at `docs/README.md`.
 

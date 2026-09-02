@@ -10,12 +10,14 @@ Per the project's own framing it handles _VT sequence parsing_, _terminal state
 management_ (cursor, styles, reflow, scrollback), and _renderer state_ — and
 explicitly not rendering, fonts, or PTY management. We supply the PTY and the pixels.
 
-Everything below describes the C API. _How_ werk reaches it — the thin Node
-binding, a `bun:ffi` shim, or natively — is a live decision that rides on the
-language question in [02](02-language-choice.md). It matters more than a binding
-choice usually does, because `libghostty-vt-node` does **not** expose the
-two-stage `READY`-then-history decode described in the next section, which is the
-single most valuable thing in this document.
+Everything below describes the C API. werk reaches it through upstream's own
+freestanding WebAssembly build of the library — zero imports, the whole API
+exported — with a loader of our own, the same bytes in the daemon and the
+browser. That route exists because no published binding exposes the two-stage
+`READY`-then-history decode described in the next section, which is the single
+most valuable thing in this document. The binding landscape is in
+[02](02-language-choice.md); the loader and how it is exercised are in
+[`../proposals/00-stack-proof-of-concept.md`](../proposals/00-stack-proof-of-concept.md).
 
 ## API groups (from `vt.h` on `main`)
 

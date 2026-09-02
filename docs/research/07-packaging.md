@@ -243,12 +243,16 @@ Bun implements Node-API from scratch and most addons work
 - [#17312](https://github.com/oven-sh/bun/issues/17312) — DuckDB bindings fail
   under `--compile` on Windows. **Still open.**
 
-This matters directly for
-[`libghostty-vt-node`](https://github.com/coder/libghostty-vt-node), which is the
-only way a TypeScript werk gets libghostty. Combined with that binding's own
-immaturity (no render state, no key encoder, no incremental snapshot decoding —
-see [02-language-choice.md](02-language-choice.md)), this is the sharpest
-remaining risk in the all-TypeScript plan.
+This does not touch libghostty. werk reaches it through upstream's freestanding
+WebAssembly build — a `.wasm` with zero imports, embedded as an ordinary asset
+and instantiated at runtime — and a `--compile` executable with an embedded
+`.wasm` has been run with no `.wasm` on disk
+([02-language-choice.md](02-language-choice.md),
+[`../proposals/00-stack-proof-of-concept.md`](../proposals/00-stack-proof-of-concept.md)).
+`@coder/libghostty-vt-node`, for the record, is a Node-API addon and **fails
+under `--compile`** because its loader hands `node-gyp-build` a path that does
+not exist inside bunfs. The addon risk that remains is OpenTUI's Zig core, if
+OpenTUI is used ([11-interfaces.md](11-interfaces.md)).
 
 ### `bun:ffi`
 
@@ -258,9 +262,9 @@ found the extraction path was wired for `.node` addons but was dead code for
 general FFI libs. Fixed in #30720. Marked experimental; 2–6× faster than Node-API
 but manual memory management.
 
-This is the fallback route to `libghostty-vt.a`: a thin C-ABI shim over the
-static library, loaded by `bun:ffi`, sidestepping the Node addon entirely. Worth
-costing out as plan B.
+This is the native route to libghostty — `ts-libghostty` over `bun:ffi`,
+with prebuilds for six targets and no Windows. It is kept as the comparison
+point against the WASM route, measured on identical calls in the proposal.
 
 ---
 
@@ -434,8 +438,9 @@ daemons, not one. See [`../product/02-journeys.md`](../product/02-journeys.md) �
 4. Are the AVX2 "illegal instruction" issues actually fixed?
 5. Current merge status of the musl `libstdc++` fix — matters if werk runs inside
    the containers it provisions.
-6. Does `libghostty-vt-node` survive `--compile`, given the multi-addon bugs? Or
-   do we go `bun:ffi` over a C shim instead?
+6. Is the `bun:ffi` route (`ts-libghostty`) within noise of the WASM one on
+   throughput and latency? If so, there is no reason to ever carry a native
+   prebuild matrix for the engine.
 
 ## Sources
 

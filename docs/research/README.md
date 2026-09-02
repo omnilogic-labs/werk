@@ -88,6 +88,9 @@ Three spikes, in this order, because any one failing changes the plan:
 2. **Does `ssh -L local.sock:remote.sock` hold up under a live PTY stream?**
    Every citation is a request/response proxy; ours is many small latency-
    sensitive frames. [09 §0](09-remote-transport.md)
-3. **Does a libghostty binding survive `--compile`**, and is the Node binding's
-   snapshot API rich enough for two-stage reattach — or do we need a `bun:ffi`
-   shim regardless? [02](02-language-choice.md), [07 §4](07-packaging.md)
+3. **Does our loader over upstream's freestanding WASM survive `--compile`**,
+   and is it rich enough for two-stage reattach? No published binding reaches
+   the snapshot API, so the binding is ours. [02](02-language-choice.md),
+   [07 §4](07-packaging.md), and
+   [`../proposals/00-stack-proof-of-concept.md`](../proposals/00-stack-proof-of-concept.md)
+   for the program that runs all three.

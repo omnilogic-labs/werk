@@ -9,21 +9,22 @@ and vendor docs on 2026-09-01.
 > foundational native-addon risk in the whole plan. That risk is now much
 > smaller: **Bun ships a native `Bun.Terminal` PTY API** (v1.3.5 POSIX, v1.3.14
 > Windows ConPTY), purpose-built to replace `node-pty`. See
-> [07-packaging.md §4](07-packaging.md). The remaining native-addon risks are
-> OpenTUI's Zig core and `libghostty-vt-node`.
+> [07-packaging.md §4](07-packaging.md). The remaining native-addon risk is
+> OpenTUI's Zig core; libghostty arrives as WebAssembly with no imports, which
+> is an embedded asset rather than an addon.
 
 ## Decision matrix
 
-| Area                    | Lean toward                                                      | Why                                                                                                                                             |
-| ----------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| TUI framework           | **Ink** for v1; watch **OpenTUI**                                | Ink is proven in Claude Code and Gemini CLI. OpenTUI is snazzier and Bun-native but ships prebuilt Zig binaries — unverified inside `--compile` |
-| Terminal-inside-the-TUI | **Build it** on `@xterm/headless`                                | Nothing ships this off the shelf                                                                                                                |
-| CLI parsing             | **citty** or **`util.parseArgs`**                                | Zero-dep, `--compile`-safe. Avoid oclif                                                                                                         |
-| Browser terminal        | **`@xterm/xterm` v6** + webgl + serialize; spike **ghostty-web** | xterm.js is the safe incumbent; ghostty-web is promising and young                                                                              |
-| Server                  | **Bare `Bun.serve`**                                             | Routes + WS pub/sub + HTML-import bundling already covers the whole surface                                                                     |
-| Frontend                | **Svelte 5 or Solid** on merit; React if Ink familiarity wins    | Both beat React on bundle size and per-widget update cost                                                                                       |
-| Desktop                 | **Tauri v2**, the Bun binary as a signed sidecar                 | The only shell with a documented story for reusing the compiled binary as-is                                                                    |
-| Notifications           | **ntfy.sh** default, webhook for teams                           | Near-zero setup, phone-native, actually solves "away from keyboard"                                                                             |
+| Area                    | Lean toward                                                                       | Why                                                                                                                                               |
+| ----------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TUI framework           | **Ink** for v1; watch **OpenTUI**                                                 | Ink is proven in Claude Code and Gemini CLI. OpenTUI is snazzier and Bun-native but ships prebuilt Zig binaries — unverified inside `--compile`   |
+| Terminal-inside-the-TUI | **Build it** on libghostty's render state                                         | Nothing ships this off the shelf; the daemon's emulator and its dirty-row iterator are already there                                              |
+| CLI parsing             | **citty** or **`util.parseArgs`**                                                 | Zero-dep, `--compile`-safe. Avoid oclif                                                                                                           |
+| Browser terminal        | **libghostty via upstream WASM**; renderer by rebasing **ghostty-web** or our own | One emulator everywhere, state transfer as the wire format. The renderer route is open — [proposal §3](../proposals/00-stack-proof-of-concept.md) |
+| Server                  | **Bare `Bun.serve`**                                                              | Routes + WS pub/sub + HTML-import bundling already covers the whole surface                                                                       |
+| Frontend                | **Svelte 5 or Solid** on merit; React if Ink familiarity wins                     | Both beat React on bundle size and per-widget update cost                                                                                         |
+| Desktop                 | **Tauri v2**, the Bun binary as a signed sidecar                                  | The only shell with a documented story for reusing the compiled binary as-is                                                                      |
+| Notifications           | **ntfy.sh** default, webhook for teams                                            | Near-zero setup, phone-native, actually solves "away from keyboard"                                                                               |
 
 ---
 
@@ -47,8 +48,8 @@ cleanly. **OpenTUI is the risk case** — its Zig core ships as prebuilt
 per-platform native binaries (the esbuild/swc pattern), so `--compile` must
 either target one platform per build and embed that one addon, or ship several
 and pick at runtime. Given [07 §4](07-packaging.md) documents live bugs with
-multiple embedded native addons, **spike this before committing** — especially
-since werk may also want `libghostty-vt-node`.
+multiple embedded native addons, **spike this before committing**. OpenTUI would
+be the only native addon in the binary; libghostty is WASM and does not count.
 
 ### The bar for "snazzy"
 
@@ -66,10 +67,11 @@ Cross-language reference points worth actually reading, not just name-checking:
 **No TS TUI framework has a terminal-emulator widget.** Not Ink, not OpenTUI.
 The only library that ever had one is dead. werk's TUI wants a **live preview
 pane of a session's last N lines** — the feature that justifies building a TUI
-over the flat list at all — so this has to be built: `@xterm/headless` (or
-libghostty) holds the VT state, and a custom renderer paints cells into Ink's or
-OpenTUI's render tree. **Spike this before choosing a framework**, because it is
-the one thing the framework choice actually has to support.
+over the flat list at all — so this has to be built: libghostty holds the VT
+state through the same loader the daemon uses, fed by state transfer, and a
+custom renderer paints its dirty rows into Ink's or OpenTUI's render tree.
+**Spike this before choosing a framework**, because it is the one thing the
+framework choice actually has to support.
 
 ---
 
@@ -98,20 +100,24 @@ quality and `--compile` safety instead.
 
 ## 3. Terminals in the browser
 
-| Option                                                              | State                       | Notes                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ------------------------------------------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [**`@xterm/xterm`**](https://registry.npmjs.org/@xterm/xterm)       | **v6.0.0**                  | The incumbent, maintained under the xterm.js org with **Microsoft (VS Code) and Eclipse Theia** as primary consumers. Addons: `fit`, `webgl`, `canvas`, `search`, `serialize`, `unicode11`, `web-links`. **`serialize` + `webgl` is the key combination for werk** — serialize gives a cheap static "last known state" snapshot for a dashboard tile with no live connection; webgl gives performance for the one focused session |
-| [**ghostty-web**](https://github.com/coder/ghostty-web)             | 2.8k★, **119 commits**, MIT | A **WASM build of Ghostty's actual VT**, not a reimplementation. Advertised as an xterm.js-compatible drop-in — "migrate by changing your import". ~400 KB, zero runtime deps. Better grapheme clustering for Devanagari/Arabic; supports `XTPUSHSGR`/`XTPOPSGR` which xterm.js doesn't. Built by **Coder**, and **"originally created for Mux"** — a near-exact werk analogue. Promising, young, unproven                        |
-| [**`@xterm/headless`**](https://registry.npmjs.org/@xterm/headless) | v6.0.0                      | Parses and holds terminal state, no DOM. **Exactly the tool for server-side state** if we don't use libghostty for it                                                                                                                                                                                                                                                                                                             |
-| [asciinema player](https://github.com/asciinema/asciinema-player)   | maintained                  | Playback only. Wrong tool for live, right tool for replaying a finished or crashed run — and [03 §recording](03-prior-art.md) already argues for writing asciicast alongside every session                                                                                                                                                                                                                                        |
-| hterm, wterm                                                        | legacy                      | Not serious 2026 contenders                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Option                                                              | State                        | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **upstream `ghostty-vt.wasm`**                                      | rolling `tip`, pinned by SHA | **The engine, in the browser as in the daemon.** Ghostty's VT as a freestanding WASM with zero imports: snapshot decoder, render state with dirty rows, key and mouse encoders. It draws nothing — a renderer over it is the open item, and the two rows below are the candidates for that                                                                                                                                             |
+| [**ghostty-web**](https://github.com/coder/ghostty-web)             | 2.8k★, **119 commits**, MIT  | The only existing **browser renderer over Ghostty's VT**: canvas rendering, keyboard, selection, behind an xterm.js-shaped API. ~400 KB. Pinned to a December 2025 Ghostty behind a 1,620-line private patch, so it does not decode upstream `tip` snapshots as-is. Built by **Coder**, "originally created for Mux" — a near-exact werk analogue. **The lean is to rebase it onto the pinned upstream artifact**                      |
+| [**`@xterm/xterm`**](https://registry.npmjs.org/@xterm/xterm)       | **v6.0.0**                   | **Not the engine, and not reducible to a renderer.** Its DOM, canvas and WebGL renderers read xterm's own buffer, with no supported way to drive them from foreign state; the only way to show libghostty's screen in it is re-emitting VT, which puts a second emulator in the browser. Individual parts — `fit`'s measurement, `web-links`, the search UI — may detach cleanly; whether any do is a finding for the proof of concept |
+| [**`@xterm/headless`**](https://registry.npmjs.org/@xterm/headless) | v6.0.0                       | A second, independent emulator with no DOM. **Used only as a differential test oracle** in the proposal's corpus — its `parser.registerOscHandler` reports the same effects libghostty does, so disagreements on text, style or effects flag a bug in one of the two                                                                                                                                                                   |
+| [asciinema player](https://github.com/asciinema/asciinema-player)   | maintained                   | Playback only. Wrong tool for live, right tool for replaying a finished or crashed run — and [03 §recording](03-prior-art.md) already argues for writing asciicast alongside every session                                                                                                                                                                                                                                             |
+| hterm, wterm                                                        | legacy                       | Not serious 2026 contenders                                                                                                                                                                                                                                                                                                                                                                                                            |
 
-**The strong argument for ghostty-web** — beyond correctness — is that the
-browser would then run **the same emulator as the daemon**, which is what makes
-mosh-style speculative echo and diff reconciliation tractable instead of a
-research project. That argument is made in [05 §E](05-control-surfaces.md). It is
-contingent on the daemon actually using libghostty, which rides on
-[02-language-choice.md](02-language-choice.md).
+**Why the same emulator in the browser is worth a renderer.** The browser runs
+**the same libghostty build as the daemon**, and receives state as `GHOSTSNP`
+bytes: the two-stage `READY`-then-history decode paints the viewport before the
+scrollback arrives, soft-wrapped lines survive a resize, and mosh-style
+speculative echo and diff reconciliation become tractable instead of a research
+project. That argument is made in [05 §E](05-control-surfaces.md). The cost is
+that every libghostty in the fleet and the browser bundle have to agree on a
+snapshot format that carries no compatibility guarantee — see
+[proposal §3](../proposals/00-stack-proof-of-concept.md).
 
 ### Rendering many terminals at once
 
@@ -121,8 +127,8 @@ There is no official pattern, but the architecture falls out of the constraints:
 | ---------------------------- | ------------------------ | ----------------------------------------------------- | ---------------------------------------------- |
 | Headless VT, one per session | werk daemon              | Cheap, always current                                 | Always — source of truth regardless of viewers |
 | **Static snapshot tile**     | Browser grid             | Very cheap — a text blob or one canvas paint per push | **Every tile in the fleet overview**           |
-| Live `xterm.js` (DOM)        | Browser, focused session | Moderate                                              | Fallback where WebGL is unavailable            |
-| Live `xterm.js` + webgl      | Browser, focused session | Cheapest live option                                  | Default for the expanded session               |
+| Live libghostty, canvas      | Browser, focused session | Moderate — ghostty-web's renderer is canvas           | Default for the expanded session               |
+| Live libghostty, WebGL       | Browser, focused session | Cheapest live option, if a WebGL renderer gets built  | Later, and only if canvas proves insufficient  |
 
 **List view = cheap static; detail view = expensive live.** Virtualise the grid
 once session count reaches dozens.
@@ -301,14 +307,14 @@ integrations. werk running push infrastructure is a different company.
 3. **Does anything support a live terminal _inside_ a TUI frame?** Nothing found.
    Assume we build it on headless VT state and a custom cell renderer, and spike
    it before choosing between Ink and OpenTUI.
-4. **Is anyone shipping ghostty-web in production** beyond the Mux origin story?
-   Check whether Coder itself has adopted it — that would be the strongest signal.
+4. **How much of ghostty-web survives a rebase onto upstream `tip`?** If the
+   answer is the shell and none of the internals, the renderer is werk's own
+   from the start and should be sized as such. Whether Coder itself has adopted
+   it in production is the other useful signal.
 5. **Tauri sidecar signing cost** for a 100 MB+ Bun binary. Get a real number.
 6. **SSE vs one-WS-with-topics at scale** — dozens of machines × dozens of
    sessions. No load data found either way.
-7. xterm.js's actual 2026 maintenance cadence and governance, before treating it
-   as a forever-safe default.
-8. Get real screenshots of Coder's and Conductor's dashboards before locking the
+7. Get real screenshots of Coder's and Conductor's dashboards before locking the
    IA in §7.
 
 ## Sources

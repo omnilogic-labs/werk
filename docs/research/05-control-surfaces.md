@@ -110,13 +110,19 @@ which makes the security discussion below more load-bearing rather than less: th
 blast radius of one authenticated session is code execution on every machine werk
 can reach.
 
-**Rendering.** Use [ghostty-web](https://github.com/coder/ghostty-web) rather than
-xterm.js: it's the same VT compiled to WASM, ~400 KB, xterm.js-API-compatible so
-migration is an import change, and it handles RTL/complex scripts/exotic sequences
-xterm.js gets wrong. Crucially, **the browser then runs the same emulator as the
-daemon** — the client-side state and the server-side state are the same
-implementation, which is what makes mosh-style speculative echo and diff
-reconciliation tractable instead of a research project.
+**Rendering.** The browser runs the same libghostty build as the daemon, loaded
+from upstream's freestanding WASM, and receives terminal state as `GHOSTSNP`
+bytes rather than as re-emitted escape sequences. **The browser then runs the
+same emulator as the daemon** — the client-side state and the server-side state
+are the same implementation, which is what makes mosh-style speculative echo and
+diff reconciliation tractable instead of a research project. What _draws_ that
+state is open: [ghostty-web](https://github.com/coder/ghostty-web) is the only
+existing renderer over Ghostty's VT but pins a December 2025 Ghostty behind a
+private patch, so the routes are rebasing it onto the pinned upstream artifact
+or writing our own. xterm.js cannot be cut down to a renderer over foreign
+state — its renderers read its own buffer — so it is not on that list. The
+options are laid out in
+[`../proposals/00-stack-proof-of-concept.md`](../proposals/00-stack-proof-of-concept.md) §3.
 
 **Transport.** Two websockets (terminal + control), per Zellij. Session URLs
 should be bookmarkable.
