@@ -45,6 +45,7 @@ jobs:
           echo "ps keywords: [$(ps -o pid=,ppid=,pgid=,tty=,state= -p $$ 2>&1)]"
           echo "ps sid: [$(ps -o sid= -p $$ 2>&1)]"
           echo "ps rss: [$(ps -o rss= -p $$ 2>&1)]"
+          echo "unix socket buffers: $(sysctl net.local.stream.sendspace net.local.stream.recvspace 2>&1 | tr '\n' ' ')"
           echo "WP_CI_RUNNER=$(uname -m)/macOS-$(sw_vers -productVersion)" >>"$GITHUB_ENV"
           chmod +x .github/ci/macos.sh
           mkdir -p "$WP_CI_RESULTS"
