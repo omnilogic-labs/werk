@@ -24,7 +24,7 @@ jobs:
       # /var/folders/xx/<32 chars>/T/ path, which leaves too little room for a
       # daemon socket under a mkdtemp directory.
       TMPDIR: /tmp
-      WP_CI_RESULTS: ${{ github.workspace }}/.ci-results
+      WP_CI_RESULTS: ${{ github.workspace }}/ci-results
     steps:
       - uses: actions/checkout@v5
 
@@ -41,6 +41,10 @@ jobs:
           echo "script: $(command -v script || echo MISSING)"
           echo "top: $(command -v top || echo MISSING)"
           echo "python3: $(command -v python3 || echo MISSING)"
+          echo "head -c 4M: $(printf 'y\n' | head -c 4M 2>&1 | head -1 | cat -v)"
+          echo "ps keywords: [$(ps -o pid=,ppid=,pgid=,tty=,state= -p $$ 2>&1)]"
+          echo "ps sid: [$(ps -o sid= -p $$ 2>&1)]"
+          echo "ps rss: [$(ps -o rss= -p $$ 2>&1)]"
           echo "WP_CI_RUNNER=$(uname -m)/macOS-$(sw_vers -productVersion)" >>"$GITHUB_ENV"
           chmod +x .github/ci/macos.sh
           mkdir -p "$WP_CI_RESULTS"
@@ -125,5 +129,7 @@ jobs:
           name: ci-result-macos
           path: |
             ci-result-macos.json
-            .ci-results/logs/*.log
+            ci-results/logs/
+            packages/werk-poc/dist/m0/**/*.log
+            packages/werk-poc/dist/m0/results.json
           if-no-files-found: warn

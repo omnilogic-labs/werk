@@ -12,7 +12,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 POC="$ROOT/packages/werk-poc"
-RESULTS="${WP_CI_RESULTS:-$ROOT/.ci-results}"
+RESULTS="${WP_CI_RESULTS:-$ROOT/ci-results}"
 LOGS="$RESULTS/logs"
 mkdir -p "$LOGS"
 
@@ -71,24 +71,33 @@ run_suite() {
   rc=${PIPESTATUS[0]}
   t1=$(now_ms)
   local ms=$((t1 - t0))
+  local verdict
+  verdict="$(summary_for "$id" "$log")"
   if [ "$rc" -eq 0 ]; then
-    record "$id" pass "$ms" "$(summary_for "$id" "$log")"
+    record "$id" pass "$ms" "$verdict"
     return 0
   fi
-  record "$id" fail "$ms" "exit $rc: $(detail_from_log "$log")"
+  record "$id" fail "$ms" "${verdict:-exit $rc}${verdict:+ | }$(detail_from_log "$log")"
   return 1
 }
 
-# A one-line verdict for a suite that passed; mostly the interesting number.
+# A one-line verdict for a suite, pass or fail; the interesting number rather
+# than whatever happened to be printed last.
 summary_for() {
   local id="$1" log="$2"
   case "$id" in
     test-pure | test-full)
-      grep -a -E '^[[:space:]]*[0-9]+ (pass|fail)' "$log" | tr '\n' ' ' | cut -c1-200
+      grep -a -E '^[[:space:]]*[0-9]+ (pass|fail)$' "$log" | tr -d '\n' | tr -s ' ' | cut -c1-200
       ;;
-    m0 | m2 | m3)
-      grep -a -c . "$log" >/dev/null
-      tail -3 "$log" | tr '\n' ' ' | cut -c1-200
+    m0)
+      grep -a -E '^\| [0-9]{2}-' "$log" |
+        sed -E 's/^\| *([^ |]+) *\|/\1=/; s/ *\|//g; s/  +/ /g' |
+        tr '\n' ' ' | cut -c1-300
+      ;;
+    m2)
+      grep -a -E '^\| .* \| (pass|FAIL) \|' "$log" |
+        sed -E 's/^\| (.*) \| (pass|FAIL) \| .*/\2/' | sort | uniq -c |
+        tr -d '\n' | tr -s ' ' | cut -c1-200
       ;;
     *)
       tail -1 "$log" | cut -c1-200
@@ -109,7 +118,24 @@ s_build() {
   ./dist/wp caps || return 1
 }
 s_test_full() { cd "$POC" && bun test; }
-s_m0() { cd "$POC" && bun run m0; }
+# `run-all.ts` prints a table and exits 0 whatever the probes said, so the
+# verdict has to come out of the results file it leaves behind.
+s_m0() {
+  cd "$POC" || return 1
+  bun run m0
+  python3 - "$POC/dist/m0/results.json" <<'EOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+bad = []
+for probe, cells in sorted(d["results"].items()):
+    for col, cell in cells.items():
+        if cell["status"] != "pass":
+            bad.append(f'{probe} [{col}]: {cell["status"]} - {cell["summary"]}')
+for line in bad:
+    print("m0 not pass:", line)
+sys.exit(1 if bad else 0)
+EOF
+}
 s_m2() { cd "$POC" && bun run m2; }
 s_m3() { cd "$POC" && bun run m3; }
 s_ops() { cd "$POC" && bun run bench/ops.ts --quick --no-compile; }
