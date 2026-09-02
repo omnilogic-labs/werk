@@ -208,14 +208,21 @@ function lockHandle(h: bigint): [boolean, number] {
 
 function openHandle(p: string): bigint {
   const name = Buffer.from(p + "\0", "utf16le");
-  const GENERIC_READ = 0x80000000;
-  const GENERIC_WRITE = 0x40000000;
+  // FILE_GENERIC_READ | FILE_GENERIC_WRITE: the same rights as
+  // GENERIC_READ | GENERIC_WRITE but below 2^31. `0x80000000 | 0x40000000`
+  // in JavaScript is the negative int32 -1073741824, and a negative number
+  // handed to a `u32` ffi argument arrives as 0 (see ffi-u32 in ffi-basic):
+  // every handle in runs 33689491351 and 33690276089 had no data access,
+  // which is why LockFileEx said ACCESS_DENIED and a no-share open excluded
+  // nothing.
+  const FILE_GENERIC_READ = 0x120089;
+  const FILE_GENERIC_WRITE = 0x120116;
   const FILE_SHARE_ALL = 1 | 2 | 4;
   const OPEN_ALWAYS = 4;
   const FILE_ATTRIBUTE_NORMAL = 0x80;
   return kernel32().CreateFileW(
     ptr(name),
-    GENERIC_READ | GENERIC_WRITE,
+    FILE_GENERIC_READ | FILE_GENERIC_WRITE,
     FILE_SHARE_ALL,
     null,
     OPEN_ALWAYS,
@@ -407,14 +414,21 @@ const LOCK_VARIANTS: LockVariant[] = [
 /** CreateFileW sharing DELETE only: a second opener gets ERROR_SHARING_VIOLATION (32). */
 function exclusiveOpen(p: string): bigint {
   const name = Buffer.from(p + "\0", "utf16le");
-  const GENERIC_READ = 0x80000000;
-  const GENERIC_WRITE = 0x40000000;
+  // FILE_GENERIC_READ | FILE_GENERIC_WRITE: the same rights as
+  // GENERIC_READ | GENERIC_WRITE but below 2^31. `0x80000000 | 0x40000000`
+  // in JavaScript is the negative int32 -1073741824, and a negative number
+  // handed to a `u32` ffi argument arrives as 0 (see ffi-u32 in ffi-basic):
+  // every handle in runs 33689491351 and 33690276089 had no data access,
+  // which is why LockFileEx said ACCESS_DENIED and a no-share open excluded
+  // nothing.
+  const FILE_GENERIC_READ = 0x120089;
+  const FILE_GENERIC_WRITE = 0x120116;
   const FILE_SHARE_DELETE = 4;
   const OPEN_ALWAYS = 4;
   const FILE_ATTRIBUTE_NORMAL = 0x80;
   return kernel32().CreateFileW(
     ptr(name),
-    GENERIC_READ | GENERIC_WRITE,
+    FILE_GENERIC_READ | FILE_GENERIC_WRITE,
     FILE_SHARE_DELETE,
     null,
     OPEN_ALWAYS,
@@ -644,6 +658,21 @@ if (want("ffi-basic")) {
     );
     const err = k.GetLastError();
     say("ffi-GetLastError", `${err}`);
+    // What a u32 argument arrives as, for values a JS bitwise-or makes negative.
+    const a = altKernel32();
+    for (const v of [
+      0x7fffffff,
+      0x80000000,
+      0xc0000000,
+      0x80000000 | 0x40000000,
+      -1,
+    ]) {
+      a.SetLastError(v);
+      say(
+        "ffi-u32",
+        `SetLastError(${v}) -> GetLastError() = ${a.GetLastError()} (0x${a.GetLastError().toString(16)})`,
+      );
+    }
   } catch (e) {
     say("ffi-kernel32", `fail — ${firstLine(e)}`);
   }
