@@ -251,7 +251,7 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------
-  # musl Linux, x64 and arm64, in an Alpine container.
+  # musl Linux x64, in an Alpine job container.
   # ---------------------------------------------------------------------
   alpine:
     needs: build-all
@@ -263,10 +263,6 @@ jobs:
             runner: ubuntu-24.04
             target: bun-linux-x64-musl
             bun_zip: bun-linux-x64-musl
-          - lane: linux-arm64-musl
-            runner: ubuntu-24.04-arm
-            target: bun-linux-arm64-musl
-            bun_zip: bun-linux-aarch64-musl
     name: ${{ matrix.lane }} (${{ matrix.runner }}, alpine:3.22)
     runs-on: ${{ matrix.runner }}
     container: alpine:3.22
@@ -311,7 +307,7 @@ jobs:
             unzip -q -o /tmp/bun.zip -d /tmp/bun
             install -m 0755 /tmp/bun/*/bun /usr/local/bin/bun
             echo "/usr/local/bin" >>"$GITHUB_PATH"
-            echo "BUN_SOURCE=${{ matrix.bun_zip }}.zip (setup-bun outcome ${{ steps.setup-bun.outcome }}, its bun: $(bun --version 2>&1 | head -1 | cut -c1-80))" >>"$GITHUB_ENV"
+            echo "BUN_SOURCE=${{ matrix.bun_zip }}.zip, downloaded by hand (setup-bun outcome: ${{ steps.setup-bun.outcome }})" >>"$GITHUB_ENV"
           fi
           /usr/local/bin/bun --version 2>/dev/null || true
       - name: bun works
@@ -402,6 +398,128 @@ jobs:
         if: always()
         with:
           name: ci-result-${{ matrix.lane }}
+          path: ${{ runner.temp }}/matrix-out
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------
+  # musl Linux arm64. A job `container:` cannot be Alpine on an arm64 runner
+  # ("JavaScript Actions in Alpine containers are only supported on x64
+  # Linux runners"), so the actions run on the host and every suite is a
+  # `docker exec` into an alpine:3.22 container that shares the workspace.
+  # ---------------------------------------------------------------------
+  alpine-arm64:
+    needs: build-all
+    name: linux-arm64-musl (ubuntu-24.04-arm, docker alpine:3.22)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    env:
+      MATRIX_LANE: linux-arm64-musl
+      MATRIX_OS: alpine
+      MATRIX_TARGET: bun-linux-arm64-musl
+      MATRIX_M0: full
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: wp-bun-linux-arm64-musl
+          path: ${{ runner.temp }}/xbin
+      - uses: actions/download-artifact@v4
+        with:
+          name: diff-summary-linux-x64
+          path: ${{ runner.temp }}/ref
+      - name: start alpine
+        run: |
+          docker run -d --name alpine \
+            -v "$GITHUB_WORKSPACE:/__w/repo" -v "$RUNNER_TEMP:/__w/_temp" -w /__w/repo \
+            alpine:3.22 sleep infinity
+          docker exec alpine sh -c 'apk add --no-cache bash git coreutils procps vim jq curl unzip tar diffutils file \
+            libstdc++ libgcc musl-utils util-linux-misc ncurses ncurses-terminfo-base perl python3 && cat /etc/alpine-release'
+          docker exec alpine sh -c "curl -fsSL -o /tmp/bun.zip https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-aarch64-musl.zip \
+            && unzip -q /tmp/bun.zip -d /tmp/bun && install -m 0755 /tmp/bun/*/bun /usr/local/bin/bun && bun --version \
+            && bun -e 'console.log(process.platform, process.arch, process.execPath)'"
+          docker exec alpine sh -c 'chmod +x .github/ci/matrix.sh; git config --global --add safe.directory /__w/repo'
+          {
+            echo "MATRIX_LANE=$MATRIX_LANE"
+            echo "MATRIX_OS=$MATRIX_OS"
+            echo "MATRIX_TARGET=$MATRIX_TARGET"
+            echo "MATRIX_M0=$MATRIX_M0"
+            echo "MATRIX_OUT=/__w/_temp/matrix-out"
+            echo "MATRIX_XBIN=/__w/_temp/xbin"
+            echo "MATRIX_REF=/__w/_temp/ref"
+            echo "GITHUB_STEP_SUMMARY=/__w/_temp/summary.md"
+            echo "GITHUB_SHA=$GITHUB_SHA"
+            echo "RUNNER_OS=$RUNNER_OS"
+            echo "RUNNER_ARCH=$RUNNER_ARCH"
+            echo "RUNNER_NAME=$RUNNER_NAME"
+            echo "ImageOS=${ImageOS:-}"
+            echo "ImageVersion=${ImageVersion:-}"
+            echo "BUN_SOURCE=bun-linux-aarch64-musl.zip by hand, in docker exec (JS actions do not run in an Alpine job container on arm64)"
+            echo "HOME=/root"
+            echo "CI=true"
+          } >"$RUNNER_TEMP/alpine.env"
+          : >"$RUNNER_TEMP/summary.md"
+          echo "ALPINE=docker exec --env-file $RUNNER_TEMP/alpine.env alpine" >>"$GITHUB_ENV"
+      - name: machine
+        run: $ALPINE bash .github/ci/matrix.sh machine
+
+      - name: x-help
+        continue-on-error: true
+        timeout-minutes: 3
+        run: $ALPINE bash .github/ci/matrix.sh suite x-help
+      - name: x-caps
+        continue-on-error: true
+        timeout-minutes: 3
+        run: $ALPINE bash .github/ci/matrix.sh suite x-caps
+      - name: x-ls
+        continue-on-error: true
+        timeout-minutes: 3
+        run: $ALPINE bash .github/ci/matrix.sh suite x-ls
+      - name: x-ldd
+        continue-on-error: true
+        timeout-minutes: 3
+        run: $ALPINE bash .github/ci/matrix.sh suite x-ldd
+      - name: install
+        continue-on-error: true
+        timeout-minutes: 6
+        run: $ALPINE bash .github/ci/matrix.sh suite install
+      - name: test-pure
+        continue-on-error: true
+        timeout-minutes: 6
+        run: $ALPINE bash .github/ci/matrix.sh suite test-pure
+      - name: build
+        continue-on-error: true
+        timeout-minutes: 11
+        run: $ALPINE bash .github/ci/matrix.sh suite build
+      - name: diff
+        continue-on-error: true
+        timeout-minutes: 11
+        run: $ALPINE bash .github/ci/matrix.sh suite diff
+      - name: m0
+        continue-on-error: true
+        timeout-minutes: 16
+        run: $ALPINE bash .github/ci/matrix.sh suite m0
+      - name: m3
+        continue-on-error: true
+        timeout-minutes: 11
+        run: $ALPINE bash .github/ci/matrix.sh suite m3
+      - name: ops
+        continue-on-error: true
+        timeout-minutes: 6
+        run: $ALPINE bash .github/ci/matrix.sh suite ops
+      - name: test-full
+        continue-on-error: true
+        timeout-minutes: 12
+        run: $ALPINE bash .github/ci/matrix.sh suite test-full
+
+      - name: report
+        if: always()
+        run: |
+          $ALPINE bash .github/ci/matrix.sh report
+          cat "$RUNNER_TEMP/summary.md" >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-result-linux-arm64-musl
           path: ${{ runner.temp }}/matrix-out
           if-no-files-found: error
 

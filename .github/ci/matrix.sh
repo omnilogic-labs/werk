@@ -293,7 +293,9 @@ x-ls)
   XDG_RUNTIME_DIR="$(native_path "$OUT/xrt")"
   WP_STATE_DIR="$(native_path "$OUT/xst")"
   export XDG_RUNTIME_DIR WP_STATE_DIR
-  SCRIPT="test -n '$BIN' || exit 1; '$BIN' ls; rc=\$?; echo \"--- wp.log\"; cat '$OUT/xrt/werk-poc/wp.log' 2>/dev/null; exit \$rc"
+  # When `ls` could not even reach a daemon log, start the daemon directly so
+  # its own first error is on record rather than the client's.
+  SCRIPT="test -n '$BIN' || exit 1; $(declare -f with_timeout); '$BIN' ls; rc=\$?; echo '--- wp.log'; if ! cat '$OUT/xrt/werk-poc/wp.log' 2>/dev/null; then echo '(no wp.log; starting the daemon directly)'; mkdir -p '$OUT/xrt/werk-poc'; with_timeout 20 '$BIN' __daemon --dir='$(native_path "$OUT/xrt/werk-poc")'; echo \"__daemon exit \$?\"; fi; exit \$rc"
   ;;
 x-ldd)
   NAME="ldd on the cross-compiled wp"
@@ -401,12 +403,14 @@ x-ls)
     DETAIL="daemon started; ls printed: $(head -1 "$CLEAN" | tr -s ' ' | cut -c1-80); $(grep -am1 'listening on' "$CLEAN" | sed 's/^[^ ]* //' | cut -c1-120)"
   else
     DETAIL="$(why)"
+    d2="$(sed -n '/^(no wp.log/,$p' "$CLEAN" | grep -av -e '^[[:space:]]*$' -e '^[[:space:]]*[0-9][0-9]*[[:space:]]*|' -e '^[[:space:]]*\^*$' -e '^(no wp.log' -e '^__daemon exit' -e '^ *at ' | head -2 | paste -sd';' - | cut -c1-200)"
+    [ -z "$d2" ] || DETAIL="$DETAIL | __daemon directly: $d2"
   fi
   stop_daemon "$OUT/xrt" | tee -a "$LOG"
   ;;
 x-ldd)
   if [ "$CODE" -eq 0 ]; then
-    DETAIL="$(grep -a -E '=>|statically|not a dynamic|ld-musl|Not a valid' "$CLEAN" | tr -s ' \t' ' ' | paste -sd';' - | cut -c1-300)"
+    DETAIL="ldd: $(grep -a -E '=>|statically|not a dynamic|ld-musl|Not a valid' "$CLEAN" | grep -av '^/' | sed -E 's/ \(0x[0-9a-f]+\)//' | tr -s ' \t' ' ' | paste -sd';' - | cut -c1-220); file: $(grep -am1 'ELF' "$CLEAN" | sed -E 's/^[^:]*: //; s/, BuildID.*//' | cut -c1-120)"
   else
     DETAIL="ldd exit $CODE: $(grep -av '^[[:space:]]*$' "$CLEAN" | tail -2 | paste -sd';' - | cut -c1-300)"
   fi
