@@ -23,13 +23,23 @@ const proc = Bun.spawn(["bash", "-c", script], {
   terminal: { data: (_t, d) => out.push(d) },
 });
 await Bun.sleep(100);
-const pts = /pts\/(\d+)/.exec(
-  Bun.spawnSync(["ps", "-o", "tty=", "-p", String(proc.pid)]).stdout.toString(),
-)?.[1];
-const ttyPath = pts ? `/dev/pts/${pts}` : null;
+// `ps -o tty=` says "pts/N" on Linux and "ttysNNN" on macOS; BSD `stty`
+// reads another terminal with -f, not -F.
+const DARWIN = process.platform === "darwin";
+const psTty = Bun.spawnSync([
+  "ps",
+  "-o",
+  "tty=",
+  "-p",
+  String(proc.pid),
+]).stdout.toString();
+const pts = DARWIN
+  ? /ttys(\d+)/.exec(psTty)?.[1]
+  : /pts\/(\d+)/.exec(psTty)?.[1];
+const ttyPath = pts ? (DARWIN ? `/dev/ttys${pts}` : `/dev/pts/${pts}`) : null;
 const stty = () =>
   ttyPath
-    ? Bun.spawnSync(["stty", "-a", "-F", ttyPath])
+    ? Bun.spawnSync(["stty", "-a", DARWIN ? "-f" : "-F", ttyPath])
         .stdout.toString()
         .replace(/\n/g, " ")
     : "";

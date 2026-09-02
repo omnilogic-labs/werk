@@ -50,7 +50,11 @@ await proc.exited;
 await Bun.sleep(100);
 
 const text = out.text;
-const tty = /\/dev\/pts\/\d+/.exec(text)?.[0] ?? null;
+// A pty slave is /dev/pts/N on Linux and /dev/ttysNNN on macOS.
+const tty =
+  (process.platform === "darwin"
+    ? /\/dev\/ttys\d+/.exec(text)?.[0]
+    : /\/dev\/pts\/\d+/.exec(text)?.[0]) ?? null;
 const size = /(\d+) (\d+)\r?\n/.exec(text);
 log("child output:", JSON.stringify(text));
 

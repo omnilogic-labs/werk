@@ -281,7 +281,13 @@ export const topTui: Scenario = {
   async run(env) {
     const r = new Report();
     if (!Bun.which("top")) return { pass: true, notes: ["skipped: no top"] };
-    const id = await wpRun(env, ["top", "-d", "1"]);
+    // procps takes the refresh delay as -d; BSD `top` spells it -s and uses
+    // -d for something else entirely.
+    const id = await wpRun(env, [
+      "top",
+      process.platform === "darwin" ? "-s" : "-d",
+      "1",
+    ]);
     const c = await daemonClient(env);
     const t1 = await UserTerminal.spawn(env, ["attach", id]);
     try {
@@ -478,7 +484,9 @@ export const slowClient: Scenario = {
       process.kill(slow.pid, "SIGSTOP");
       const t0 = performance.now();
       // The marker is computed so the echoed command line cannot match it.
-      fast.stdin.write("yes | head -c 4M; echo FLOOD-$((1+1))-DONE\r");
+      // GNU `head` takes the 4M suffix; BSD `head` wants the byte count.
+      const flood = process.platform === "darwin" ? "4194304" : "4M";
+      fast.stdin.write(`yes | head -c ${flood}; echo FLOOD-$((1+1))-DONE\r`);
       fast.stdin.flush();
       const ok = await waitFor(() => progress().sawMarker, 30000, 50);
       const floodMs = performance.now() - t0;

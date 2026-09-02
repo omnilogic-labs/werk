@@ -21,6 +21,14 @@ function compile(entry: string, out: string): void {
 
 const mb = (p: string) => (Bun.file(p).size / 1048576).toFixed(1);
 
+// The adapter extracts the prebuild pair for the host platform under names
+// the shim was linked against: a versioned soname next to a shim on Linux,
+// plain .dylib files on macOS.
+const DARWIN = process.platform === "darwin";
+const PLATFORM = DARWIN ? `darwin-${process.arch}` : "linux-x64-glibc";
+const LIB_NAME = DARWIN ? "libghostty-vt.dylib" : "libghostty-vt.so.0";
+const SHIM_NAME = DARWIN ? "libghostty-vt-shim.dylib" : "libghostty-vt-shim.so";
+
 test("all three engines load inside a --compile binary run from an empty directory", async () => {
   const out = join(outDir, "compiled");
   compile(join(import.meta.dir, "compiled.ts"), out);
@@ -43,19 +51,19 @@ test("all three engines load inside a --compile binary run from an empty directo
     /^ghostty-wasm: text="ghostty-wasm 日" bold=true wide=2 vt=\d+B$/m,
   );
   expect(stdout).toMatch(
-    /^ghostty-ffi: text="ghostty-ffi 日" bold=true wide=2 vt=\d+B lib=.*werk-poc-libghostty-vt-0\.6\.3\/linux-x64-glibc\/libghostty-vt\.so\.0$/m,
+    new RegExp(
+      `^ghostty-ffi: text="ghostty-ffi 日" bold=true wide=2 vt=\\d+B lib=.*werk-poc-libghostty-vt-0\\.6\\.3/${PLATFORM}/${LIB_NAME.replace(/\./g, "\\.")}$`,
+      "m",
+    ),
   );
   expect(stdout).toMatch(
     /^xterm-oracle: text="xterm-oracle 日" bold=true wide=2 vt=\d+B$/m,
   );
   // Extracted next to each other, as the shim's $ORIGIN needs.
   const extracted = await readdir(
-    join(cwd, "werk-poc-libghostty-vt-0.6.3", "linux-x64-glibc"),
+    join(cwd, "werk-poc-libghostty-vt-0.6.3", PLATFORM),
   );
-  expect(extracted.sort()).toEqual([
-    "libghostty-vt-shim.so",
-    "libghostty-vt.so.0",
-  ]);
+  expect(extracted.sort()).toEqual([SHIM_NAME, LIB_NAME].sort());
 
   // Size: an empty script, the wasm alone, and all three.
   const empty = join(outDir, "empty.ts");

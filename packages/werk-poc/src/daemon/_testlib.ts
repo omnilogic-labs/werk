@@ -42,6 +42,14 @@ export function alive(pid: number): boolean {
     return false;
   }
   try {
+    // A zombie still answers signal 0. macOS has no /proc, so its STAT column
+    // from `ps` is the only place the state shows up.
+    if (process.platform === "darwin") {
+      return !Bun.spawnSync(["ps", "-o", "state=", "-p", String(pid)])
+        .stdout.toString()
+        .trim()
+        .startsWith("Z");
+    }
     const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
     return !/\) Z /.test(stat);
   } catch {

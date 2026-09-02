@@ -37,17 +37,31 @@ const trap = Bun.spawn(
   ],
   { terminal: { cols: 80, rows: 24, data: (_t, d) => a.push(d) } },
 );
+// A pty slave is /dev/pts/N on Linux and /dev/ttysNNN on macOS, and the two
+// `ps` report it as "pts/N" and "ttysNNN".
+const DARWIN = process.platform === "darwin";
 await waitFor(
-  () => a.text.includes("READY") && /\/dev\/pts\/\d+/.test(a.text),
+  () =>
+    a.text.includes("READY") &&
+    (DARWIN ? /\/dev\/ttys\d+/ : /\/dev\/pts\/\d+/).test(a.text),
   5000,
 );
-const childTty = /\/dev\/pts\/(\d+)/.exec(a.text)?.[1] ?? null;
+const childTty = DARWIN
+  ? (/\/dev\/ttys(\d+)/.exec(a.text)?.[1] ?? null)
+  : (/\/dev\/pts\/(\d+)/.exec(a.text)?.[1] ?? null);
 const ps = psInfo(trap.pid);
-log("child says tty pts/" + childTty, "ps says", ps);
+log(
+  "child says tty",
+  DARWIN ? "ttys" + childTty : "pts/" + childTty,
+  "ps says",
+  ps,
+);
 
 // controlling terminal: the pid's own session leader has this tty and `ps` agrees
 const psTty = ps?.tty ?? "?";
-const ctty = childTty !== null && psTty === `pts/${childTty}`;
+const ctty =
+  childTty !== null &&
+  psTty === (DARWIN ? `ttys${childTty}` : `pts/${childTty}`);
 
 trap.terminal!.write("\x03");
 const trapped = await waitFor(() => a.text.includes("GOT_SIGINT"), 3000);

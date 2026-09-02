@@ -30,6 +30,20 @@ the product directly. What matters is what is written down in `findings/`.
 | `vendor/`       | Pinned upstream artifacts (libghostty WASM, `ghostty-web`)      |
 | `findings/`     | What each milestone found, one file per milestone               |
 
+## Running things on macOS and Windows
+
+The same suites run on hosted runners, on demand rather than on every commit.
+Add the `ci:poc` label to a pull request, or start it by hand:
+
+```console
+$ gh workflow run poc.yml --ref <branch> -f os=all   # or ubuntu, macos, windows
+$ gh run download <id> -n ci-result-macos            # what each suite recorded, as JSON
+```
+
+Removing and re-adding the label runs it again. `.github/workflows/vt-win32.yml`
+is the separate probe for the vendored win32 `libghostty-vt`, on the same
+trigger. What the runs found is in [findings/platforms.md](./findings/platforms.md).
+
 ## Running things
 
 From the repo root, `bun install` once. Then, in this directory:
