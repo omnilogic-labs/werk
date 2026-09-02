@@ -5,8 +5,11 @@
 //
 //   bun run .github/ci/win32-spike-probes.ts [probe...]
 //
-// The file re-invokes itself for the child roles (`role:<name>` as the first
-// argument), so it must be run from source under `bun run`.
+// Every probe runs in a subprocess of its own (`role:run <probe>`), so a
+// probe that takes the process down — an ffi call gone wrong, say — is
+// reported by its exit code and the next one still runs. The child roles
+// (`role:<name>`) are the other halves of the multi-process probes. The
+// file re-invokes itself, so it must be run from source under `bun run`.
 
 import fs from "node:fs";
 import net from "node:net";
@@ -14,13 +17,29 @@ import os from "node:os";
 import path from "node:path";
 import { dlopen, FFIType, ptr, type Pointer } from "bun:ffi";
 
+const ALL_PROBES = [
+  "ffi-basic",
+  "socket-file",
+  "lockfileex",
+  "stdio3",
+  "handshake",
+  "conpty-orphan",
+  "ctrl-c",
+  "kill-detached",
+  "misc",
+];
+
 const argv = process.argv.slice(2);
 const role = argv[0]?.startsWith("role:") ? argv[0].slice(5) : null;
-const probes = role ? [] : argv;
-const want = (name: string) => probes.length === 0 || probes.includes(name);
 
+/** Written synchronously so a later crash cannot swallow an earlier verdict. */
 function say(name: string, verdict: string): void {
-  console.log(`PROBE ${name}: ${verdict}`);
+  const line = `PROBE ${name}: ${verdict}\n`;
+  try {
+    fs.writeSync(1, line);
+  } catch {
+    console.log(line.trimEnd());
+  }
 }
 
 function firstLine(e: unknown): string {
@@ -70,6 +89,9 @@ function tickCount(dir: string): number {
 
 // ------------------------------------------------------------------ ffi
 // Loaded lazily so a failure to dlopen is a verdict rather than a crash.
+// `WP_PROBE_FFI=0` (set by the runner when ffi-basic died) turns every ffi
+// reading into "n/a" so the rest of a probe still reports.
+const ffiAllowed = process.env.WP_PROBE_FFI !== "0";
 type K32 = {
   LockFileEx: (
     h: bigint,
@@ -87,6 +109,7 @@ type K32 = {
     ov: Pointer,
   ) => number;
   GetLastError: () => number;
+  GetCurrentProcess: () => bigint;
   OpenProcess: (access: number, inherit: number, pid: number) => bigint;
   GetExitCodeProcess: (h: bigint, out: Pointer) => number;
   CloseHandle: (h: bigint) => number;
@@ -126,6 +149,7 @@ function kernel32(): K32 {
       returns: FFIType.i32,
     },
     GetLastError: { args: [], returns: FFIType.u32 },
+    GetCurrentProcess: { args: [], returns: FFIType.u64 },
     OpenProcess: {
       args: [FFIType.u32, FFIType.i32, FFIType.u32],
       returns: FFIType.u64,
@@ -162,6 +186,7 @@ function ucrt(): CRT {
   return crt;
 }
 const INVALID_HANDLE = (1n << 64n) - 1n;
+const isInvalid = (h: bigint) => h === INVALID_HANDLE || h === -1n || h === 0n;
 const LOCKFILE_FAIL_IMMEDIATELY = 1;
 const LOCKFILE_EXCLUSIVE_LOCK = 2;
 
@@ -199,19 +224,35 @@ function openHandle(p: string): bigint {
 
 /** Raw exit code from the kernel, via a handle opened while the process lived. */
 function rawExitCode(h: bigint): number | null {
-  const out = new Uint32Array(1);
-  const r = kernel32().GetExitCodeProcess(h, ptr(out));
-  return r !== 0 ? out[0]! : null;
+  if (!ffiAllowed || isInvalid(h)) return null;
+  try {
+    const out = new Uint32Array(1);
+    const r = kernel32().GetExitCodeProcess(h, ptr(out));
+    return r !== 0 ? out[0]! : null;
+  } catch {
+    return null;
+  }
 }
 function openProcess(pid: number): bigint {
-  const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
-  return kernel32().OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+  if (!ffiAllowed) return 0n;
+  try {
+    const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+    return kernel32().OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+  } catch {
+    return 0n;
+  }
+}
+function closeHandle(h: bigint): void {
+  if (!ffiAllowed || isInvalid(h)) return;
+  try {
+    kernel32().CloseHandle(h);
+  } catch {}
 }
 const hex = (n: number | null) =>
-  n === null ? "null" : `0x${n.toString(16).toUpperCase()} (${n})`;
+  n === null ? "n/a" : `0x${n.toString(16).toUpperCase()} (${n})`;
 
 // ================================================================ roles
-if (role) {
+if (role && role !== "run") {
   const dir = process.env.WP_PROBE_DIR ?? os.tmpdir();
   const tick = () => {
     const t = setInterval(() => {
@@ -224,12 +265,12 @@ if (role) {
   };
   switch (role) {
     case "lock-holder": {
-      // Hold the lock on argv[1] until told to exit (or killed).
+      // Hold the lock on argv[1] until killed.
       const p = argv[1]!;
       const fd = fs.openSync(p, "w");
       const h = ucrt()._get_osfhandle(fd);
       const [ok, err] = lockHandle(h);
-      console.log(`holder ${ok ? "locked" : `refused err=${err}`}`);
+      say("holder", ok ? "locked" : `refused err=${err}`);
       if (ok) await sleep(60_000);
       process.exit(ok ? 0 : 1);
     }
@@ -238,7 +279,7 @@ if (role) {
       const fd = fs.openSync(p, "w");
       const h = ucrt()._get_osfhandle(fd);
       const [ok, err] = lockHandle(h);
-      console.log(`try ${ok ? "locked" : "refused"} err=${err}`);
+      say("try", `${ok ? "locked" : "refused"} err=${err}`);
       fs.closeSync(fd);
       process.exit(0);
     }
@@ -253,21 +294,21 @@ if (role) {
       try {
         fs.writeSync(3, "ready\n");
         fs.closeSync(3);
-        console.log(`child: writeSync(3) ok; ${stat}`);
+        say("child", `writeSync(3) ok; ${stat}`);
       } catch (e) {
-        console.log(`child: writeSync(3) ${firstLine(e)}; ${stat}`);
+        say("child", `writeSync(3) ${firstLine(e)}; ${stat}`);
       }
       process.exit(0);
     }
     case "fd3-net": {
       try {
         const s = new net.Socket({ fd: 3 } as net.SocketConstructorOpts);
-        s.on("error", (e) => console.log(`child: net.Socket ${firstLine(e)}`));
+        s.on("error", (e) => say("child", `net.Socket ${firstLine(e)}`));
         await new Promise<void>((r) => s.write("ready\n", () => r()));
         s.end();
-        console.log("child: net.Socket({fd:3}).write ok");
+        say("child", "net.Socket({fd:3}).write ok");
       } catch (e) {
-        console.log(`child: net.Socket({fd:3}) ${firstLine(e)}`);
+        say("child", `net.Socket({fd:3}) ${firstLine(e)}`);
       }
       await sleep(100);
       process.exit(0);
@@ -348,16 +389,103 @@ if (role) {
   }
 }
 
-// ================================================================ probes
-console.log(
-  `platform=${process.platform} arch=${process.arch} bun=${Bun.version} release=${os.release()} tmp=${os.tmpdir()}`,
-);
+// ============================================================== runner
+if (!role) {
+  console.log(
+    `platform=${process.platform} arch=${process.arch} bun=${Bun.version} release=${os.release()} tmp=${os.tmpdir()}`,
+  );
+  const selected = argv.length ? argv : ALL_PROBES;
+  let ffi = "1";
+  for (const name of selected) {
+    const t0 = performance.now();
+    let out = "";
+    let err = "";
+    let code: number | null = null;
+    let signal: string | null = null;
+    try {
+      const proc = Bun.spawn(self("run", name), {
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env, WP_PROBE_FFI: ffi },
+      });
+      const finished = await Promise.race([
+        proc.exited.then(() => true),
+        sleep(120_000).then(() => false),
+      ]);
+      if (!finished) proc.kill("SIGKILL");
+      await proc.exited;
+      out = await new Response(proc.stdout).text();
+      err = await new Response(proc.stderr).text();
+      code = proc.exitCode;
+      signal = proc.signalCode;
+      if (!finished) err = `killed after 120 s\n${err}`;
+    } catch (e) {
+      err = firstLine(e);
+    }
+    process.stdout.write(out.endsWith("\n") || out === "" ? out : `${out}\n`);
+    const ms = (performance.now() - t0).toFixed(0);
+    if (code === 0) say(`${name}`, `finished in ${ms} ms`);
+    else {
+      say(
+        `${name}`,
+        `PROCESS DIED exit=${code} signal=${signal} after ${ms} ms; stderr: ${err.trim().split("\n").slice(0, 6).join(" | ") || "(empty)"}`,
+      );
+      if (name === "ffi-basic") ffi = "0";
+    }
+  }
+  say("done", "all probes finished");
+  process.exit(0);
+}
+
+// =============================================================== probes
+const probe = argv[1]!;
+const want = (name: string) => probe === name;
 process.on("unhandledRejection", (e) => say("unhandled", firstLine(e)));
 process.on("uncaughtException", (e) => say("uncaught", firstLine(e)));
-setTimeout(() => {
-  say("watchdog", "probes did not finish in 10 minutes; exiting");
-  process.exit(0);
-}, 600_000).unref();
+
+// ------------------------------------------------------- (0) ffi, stepwise
+if (want("ffi-basic")) {
+  try {
+    const k = kernel32();
+    say("ffi-dlopen-kernel32", "ok");
+    const me = k.GetCurrentProcess();
+    say("ffi-GetCurrentProcess", `pseudo-handle ${me}`);
+    const out = new Uint32Array(1);
+    const r = k.GetExitCodeProcess(me, ptr(out));
+    say(
+      "ffi-ptr-arg",
+      `GetExitCodeProcess(self) -> ${r}, code ${hex(out[0]!)} (expect 0x103 STILL_ACTIVE)`,
+    );
+    const err = k.GetLastError();
+    say("ffi-GetLastError", `${err}`);
+  } catch (e) {
+    say("ffi-kernel32", `fail — ${firstLine(e)}`);
+  }
+  try {
+    const c = ucrt();
+    say("ffi-dlopen-ucrtbase", "ok");
+    for (const fd of [0, 1, 2]) {
+      const h = c._get_osfhandle(fd);
+      let type = "?";
+      try {
+        type = String(kernel32().GetFileType(h));
+      } catch (e) {
+        type = firstLine(e);
+      }
+      say(`ffi-osfhandle-${fd}`, `handle ${h} GetFileType=${type}`);
+    }
+    const p = path.join(tempDir("wp-spike-ffi-"), "f");
+    const fd = fs.openSync(p, "w");
+    const h = c._get_osfhandle(fd);
+    say(
+      "ffi-osfhandle-file",
+      `fs.openSync fd ${fd} -> handle ${h} ${isInvalid(h) ? "INVALID" : `GetFileType=${kernel32().GetFileType(h)} (1 = disk)`}`,
+    );
+    fs.closeSync(fd);
+  } catch (e) {
+    say("ffi-ucrtbase", `fail — ${firstLine(e)}`);
+  }
+}
 
 // ------------------------------------------------------- (a) socket file
 if (want("socket-file")) {
@@ -369,7 +497,8 @@ if (want("socket-file")) {
         const st = f();
         return `mode=${st.mode.toString(8)} sock=${st.isSocket()} file=${st.isFile()} link=${st.isSymbolicLink()}`;
       } catch (e) {
-        return `${(e as NodeJS.ErrnoException).code ?? firstLine(e)}`;
+        const ee = e as NodeJS.ErrnoException;
+        return `${ee.code ?? firstLine(e)} errno=${ee.errno}`;
       }
     };
     let ex = "?";
@@ -378,7 +507,18 @@ if (want("socket-file")) {
     } catch (e) {
       ex = firstLine(e);
     }
-    return `lstat[${one(() => fs.lstatSync(q))}] stat[${one(() => fs.statSync(q))}] exists=${ex}`;
+    let dirent = "?";
+    try {
+      const d = fs
+        .readdirSync(path.dirname(q), { withFileTypes: true })
+        .find((x) => x.name === path.basename(q));
+      dirent = d
+        ? `sock=${d.isSocket()} file=${d.isFile()} link=${d.isSymbolicLink()}`
+        : "absent";
+    } catch (e) {
+      dirent = firstLine(e);
+    }
+    return `lstat[${one(() => fs.lstatSync(q))}] stat[${one(() => fs.statSync(q))}] exists=${ex} dirent[${dirent}]`;
   };
   const echoServer = (addr: string) =>
     Bun.listen<undefined>({
@@ -422,10 +562,7 @@ if (want("socket-file")) {
   let l1: ReturnType<typeof echoServer> | null = null;
   try {
     l1 = echoServer(p);
-    say(
-      "socket-file-bound",
-      `${fsView(p)}; dir lists ${JSON.stringify(fs.readdirSync(dir))}`,
-    );
+    say("socket-file-bound", fsView(p));
     // rename the bound file and connect through the new name
     const renamed = path.join(dir, "wp.sock.renamed");
     try {
@@ -437,6 +574,39 @@ if (want("socket-file")) {
       fs.renameSync(renamed, p);
     } catch (e) {
       say("socket-file-rename", `renameSync failed: ${firstLine(e)}`);
+    }
+    // rename over an existing stale socket file, as server.ts does
+    try {
+      const stale = path.join(dir, "stale.sock");
+      const ls = echoServer(stale);
+      // stop without letting Bun unlink: copy the reparse point first
+      let copied = "";
+      try {
+        fs.copyFileSync(stale, path.join(dir, "stale2.sock"));
+        copied = "copyFileSync ok";
+      } catch (e) {
+        copied = `copyFileSync ${firstLine(e)}`;
+      }
+      ls.stop(true);
+      await sleep(50);
+      const target = fs.existsSync(path.join(dir, "stale2.sock"))
+        ? path.join(dir, "stale2.sock")
+        : null;
+      if (target) {
+        fs.renameSync(p, target);
+        say(
+          "socket-file-rename-over-stale",
+          `${copied}; renameSync over a stale socket file ok; ${await roundTrip(target)}`,
+        );
+        fs.renameSync(target, p);
+      } else {
+        say(
+          "socket-file-rename-over-stale",
+          `${copied}; no stale file to rename over`,
+        );
+      }
+    } catch (e) {
+      say("socket-file-rename-over-stale", `failed: ${firstLine(e)}`);
     }
     // a second bind on the same live path
     try {
@@ -453,46 +623,60 @@ if (want("socket-file")) {
     l1 = null;
     await sleep(50);
     say("socket-file-after-stop", fsView(p));
-    // a stale file: bind again without unlinking
+    // the file a killed daemon leaves: bind in a child, kill it, look
     try {
-      const l3 = echoServer(p);
-      say(
-        "socket-file-rebind-stale",
-        `listen over the stale file succeeded; ${await roundTrip(p)}`,
+      const child = Bun.spawn(
+        [
+          process.execPath,
+          "-e",
+          `Bun.listen({unix: ${JSON.stringify(p)}, socket:{data(){}}}); console.log("up"); setTimeout(()=>{}, 60000)`,
+        ],
+        { stdout: "pipe", stderr: "ignore" },
       );
-      l3.stop(true);
-    } catch (e) {
+      const reader = child.stdout.getReader();
+      await Promise.race([reader.read(), sleep(5000)]);
+      const view = fsView(p);
+      child.kill("SIGKILL");
+      await child.exited;
+      await sleep(100);
       say(
-        "socket-file-rebind-stale",
-        `listen over the stale file refused: ${firstLine(e)}`,
+        "socket-file-after-kill",
+        `while the child listened: ${view}; after SIGKILL: ${fsView(p)}`,
       );
       try {
-        fs.unlinkSync(p);
-        const l4 = echoServer(p);
+        const l3 = echoServer(p);
         say(
-          "socket-file-unlink-rebind",
-          `unlinkSync ok, listen ok; ${await roundTrip(p)}`,
+          "socket-file-rebind-stale",
+          `listen over the killed daemon's file succeeded; ${await roundTrip(p)}`,
         );
-        l4.stop(true);
-      } catch (e2) {
-        say("socket-file-unlink-rebind", `failed: ${firstLine(e2)}`);
+        l3.stop(true);
+      } catch (e) {
+        say(
+          "socket-file-rebind-stale",
+          `listen over the killed daemon's file refused: ${firstLine(e)}`,
+        );
+        try {
+          fs.unlinkSync(p);
+          const l4 = echoServer(p);
+          say(
+            "socket-file-unlink-rebind",
+            `unlinkSync ok, listen ok; ${await roundTrip(p)}`,
+          );
+          l4.stop(true);
+        } catch (e2) {
+          say("socket-file-unlink-rebind", `failed: ${firstLine(e2)}`);
+        }
       }
+    } catch (e) {
+      say("socket-file-after-kill", `setup failed: ${firstLine(e)}`);
     }
-    // connecting to a stale file (no listener)
     try {
       fs.unlinkSync(p);
     } catch {}
-    try {
-      const l5 = echoServer(p);
-      l5.stop(true);
-      await sleep(50);
-      say(
-        "socket-file-connect-stale",
-        `connect to a stale file: ${await roundTrip(p)}`,
-      );
-    } catch (e) {
-      say("socket-file-connect-stale", `setup failed: ${firstLine(e)}`);
-    }
+    say(
+      "socket-file-connect-absent",
+      `connect with no file: ${await roundTrip(p)}`,
+    );
   } catch (e) {
     say("socket-file", `fail — ${firstLine(e)}`);
   } finally {
@@ -509,18 +693,17 @@ if (want("lockfileex")) {
   const p = path.join(dir, "wp.lock");
   try {
     const fd = fs.openSync(p, "w");
-    let h: bigint;
+    let h: bigint = INVALID_HANDLE;
     try {
       h = ucrt()._get_osfhandle(fd);
       say(
         "lock-osfhandle",
-        `fd ${fd} -> handle ${h} (${h === INVALID_HANDLE || h === -1n ? "INVALID" : `GetFileType=${kernel32().GetFileType(h)}`})`,
+        `fd ${fd} -> handle ${h} (${isInvalid(h) ? "INVALID" : `GetFileType=${kernel32().GetFileType(h)}`})`,
       );
     } catch (e) {
       say("lock-osfhandle", `fail — ${firstLine(e)}`);
-      h = INVALID_HANDLE;
     }
-    if (h !== INVALID_HANDLE && h !== -1n) {
+    if (!isInvalid(h)) {
       const [ok, err] = lockHandle(h);
       say(
         "lock-take",
@@ -528,7 +711,6 @@ if (want("lockfileex")) {
           ? "ok — LockFileEx succeeded"
           : `fail — LockFileEx refused, GetLastError=${err}`,
       );
-      // a second process contends
       const t = Bun.spawn(self("lock-try", p), {
         stdout: "pipe",
         stderr: "pipe",
@@ -536,9 +718,8 @@ if (want("lockfileex")) {
       await t.exited;
       say(
         "lock-contend",
-        `other process: ${(await new Response(t.stdout).text()).trim()} (expect refused err=33) ${(await new Response(t.stderr).text()).trim().split("\n")[0] ?? ""}`,
+        `other process says ${JSON.stringify((await new Response(t.stdout).text()).trim())} (expect refused err=33) ${(await new Response(t.stderr).text()).trim().split("\n")[0] ?? ""}`,
       );
-      // release, other process should get it
       const ov = new Uint8Array(32);
       const r = kernel32().UnlockFileEx(h, 0, 1, 0, ptr(ov));
       const t2 = Bun.spawn(self("lock-try", p), {
@@ -548,14 +729,14 @@ if (want("lockfileex")) {
       await t2.exited;
       say(
         "lock-release",
-        `UnlockFileEx=${r}; other process: ${(await new Response(t2.stdout).text()).trim()} (expect locked)`,
+        `UnlockFileEx=${r}; other process says ${JSON.stringify((await new Response(t2.stdout).text()).trim())} (expect locked)`,
       );
       fs.closeSync(fd);
     }
     // a CreateFileW handle, in case the CRT route is the wrong one
     try {
       const h2 = openHandle(p);
-      if (h2 === INVALID_HANDLE)
+      if (isInvalid(h2))
         say(
           "lock-createfilew",
           `CreateFileW failed, GetLastError=${kernel32().GetLastError()}`,
@@ -564,7 +745,7 @@ if (want("lockfileex")) {
         const [ok, err] = lockHandle(h2);
         say(
           "lock-createfilew",
-          ok ? "ok — handle from CreateFileW locks" : `refused err=${err}`,
+          ok ? "ok — a CreateFileW handle locks" : `refused err=${err}`,
         );
         kernel32().CloseHandle(h2);
       }
@@ -647,11 +828,11 @@ if (want("stdio3")) {
     ]);
   const netSocket: ParentRead = (fd) =>
     new Promise<string>((resolve) => {
+      let got = "";
       const t = setTimeout(
         () => resolve(`timeout with ${JSON.stringify(got)}`),
         3000,
       );
-      let got = "";
       try {
         const s = new net.Socket({
           fd,
@@ -678,6 +859,7 @@ if (want("stdio3")) {
       }
     });
   const osfReadSync: ParentRead = async (fd) => {
+    if (!ffiAllowed) return "n/a (ffi off)";
     // If stdio[3] is a raw HANDLE, wrap it in a CRT fd first.
     try {
       const type = kernel32().GetFileType(BigInt(fd));
@@ -866,11 +1048,11 @@ if (want("ctrl-c")) {
         proc.exited.then(() => true),
         sleep(4000).then(() => false),
       ]);
-      const raw = h === 0n ? null : rawExitCode(h);
+      const raw = rawExitCode(h);
       if (!died) proc.kill();
       await proc.exited;
       proc.terminal!.close();
-      if (h !== 0n) kernel32().CloseHandle(h);
+      closeHandle(h);
       say(
         name,
         `${died ? "exited on ^C" : "did not exit within 4 s (killed)"}; bun exitCode=${proc.exitCode} signalCode=${proc.signalCode}; GetExitCodeProcess=${hex(raw)}${text.includes("GOT_SIGINT") ? "; trap fired" : ""}`,
@@ -912,8 +1094,8 @@ if (want("kill-detached")) {
           .trim()
           .replace(/\n/g, ",");
       } catch {}
-      const raw = h === 0n ? null : rawExitCode(h);
-      if (h !== 0n) kernel32().CloseHandle(h);
+      const raw = rawExitCode(h);
+      closeHandle(h);
       if (!died) child.kill("SIGKILL");
       say(
         name,
@@ -931,11 +1113,11 @@ if (want("kill-detached")) {
 if (want("misc")) {
   try {
     say(
-      "kill-0-self",
+      "kill-0",
       `process.kill(process.pid, 0) -> ${pidAlive(process.pid)}; on pid 4000000 -> ${pidAlive(4_000_000)}`,
     );
   } catch (e) {
-    say("kill-0-self", `fail — ${firstLine(e)}`);
+    say("kill-0", `fail — ${firstLine(e)}`);
   }
   try {
     const dir = tempDir("wp-spike-misc-");
@@ -949,6 +1131,23 @@ if (want("misc")) {
   } catch (e) {
     say("mkdir-0700", `fail — ${firstLine(e)}`);
   }
+  try {
+    const proc = Bun.spawn(
+      [
+        process.execPath,
+        "-e",
+        'process.on("SIGTERM", () => {}); console.log("installed")',
+      ],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    await proc.exited;
+    say(
+      "sigterm-listener",
+      `bun -e process.on("SIGTERM") -> exit ${proc.exitCode}: ${(await new Response(proc.stdout).text()).trim()} ${(await new Response(proc.stderr).text()).trim().split("\n")[0] ?? ""}`,
+    );
+  } catch (e) {
+    say("sigterm-listener", `fail — ${firstLine(e)}`);
+  }
   say(
     "env-dirs",
     `LOCALAPPDATA=${process.env.LOCALAPPDATA ?? "(unset)"} tmpdir=${os.tmpdir()} homedir=${os.homedir()} XDG_RUNTIME_DIR=${process.env.XDG_RUNTIME_DIR ?? "(unset)"}`,
@@ -959,5 +1158,4 @@ if (want("misc")) {
   );
 }
 
-say("done", "all probes finished");
 process.exit(0);
