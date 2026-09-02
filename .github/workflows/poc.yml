@@ -325,17 +325,21 @@ jobs:
       SUITE_ORDER: >-
         install typecheck test-pure build-web build diff ops probes m0-probes
         daemon wp-cli test-full m2 m3
-      # The suites that pass on windows today. Everything else is expected to
-      # fail and is recorded rather than gated, so a red gate means one of these
-      # regressed rather than "windows still does not run the daemon". `m3` is
-      # deliberately not here: every snapshot it encodes decodes identically, but
-      # on one run in four the process printed all of its tables and then did not
-      # exit, so gating on it would gate on that.
-      EXPECTED_PASS: install typecheck test-pure build-web build diff probes
-      # The probes that fail on windows today, recorded rather than gated:
-      # `flock` dlopens libc, and the readiness pipe's fd cannot be read with
-      # fs.readSync here. Any other probe printing `fail` turns `probes` red.
-      PROBES_KNOWN_FAIL: flock readiness-pipe-read
+      # The suites that pass on windows today, the daemon's lifecycle and the
+      # compiled binary talking to a daemon it autostarts included. Everything
+      # else is expected to fail and is recorded rather than gated, so a red
+      # gate means one of these regressed rather than "windows still does not
+      # run test-full". `m3` is deliberately not here: every snapshot it
+      # encodes decodes identically, but on one run in four the process
+      # printed all of its tables and then did not exit, so gating on it would
+      # gate on that.
+      EXPECTED_PASS: >-
+        install typecheck test-pure build-web build diff probes daemon wp-cli
+      # The probes that fail on windows today, recorded rather than gated: the
+      # readiness pipe's parent-side fd is a raw HANDLE that fs.readSync
+      # refuses, which is why the win32 launcher polls a ready file instead.
+      # Any other probe printing `fail` turns `probes` red.
+      PROBES_KNOWN_FAIL: readiness-pipe-read
     steps:
       # Git for Windows checks out with CRLF by default, which would rewrite
       # the .cast corpus fixtures and every source file before anything ran.
@@ -472,12 +476,20 @@ jobs:
           bash .github/ci/windows.sh m0-probes packages/werk-poc \
             'bash "$GITHUB_WORKSPACE/.github/ci/windows-m0.sh"'
 
-      # The daemon, started the way `wp` starts it.
+      # The daemon's whole lifecycle, the way `wp` runs it: spawned detached
+      # with the ready file the win32 launcher polls, `hello` and `ls` over
+      # the socket, the `shutdown` message, and the process gone. Seconds,
+      # and a verdict at the end; the daemon itself has no reason to exit on
+      # its own, so the bound is what makes the suite answerable.
       - name: daemon
         id: daemon
         continue-on-error: true
         timeout-minutes: 2
-        run: bash .github/ci/windows.sh daemon packages/werk-poc 'bun run src/cli/main.ts __daemon'
+        env:
+          SUITE_TIMEOUT: "20"
+        run: |
+          bash .github/ci/windows.sh daemon packages/werk-poc \
+            'bun run "$GITHUB_WORKSPACE/.github/ci/windows-daemon.ts" check'
 
       # The compiled binary talking to a daemon it has to start itself.
       - name: wp-cli
@@ -493,6 +505,18 @@ jobs:
       # rather than waiting out a deadline.
       # ---------------------------------------------------------------------
 
+      # `wp-cli` leaves the daemon it autostarted running, and that daemon is
+      # `dist/wp.exe`: a process holds its image open on Windows, so anything
+      # that rebuilds the binary afterwards fails with EPERM, and `bun test`
+      # would otherwise find a daemon on the default socket that it did not
+      # start. Stop whatever is left before each of the suites below that
+      # build or test the daemon; the step log says what it found and killed.
+      - name: Stop daemons left by earlier suites
+        if: always()
+        timeout-minutes: 2
+        working-directory: packages/werk-poc
+        run: bun run "$GITHUB_WORKSPACE/.github/ci/windows-daemon.ts" stop
+
       - name: test-full
         id: test-full
         continue-on-error: true
@@ -500,6 +524,12 @@ jobs:
         run: |
           bash .github/ci/windows.sh test-full packages/werk-poc \
             'bun test >full.log 2>&1; rc=$?; cat full.log; echo "--- files and failures ---"; grep -a "^::group::\|^(fail)" full.log; exit $rc'
+
+      - name: Stop daemons left by test-full
+        if: always()
+        timeout-minutes: 2
+        working-directory: packages/werk-poc
+        run: bun run "$GITHUB_WORKSPACE/.github/ci/windows-daemon.ts" stop
 
       - name: m2
         id: m2
