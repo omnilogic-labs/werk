@@ -75,7 +75,15 @@ export function selfArgv(callerPath: string, args: string[]): string[] {
     : [process.execPath, "run", callerPath, ...args];
 }
 
-/** `ps` fields for one pid, or null if it is gone. */
+/**
+ * `ps` fields for one pid, or null if it is gone.
+ *
+ * BSD `ps` has no `sid` keyword — `sess` there is a kernel pointer, not a
+ * session id — so on macOS the session id is inferred from the `s` flag in
+ * `STAT`, which marks a session leader. That is the only thing the probes
+ * ask `sid` about (`sid === pid`), but it means `sid` is `NaN` on macOS for
+ * a process that is not one.
+ */
 export function psInfo(pid: number): {
   pid: number;
   ppid: number;
@@ -84,17 +92,24 @@ export function psInfo(pid: number): {
   tty: string;
   stat: string;
 } | null {
+  const darwin = process.platform === "darwin";
   const out = Bun.spawnSync([
     "ps",
     "-o",
-    "pid=,ppid=,pgid=,sid=,tty=,stat=",
+    darwin
+      ? "pid=,ppid=,pgid=,tty=,state="
+      : "pid=,ppid=,pgid=,sid=,tty=,stat=",
     "-p",
     String(pid),
   ])
     .stdout.toString()
     .trim();
   if (!out) return null;
-  const [p, pp, pg, s, tty, stat] = out.split(/\s+/);
+  const f = out.split(/\s+/);
+  const [p, pp, pg] = f;
+  const [s, tty, stat] = darwin
+    ? [f[4]?.includes("s") ? p : undefined, f[3], f[4]]
+    : [f[3], f[4], f[5]];
   return {
     pid: Number(p),
     ppid: Number(pp),

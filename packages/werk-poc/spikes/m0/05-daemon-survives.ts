@@ -151,7 +151,13 @@ if (role === "daemon") {
       const cmd = selfArgv(import.meta.path, ["parent", dir])
         .map((s) => `'${s}'`)
         .join(" ");
-      const p = Bun.spawn(["script", "-qc", cmd, "/dev/null"], {
+      // util-linux takes `script -qc <cmd> <file>`; BSD takes
+      // `script -q <file> <cmd> <args...>`.
+      const argv =
+        process.platform === "darwin"
+          ? ["script", "-q", "/dev/null", "bash", "-c", cmd]
+          : ["script", "-qc", cmd, "/dev/null"];
+      const p = Bun.spawn(argv, {
         stdout: "ignore",
         stdin: "ignore",
       });

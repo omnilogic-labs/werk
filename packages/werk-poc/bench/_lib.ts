@@ -10,7 +10,21 @@ import { connect, type Client } from "../src/client/index.ts";
 export const sleep = (ms: number) =>
   new Promise<void>((r) => setTimeout(r, ms));
 
+const DARWIN = process.platform === "darwin";
+
+/** One `ps` field for one pid, empty when the process is gone. macOS has no /proc. */
+function psField(pid: number, keyword: string): string {
+  return Bun.spawnSync(["ps", "-o", `${keyword}=`, "-p", String(pid)])
+    .stdout.toString()
+    .trim();
+}
+
 export function readRss(pid: number): number | null {
+  if (DARWIN) {
+    // `ps -o rss=` is in KiB, same unit as VmRSS.
+    const kb = Number(psField(pid, "rss"));
+    return Number.isFinite(kb) && kb > 0 ? kb * 1024 : null;
+  }
   try {
     const m = /VmRSS:\s+(\d+) kB/.exec(
       fs.readFileSync(`/proc/${pid}/status`, "utf8"),
@@ -25,6 +39,9 @@ export function readRss(pid: number): number | null {
 export function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
+    // A zombie still answers signal 0. Linux reads its /proc stat; macOS has
+    // to ask `ps`, whose STAT column starts with `Z` for one.
+    if (DARWIN) return !psField(pid, "state").startsWith("Z");
     return !/\) Z /.test(fs.readFileSync(`/proc/${pid}/stat`, "utf8"));
   } catch {
     return false;
@@ -75,6 +92,12 @@ export function kernel(): string {
 }
 
 export function cpuModel(): string {
+  if (DARWIN) {
+    const brand = Bun.spawnSync(["sysctl", "-n", "machdep.cpu.brand_string"])
+      .stdout.toString()
+      .trim();
+    return brand || (os.cpus()[0]?.model ?? "?");
+  }
   try {
     const m = /model name\s*:\s*(.+)/.exec(
       fs.readFileSync("/proc/cpuinfo", "utf8"),
