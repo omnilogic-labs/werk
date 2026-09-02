@@ -43,20 +43,29 @@ tr -d '\r' <"$log" | sed -e 's/\x1b\[[0-9;?]*[A-Za-z]//g' -e 's/\x1b][^\x07]*\x0
 cat "$log"
 echo "::endgroup::"
 
+# The first line of the real error, not the code frame Bun prints above it:
+# drop `  34 |   throw new Error(` and `     ^` and blank lines, then take the
+# first line that names an error, and only fall back to the last line of
+# output when nothing does.
+body=$(grep -av -e '^[[:space:]]*$' -e '^[[:space:]]*[0-9][0-9]*[[:space:]]*|' -e '^[[:space:]]*\^*$' "$clean")
+
 if [ "$rc" -eq 0 ]; then
   status=pass
-  detail=$(grep -av '^[[:space:]]*$' "$clean" | tail -1)
+  detail=$(printf '%s\n' "$body" | tail -1)
 else
   status=fail
-  detail=$(grep -m1 -aE 'error|Error|ERROR|panic|Panic|[Ff]ailed|[Ff]ailure|[Cc]annot|not supported|[Uu]nsupported|not available|not implemented|ENOENT|EPERM|ENOTSUP|EINVAL|EAGAIN|Segmentation' "$clean")
+  detail=$(printf '%s\n' "$body" | grep -m1 -aE '^(error|[A-Za-z]*Error|[A-Z][A-Z]+):|^[[:space:]]*(error|[A-Za-z]*Error):|(EBADF|ENOENT|EPERM|ENOTSUP|EINVAL|EAGAIN|EACCES)')
   if [ -z "$detail" ]; then
-    detail=$(grep -av '^[[:space:]]*$' "$clean" | tail -1)
+    detail=$(printf '%s\n' "$body" | grep -m1 -aE 'error|Error|panic|[Ff]ailed|[Ff]ailure|[Cc]annot|not supported|[Uu]nsupported|not available|not implemented|Segmentation')
+  fi
+  if [ -z "$detail" ]; then
+    detail=$(printf '%s\n' "$body" | tail -1)
   fi
   if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
     detail="timed out after ${SUITE_TIMEOUT}s; last line: $detail"
   fi
 fi
-detail=$(printf '%s' "$detail" | cut -c1-400)
+detail=$(printf '%s' "$detail" | sed 's/^[[:space:]]*//' | cut -c1-400)
 [ -n "$detail" ] || detail="(no output)"
 
 printf '%s' "$status" >"$SUITE_DIR/$id.status"

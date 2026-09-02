@@ -134,7 +134,9 @@ jobs:
       # 8..10 — the spikes. Each M0 probe carries its own deadline of 15-90 s;
       # the runner's cap has to sit above the longest of them (07-latency does
       # 2,000 PTY round trips and takes about a minute here) or a probe that
-      # would have passed is scored as a hang.
+      # would have passed is scored as a hang. `run-all.ts` exits 0 whatever
+      # the probes did, so the table it prints is what decides the verdict,
+      # and its summaries are echoed last so one of them becomes the detail.
       - name: m0
         id: m0
         continue-on-error: true
@@ -142,7 +144,7 @@ jobs:
           SUITE_TIMEOUT: "2700"
         run: |
           bash .github/ci/windows.sh m0 packages/werk-poc \
-            'timeout -k 15 2600 bun run ./spikes/m0/run-all.ts --timeout 90000; rc=$?; echo "--- per-probe logs ---"; for f in dist/m0/*/*.log; do echo "===== $f"; cat "$f"; done; exit $rc'
+            'timeout -k 15 2600 bun run ./spikes/m0/run-all.ts --timeout 90000 >m0.log 2>&1; rc=$?; cat m0.log; echo "--- per-probe logs ---"; for f in dist/m0/*/*.log; do echo "===== $f"; cat "$f"; done; bad=$(grep -aE "^\| 0[0-9]-" m0.log | grep -aE "fail|hung|crash|build-failed" | cut -d"|" -f2 | tr -d " " | tr "\n" " "); test -z "$bad" || rc=1; echo "m0 probes not passing: ${bad:-none}"; exit $rc'
 
       - name: m2
         id: m2
