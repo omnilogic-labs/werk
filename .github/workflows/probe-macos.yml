@@ -20,9 +20,11 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 60
     env:
-      # `sun_path` is 104 bytes on macOS and the runner's $TMPDIR is a long
-      # /var/folders/xx/<32 chars>/T/ path, which leaves too little room for a
-      # daemon socket under a mkdtemp directory.
+      # `sun_path` is 104 bytes on macOS, against 108 on Linux, and the
+      # runner's own $TMPDIR is a 49-character /var/folders/xx/<32 chars>/T/
+      # path. A run on that TMPDIR reaches the same verdicts, so the margin is
+      # there on this image, but /tmp keeps the daemon socket well clear of
+      # the limit for a deeper temporary directory.
       TMPDIR: /tmp
       WP_CI_RESULTS: ${{ github.workspace }}/ci-results
     steps:
