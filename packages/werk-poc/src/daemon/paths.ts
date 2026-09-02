@@ -6,6 +6,12 @@
 // logout, which is why it is not the runtime directory. Tests and the
 // launcher can point both at explicit directories; `WP_STATE_DIR` overrides
 // the state directory for a daemon started from a test.
+//
+// On Windows (spike/win32-daemon) there is no XDG and no uid: the runtime
+// directory is `%LOCALAPPDATA%\werk-poc` (per user, local to the machine)
+// and the state directory sits beside it. The ownership and mode checks are
+// skipped there — Bun's `stat` reports a fixed mode and uid 0 on NTFS, so
+// they could only ever refuse or chmod for nothing.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -23,6 +29,8 @@ export interface DaemonPaths {
 export function defaultRuntimeDir(): string {
   const xdg = process.env.XDG_RUNTIME_DIR;
   if (xdg) return path.join(xdg, "werk-poc");
+  if (process.platform === "win32")
+    return path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), "werk-poc");
   return path.join(os.tmpdir(), `werk-poc-${process.getuid?.() ?? "0"}`);
 }
 
@@ -31,6 +39,12 @@ export function defaultStateDir(): string {
   if (override) return override;
   const xdg = process.env.XDG_STATE_HOME;
   if (xdg) return path.join(xdg, "werk-poc");
+  if (process.platform === "win32")
+    return path.join(
+      process.env.LOCALAPPDATA ?? os.homedir(),
+      "werk-poc",
+      "state",
+    );
   return path.join(os.homedir(), ".local", "state", "werk-poc");
 }
 
@@ -54,6 +68,8 @@ export function daemonPaths(
  */
 export function ensureRuntimeDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // NTFS has no uid or mode bits to check; %LOCALAPPDATA% is already per user.
+  if (process.platform === "win32") return;
   const st = fs.statSync(dir);
   const uid = process.getuid?.();
   if (uid !== undefined && st.uid !== uid) {

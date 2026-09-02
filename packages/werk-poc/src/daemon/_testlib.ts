@@ -41,6 +41,9 @@ export function alive(pid: number): boolean {
   } catch {
     return false;
   }
+  // Windows has no zombies: once the process object reports an exit code,
+  // libuv's kill(pid, 0) already says ESRCH (spike/win32-daemon).
+  if (process.platform === "win32") return true;
   try {
     // A zombie still answers signal 0. macOS has no /proc, so its STAT column
     // from `ps` is the only place the state shows up.

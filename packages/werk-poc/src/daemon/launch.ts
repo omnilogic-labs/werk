@@ -13,8 +13,19 @@
 // launcher never waits on it alone — it polls the socket for a successful
 // `hello` as the authority and treats the pipe read as best-effort
 // (findings/m2.md). The fd is never closed by hand; see `readPipe`.
+//
+// On Windows (spike/win32-daemon) the pipe cannot be read at all: the child
+// does see fd 3, but `proc.stdio[3]` on the parent side is a raw HANDLE
+// number that `fs.readSync`, `Bun.file` and `net.Socket({fd})` all refuse
+// (win32-spike run 33688866439). So there the launcher passes no fourth
+// slot and names a file instead — `--ready-file=<dir>\wp.ready.<pid>` —
+// which the daemon writes its report to (write to a temp name, rename) and
+// `readPipe`'s counterpart polls. Same contract: best-effort, "" on timeout,
+// the socket poll is still the authority. The spawn itself is `detached` +
+// `windowsHide` with a real directory as cwd, since `/` is not one.
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { PROTOCOL_VERSION, WP_VERSION } from "../protocol/index.ts";
 import { GHOSTTY_COMMIT } from "../engine/ghostty-wasm/bytes.ts";
@@ -29,7 +40,10 @@ import {
 /** True when running from a `bun build --compile` binary. */
 export const compiled =
   import.meta.path.startsWith("/$bunfs/") ||
-  import.meta.path.startsWith("B:/~BUN/");
+  // Bun's Windows bunfs is the virtual drive `B:\~BUN\`; the path arrives
+  // with backslashes (spike/win32-daemon: a forward-slash check said
+  // "interpreted" inside wp.exe and re-launched the daemon as `wp run …`).
+  /^B:[\\/]~BUN[\\/]/.test(import.meta.path);
 
 /** How to run `wp __daemon` from here, interpreted or compiled. */
 export function daemonArgv(extra: string[]): string[] {
@@ -52,6 +66,8 @@ export interface LaunchResult {
   /** What the daemon wrote on its readiness pipe: the ready token, an error line, or "" if the read did not complete. */
   report: string;
   ms: number;
+  /** win32 only: the daemon's exit code so far, for the launcher's deadline message. */
+  exitCode?: () => number | null;
 }
 
 /**
@@ -66,6 +82,34 @@ export async function spawnDaemon(
   const dir = opts.dir ?? defaultRuntimeDir();
   ensureRuntimeDir(dir);
   const t0 = performance.now();
+  if (process.platform === "win32") {
+    const readyFile = path.join(dir, `wp.ready.${process.pid}`);
+    try {
+      fs.unlinkSync(readyFile);
+    } catch {}
+    const proc = Bun.spawn(
+      daemonArgv([`--dir=${dir}`, `--ready-file=${readyFile}`]),
+      {
+        detached: true,
+        windowsHide: true,
+        cwd: os.homedir(),
+        env: process.env as Record<string, string>,
+        stdio: ["ignore", "ignore", "ignore"],
+      },
+    );
+    const report = await readReadyFile(
+      readyFile,
+      proc,
+      opts.pipeTimeoutMs ?? PIPE_TIMEOUT_MS,
+    );
+    proc.unref();
+    return {
+      pid: proc.pid,
+      report,
+      ms: performance.now() - t0,
+      exitCode: () => proc.exitCode,
+    };
+  }
   const proc = Bun.spawn(daemonArgv([`--dir=${dir}`, "--ready-fd=3"]), {
     detached: true,
     cwd: "/",
@@ -78,6 +122,35 @@ export async function spawnDaemon(
   const report = await readPipe(fd, opts.pipeTimeoutMs ?? PIPE_TIMEOUT_MS);
   proc.unref();
   return { pid: proc.pid, report, ms: performance.now() - t0 };
+}
+
+/**
+ * The win32 counterpart of `readPipe`: polls for the daemon's ready file
+ * until it appears, the daemon exits without writing one, or `timeoutMs`
+ * passes. The file is removed once read.
+ */
+async function readReadyFile(
+  file: string,
+  proc: { exitCode: number | null },
+  timeoutMs: number,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    let text: string | null = null;
+    try {
+      text = fs.readFileSync(file, "utf8");
+    } catch {}
+    if (text !== null) {
+      try {
+        fs.unlinkSync(file);
+      } catch {}
+      return text;
+    }
+    // Exited without reporting: nothing more will come.
+    if (proc.exitCode !== null) return "";
+    await Bun.sleep(5);
+  }
+  return "";
 }
 
 /**
@@ -147,8 +220,24 @@ export async function ensureDaemon(
     await Bun.sleep(wait);
     wait = Math.min(wait * 2, 200);
   }
+  let why = "";
+  if (process.platform === "win32") {
+    // No pipe to have carried the failure: say what the process and its log
+    // can say instead.
+    const code = started.exitCode?.();
+    let tail = "";
+    try {
+      tail = fs
+        .readFileSync(paths.log, "utf8")
+        .trimEnd()
+        .split("\n")
+        .slice(-5)
+        .join("\n  ");
+    } catch {}
+    why = ` (daemon pid ${started.pid} ${code === null || code === undefined ? "still running" : `exited ${code}`}; ${tail ? `log tail:\n  ${tail}` : "no log written"})`;
+  }
   throw new Error(
-    `a daemon holds ${paths.lock} but nothing answers on ${paths.socket}`,
+    `a daemon holds ${paths.lock} but nothing answers on ${paths.socket}${why}`,
   );
 }
 

@@ -117,6 +117,8 @@ export function alive(pid: number): boolean {
   } catch {
     return false;
   }
+  // No zombies on Windows; signal 0 is the whole answer (spike/win32-daemon).
+  if (process.platform === "win32") return true;
   try {
     // A zombie still answers signal 0; macOS has no /proc to read its state
     // from, so `ps` reports it instead.
