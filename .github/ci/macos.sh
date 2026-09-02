@@ -87,7 +87,12 @@ summary_for() {
   local id="$1" log="$2"
   case "$id" in
     test-pure | test-full)
-      grep -a -E '^[[:space:]]*[0-9]+ (pass|fail)$' "$log" | tr -d '\n' | tr -s ' ' | cut -c1-200
+      # The counts, plus the names of the tests that failed — the gate reads
+      # those names to tell a real regression from the known slow-client
+      # scenario, so a bare pass/fail count is not enough.
+      counts="$(grep -a -E '^[[:space:]]*[0-9]+ (pass|fail)$' "$log" | tr -d '\n' | tr -s ' ')"
+      fails="$(grep -aE '^\(fail\) ' "$log" | sort -u | head -3 | paste -sd';' - | cut -c1-200)"
+      printf '%s%s' "$counts" "${fails:+ - failing: $fails}" | cut -c1-400
       ;;
     m0)
       grep -a -E '^\| [0-9]{2}-' "$log" |
@@ -207,7 +212,7 @@ case "${1:-}" in
       gate=1
     fi
     tf="$(jq -r '.suites[] | select(.id == "test-full" and .status == "fail") | .detail' "$out")"
-    if [ -n "$tf" ] && ! printf '%s' "$tf" | grep -qE 'fidelity|slow client'; then
+    if [ -n "$tf" ] && ! printf '%s' "$tf" | grep -qE 'reattach fidelity|slow client'; then
       echo "test-full failed for something other than the m2 slow-client scenario: $tf" >&2
       gate=1
     fi
