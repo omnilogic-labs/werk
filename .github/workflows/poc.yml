@@ -1,0 +1,545 @@
+# The werk proof of concept, on Linux, macOS and Windows.
+#
+# This never runs on an ordinary commit or when a pull request opens. It runs
+# when someone adds the `ci:poc` label to a pull request, and when someone
+# starts it by hand from the Actions tab or `gh workflow run`. Remove and
+# re-add the label to run it again.
+#
+# Every suite step carries `continue-on-error`, so one run reports every
+# suite's verdict rather than stopping at the first red one, and each job
+# uploads a `ci-result-<os>.json` recording what happened. The three jobs are
+# independent: a red Windows job says nothing about the Linux one.
+name: poc
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      os:
+        description: Which runners to use
+        type: choice
+        options: [all, ubuntu, macos, windows]
+        default: all
+
+concurrency:
+  group: poc-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.label.name == 'ci:poc')
+      || (github.event_name == 'workflow_dispatch'
+          && (inputs.os == 'all' || inputs.os == 'ubuntu'))
+    name: werk-poc on ubuntu-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Environment
+        run: |
+          echo "CI_OUT_DIR=$RUNNER_TEMP/ci-out" >> "$GITHUB_ENV"
+          set -x
+          uname -srm
+          bun --version
+          echo "ImageOS=${ImageOS:-} ImageVersion=${ImageVersion:-}"
+          nproc; free -m
+          # vim (m2, m0/03-sigwinch) and top (one m2 scenario) are both in the
+          # ubuntu-24 image; the install is only there in case that changes.
+          for t in vim top tmux jq; do printf '%-6s %s\n' "$t" "$(command -v "$t" || echo absent)"; done
+          if ! command -v vim >/dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq vim
+          fi
+          (vim --version || true) | head -1
+          chmod +x .github/ci/linux.sh
+          {
+            echo "## werk-poc on ubuntu-latest"
+            echo
+            echo "| Suite | Result | Time | What ran | Detail |"
+            echo "| --- | --- | --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: install
+        id: install
+        continue-on-error: true
+        timeout-minutes: 10
+        run: .github/ci/linux.sh install
+
+      - name: format
+        id: format
+        continue-on-error: true
+        timeout-minutes: 5
+        run: .github/ci/linux.sh format
+
+      - name: typecheck
+        id: typecheck
+        continue-on-error: true
+        timeout-minutes: 10
+        run: .github/ci/linux.sh typecheck
+
+      - name: test-pure
+        id: test-pure
+        continue-on-error: true
+        timeout-minutes: 10
+        run: .github/ci/linux.sh test-pure
+
+      - name: build-web
+        id: build-web
+        continue-on-error: true
+        timeout-minutes: 10
+        run: .github/ci/linux.sh build-web
+
+      - name: build
+        id: build
+        continue-on-error: true
+        timeout-minutes: 15
+        run: .github/ci/linux.sh build
+
+      - name: test-full
+        id: test-full
+        continue-on-error: true
+        timeout-minutes: 30
+        run: .github/ci/linux.sh test-full
+
+      - name: m0
+        id: m0
+        continue-on-error: true
+        timeout-minutes: 20
+        run: .github/ci/linux.sh m0
+
+      - name: m2
+        id: m2
+        continue-on-error: true
+        timeout-minutes: 25
+        run: .github/ci/linux.sh m2
+
+      - name: m3
+        id: m3
+        continue-on-error: true
+        timeout-minutes: 15
+        run: .github/ci/linux.sh m3
+
+      - name: ops
+        id: ops
+        continue-on-error: true
+        timeout-minutes: 15
+        run: .github/ci/linux.sh ops
+
+      - name: diff
+        id: diff
+        continue-on-error: true
+        timeout-minutes: 20
+        run: .github/ci/linux.sh diff
+
+      - name: report
+        id: report
+        if: always()
+        continue-on-error: true
+        run: .github/ci/linux.sh report
+
+      - name: Upload ci-result-linux
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-result-linux
+          path: ${{ runner.temp }}/ci-out
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Fail the job when a suite failed
+        if: always() && steps.report.outcome != 'success'
+        run: |
+          echo "at least one suite failed; see the step summary and the ci-result-linux artefact" >&2
+          exit 1
+
+  macos:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.label.name == 'ci:poc')
+      || (github.event_name == 'workflow_dispatch'
+          && (inputs.os == 'all' || inputs.os == 'macos'))
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      # `sun_path` is 104 bytes on macOS, against 108 on Linux, and the
+      # runner's own $TMPDIR is a 49-character /var/folders/xx/<32 chars>/T/
+      # path. A run on that TMPDIR reaches the same verdicts, so the margin is
+      # there on this image, but /tmp keeps the daemon socket well clear of
+      # the limit for a deeper temporary directory.
+      TMPDIR: /tmp
+      WP_CI_RESULTS: ${{ github.workspace }}/ci-results
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Machine
+        run: |
+          echo "runner: $(uname -sm) $(sw_vers -productVersion)"
+          echo "bun: $(bun --version)"
+          echo "TMPDIR: $TMPDIR"
+          echo "vim: $(command -v vim || echo MISSING) $(vim --version 2>/dev/null | head -1)"
+          echo "script: $(command -v script || echo MISSING)"
+          echo "top: $(command -v top || echo MISSING)"
+          echo "python3: $(command -v python3 || echo MISSING)"
+          echo "head -c 4M: $(printf 'y\n' | head -c 4M 2>&1 | head -1 | cat -v)"
+          echo "ps keywords: [$(ps -o pid=,ppid=,pgid=,tty=,state= -p $$ 2>&1)]"
+          echo "ps sid: [$(ps -o sid= -p $$ 2>&1)]"
+          echo "ps rss: [$(ps -o rss= -p $$ 2>&1)]"
+          echo "unix socket buffers: $(sysctl net.local.stream.sendspace net.local.stream.recvspace 2>&1 | tr '\n' ' ')"
+          echo "WP_CI_RUNNER=$(uname -m)/macOS-$(sw_vers -productVersion)" >>"$GITHUB_ENV"
+          chmod +x .github/ci/macos.sh
+          mkdir -p "$WP_CI_RESULTS"
+          {
+            echo "## probe-macos"
+            echo
+            echo "\`$(uname -sm)\` macOS $(sw_vers -productVersion), bun $(bun --version), commit \`${GITHUB_SHA:0:8}\`"
+            echo
+            echo "| suite | status | ms | detail |"
+            echo "| --- | --- | --- | --- |"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: install
+        id: install
+        continue-on-error: true
+        run: .github/ci/macos.sh suite install
+
+      - name: typecheck
+        id: typecheck
+        continue-on-error: true
+        run: .github/ci/macos.sh suite typecheck
+
+      - name: test-pure
+        id: test-pure
+        continue-on-error: true
+        run: .github/ci/macos.sh suite test-pure
+
+      - name: build-web
+        id: build-web
+        continue-on-error: true
+        run: .github/ci/macos.sh suite build-web
+
+      - name: build
+        id: build
+        continue-on-error: true
+        run: .github/ci/macos.sh suite build
+
+      - name: test-full
+        id: test-full
+        continue-on-error: true
+        timeout-minutes: 25
+        run: .github/ci/macos.sh suite test-full
+
+      - name: m0
+        id: m0
+        continue-on-error: true
+        timeout-minutes: 20
+        run: .github/ci/macos.sh suite m0
+
+      - name: m2
+        id: m2
+        continue-on-error: true
+        timeout-minutes: 20
+        run: .github/ci/macos.sh suite m2
+
+      - name: m3
+        id: m3
+        continue-on-error: true
+        timeout-minutes: 15
+        run: .github/ci/macos.sh suite m3
+
+      - name: ops
+        id: ops
+        continue-on-error: true
+        timeout-minutes: 15
+        run: .github/ci/macos.sh suite ops
+
+      - name: diff
+        id: diff
+        continue-on-error: true
+        timeout-minutes: 15
+        run: .github/ci/macos.sh suite diff
+
+      # Diagnostic, not a gate and not part of ci-result-macos.json: macOS
+      # gives a unix stream socket an 8 KiB buffer where Linux gives 208 KiB,
+      # which is the suspect for the m2 slow-client scenario. Re-run it with
+      # Linux-sized buffers and see whether the failure goes away.
+      - name: m2 with Linux-sized socket buffers (diagnostic)
+        id: m2-bigbuf
+        continue-on-error: true
+        timeout-minutes: 20
+        working-directory: packages/werk-poc
+        run: |
+          sudo sysctl -w net.local.stream.sendspace=212992 net.local.stream.recvspace=212992
+          sysctl net.local.stream.sendspace net.local.stream.recvspace
+          bun run m2
+
+      - name: Result
+        if: always()
+        run: .github/ci/macos.sh summarize "$GITHUB_WORKSPACE/ci-result-macos.json"
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-result-macos
+          path: |
+            ci-result-macos.json
+            ci-results/logs/
+            packages/werk-poc/dist/m0/**/*.log
+            packages/werk-poc/dist/m0/results.json
+          if-no-files-found: warn
+
+  windows:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.label.name == 'ci:poc')
+      || (github.event_name == 'workflow_dispatch'
+          && (inputs.os == 'all' || inputs.os == 'windows'))
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      BUN_VERSION: 1.3.14
+      SUITE_TIMEOUT: "180"
+      SUITE_ORDER: >-
+        install typecheck test-pure build-web build diff ops probes m0-probes
+        daemon wp-cli test-full m2 m3
+      # The suites that pass on windows today. Everything else is expected to
+      # fail and is recorded rather than gated, so a red gate means one of these
+      # regressed rather than "windows still does not run the daemon". `m3` is
+      # deliberately not here: every snapshot it encodes decodes identically, but
+      # on one run in four the process printed all of its tables and then did not
+      # exit, so gating on it would gate on that.
+      EXPECTED_PASS: install typecheck build-web build diff probes
+    steps:
+      # Git for Windows checks out with CRLF by default, which would rewrite
+      # the .cast corpus fixtures and every source file before anything ran.
+      - name: Keep line endings as committed
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Record the runner
+        id: runner
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          echo "SUITE_DIR=$RUNNER_TEMP/suites" >>"$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/suites"
+          rel=$(bun -e 'console.log(require("node:os").release())')
+          echo "PROBE_RUNNER=$RUNNER_ARCH/$RUNNER_OS ${ImageOS:-?} ${ImageVersion:-?} nt-$rel" >>"$GITHUB_ENV"
+          bun --version
+          bun -e 'console.log(process.platform, process.arch, process.execPath)'
+          {
+            echo "## probe-windows"
+            echo
+            echo "runner: \`$RUNNER_ARCH/$RUNNER_OS ${ImageOS:-?} ${ImageVersion:-?} nt-$rel\`"
+            echo "bun: \`$(bun --version)\`  commit: \`$GITHUB_SHA\`"
+            echo
+            echo "| suite | status | ms | detail |"
+            echo "| --- | --- | --- | --- |"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # ---------------------------------------------------------------------
+      # The suites that work on windows. These are the deliverable: the part
+      # of the proof of concept that is already portable.
+      # ---------------------------------------------------------------------
+
+      - name: install
+        id: install
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/windows.sh install . 'bun install --frozen-lockfile'
+
+      - name: typecheck
+        id: typecheck
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/windows.sh typecheck packages/werk-poc 'bun run typecheck'
+
+      # The pure-computation tests: the VT engines, the capability matrix and
+      # the wire protocol. No PTY, no socket, no ffi.
+      - name: test-pure
+        id: test-pure
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/windows.sh test-pure packages/werk-poc 'bun test src/engine src/protocol'
+
+      - name: build-web
+        id: build-web
+        continue-on-error: true
+        timeout-minutes: 2
+        run: bash .github/ci/windows.sh build-web packages/werk-poc 'bun run build:web'
+
+      # The single-file binary, and what it can say without a daemon.
+      - name: build
+        id: build
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          bash .github/ci/windows.sh build packages/werk-poc \
+            'bun run build && ls -l dist && WP=dist/wp.exe && test -f "$WP" || WP=dist/wp && echo "binary: $WP" && "./$WP" --help && echo "--- caps ---" && "./$WP" caps'
+
+      # The differential corpus, plus 200 fuzz iterations on a fixed seed so
+      # the numbers can be held against the same command on linux.
+      # `ghostty-ffi` will not load; whether the wasm engine and the xterm
+      # oracle still agree is the most interesting question this job asks.
+      - name: diff
+        id: diff
+        continue-on-error: true
+        timeout-minutes: 4
+        run: |
+          bash .github/ci/windows.sh diff packages/werk-poc \
+            'bun run bench/differential.ts --fuzz 200 --seed 7'
+
+      # The operational report: toolchain, platform matrix, cold start.
+      - name: ops
+        id: ops
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/windows.sh ops packages/werk-poc 'bun run bench/ops.ts --quick --no-compile'
+
+      # ---------------------------------------------------------------------
+      # The layers underneath, probed directly. Each of these provokes one
+      # failure and prints its first line rather than waiting for a suite to
+      # discover it.
+      # ---------------------------------------------------------------------
+
+      # dlopen, flock, AF_UNIX, Bun.Terminal, the readiness pipe, the ffi
+      # platform, `sh`, and the daemon started in process past the two layers
+      # that stop it. Seconds, not minutes.
+      - name: probes
+        id: probes
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/windows.sh probes . 'bun run .github/ci/windows-probes.ts'
+
+      # The M0 PTY probes, run one file at a time rather than through
+      # `run-all.ts`, which also compiles each probe and runs the compiled
+      # copy — twenty minutes of it on windows, nearly all spent waiting out
+      # deadlines. `M0_LAT_N` shortens 07's 2,000 round trips; at 15 ms each
+      # the full count is a minute of pure benchmark.
+      - name: m0-probes
+        id: m0-probes
+        continue-on-error: true
+        timeout-minutes: 4
+        env:
+          M0_LAT_N: "200"
+        run: |
+          bash .github/ci/windows.sh m0-probes packages/werk-poc \
+            'bash "$GITHUB_WORKSPACE/.github/ci/windows-m0.sh"'
+
+      # The daemon, started the way `wp` starts it.
+      - name: daemon
+        id: daemon
+        continue-on-error: true
+        timeout-minutes: 2
+        run: bash .github/ci/windows.sh daemon packages/werk-poc 'bun run src/cli/main.ts __daemon'
+
+      # The compiled binary talking to a daemon it has to start itself.
+      - name: wp-cli
+        id: wp-cli
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          bash .github/ci/windows.sh wp-cli packages/werk-poc \
+            'WP=dist/wp.exe && test -f "$WP" || WP=dist/wp && "./$WP" ls'
+
+      # ---------------------------------------------------------------------
+      # Whole-suite datapoints cheap enough to keep: both fail in seconds
+      # rather than waiting out a deadline.
+      # ---------------------------------------------------------------------
+
+      - name: test-full
+        id: test-full
+        continue-on-error: true
+        timeout-minutes: 4
+        run: |
+          bash .github/ci/windows.sh test-full packages/werk-poc \
+            'bun test >full.log 2>&1; rc=$?; cat full.log; echo "--- files and failures ---"; grep -a "^::group::\|^(fail)" full.log; exit $rc'
+
+      - name: m2
+        id: m2
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/windows.sh m2 packages/werk-poc 'bun run m2'
+
+      - name: m3
+        id: m3
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/windows.sh m3 packages/werk-poc 'bun run m3'
+
+      - name: Collect
+        if: always()
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          bun run .github/ci/windows-collect.ts
+          mkdir -p suite-logs
+          cp "$SUITE_DIR"/*.log suite-logs/ 2>/dev/null || true
+          {
+            echo
+            echo '<details><summary>ci-result-windows.json</summary>'
+            echo
+            echo '```json'
+            cat ci-result-windows.json
+            echo '```'
+            echo
+            echo '</details>'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-result-windows
+          path: |
+            ci-result-windows.json
+            suite-logs/
+          if-no-files-found: warn
+
+      # The job's own verdict, after the report is safely uploaded: green over
+      # the subset that works on windows, red only when part of that subset
+      # stops working. The rest of the cascade is the finding, not a failure.
+      - name: Gate
+        if: always()
+        timeout-minutes: 2
+        run: |
+          set -uo pipefail
+          rc=0
+          for id in $EXPECTED_PASS; do
+            s=$(cat "$SUITE_DIR/$id.status" 2>/dev/null || echo missing)
+            if [ "$s" = pass ]; then
+              echo "ok      $id"
+            else
+              echo "::error::$id is expected to pass on windows and did not ($s)"
+              rc=1
+            fi
+          done
+          for id in $SUITE_ORDER; do
+            case " $EXPECTED_PASS " in
+              *" $id "*) continue ;;
+            esac
+            echo "known   $id: $(cat "$SUITE_DIR/$id.status" 2>/dev/null || echo missing)"
+          done
+          exit $rc

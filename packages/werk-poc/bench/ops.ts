@@ -131,8 +131,10 @@ function platforms(): OpsReport["platforms"] {
     },
     {
       engine: "ghostty-ffi",
-      platforms: prebuilds.join(", ") || "(prebuilds directory not found)",
-      note: "the tarball's prebuilds; no darwin-x64, no windows; Bun only (bun:ffi)",
+      platforms:
+        [...prebuilds, "win32-x64 (vendored)"].join(", ") ||
+        "(prebuilds directory not found)",
+      note: "the tarball's prebuilds, plus the win32-x64 build vendored in vendor/ghostty-vt-ffi/; no darwin-x64; Bun only (bun:ffi)",
     },
     {
       engine: "xterm-oracle",
@@ -141,8 +143,9 @@ function platforms(): OpsReport["platforms"] {
     },
     {
       engine: "Bun.Terminal (the PTY)",
-      platforms: "linux, darwin per Bun's docs",
-      note: "M0 measured linux-x64 on 1.3.14 and 1.4.0; windows not measured",
+      platforms:
+        "linux, darwin per Bun's docs; a ConPTY on windows in practice",
+      note: "M0 measured linux-x64 on 1.3.14 and 1.4.0, darwin-arm64 and win32-x64 on 1.3.14; a ConPTY on windows, at ~200x the latency",
     },
   ];
 }

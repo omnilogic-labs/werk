@@ -17,18 +17,22 @@
 # `src/daemon/flock.ts` dlopens libc, and the daemon speaks over a Unix
 # socket. None of that is a VT concern, and none of it is touched here.
 
-name: probe vt win32
+name: vt-win32
 
 on:
-  push:
-    branches: ["ci/vt-win32"]
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
 
 concurrency:
-  group: probe-vt-win32
+  group: vt-win32-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   differential:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.label.name == 'ci:poc')
+      || github.event_name == 'workflow_dispatch'
     name: differential (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -144,6 +148,9 @@ jobs:
           path: packages/werk-poc/summary.json
 
   parity:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.label.name == 'ci:poc')
+      || github.event_name == 'workflow_dispatch'
     name: win32 agrees exactly as much as linux does
     needs: differential
     runs-on: ubuntu-latest
