@@ -166,7 +166,7 @@ jobs:
           M0_LAT_N: "200"
         run: |
           bash .github/ci/windows.sh m0-probes packages/werk-poc \
-            'rc=0; for p in spikes/m0/0*.ts; do echo "===== $p"; bun run "$p" || rc=1; done; exit $rc'
+            'bash "$GITHUB_WORKSPACE/.github/ci/windows-m0.sh"'
 
       # The daemon, started the way `wp` starts it.
       - name: daemon
