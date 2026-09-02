@@ -4,12 +4,120 @@
 // because the library is resolved at run time. The lock is released by the
 // kernel when the holder dies, which is the whole reason to prefer it over a
 // PID file. Linux only for now; macOS would want "libc.dylib" / "libSystem".
+//
+// Windows (spike/win32-daemon) has no flock; the same contract is met by
+// `LockFileEx` on one byte of the file, exclusive and fail-immediately, and
+// the kernel releases that too when the holder dies. The handle comes from
+// `CreateFileW` rather than from `fs.openSync`: Bun's fds belong to a CRT
+// that is not ucrtbase.dll, so `_get_osfhandle` on one is fatal rather than
+// wrong (win32-spike run 33688866439). On win32 `fd` therefore holds the raw
+// HANDLE and `release` is `CloseHandle`.
 
-import { dlopen, FFIType } from "bun:ffi";
+import { dlopen, FFIType, ptr } from "bun:ffi";
 import fs from "node:fs";
 
 const LOCK_EX = 2;
 const LOCK_NB = 4;
+
+const LOCKFILE_FAIL_IMMEDIATELY = 1;
+const LOCKFILE_EXCLUSIVE_LOCK = 2;
+const GENERIC_READ = 0x80000000;
+const GENERIC_WRITE = 0x40000000;
+const FILE_SHARE_READ_WRITE_DELETE = 1 | 2 | 4;
+const OPEN_ALWAYS = 4;
+const FILE_ATTRIBUTE_NORMAL = 0x80;
+const INVALID_HANDLE_VALUE = (1n << 64n) - 1n;
+
+let kernel32: {
+  symbols: {
+    CreateFileW: (
+      name: ReturnType<typeof ptr>,
+      access: number,
+      share: number,
+      sa: null,
+      disposition: number,
+      flags: number,
+      template: bigint,
+    ) => bigint;
+    LockFileEx: (
+      h: bigint,
+      flags: number,
+      reserved: number,
+      lo: number,
+      hi: number,
+      overlapped: ReturnType<typeof ptr>,
+    ) => number;
+    CloseHandle: (h: bigint) => number;
+  };
+} | null = null;
+
+function loadKernel32() {
+  if (kernel32) return kernel32;
+  kernel32 = dlopen("kernel32.dll", {
+    CreateFileW: {
+      args: [
+        FFIType.ptr,
+        FFIType.u32,
+        FFIType.u32,
+        FFIType.ptr,
+        FFIType.u32,
+        FFIType.u32,
+        FFIType.u64,
+      ],
+      returns: FFIType.u64,
+    },
+    LockFileEx: {
+      args: [
+        FFIType.u64,
+        FFIType.u32,
+        FFIType.u32,
+        FFIType.u32,
+        FFIType.u32,
+        FFIType.ptr,
+      ],
+      returns: FFIType.i32,
+    },
+    CloseHandle: { args: [FFIType.u64], returns: FFIType.i32 },
+  }) as unknown as typeof kernel32;
+  return kernel32!;
+}
+
+function tryLockWin32(path: string): FileLock | null {
+  const k = loadKernel32().symbols;
+  const name = Buffer.from(path + "\0", "utf16le");
+  const handle = k.CreateFileW(
+    ptr(name),
+    GENERIC_READ | GENERIC_WRITE,
+    FILE_SHARE_READ_WRITE_DELETE,
+    null,
+    OPEN_ALWAYS,
+    FILE_ATTRIBUTE_NORMAL,
+    0n,
+  );
+  if (handle === INVALID_HANDLE_VALUE || handle === 0n)
+    throw new Error(`cannot open ${path} for LockFileEx`);
+  const overlapped = new Uint8Array(32);
+  const r = k.LockFileEx(
+    handle,
+    LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+    0,
+    1,
+    0,
+    ptr(overlapped),
+  );
+  if (r === 0) {
+    k.CloseHandle(handle);
+    return null;
+  }
+  return {
+    fd: Number(handle),
+    release() {
+      try {
+        k.CloseHandle(handle);
+      } catch {}
+    },
+  };
+}
 
 let libc: { symbols: { flock: (fd: number, op: number) => number } } | null =
   null;
@@ -44,6 +152,7 @@ export interface FileLock {
  * process holds it. The lock lives as long as the returned fd stays open.
  */
 export function tryLock(path: string): FileLock | null {
+  if (process.platform === "win32") return tryLockWin32(path);
   const fd = fs.openSync(path, "w");
   const r = loadLibc().symbols.flock(fd, LOCK_EX | LOCK_NB);
   if (r !== 0) {
