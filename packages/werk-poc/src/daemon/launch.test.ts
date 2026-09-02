@@ -41,12 +41,23 @@ test("connect autostarts a detached daemon and the launcher can leave", async ()
   // no PID file, and the temp socket name is gone
   expect(fs.readdirSync(dir).sort()).toEqual(["wp.lock", "wp.log", "wp.sock"]);
   // detached: its own session, no controlling terminal
-  const ps = Bun.spawnSync(["ps", "-o", "sid=,tty=", "-p", String(pid)])
-    .stdout.toString()
-    .trim()
-    .split(/\s+/);
-  expect(Number(ps[0])).toBe(pid);
-  expect(ps[1]).toBe("?");
+  if (process.platform === "darwin") {
+    // BSD `ps` has no `sid` keyword; the `s` in STAT marks a session leader,
+    // and it writes "no controlling terminal" as "??".
+    const ps = Bun.spawnSync(["ps", "-o", "state=,tty=", "-p", String(pid)])
+      .stdout.toString()
+      .trim()
+      .split(/\s+/);
+    expect(ps[0]).toContain("s");
+    expect(ps[1]).toBe("??");
+  } else {
+    const ps = Bun.spawnSync(["ps", "-o", "sid=,tty=", "-p", String(pid)])
+      .stdout.toString()
+      .trim()
+      .split(/\s+/);
+    expect(Number(ps[0])).toBe(pid);
+    expect(ps[1]).toBe("?");
+  }
   // a second connection reuses it
   const again = await connect({ dir });
   expect(again.daemon.pid).toBe(pid);
