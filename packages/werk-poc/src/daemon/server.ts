@@ -34,6 +34,7 @@ import {
 import { Connection, QUEUE_BOUND } from "./connection.ts";
 import type { DaemonPaths } from "./paths.ts";
 import { Session } from "./session.ts";
+import { configuredSocketBuffer, setSocketBuffers } from "./sockopt.ts";
 import {
   deleteSnapshot,
   listSnapshotFiles,
@@ -480,6 +481,24 @@ export async function startServer(
       },
     },
   });
+  // macOS gives the listener 8 KiB socket buffers and accepted sockets
+  // inherit them, so raise both before the first client can connect.
+  // Linux is left on the kernel's own figure; see sockopt.ts.
+  const socketBuffer = configuredSocketBuffer();
+  if (socketBuffer !== null) {
+    const fd = (listener as { fd?: unknown }).fd;
+    if (typeof fd !== "number") {
+      log(`socket buffers left at default: listener fd is ${typeof fd}`);
+    } else {
+      try {
+        log(
+          `socket buffers set to ${socketBuffer}: ${setSocketBuffers(fd, socketBuffer)}`,
+        );
+      } catch (e) {
+        log(`socket buffers left at default: ${String(e)}`);
+      }
+    }
+  }
   fs.chmodSync(tmp, 0o600);
   // rename(2) is atomic and replaces a stale socket left by a dead daemon
   // without a separate unlink step, which is what closes the unlink/bind race.

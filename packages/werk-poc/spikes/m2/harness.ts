@@ -77,6 +77,11 @@ export function tempEnv(wp: string): TestEnv {
       WP_TRACE: path.join(root, "trace.log"),
       // A prompt with no colour and no cwd, so screens are predictable.
       PS1: "$ ",
+      // The daemon's socket-buffer switch (sockopt.ts) is the one knob the
+      // harness forwards, so a run can be repeated with it off.
+      ...(process.env.WP_SNDBUF !== undefined
+        ? { WP_SNDBUF: process.env.WP_SNDBUF }
+        : {}),
     },
   };
 }
