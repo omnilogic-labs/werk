@@ -516,6 +516,10 @@ jobs:
         run: |
           $ALPINE bash .github/ci/matrix.sh report
           cat "$RUNNER_TEMP/summary.md" >>"$GITHUB_STEP_SUMMARY"
+          # The container wrote as root, and the daemon's runtime dir is 0700;
+          # hand it all back to the runner user so upload-artifact can read it.
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/matrix-out"
+          chmod -R u+rwX "$RUNNER_TEMP/matrix-out"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
