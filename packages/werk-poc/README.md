@@ -22,6 +22,7 @@ the product directly. What matters is what is written down in `findings/`.
 | `spikes/m0/`    | M0's smoke probes, one file per question, plus a runner         |
 | `spikes/m1/`    | M1's compiled-binary check for the embedded WASM                |
 | `spikes/m2/`    | M2's reattach-fidelity harness: the compiled `wp` in a PTY      |
+| `spikes/m3/`    | M3's cross-commit decode, snapshot cost, and fd-reuse probes    |
 | `bench/`        | The `wp bench` measurements (M6)                                |
 | `vendor/`       | Pinned upstream artifacts (libghostty WASM, `ghostty-web`)      |
 | `findings/`     | What each milestone found, one file per milestone               |
@@ -37,6 +38,7 @@ $ bun run build              # bun build --compile -> dist/wp
 $ bun run m0                 # run every M0 probe, interpreted and compiled
 $ bun run m0 -- --bun /path/to/other/bun   # the same under another Bun
 $ bun run m2                 # the reattach-fidelity scenarios, as a table
+$ bun run m3                 # snapshot cost and cross-commit decode tables
 ```
 
 And the program itself, once built:
@@ -50,7 +52,11 @@ $ ./dist/wp kill <id>
 ```
 
 The daemon autostarts in `$XDG_RUNTIME_DIR/werk-poc` on the first `run` or
-`ls`.
+`ls`, and keeps a snapshot of every session in `$XDG_STATE_HOME/werk-poc`
+(`~/.local/state/werk-poc`), written every 30 s and on exit; after a
+restart those come back as read-only `corpse` sessions in `ls`. Set
+`WP_STATE_DIR` and `WP_SNAPSHOT_INTERVAL_MS` in the environment of whatever
+starts the daemon to move or speed that up.
 
 Each probe under `spikes/m0/` also runs on its own with
 `bun run spikes/m0/<probe>.ts`, and compiles with

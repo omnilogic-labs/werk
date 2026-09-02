@@ -49,6 +49,30 @@ export interface Frame {
 
 export type SessionStatus = "running" | "exited" | "corpse";
 
+/**
+ * Why a session is a corpse: restored from a snapshot the daemon could
+ * decode, or listed from one whose libghostty commit differs from the
+ * daemon's, which is not decoded at all (proposal §3: a mismatch is stated
+ * plainly, not bridged).
+ */
+export type CorpseInfo =
+  | { reason: "restored" }
+  | { reason: "mismatch"; snapshotEngine: string; daemonEngine: string };
+
+/** How the two-stage decode went for a restored corpse; the M3 evidence. */
+export interface RestoreStats {
+  /** `decodeState()` + `ready()`: the session was attachable after this. */
+  readyMs: number;
+  /** Driving `next()` to completion after `ready()`. */
+  historyMs: number;
+  /** Rows the terminal held after `ready()`. */
+  readyRows: number;
+  /** Rows after the last page. */
+  totalRows: number;
+  pages: number;
+  snapshotBytes: number;
+}
+
 export interface SessionInfo {
   id: string;
   argv: string[];
@@ -64,6 +88,10 @@ export interface SessionInfo {
   attachedClients: number;
   cols: number;
   rows: number;
+  /** When the session's snapshot file was last written; null if never. */
+  snapshotAt: number | null;
+  corpse: CorpseInfo | null;
+  restore: RestoreStats | null;
 }
 
 export interface HelloInfo {
@@ -100,6 +128,7 @@ export type ClientMessage =
   | { t: "kill"; rid: number; id: string; signal?: string }
   | { t: "logs"; rid: number; id: string; format: "text" | "vt" }
   | { t: "screen"; rid: number; id: string }
+  | { t: "snapshot"; rid: number; id: string }
   | { t: "stats"; rid: number }
   | { t: "shutdown"; rid: number };
 
@@ -125,6 +154,20 @@ export interface ConnectionStats {
   bytesSent: number;
 }
 
+/** The daemon's snapshot accounting, reported by `stats`. */
+export interface SnapshotStats {
+  stateDir: string;
+  intervalMs: number;
+  /** Timer ticks so far. */
+  ticks: number;
+  /** Files written, by what prompted them. */
+  written: Record<"timer" | "exit" | "shutdown", number>;
+  /** The most expensive encode seen: which session, how many bytes, how long the event loop was held. */
+  slowest: { id: string; bytes: number; encodeMs: number } | null;
+  /** How long the whole restore pass took at start, and how many files it saw. */
+  restore: { files: number; ms: number };
+}
+
 export interface DaemonStats {
   pid: number;
   rssBytes: number | null;
@@ -132,6 +175,7 @@ export interface DaemonStats {
   sessions: number;
   connections: ConnectionStats[];
   queueBound: number;
+  snapshots: SnapshotStats;
 }
 
 /** What the daemon sends. */
@@ -147,6 +191,8 @@ export type DaemonMessage =
     }
   | { t: "lagging"; id: string; droppedBytes: number }
   | { t: "resumed"; id: string }
+  /** Something the attached client should show the user; a corpse ignoring input, for one. */
+  | { t: "notice"; id: string; message: string }
   | {
       t: "effect";
       id: string;
@@ -166,6 +212,17 @@ export type AttachResult = {
 export type DetachResult = { altScreen: boolean };
 export type KillResult = { id: string; action: "signalled" | "removed" };
 export type LogsResult = { id: string; format: "text" | "vt"; data: string };
+/** A session's emulator state as `GHOSTSNP` bytes, base64 in the JSON reply; what a browser running the same libghostty decodes. */
+export type SnapshotResult = {
+  id: string;
+  engine: string;
+  /** The libghostty commit that encoded it; a decoder on another commit should not try. */
+  ghostty: string;
+  cols: number;
+  rows: number;
+  bytes: string;
+  encodeMs: number;
+};
 /** The session's viewport as the daemon's emulator sees it; for tests that compare it with a client's terminal. */
 export type ScreenResult = {
   id: string;

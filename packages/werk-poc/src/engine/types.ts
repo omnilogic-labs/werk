@@ -71,7 +71,8 @@ export interface Row {
  * page belongs to, the rows it prepended (0 when the page was validated
  * but could no longer be applied, say after a resize), and the pages still
  * to come for that screen. `next()` returning null is the only signal that
- * the whole snapshot is done. Shape is provisional until M3 uses it.
+ * the whole snapshot is done. The daemon's corpse restore drives it to
+ * completion and counts the pages (daemon/session.ts).
  */
 export interface Page {
   screen: "primary" | "alternate";

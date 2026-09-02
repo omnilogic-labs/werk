@@ -45,6 +45,8 @@ export class Connection {
   attached: { id: string; readOnly: boolean } | null = null;
   helloDone = false;
   closed = false;
+  /** This connection has been told once that its input is going nowhere (a corpse). */
+  noticed = false;
 
   private queue: Queued[] = [];
   private queuedBytes = 0;

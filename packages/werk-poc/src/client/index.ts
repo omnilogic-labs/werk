@@ -32,6 +32,7 @@ import {
   type RunResult,
   type ScreenResult,
   type SessionInfo,
+  type SnapshotResult,
 } from "../protocol/index.ts";
 
 export type {
@@ -40,6 +41,7 @@ export type {
   ScreenResult,
   SessionInfo,
   HelloInfo,
+  SnapshotResult,
 } from "../protocol/index.ts";
 
 export interface ConnectOptions {
@@ -74,6 +76,8 @@ export interface AttachOptions {
   onLag?(info: { droppedBytes: number }): void;
   onResumed?(): void;
   onEffect?(e: { kind: "title" | "pwd" | "bell"; value?: string }): void;
+  /** A line the daemon wants shown to the user; a corpse ignoring input, for one. */
+  onNotice?(message: string): void;
 }
 
 export interface Attachment extends AttachResult {
@@ -277,6 +281,10 @@ export class Client {
         if (msg.id === this.attachedId)
           this.attachment?.onEffect?.({ kind: msg.kind, value: msg.value });
         return;
+      case "notice":
+        if (msg.id === this.attachedId)
+          this.attachment?.onNotice?.(msg.message);
+        return;
     }
   }
 
@@ -415,6 +423,14 @@ export class Client {
   /** The session's viewport as the daemon's emulator holds it. */
   screen(id: string): Promise<ScreenResult> {
     return this.request<ScreenResult>({ t: "screen", id });
+  }
+
+  /** The session's emulator as `GHOSTSNP` bytes, decoded from the reply's base64. */
+  async snapshot(
+    id: string,
+  ): Promise<Omit<SnapshotResult, "bytes"> & { bytes: Uint8Array }> {
+    const r = await this.request<SnapshotResult>({ t: "snapshot", id });
+    return { ...r, bytes: new Uint8Array(Buffer.from(r.bytes, "base64")) };
   }
 
   stats(): Promise<DaemonStats> {

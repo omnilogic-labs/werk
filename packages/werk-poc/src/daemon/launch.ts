@@ -7,11 +7,12 @@
 // is an optimisation and an error channel — it lets the launcher learn a
 // lock-held failure immediately and, on the happy path, learn readiness in
 // one round trip rather than by polling. It is not the source of truth:
-// `proc.stdio[3]` is a non-blocking fd read through `Bun.file(fd).text()`,
-// and under load (many open fds, a busy event loop) that read was seen to
-// stall past a ten-second deadline in `bun test`, so the launcher never
-// waits on it alone — it polls the socket for a successful `hello` as the
-// authority and treats the pipe read as best-effort (findings/m2.md).
+// `proc.stdio[3]` is a non-blocking fd, read here with `fs.readSync` and a
+// short wait on EAGAIN, and M2 saw the equivalent `Bun.file(fd).text()`
+// stall past a ten-second deadline under load in `bun test`, so the
+// launcher never waits on it alone — it polls the socket for a successful
+// `hello` as the authority and treats the pipe read as best-effort
+// (findings/m2.md). The fd is never closed by hand; see `readPipe`.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -74,16 +75,40 @@ export async function spawnDaemon(
   const fd = proc.stdio[3];
   if (typeof fd !== "number")
     throw new Error("Bun.spawn gave no fd for stdio[3]");
-  const report = await Promise.race([
-    Bun.file(fd).text(),
-    Bun.sleep(opts.pipeTimeoutMs ?? PIPE_TIMEOUT_MS).then(() => ""),
-  ]).finally(() => {
-    try {
-      fs.closeSync(fd);
-    } catch {}
-  });
+  const report = await readPipe(fd, opts.pipeTimeoutMs ?? PIPE_TIMEOUT_MS);
   proc.unref();
   return { pid: proc.pid, report, ms: performance.now() - t0 };
+}
+
+/**
+ * Reads the readiness pipe to EOF or until `timeoutMs` passes, with plain
+ * `fs.readSync` on the non-blocking fd (EAGAIN → wait a few ms → again).
+ * The fd is deliberately never closed here: Bun's `Subprocess` owns it and
+ * closes it when the subprocess object is collected, and closing it first
+ * lets the number be reused by the next socket, which Bun's later close
+ * then kills without the socket's owner hearing about it. That was the
+ * mechanism behind M2's "a later Bun.connect client in the same process
+ * breaks" (spikes/m3/fd-reuse.ts, findings/m3.md).
+ */
+async function readPipe(fd: number, timeoutMs: number): Promise<string> {
+  const buf = Buffer.alloc(4096);
+  const chunks: Buffer[] = [];
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    let n: number;
+    try {
+      n = fs.readSync(fd, buf, 0, buf.length, null);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "EAGAIN") {
+        await Bun.sleep(5);
+        continue;
+      }
+      throw e;
+    }
+    if (n === 0) return Buffer.concat(chunks).toString("utf8");
+    chunks.push(Buffer.from(buf.subarray(0, n)));
+  }
+  return "";
 }
 
 export interface EnsureOptions extends LaunchOptions {

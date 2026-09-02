@@ -1,6 +1,9 @@
 // The socket server: accepts connections, runs the hello handshake,
-// dispatches control messages to sessions. Lifecycle (lock, bind, rename,
-// readiness) is in main.ts; this file only needs a directory to bind in.
+// dispatches control messages to sessions, and owns the snapshot cycle:
+// restore corpses from the state directory before listening, encode dirty
+// sessions to disk on a timer, once more when a child exits, and every
+// session on shutdown. Lifecycle (lock, bind, rename, readiness) is in
+// main.ts; this file only needs the directories.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -23,18 +26,33 @@ import {
   type RunResult,
   type ScreenResult,
   type SessionInfo,
+  type SnapshotResult,
+  type SnapshotStats,
 } from "../protocol/index.ts";
 import { Connection, QUEUE_BOUND } from "./connection.ts";
 import type { DaemonPaths } from "./paths.ts";
 import { Session } from "./session.ts";
+import {
+  deleteSnapshot,
+  listSnapshotFiles,
+  readSnapshot,
+  writeSnapshot,
+} from "./snapshot.ts";
 
 export interface DaemonServer {
   paths: DaemonPaths;
   sessions: Map<string, Session>;
-  /** Called by the shutdown message and by SIGTERM; M3's snapshot-on-exit goes in here. */
+  /** Called by the shutdown message and by SIGTERM: snapshots every session, then exits. */
   shutdown(reason: string): void;
   log(line: string): void;
 }
+
+export interface ServerOptions {
+  /** How often dirty sessions are written to disk. Default 30 s. */
+  snapshotIntervalMs?: number;
+}
+
+export const DEFAULT_SNAPSHOT_INTERVAL_MS = 30_000;
 
 export function helloInfo(): HelloInfo {
   return { protocol: PROTOCOL_VERSION, wp: WP_VERSION, engine: GHOSTTY_COMMIT };
@@ -52,6 +70,7 @@ class ProtocolError extends Error {
 export async function startServer(
   paths: DaemonPaths,
   log: (line: string) => void,
+  opts: ServerOptions = {},
 ): Promise<DaemonServer> {
   await import("../engine/ghostty-wasm/bun.ts");
   const sessions = new Map<string, Session>();
@@ -59,6 +78,94 @@ export async function startServer(
   const startedAt = Date.now();
   let seq = 0;
   let stopping = false;
+  const snapshotIntervalMs =
+    opts.snapshotIntervalMs ?? DEFAULT_SNAPSHOT_INTERVAL_MS;
+  const snapStats: SnapshotStats = {
+    stateDir: paths.state,
+    intervalMs: snapshotIntervalMs,
+    ticks: 0,
+    written: { timer: 0, exit: 0, shutdown: 0 },
+    slowest: null,
+    restore: { files: 0, ms: 0 },
+  };
+
+  // -- snapshots -------------------------------------------------------------
+
+  /**
+   * Encode one session and write its file. A corpse is never re-encoded:
+   * its screen cannot change and its file is already on disk (a mismatch
+   * corpse has no emulator to encode anyway).
+   */
+  function snapshot(s: Session, why: keyof SnapshotStats["written"]): boolean {
+    if (s.status === "corpse") return false;
+    const at = Date.now();
+    const snap = s.snapshot();
+    if (!snap) return false;
+    const t0 = performance.now();
+    const size = writeSnapshot(
+      paths.state,
+      s.snapshotHeader(GHOSTTY_COMMIT, at),
+      snap.bytes,
+    );
+    const writeMs = performance.now() - t0;
+    s.snapshotAt = at;
+    snapStats.written[why]++;
+    if (!snapStats.slowest || snap.encodeMs > snapStats.slowest.encodeMs)
+      snapStats.slowest = {
+        id: s.id,
+        bytes: snap.bytes.byteLength,
+        encodeMs: snap.encodeMs,
+      };
+    log(
+      `snapshot ${s.id} (${why}): ${snap.bytes.byteLength} B encoded in ${snap.encodeMs.toFixed(2)} ms, ${size} B written in ${writeMs.toFixed(2)} ms`,
+    );
+    return true;
+  }
+
+  function onTimer(): void {
+    snapStats.ticks++;
+    for (const s of sessions.values()) if (s.dirty) snapshot(s, "timer");
+  }
+
+  /** Restore every file in the state directory as a corpse; runs before the socket is up. */
+  async function restoreAll(): Promise<void> {
+    const files = listSnapshotFiles(paths.state);
+    if (files.length === 0) return;
+    const t0 = performance.now();
+    const engine = await getEngine("ghostty-wasm");
+    for (const file of files) {
+      let snap;
+      try {
+        snap = readSnapshot(file);
+      } catch (e) {
+        log(`snapshot ${file}: unreadable, left in place: ${String(e)}`);
+        continue;
+      }
+      if (sessions.has(snap.header.id)) {
+        log(`snapshot ${file}: id ${snap.header.id} already restored; skipped`);
+        continue;
+      }
+      try {
+        const s = Session.restore({
+          header: snap.header,
+          bytes: snap.bytes,
+          engine: snap.header.engine === engine.id ? engine : null,
+          daemonGhostty: GHOSTTY_COMMIT,
+          log,
+        });
+        sessions.set(s.id, s);
+      } catch (e) {
+        log(`snapshot ${file}: decode failed, left in place: ${String(e)}`);
+      }
+    }
+    snapStats.restore = { files: files.length, ms: performance.now() - t0 };
+    log(
+      `restored ${sessions.size} of ${files.length} snapshot files in ${snapStats.restore.ms.toFixed(1)} ms`,
+    );
+  }
+
+  await restoreAll();
+  const timer = setInterval(onTimer, snapshotIntervalMs);
 
   const host = {
     log,
@@ -113,6 +220,11 @@ export async function startServer(
           rows: msg.rows,
           engine,
           log,
+          // The final screen, once the child's last bytes are in.
+          onExit: (ended) => {
+            if (!stopping && sessions.get(ended.id) === ended)
+              snapshot(ended, "exit");
+          },
         });
         sessions.set(id, s);
         return { id } satisfies RunResult;
@@ -157,6 +269,7 @@ export async function startServer(
         }
         s.dispose();
         sessions.delete(s.id);
+        deleteSnapshot(paths.state, s.id);
         return { id: s.id, action: "removed" } satisfies KillResult;
       }
       case "logs": {
@@ -169,6 +282,27 @@ export async function startServer(
       }
       case "screen":
         return session(msg.id).screen() satisfies ScreenResult;
+      case "snapshot": {
+        // The live emulator as GHOSTSNP bytes, for a client running the same
+        // libghostty (the browser, M4). Does not touch the file or `dirty`:
+        // this is a read, not a checkpoint.
+        const s = session(msg.id);
+        const snap = s.snapshot();
+        if (!snap)
+          throw new ProtocolError(
+            "no-snapshot",
+            `session ${s.id} has nothing to encode`,
+          );
+        return {
+          id: s.id,
+          engine: s.engineId,
+          ghostty: GHOSTTY_COMMIT,
+          cols: s.cols,
+          rows: s.rows,
+          bytes: Buffer.from(snap.bytes).toString("base64"),
+          encodeMs: snap.encodeMs,
+        } satisfies SnapshotResult;
+      }
       case "stats":
         return {
           pid: process.pid,
@@ -177,6 +311,7 @@ export async function startServer(
           sessions: sessions.size,
           connections: [...connections].map((c) => c.stats()),
           queueBound: QUEUE_BOUND,
+          snapshots: snapStats,
         } satisfies DaemonStats;
       case "shutdown":
         queueMicrotask(() => server.shutdown("shutdown message"));
@@ -193,8 +328,13 @@ export async function startServer(
     if (frame.type === FrameType.input) {
       if (!conn.helloDone)
         throw new ProtocolError("hello-first", "input before hello");
-      if (conn.attached && !conn.attached.readOnly)
-        sessions.get(conn.attached.id)?.input(frame.payload);
+      if (conn.attached) {
+        // A read-only attacher's bytes are dropped here; a corpse (always
+        // read-only) sees them so it can say once that they go nowhere.
+        const s = sessions.get(conn.attached.id);
+        if (s && (!conn.attached.readOnly || s.status === "corpse"))
+          s.input(frame.payload, conn);
+      }
       return;
     }
     if (frame.type !== FrameType.control)
@@ -303,7 +443,15 @@ export async function startServer(
       if (stopping) return;
       stopping = true;
       log(`shutting down: ${reason}`);
-      // M3: snapshot every session to disk here, before the children go.
+      clearInterval(timer);
+      // Every session to disk before the children go, dirty or not: the
+      // file's header records the status and exit code at this moment.
+      const t0 = performance.now();
+      let n = 0;
+      for (const s of sessions.values()) if (snapshot(s, "shutdown")) n++;
+      log(
+        `shutdown snapshots: ${n} of ${sessions.size} sessions in ${(performance.now() - t0).toFixed(1)} ms`,
+      );
       for (const c of connections) c.end();
       for (const s of sessions.values()) s.dispose();
       sessions.clear();

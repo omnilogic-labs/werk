@@ -62,6 +62,14 @@ export function terminalSize(): { cols: number; rows: number } {
   };
 }
 
+export function age(since: number): string {
+  const s = Math.max(0, Math.round((Date.now() - since) / 1000));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
+
 /** A synchronous, ordered write of every byte. */
 export function writeAll(fd: number, bytes: Uint8Array): void {
   let off = 0;
@@ -129,6 +137,18 @@ export async function attachInteractive(
     trace(`emit ${bytes.length} held=${held !== null}`);
     if (held) held.push(bytes);
     else writeAll(fd, bytes);
+  };
+  /**
+   * A line on the terminal's bottom row, inverse video, with the cursor
+   * put back where it was: for a corpse's label and for notices. A corpse's
+   * screen never changes, so nothing repaints over it until the user
+   * detaches; on a live session the next output that scrolls will.
+   */
+  const banner = (text: string) => {
+    const line = text.slice(0, size.cols);
+    emit(
+      enc.encode(`\x1b7\x1b[${size.rows};1H\x1b[0;7m${line}\x1b[K\x1b[0m\x1b8`),
+    );
   };
 
   // Every route out of the process restores the terminal. SIGINT and SIGTERM
@@ -205,6 +225,7 @@ export async function attachInteractive(
       onResumed: () => {
         lagging = false;
       },
+      onNotice: (message) => banner(message),
     });
   } catch (e) {
     restore(false);
@@ -228,6 +249,21 @@ export async function attachInteractive(
   const pending = held;
   held = null;
   for (const b of pending) writeAll(fd, b);
+  if (attached.status === "corpse") {
+    // Restored from a snapshot: read-only, nothing will ever change, and
+    // the user leaves with the detach key as with a live session. The
+    // label is one line on the bottom row, so what matters comes first
+    // and the command, which can be long, is what truncation drops.
+    const info = (await client.ls().catch(() => []))?.find((s) => s.id === id);
+    const when = info?.snapshotAt
+      ? `snapshotted ${age(info.snapshotAt)} ago`
+      : "snapshot";
+    const label =
+      info?.corpse?.reason === "mismatch"
+        ? `[corpse: not decoded, ghostty ${info.corpse.snapshotEngine.slice(0, 8)} vs this wp's ${info.corpse.daemonEngine.slice(0, 8)}; ctrl-\\ to leave]`
+        : `[corpse: ${when}, read-only; ctrl-\\ to leave] ${(info?.argv ?? [id]).join(" ")}`;
+    banner(label);
+  }
 
   const detach = async () => {
     if (detaching) return;

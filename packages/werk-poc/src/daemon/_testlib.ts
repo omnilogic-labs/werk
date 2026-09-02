@@ -11,6 +11,13 @@ import {
   type Attachment,
 } from "../client/index.ts";
 
+// Every daemon a test starts inherits this environment, so point snapshots
+// at a directory of their own rather than the user's real state directory.
+// One per test process, removed by `stopDaemon` (the process's `exit` hook
+// was not seen to run under `bun test`); a later file's daemon recreates it.
+const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), "wp-m2-state-"));
+process.env.WP_STATE_DIR = stateRoot;
+
 export const sleep = (ms: number) =>
   new Promise<void>((r) => setTimeout(r, ms));
 
@@ -72,6 +79,7 @@ export async function stopDaemon(
     }
   }
   fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(stateRoot, { recursive: true, force: true });
 }
 
 /** A client attached with all output captured as text. */

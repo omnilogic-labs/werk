@@ -22,7 +22,7 @@ usage:
   wp run [--engine=ghostty-wasm] [--cols N --rows N] -- <command...>
                                                spawn under a PTY in the daemon, attach
                                                (ctrl-\\ detaches; without a tty: print the id)
-  wp ls                                        id, command, engine, status, title, age, clients
+  wp ls                                        id, command, engine, status, title, age, snapshot, clients
   wp attach [--read-only] <id>                 come back to a session
   wp logs [--vt] <id>                          dump the whole screen incl. scrollback
   wp kill [--signal SIG] [--rm] <id>           signal a running session; --rm removes an exited one
@@ -102,6 +102,14 @@ function age(since: number): string {
   return `${Math.floor(s / 86400)}d`;
 }
 
+/** The STATUS column: `running`, `exited(code)`, `corpse`, or `corpse(mismatch abcd1234/ef567890)`. */
+function statusOf(s: import("../protocol/index.ts").SessionInfo): string {
+  if (s.status === "exited") return `exited(${s.signalCode ?? s.exitCode})`;
+  if (s.status === "corpse" && s.corpse?.reason === "mismatch")
+    return `corpse(mismatch ${s.corpse.snapshotEngine.slice(0, 8)}/${s.corpse.daemonEngine.slice(0, 8)})`;
+  return s.status;
+}
+
 async function withClient(
   autostart: boolean,
   body: (client: import("../client/index.ts").Client) => Promise<number>,
@@ -135,11 +143,10 @@ async function ls(): Promise<number> {
       s.id,
       s.argv.join(" "),
       s.engine,
-      s.status === "exited"
-        ? `exited(${s.signalCode ?? s.exitCode})`
-        : s.status,
+      statusOf(s),
       s.title,
       age(s.createdAt),
+      s.snapshotAt ? `${age(s.snapshotAt)} ago` : "-",
       String(s.attachedClients),
     ]);
     const head = [
@@ -149,6 +156,7 @@ async function ls(): Promise<number> {
       "STATUS",
       "TITLE",
       "AGE",
+      "SNAPSHOT",
       "CLIENTS",
     ];
     const widths = head.map((h, i) =>

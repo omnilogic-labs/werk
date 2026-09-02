@@ -3,19 +3,39 @@
 // signals for control. `--dir=<path>` overrides the runtime directory;
 // `--ready-fd=<n>` names the pipe the launcher is waiting on. Both are
 // passed by the launcher and absent when a human runs it by hand.
+// `--state-dir=<path>` and `--snapshot-interval=<ms>` override the snapshot
+// directory and timer; the launcher passes neither, so a test sets
+// `WP_STATE_DIR` and `WP_SNAPSHOT_INTERVAL_MS` in the environment the
+// daemon inherits instead.
 
 import fs from "node:fs";
 import { tryLock } from "./flock.ts";
-import { daemonPaths, defaultRuntimeDir, ensureRuntimeDir } from "./paths.ts";
-import { startServer } from "./server.ts";
+import {
+  daemonPaths,
+  defaultRuntimeDir,
+  defaultStateDir,
+  ensureRuntimeDir,
+} from "./paths.ts";
+import { ensureStateDir } from "./snapshot.ts";
+import { DEFAULT_SNAPSHOT_INTERVAL_MS, startServer } from "./server.ts";
 
 export const READY_TOKEN = "ready\n";
 
 export async function daemonMain(args: string[]): Promise<number> {
   let dir = defaultRuntimeDir();
+  let stateDir = defaultStateDir();
   let readyFd: number | null = null;
+  const envInterval = Number(process.env.WP_SNAPSHOT_INTERVAL_MS);
+  let snapshotIntervalMs =
+    Number.isFinite(envInterval) && envInterval > 0
+      ? envInterval
+      : DEFAULT_SNAPSHOT_INTERVAL_MS;
   for (const a of args) {
     if (a.startsWith("--dir=")) dir = a.slice("--dir=".length);
+    else if (a.startsWith("--state-dir="))
+      stateDir = a.slice("--state-dir=".length);
+    else if (a.startsWith("--snapshot-interval="))
+      snapshotIntervalMs = Number(a.slice("--snapshot-interval=".length));
     else if (a.startsWith("--ready-fd="))
       readyFd = Number(a.slice("--ready-fd=".length));
     else {
@@ -35,12 +55,13 @@ export async function daemonMain(args: string[]): Promise<number> {
 
   try {
     ensureRuntimeDir(dir);
+    ensureStateDir(stateDir);
   } catch (e) {
     report(`error: ${String((e as Error).message ?? e)}\n`);
     console.error(String(e));
     return 1;
   }
-  const paths = daemonPaths(dir);
+  const paths = daemonPaths(dir, stateDir);
 
   const lock = tryLock(paths.lock);
   if (!lock) {
@@ -58,7 +79,7 @@ export async function daemonMain(args: string[]): Promise<number> {
 
   let server;
   try {
-    server = await startServer(paths, log);
+    server = await startServer(paths, log, { snapshotIntervalMs });
   } catch (e) {
     log(`failed to start: ${(e as Error)?.stack ?? e}`);
     report(`error: ${String((e as Error).message ?? e)}\n`);
@@ -66,6 +87,9 @@ export async function daemonMain(args: string[]): Promise<number> {
     return 1;
   }
 
+  // Each of these ends in the same graceful shutdown, snapshots included.
+  // They are delivered to the detached daemon (setsid, no tty) as to any
+  // process; the M3 tests send a real SIGTERM to the pid and check the files.
   for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
     process.on(sig, () => server.shutdown(sig));
   }

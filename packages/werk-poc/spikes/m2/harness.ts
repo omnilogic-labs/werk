@@ -72,6 +72,8 @@ export function tempEnv(wp: string): TestEnv {
       TERM: "xterm-256color",
       LANG: "C.UTF-8",
       XDG_RUNTIME_DIR: root,
+      // Snapshots go under the temporary root too, never the real state dir.
+      XDG_STATE_HOME: path.join(root, "state"),
       WP_TRACE: path.join(root, "trace.log"),
       // A prompt with no colour and no cwd, so screens are predictable.
       PS1: "$ ",
