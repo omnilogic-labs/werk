@@ -72,7 +72,7 @@ export async function startServer(
   log: (line: string) => void,
   opts: ServerOptions = {},
 ): Promise<DaemonServer> {
-  await import("../engine/ghostty-wasm/bun.ts");
+  await import("../engine/all.ts");
   const sessions = new Map<string, Session>();
   const connections = new Set<Connection>();
   const startedAt = Date.now();
@@ -202,10 +202,12 @@ export async function startServer(
   ): Promise<unknown> {
     switch (msg.t) {
       case "run": {
-        const engine: VtEngine = await getEngine(msg.engine).catch(() => {
+        // Loaded on demand; an engine that cannot load (the ffi library
+        // failing to open, say) is reported with its own reason.
+        const engine: VtEngine = await getEngine(msg.engine).catch((e) => {
           throw new ProtocolError(
             "no-such-engine",
-            `no engine "${msg.engine}"`,
+            `engine "${msg.engine}": ${(e as Error).message}`,
           );
         });
         if (!Array.isArray(msg.argv) || msg.argv.length === 0)

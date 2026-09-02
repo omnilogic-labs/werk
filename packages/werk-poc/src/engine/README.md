@@ -7,9 +7,10 @@ The terminal engine seam and its adapters.
 | `types.ts`      | `VtEngine` / `VtTerminal` from the proposal, §5, with `Unsupported`, `Cell`, `Row`, `Frame`, `Effect`, `KeyEvent`, `MouseEvent`, `TerminalModes` and co |
 | `registry.ts`   | Adapters register by id; `getEngine(id)` constructs one lazily                                                                                          |
 | `caps.ts`       | `capabilityMatrix(engines)`: the §5 matrix as a markdown table read off each engine's `caps`; `wp caps` prints it                                       |
+| `all.ts`        | Imports every adapter's registry entry: `wp caps`, `wp bench diff` and the daemon use it                                                                |
 | `ghostty-wasm/` | The adapter over upstream's freestanding WASM build (M1)                                                                                                |
-
-`ghostty-ffi` and the `xterm-oracle` arrive at M6.
+| `ghostty-ffi/`  | The adapter over `libghostty-vt` (`prime-radiant-inc/ts-libghostty`), a prebuilt libghostty reached through `bun:ffi` (M6)                              |
+| `xterm-oracle/` | Headless xterm.js 6 behind the seam, for the differential corpus only (M6)                                                                              |
 
 ## `ghostty-wasm/`
 
@@ -99,3 +100,37 @@ function pointer is an index into the exported function table;
 `g.hostFunction(signature, fn)` puts a JS function there through a
 one-function trampoline module and returns the index, which is what
 `ghostty_terminal_set` takes for a callback option.
+
+## `ghostty-ffi/`
+
+| File          | What it is                                                                                                                                                                                                                |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`    | `GhosttyFfiEngine` / `GhosttyFfiTerminal` over the binding's `Terminal`, `RenderState`, `Formatter` and `KeyEncoder`; the module namespace is injected so a dlopen failure surfaces at engine load                        |
+| `bun.ts`      | `loadGhosttyFfiEngine()` and the registry entry. Embeds the binding's five prebuild pairs with `import ... with { type: "file" }` and, inside a compiled binary, extracts the host's pair to disk before the first dlopen |
+| `ffi.test.ts` | Against the WASM adapter on the same bytes, the binding's effects, the consumer fan-out, the `Unsupported` reasons                                                                                                        |
+
+The binding pins Ghostty `e88c6c09` (2026-04-23); the WASM adapter pins
+`3c1ef5b3` (2026-09-01). The two are four months apart, and the corpus
+shows it (findings/m6.md). What the binding does not reach comes back as
+`Unsupported`: the snapshot codec, the mouse encoder. It has no pwd,
+progress or notification callback either, so `onEffect` reports bell,
+title and write-pty only. All reads go through one shared `RenderState`
+refreshed in `sync()`, because the binding's own doc says a second
+`RenderState` (which `Terminal.renderToAnsiRect` allocates) consumes the
+terminal's dirty flags behind the first one's back.
+
+## `xterm-oracle/`
+
+| File             | What it is                                                                                                                              |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`       | `XtermOracleEngine` / `XtermOracleTerminal` over `@xterm/headless` with `reflowCursorLine`, the unicode11 addon and the serialize addon |
+| `bun.ts`         | The registry entry                                                                                                                      |
+| `oracle.test.ts` | The queue and `flush()`, what it reads back, the effects hooks, the `Unsupported` answers                                               |
+
+xterm's `write` is asynchronous, so the adapter queues writes and resizes
+in order and exposes `flush(): Promise<void>`; read `plainText`,
+`styledCells` or `emitVt` only after `await term.flush()`. Effects come
+through `parser.registerOscHandler` (0/2 title, 7 pwd, 9 notification and
+9;4 progress, 777 notification, 133 as `other`), `onBell`, and `onData`
+for query replies. Everything the corpus does not compare answers
+`Unsupported("not a candidate; oracle only")`.

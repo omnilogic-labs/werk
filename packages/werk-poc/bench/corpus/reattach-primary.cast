@@ -1,0 +1,13 @@
+{"version":2,"width":60,"height":12,"title":"reattach then resize, primary screen"}
+[0,"o","$ ls --color\r\n"]
+[0.01,"o","\u001b[1;34mdir0\u001b[0m  \u001b[32mexec0\u001b[0m  plain0  file-with-a-long-name-file-with-a-long-name-0.txt\r\n"]
+[0.02,"o","\u001b[1;34mdir1\u001b[0m  \u001b[32mexec1\u001b[0m  plain1  file-with-a-long-name-file-with-a-long-name-1.txt\r\n"]
+[0.03,"o","\u001b[1;34mdir2\u001b[0m  \u001b[32mexec2\u001b[0m  plain2  file-with-a-long-name-file-with-a-long-name-2.txt\r\n"]
+[0.04,"o","\u001b[1;34mdir3\u001b[0m  \u001b[32mexec3\u001b[0m  plain3  file-with-a-long-name-file-with-a-long-name-3.txt\r\n"]
+[0.05,"o","\u001b[1;34mdir4\u001b[0m  \u001b[32mexec4\u001b[0m  plain4  file-with-a-long-name-file-with-a-long-name-4.txt\r\n"]
+[0.06,"o","\u001b[1;34mdir5\u001b[0m  \u001b[32mexec5\u001b[0m  plain5  file-with-a-long-name-file-with-a-long-name-5.txt\r\n"]
+[0.07,"o","The quick brown fox jumps over the lazy dog while the daemon keeps the PTY open and the client comes and goes; every byte the child writes is fed to the emulator once and re-emitted to whoever attaches next, so what the viewer sees is the screen and not the stream. The quick brown fox jumps over the lazy dog while the daemon keeps the PTY open and the client comes and goes; every byte the child writes is fed to the emulator once and re-emitted to whoever attaches next, so what the viewer sees is the screen and not the stream. \r\n"]
+[0.08,"o","\u001b[44m\u001b[K\u001b[0m\r\n"]
+[0.09,"o","\u001b]8;;https://example.com\u001b\\a link\u001b]8;;\u001b\\ and \u001b[4munderlined\u001b[0m\r\n"]
+[0.1,"o","$ "]
+[0.11,"r","100x12"]

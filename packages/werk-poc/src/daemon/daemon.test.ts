@@ -297,6 +297,6 @@ test("a slow client lags and is re-rendered; a fast one keeps receiving; memory 
 
 test("an unknown engine is refused", async () => {
   await expect(
-    client.run({ argv: ["sh"], engine: "ghostty-ffi" }),
-  ).rejects.toThrow(/no engine/);
+    client.run({ argv: ["sh"], engine: "ghostty-native-2" }),
+  ).rejects.toThrow(/no engine registered/);
 });

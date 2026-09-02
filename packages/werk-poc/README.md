@@ -24,7 +24,8 @@ the product directly. What matters is what is written down in `findings/`.
 | `spikes/m2/`    | M2's reattach-fidelity harness: the compiled `wp` in a PTY      |
 | `spikes/m3/`    | M3's cross-commit decode, snapshot cost, and fd-reuse probes    |
 | `spikes/m5/`    | M5's transport spike: the daemon in a container behind `ssh -L` |
-| `bench/`        | The `wp bench` measurements (M6)                                |
+| `spikes/m6/`    | M6's compiled-binary check for the ffi binding and the oracle   |
+| `bench/`        | `wp bench diff`: the differential corpus and its runner (M6)    |
 | `findings/m4/`  | Screenshots from M4's browser check                             |
 | `vendor/`       | Pinned upstream artifacts (libghostty WASM, `ghostty-web`)      |
 | `findings/`     | What each milestone found, one file per milestone               |
@@ -43,12 +44,16 @@ $ bun run m0 -- --bun /path/to/other/bun   # the same under another Bun
 $ bun run m2                 # the reattach-fidelity scenarios, as a table
 $ bun run m3                 # snapshot cost and cross-commit decode tables
 $ bun run m5 -- --rtt 0,50,200   # the transport spike; needs Docker, ~6 min
+$ bun run bench/differential.ts --fuzz 50   # the differential corpus, all three engines
 ```
 
 And the program itself, once built:
 
 ```console
 $ ./dist/wp run -- claude    # spawn under a PTY in the daemon and attach; ctrl-\ detaches
+$ ./dist/wp run --engine=ghostty-ffi -- claude   # the same on the ffi engine
+$ ./dist/wp caps             # the capability matrix, one column per engine
+$ ./dist/wp bench diff       # the differential corpus
 $ ./dist/wp ls
 $ ./dist/wp attach <id>
 $ ./dist/wp logs <id>

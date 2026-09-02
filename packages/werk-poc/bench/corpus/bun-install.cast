@@ -1,0 +1,5 @@
+{"version":2,"width":80,"height":24,"timestamp":1788335910,"title":"sh -c cd '/tmp/wp-corpus-rec' && bun install --no-cache 2>&1","env":{"TERM":"xterm-256color"}}
+[0.002648,"o","\u001b[0m\u001b[1mbun install \u001b[0m\u001b[2mv1.3.14 (0d9b296a)\u001b[0m\r\n"]
+[0.002999,"o","  🔍 Resolving [1/3] "]
+[0.393286,"o","\u001b[23D\u001b[0K  🚚 is-number [17/16] \u001b[25D\u001b[0K"]
+[0.393811,"o","  🔒 Saving lockfile... \u001b[26D\u001b[0K\r\n\u001b[0m\u001b[32m+\u001b[0m \u001b[1mchalk\u001b[0m\u001b[2m@5.3.0\u001b[0m \u001b[2m(\u001b[34mv6.0.0 available\u001b[0m\u001b[2m)\u001b[0m\r\n\u001b[0m\u001b[32m+\u001b[0m \u001b[1mis-odd\u001b[0m\u001b[2m@3.0.1\u001b[0m\r\n\u001b[0m\u001b[32m+\u001b[0m \u001b[1mleft-pad\u001b[0m\u001b[2m@1.3.0\u001b[0m\r\n\r\n\u001b[32m4\u001b[0m packages\u001b[0m installed \u001b[0m\u001b[2m[\u001b[1m392.00ms\u001b[0m\u001b[2m]\u001b[0m\u001b[0m\r\n"]

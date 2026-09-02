@@ -1,0 +1,7 @@
+{"version":2,"width":40,"height":6,"title":"interrupted mid-OSC"}
+[0,"o","\u001b]2;half a ti"]
+[0.01,"o","tle\u0007"]
+[0.02,"o","\u001b]8;;http://exam"]
+[0.03,"o","ple.com\u001b\\link\u001b]8;;\u001b\\ plain\r\n"]
+[0.04,"o","\u001b]9;4;1;"]
+[0.05,"o","42\u0007after progress\r\n"]

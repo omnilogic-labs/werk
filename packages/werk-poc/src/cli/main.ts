@@ -27,7 +27,9 @@ usage:
   wp logs [--vt] <id>                          dump the whole screen incl. scrollback
   wp kill [--signal SIG] [--rm] <id>           signal a running session; --rm removes an exited one
   wp serve [--port N]                          loopback web UI: session list, live terminals
-  wp bench                                     the measurements in the proposal, §6
+  wp bench diff [--fuzz N] [--seed N] [--verbose] [case...]
+                                               the differential corpus across the three engines
+  wp bench                                     the other measurements in the proposal, §6
   wp caps                                      the capability matrix, one column per engine
   wp __daemon                                  hidden; not typed by a human
 
@@ -35,7 +37,7 @@ Every command but __daemon takes --socket <path> (or WP_SOCKET in the
 environment): talk to the daemon behind that socket — one forwarded with
 ssh -L from another machine, say — and never start one.
 
-bench does nothing yet.`;
+bench diff is the only bench so far.`;
 
 interface Parsed {
   flags: Map<string, string | true>;
@@ -45,7 +47,16 @@ interface Parsed {
 }
 
 /** Flags that take a value; every other `--x` is boolean. */
-const VALUED = new Set(["engine", "cols", "rows", "signal", "port", "socket"]);
+const VALUED = new Set([
+  "engine",
+  "cols",
+  "rows",
+  "signal",
+  "port",
+  "socket",
+  "fuzz",
+  "seed",
+]);
 
 function parse(argv: string[]): Parsed {
   const out: Parsed = { flags: new Map(), positional: [], rest: [] };
@@ -91,10 +102,34 @@ function oneId(p: Parsed, cmd: string): string {
 
 async function caps(): Promise<number> {
   const { capabilityMatrix } = await import("../engine/caps.ts");
-  const { engineIds, getEngine } = await import("../engine/registry.ts");
-  await import("../engine/ghostty-wasm/bun.ts");
-  const engines = await Promise.all(engineIds().map((id) => getEngine(id)));
+  const { engineIds, getEngine } = await import("../engine/all.ts");
+  const engines = [];
+  for (const id of engineIds()) {
+    try {
+      engines.push(await getEngine(id));
+    } catch (e) {
+      console.error(`wp caps: ${id} did not load: ${(e as Error).message}`);
+    }
+  }
   console.log(capabilityMatrix(engines));
+  return 0;
+}
+
+async function bench(p: Parsed): Promise<number> {
+  const [sub, ...cases] = p.positional;
+  if (sub !== "diff") {
+    console.error("wp bench: only `wp bench diff` exists so far");
+    return 2;
+  }
+  const { runDifferential } = await import("../../bench/differential.ts");
+  const fuzz = intFlag(p, "fuzz");
+  const seed = intFlag(p, "seed");
+  await runDifferential({
+    cases,
+    fuzz,
+    seed,
+    verbose: p.flags.has("verbose"),
+  });
   return 0;
 }
 
@@ -315,8 +350,7 @@ export async function main(argv: string[]): Promise<number> {
       case "serve":
         return await serve(p);
       case "bench":
-        console.error(`wp ${cmd}: not implemented yet`);
-        return 2;
+        return await bench(p);
       default:
         console.error(`wp: unknown command "${cmd}"\n`);
         console.error(USAGE);

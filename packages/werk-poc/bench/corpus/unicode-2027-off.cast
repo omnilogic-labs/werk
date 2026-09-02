@@ -1,0 +1,3 @@
+{"version":2,"width":40,"height":16,"title":"unicode torture, DEC 2027 off"}
+[0,"o","\u001b[?2027l"]
+[0.01,"o","ZWJ family: 👨‍👩‍👧 end\r\nskin tones: 👍🏽 👋🏿 end\r\nflags: 🇬🇧🇯🇵🇺🇳 end\r\ndevanagari: नमस्ते क्षत्रिय end\r\ncjk/ascii: 漢字abc全角ＡＢＣ日本語 end\r\narabic: مرحبا بالعالم end\r\nhebrew: שלום עולם end\r\ncombining: é ä ñ ộ end\r\nwide at last col: x日本\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx字tail\r\nemoji presentation: ☺ ☺️ ✔ ✔️ ❤️ end\r\nzero width: a​b‌c‍d end\r\ntabs:\ta\tb\tc end\r\n"]

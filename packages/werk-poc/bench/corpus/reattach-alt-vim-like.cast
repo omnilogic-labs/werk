@@ -1,0 +1,5 @@
+{"version":2,"width":40,"height":8,"title":"reattach then resize, alternate screen, vim-like"}
+[0,"o","\u001b[?1049h\u001b[2J\u001b[H"]
+[0.01,"o","first line of the file\r\nsecond line\r\n\u001b[1;34m~\u001b[0m\r\n\u001b[1;34m~\u001b[0m\r\n\u001b[1;34m~\u001b[0m\r\n\u001b[1;34m~\u001b[0m\r\n"]
+[0.02,"o","\u001b[8;1H\u001b[7m file.txt  2L, 34B \u001b[0m\u001b[8;30H2,1\u001b[2;3H"]
+[0.03,"r","60x12"]
