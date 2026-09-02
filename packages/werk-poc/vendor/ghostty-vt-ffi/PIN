@@ -1,0 +1,13 @@
+{
+  "ghosttyCommit": "e88c6c099152dd6d2d7e517516e1f3c183c152f7",
+  "tsLibghosttyCommit": "174a418257a7dd30a28929e9ff9b8a978b074526",
+  "libghosttyVtVersion": "0.6.3",
+  "zig": "0.15.2",
+  "chosen": "the ghostty commit libghostty-vt@0.6.3 pins in its own package.json `ghostty.commit`; the binding's struct offsets in src/internal/generated.ts were probed from it, so a win32 build has to come from the same commit or the ABI may silently disagree",
+  "artifacts": {
+    "win32-x64/ghostty-vt.dll": {
+      "size": 1629696,
+      "sha256": "21892040fce27f2ccba9d8099b89304616967510a600933d2760554d08409870"
+    }
+  }
+}

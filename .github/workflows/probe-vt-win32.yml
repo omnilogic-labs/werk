@@ -1,0 +1,160 @@
+# Does the fast (ffi) engine work on Windows?
+#
+# `libghostty-vt` ships no win32 prebuild, so the PoC vendors one it builds
+# itself (packages/werk-poc/vendor/ghostty-vt-ffi/build.md). This probe asks
+# three questions of increasing strength: does the DLL open, does `wp caps`
+# see the engine, and does the engine agree with the other two across the
+# whole differential corpus.
+#
+# The third is the only one that says the ABI is right rather than merely
+# not crashing, and it is checked as a parity claim, not an absolute one:
+# ubuntu and windows run the identical corpus and the two normalised
+# summaries have to match byte for byte. Cases where the three engines
+# genuinely differ are then differences the probe carries rather than
+# failures it invents.
+#
+# This does not make werk work on Windows. `Bun.Terminal` is POSIX-only,
+# `src/daemon/flock.ts` dlopens libc, and the daemon speaks over a Unix
+# socket. None of that is a VT concern, and none of it is touched here.
+
+name: probe vt win32
+
+on:
+  push:
+    branches: ["ci/vt-win32"]
+
+concurrency:
+  group: probe-vt-win32
+  cancel-in-progress: true
+
+jobs:
+  differential:
+    name: differential (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+        working-directory: packages/werk-poc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install
+        working-directory: .
+
+      - name: the vendored DLL survived checkout
+        if: runner.os == 'Windows'
+        run: |
+          bun -e '
+            const fs = await import("node:fs");
+            const pin = JSON.parse(fs.readFileSync("vendor/ghostty-vt-ffi/PIN", "utf8"));
+            for (const [rel, want] of Object.entries(pin.artifacts)) {
+              const bytes = fs.readFileSync(`vendor/ghostty-vt-ffi/${rel}`);
+              const got = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+              console.log(`${rel}: ${bytes.length} bytes, sha256 ${got}`);
+              if (bytes.length !== want.size || got !== want.sha256)
+                throw new Error(`${rel} does not match PIN`);
+            }
+          '
+
+      # Level 1: bun:ffi opens it at all.
+      - name: dlopen
+        run: |
+          bun -e '
+            const m = await import("./src/engine/ghostty-ffi/bun.ts");
+            const engine = await m.loadGhosttyFfiEngine();
+            const lib = await import("libghostty-vt");
+            console.log("platform:", m.ffiPlatform(), "override:", m.needsPrebuildOverride);
+            console.log(JSON.stringify(lib.libraryInfo(), null, 2));
+            const t = engine.create({ cols: 20, rows: 3, scrollback: 100 });
+            t.write(new TextEncoder().encode("hello ffi"));
+            const text = t.plainText().split("\n")[0].trim();
+            console.log("plainText:", JSON.stringify(text));
+            if (text !== "hello ffi") throw new Error("wrote hello ffi, read " + text);
+          '
+
+      # Level 2: the CLI sees the engine, interpreted and compiled.
+      - name: wp caps (interpreted)
+        run: bun run src/cli/main.ts caps
+
+      - name: wp caps (compiled)
+        run: |
+          bun run build
+          ls -l dist
+          if [ "$RUNNER_OS" = "Windows" ]; then ./dist/wp.exe caps; else ./dist/wp caps; fi
+
+      # Level 3: the whole corpus, three engines, pairwise.
+      - name: the differential corpus
+        run: |
+          cat > differential-summary.ts <<'TS'
+          // A normalised, platform-independent summary of the full corpus:
+          // per case, whether each engine pair agreed on text, cells and
+          // effects; per reattach case, each strategy's status; and the fuzz
+          // agreement counts at a fixed seed. No timings, so two runs on two
+          // operating systems are comparable byte for byte.
+          import { runDifferential } from "./bench/differential.ts";
+          const r = await runDifferential({ fuzz: 200, seed: 11 });
+          const summary = {
+            engines: r.engines,
+            loadErrors: r.loadErrors,
+            cases: r.cases.map((c) => ({
+              name: c.name,
+              error: c.error ?? null,
+              pairs: Object.fromEntries(
+                Object.entries(c.pairs).map(([k, v]) => [
+                  k,
+                  { text: v.text, cells: v.cells, effects: v.effects },
+                ]),
+              ),
+              reattach: c.reattach
+                ? Object.fromEntries(
+                    Object.entries(c.reattach).map(([e, s]) => [
+                      e,
+                      Object.fromEntries(
+                        Object.entries(s).map(([k, v]) => [k, v.status]),
+                      ),
+                    ]),
+                  )
+                : null,
+            })),
+            fuzz: r.fuzz.map((f) => ({
+              mode: f.mode,
+              iterations: f.iterations,
+              textAgree: f.textAgree,
+              cellsAgree: f.cellsAgree,
+              splitInvariant: f.splitInvariant,
+            })),
+          };
+          await Bun.write("summary.json", JSON.stringify(summary, null, 2) + "\n");
+          if (Object.keys(summary.loadErrors).length > 0)
+            throw new Error(`engines failed to load: ${JSON.stringify(summary.loadErrors)}`);
+          if (!summary.engines.includes("ghostty-ffi"))
+            throw new Error("ghostty-ffi is not in the engine list");
+          TS
+          bun differential-summary.ts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: summary-${{ matrix.os }}
+          path: packages/werk-poc/summary.json
+
+  parity:
+    name: win32 agrees exactly as much as linux does
+    needs: differential
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: summaries
+      - name: diff the two summaries
+        run: |
+          echo "== windows =="
+          cat summaries/summary-windows-latest/summary.json
+          diff -u summaries/summary-ubuntu-latest/summary.json \
+                  summaries/summary-windows-latest/summary.json \
+            && echo "the two summaries are identical"
