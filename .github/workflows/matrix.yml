@@ -168,12 +168,14 @@ jobs:
       MATRIX_LANE: ${{ matrix.lane }}
       MATRIX_OS: linux
       MATRIX_TARGET: ${{ matrix.target }}
-      MATRIX_OUT: ${{ runner.temp }}/matrix-out
-      MATRIX_XBIN: ${{ runner.temp }}/xbin
-      MATRIX_REF: ${{ runner.temp }}/ref
       MATRIX_M0: full
     steps:
       - uses: actions/checkout@v5
+      - name: paths
+        run: |
+          echo "MATRIX_OUT=$RUNNER_TEMP/matrix-out" >>"$GITHUB_ENV"
+          echo "MATRIX_XBIN=$RUNNER_TEMP/xbin" >>"$GITHUB_ENV"
+          echo "MATRIX_REF=$RUNNER_TEMP/ref" >>"$GITHUB_ENV"
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -273,9 +275,6 @@ jobs:
       MATRIX_LANE: ${{ matrix.lane }}
       MATRIX_OS: alpine
       MATRIX_TARGET: ${{ matrix.target }}
-      MATRIX_OUT: ${{ runner.temp }}/matrix-out
-      MATRIX_XBIN: ${{ runner.temp }}/xbin
-      MATRIX_REF: ${{ runner.temp }}/ref
       MATRIX_M0: full
     steps:
       # The container starts with busybox only; bash for the harness, git for
@@ -288,6 +287,12 @@ jobs:
             libstdc++ libgcc musl-utils util-linux-misc ncurses ncurses-terminfo-base perl python3
           cat /etc/alpine-release
       - uses: actions/checkout@v5
+      - name: paths
+        shell: bash
+        run: |
+          echo "MATRIX_OUT=$RUNNER_TEMP/matrix-out" >>"$GITHUB_ENV"
+          echo "MATRIX_XBIN=$RUNNER_TEMP/xbin" >>"$GITHUB_ENV"
+          echo "MATRIX_REF=$RUNNER_TEMP/ref" >>"$GITHUB_ENV"
 
       # setup-bun picks the glibc build; recorded, then replaced by the musl zip.
       - uses: oven-sh/setup-bun@v2
@@ -424,12 +429,14 @@ jobs:
       MATRIX_LANE: ${{ matrix.lane }}
       MATRIX_OS: darwin
       MATRIX_TARGET: ${{ matrix.target }}
-      MATRIX_OUT: ${{ runner.temp }}/matrix-out
-      MATRIX_XBIN: ${{ runner.temp }}/xbin
-      MATRIX_REF: ${{ runner.temp }}/ref
       MATRIX_M0: full
     steps:
       - uses: actions/checkout@v5
+      - name: paths
+        run: |
+          echo "MATRIX_OUT=$RUNNER_TEMP/matrix-out" >>"$GITHUB_ENV"
+          echo "MATRIX_XBIN=$RUNNER_TEMP/xbin" >>"$GITHUB_ENV"
+          echo "MATRIX_REF=$RUNNER_TEMP/ref" >>"$GITHUB_ENV"
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -537,9 +544,6 @@ jobs:
       MATRIX_LANE: ${{ matrix.lane }}
       MATRIX_OS: win32
       MATRIX_TARGET: ${{ matrix.target }}
-      MATRIX_OUT: ${{ runner.temp }}/matrix-out
-      MATRIX_XBIN: ${{ runner.temp }}/xbin
-      MATRIX_REF: ${{ runner.temp }}/ref
       MATRIX_M0: probes
     steps:
       # Git for Windows checks out with CRLF by default, which would rewrite
@@ -549,6 +553,11 @@ jobs:
           git config --global core.autocrlf false
           git config --global core.eol lf
       - uses: actions/checkout@v5
+      - name: paths
+        run: |
+          echo "MATRIX_OUT=$RUNNER_TEMP/matrix-out" >>"$GITHUB_ENV"
+          echo "MATRIX_XBIN=$RUNNER_TEMP/xbin" >>"$GITHUB_ENV"
+          echo "MATRIX_REF=$RUNNER_TEMP/ref" >>"$GITHUB_ENV"
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
