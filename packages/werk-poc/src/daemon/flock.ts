@@ -89,8 +89,20 @@ function loadKernel32() {
   return kernel32!;
 }
 
+/**
+ * The win32 lock. `LockFileEx` through `bun:ffi` where ffi exists; where it
+ * does not — Bun's win32-arm64 build has TinyCC disabled and `dlopen`
+ * throws — a named pipe stands in for the lock. `WP_WIN32_LOCK=pipe` forces
+ * the fallback so a runner with ffi can still exercise it.
+ */
 function tryLockWin32(path: string): FileLock | null {
-  const k = loadKernel32().symbols;
+  let k: NonNullable<typeof kernel32>["symbols"];
+  try {
+    if (process.env.WP_WIN32_LOCK === "pipe") throw new Error("forced");
+    k = loadKernel32().symbols;
+  } catch {
+    return tryLockPipe(path);
+  }
   const name = Buffer.from(path + "\0", "utf16le");
   const handle = k.CreateFileW(
     ptr(name),
@@ -123,6 +135,42 @@ function tryLockWin32(path: string): FileLock | null {
     release() {
       try {
         k.CloseHandle(handle);
+      } catch {}
+    },
+  };
+}
+
+/**
+ * A lock with no ffi in it: a named-pipe server whose name is derived from
+ * the lock path. libuv creates the first instance with
+ * FILE_FLAG_FIRST_PIPE_INSTANCE, so a second `Bun.listen` on the same name
+ * fails while the first process lives, and the kernel drops the name with
+ * the process — the same two properties flock gives. Nothing ever connects
+ * to it. Pipe names are machine-wide, hence the hash of the (case-folded)
+ * path, and `fd` is -1 because there is no handle to hand out.
+ */
+function tryLockPipe(path: string): FileLock | null {
+  const name = `\\\\.\\pipe\\werk-poc-lock-${Bun.hash(path.toLowerCase())}`;
+  let listener: ReturnType<typeof Bun.listen>;
+  try {
+    listener = Bun.listen({
+      unix: name,
+      socket: {
+        open(socket) {
+          socket.end();
+        },
+        data() {},
+        error() {},
+      },
+    });
+  } catch {
+    return null;
+  }
+  return {
+    fd: -1,
+    release() {
+      try {
+        listener.stop(true);
       } catch {}
     },
   };

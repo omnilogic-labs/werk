@@ -28,6 +28,7 @@ const ALL_PROBES = [
   "kill-detached",
   "misc",
   "compiled-paths",
+  "flock-port",
   "crt-osfhandle",
 ];
 
@@ -475,6 +476,20 @@ if (role && role !== "run") {
       say("holder", ok ? "opened" : `refused err=${kernel32().GetLastError()}`);
       if (ok) await sleep(60_000);
       process.exit(ok ? 0 : 1);
+    }
+    case "flock-try": {
+      // Try the real tryLock (src/daemon/flock.ts) on argv[1] and report.
+      const { tryLock } =
+        await import("../../packages/werk-poc/src/daemon/flock.ts");
+      try {
+        const l = tryLock(argv[1]!);
+        say("try", l ? `locked fd=${l.fd}` : "refused");
+        if (argv[2] === "hold" && l) await sleep(60_000);
+        l?.release();
+      } catch (e) {
+        say("try", `threw ${firstLine(e)}`);
+      }
+      process.exit(0);
     }
     case "xopen-try": {
       const h = exclusiveOpen(argv[1]!);
@@ -1553,6 +1568,92 @@ if (want("compiled-paths")) {
     say("compiled-paths", `fail — ${firstLine(e)}`);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// ------------------------------------------ (j) the ported flock.ts itself
+// tryLock as the daemon calls it: the ffi LockFileEx path, and the named-pipe
+// fallback forced through WP_WIN32_LOCK=pipe (what a build without bun:ffi,
+// such as win32-arm64, would take). Held here, contended from a child,
+// released by the child's death.
+if (want("flock-port")) {
+  for (const mode of ["ffi", "pipe"]) {
+    const dir = tempDir("wp-spike-flock-");
+    const p = path.join(dir, "wp.lock");
+    const env = { ...process.env, WP_WIN32_LOCK: mode };
+    process.env.WP_WIN32_LOCK = mode;
+    try {
+      const { tryLock } =
+        await import("../../packages/werk-poc/src/daemon/flock.ts");
+      const mine = tryLock(p);
+      say(
+        `flock-port ${mode} take`,
+        mine ? `ok — fd=${mine.fd}` : "refused (BAD)",
+      );
+      const again = tryLock(p);
+      say(
+        `flock-port ${mode} same-process`,
+        again ? "locked too (BAD)" : "refused",
+      );
+      again?.release();
+      const t = Bun.spawn(self("flock-try", p), {
+        stdout: "pipe",
+        stderr: "pipe",
+        env,
+      });
+      await t.exited;
+      say(
+        `flock-port ${mode} contend`,
+        `child says ${JSON.stringify((await new Response(t.stdout).text()).trim())} ${(await new Response(t.stderr).text()).trim().split("\n")[0] ?? ""} (expect refused)`,
+      );
+      mine?.release();
+      const t2 = Bun.spawn(self("flock-try", p), {
+        stdout: "pipe",
+        stderr: "pipe",
+        env,
+      });
+      await t2.exited;
+      say(
+        `flock-port ${mode} release`,
+        `after release, child says ${JSON.stringify((await new Response(t2.stdout).text()).trim())} (expect locked)`,
+      );
+      const holder = Bun.spawn(self("flock-try", p, "hold"), {
+        stdout: "pipe",
+        stderr: "pipe",
+        env,
+      });
+      const reader = holder.stdout.getReader();
+      const first = await Promise.race([
+        reader.read(),
+        sleep(5000).then(() => null),
+      ]);
+      const said =
+        first && first.value
+          ? new TextDecoder().decode(first.value).trim()
+          : "(nothing)";
+      const during = tryLock(p);
+      holder.kill();
+      const t0 = performance.now();
+      await holder.exited;
+      let got: ReturnType<typeof tryLock> = null;
+      let tries = 0;
+      while (performance.now() - t0 < 5000 && !got) {
+        tries++;
+        got = tryLock(p);
+        if (!got) await sleep(5);
+      }
+      say(
+        `flock-port ${mode} release-on-death`,
+        `holder said ${JSON.stringify(said)}; while held: ${during ? "we got it too (BAD)" : "refused"}; after kill: ${got ? `acquired after ${(performance.now() - t0).toFixed(0)} ms, ${tries} tries` : "not acquired within 5 s"}`,
+      );
+      during?.release();
+      got?.release();
+    } catch (e) {
+      say(`flock-port ${mode}`, `fail — ${firstLine(e)}`);
+    } finally {
+      delete process.env.WP_WIN32_LOCK;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   }
 }
 
