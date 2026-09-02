@@ -47,10 +47,14 @@ over whatever tunnel the provider gives it).
   small frames with a low latency requirement. The syntax certainly works; the
   latency and buffering behaviour under our load is an experiment we have not
   run. **Do this experiment before committing the architecture.**
-- **Windows-side sockets are unreliable.** Forwarding a _remote Linux_ socket to
-  a macOS/Linux client is well-trodden. A _local Windows_ Unix socket endpoint
-  has had real bugs ([Win32-OpenSSH#1564](https://github.com/PowerShell/Win32-OpenSSH/issues/1564)).
-  Windows probably needs the forward to land on a loopback TCP port instead.
+- **Windows-side socket forwarding is absent.** Forwarding a _remote Linux_
+  socket to a macOS/Linux client is well-trodden. Win32-OpenSSH forwards Unix
+  sockets in neither direction
+  ([#435](https://github.com/PowerShell/Win32-OpenSSH/issues/435),
+  [#1564](https://github.com/PowerShell/Win32-OpenSSH/issues/1564),
+  [#2321](https://github.com/PowerShell/Win32-OpenSSH/issues/2321)); TCP `-L`
+  and `-W` work. Windows probably needs the forward to land on a loopback TCP
+  port instead.
 
 ---
 
@@ -282,13 +286,13 @@ belongs in the docs, loudly.
 
 ## 3. Windows as a client
 
-| Capability                          | Windows in-box OpenSSH                                                                                     | Source                                                                                                                                                            |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Ships built in                      | Yes, since Win10 1809                                                                                      | [MS overview](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh-overview)                                                           |
-| Version                             | Materially behind upstream — reports of 7.7p1–8.1p1 on current builds; Windows Update does not refresh it  | [MS troubleshooting](https://learn.microsoft.com/en-us/troubleshoot/windows-server/system-management-components/upgrade-in-box-openssh-to-latest-openssh-release) |
-| `ControlMaster`                     | **Unsupported.** `getsockname failed: Not a socket`                                                        | [vscode-remote-release#96](https://github.com/microsoft/vscode-remote-release/issues/96)                                                                          |
-| `ssh-agent`                         | Ships as a Windows service, **disabled by default** — needs `Set-Service ssh-agent -StartupType Automatic` | [MS key management](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_keymanagement)                                                |
-| Windows-side Unix socket forwarding | Buggy; treat as unavailable                                                                                | [Win32-OpenSSH#1564](https://github.com/PowerShell/Win32-OpenSSH/issues/1564)                                                                                     |
+| Capability                          | Windows in-box OpenSSH                                                                                     | Source                                                                                                                                                                                             |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ships built in                      | Yes, since Win10 1809                                                                                      | [MS overview](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh-overview)                                                                                            |
+| Version                             | Materially behind upstream — reports of 7.7p1–8.1p1 on current builds; Windows Update does not refresh it  | [MS troubleshooting](https://learn.microsoft.com/en-us/troubleshoot/windows-server/system-management-components/upgrade-in-box-openssh-to-latest-openssh-release)                                  |
+| `ControlMaster`                     | **Unsupported.** `getsockname failed: Not a socket`                                                        | [vscode-remote-release#96](https://github.com/microsoft/vscode-remote-release/issues/96)                                                                                                           |
+| `ssh-agent`                         | Ships as a Windows service, **disabled by default** — needs `Set-Service ssh-agent -StartupType Automatic` | [MS key management](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_keymanagement)                                                                                 |
+| Unix socket forwarding, either side | **Absent.** TCP `-L` and `-W` work                                                                         | [#435](https://github.com/PowerShell/Win32-OpenSSH/issues/435), [#1564](https://github.com/PowerShell/Win32-OpenSSH/issues/1564), [#2321](https://github.com/PowerShell/Win32-OpenSSH/issues/2321) |
 
 What everyone else does: **stop depending on OS-level multiplexing**. Either
 multiplex logical streams in your own protocol over one long-lived connection

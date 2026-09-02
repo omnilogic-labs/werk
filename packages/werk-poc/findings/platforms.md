@@ -1,10 +1,11 @@
 # platforms
 
 What the proof of concept does on macOS and Windows, measured on GitHub's
-hosted runners, next to the same suites on Linux.
+hosted runners, next to the same suites on Linux — and what a cross-compiled
+binary does on every other target Bun can build for.
 
 Every other file in this directory records one machine: linux-x64-glibc under
-WSL2. This one records three, none of them that machine. It is written to be
+WSL2. This one records eight, none of them that machine. It is written to be
 audited rather than believed: every claim below names the run, the artefact
 and the file it came from, and the section at the end says what to re-run to
 check any of it.
@@ -15,38 +16,51 @@ No decision is recorded here. Where a measurement suggests something about
 werk's design, the suggestion is left open and labelled as one. Several rows
 below are single observations on a single image, and a few are the first
 measurement anyone has taken of the thing at all.
+[`../../../docs/proposals/01-cross-platform.md`](../../../docs/proposals/01-cross-platform.md)
+is where the measurements are turned into a proposal.
 
 ## How it was run
 
-Four branches off `main`, one per workstream, each carrying a workflow with a
-`push` trigger scoped to its own branch — `workflow_dispatch` needs the
-workflow file on the default branch, and nothing was to reach `main` until it
-had been run. Each branch was iterated against real runners, then merged into
-`ci/matrix`, then folded into `.github/workflows/poc.yml`.
+`.github/workflows/poc.yml` runs the PoC's suites on one lane per operating
+system. Every suite step carries `continue-on-error`, so a run reports every
+suite's verdict rather than stopping at the first red one, and each job
+uploads a `ci-result-<os>.json`. The tables below are that JSON, not a
+retelling of it.
 
-| Branch          | Runner           | Final run                                                                      | Job      |
-| --------------- | ---------------- | ------------------------------------------------------------------------------ | -------- |
-| `ci/os-linux`   | `ubuntu-latest`  | [33671844640](https://github.com/omnilogic-labs/werk/actions/runs/33671844640) | 118 s    |
-| `ci/os-macos`   | `macos-latest`   | [33672982212](https://github.com/omnilogic-labs/werk/actions/runs/33672982212) | 2 m 24 s |
-| `ci/os-windows` | `windows-latest` | [33681043114](https://github.com/omnilogic-labs/werk/actions/runs/33681043114) | 2 m 09 s |
-| `ci/vt-win32`   | both             | [33671709842](https://github.com/omnilogic-labs/werk/actions/runs/33671709842) | 1 m      |
+| Lane           | Runner           | Commit    | Run                                                                            | Job      |
+| -------------- | ---------------- | --------- | ------------------------------------------------------------------------------ | -------- |
+| Linux          | `ubuntu-latest`  | `fddf0a7` | [33671844640](https://github.com/omnilogic-labs/werk/actions/runs/33671844640) | 118 s    |
+| macOS          | `macos-latest`   | `f791183` | [33672982212](https://github.com/omnilogic-labs/werk/actions/runs/33672982212) | 2 m 24 s |
+| Windows        | `windows-latest` | `55cee97` | [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407) | 2 m 15 s |
+| win32 VT build | both             | —         | [33671709842](https://github.com/omnilogic-labs/werk/actions/runs/33671709842) | 1 m      |
 
-Every suite step carries `continue-on-error`, so a run reports every suite's
-verdict rather than stopping at the first red one, and each job uploads a
-`ci-result-<os>.json`. The tables below are that JSON, not a retelling of it.
-
-The merged form of all three ran together as
+The three lanes together ran as
 [33684207403](https://github.com/omnilogic-labs/werk/actions/runs/33684207403),
-green on every lane. Green there does not mean every suite passed: each lane
-gates on the suites that platform already passes, so that a red lane means
-something regressed. That run records 2 non-passing suites on Linux, 2 on
-macOS and 7 on Windows, and the artefacts carry all of them. Read the JSON
-rather than the badge.
+green on every lane. Green does not mean every suite passed: each lane gates
+on the suites that platform already passes, so that a red lane means
+something regressed. Read the JSON rather than the badge. On `main` the
+Windows lane records 6 non-passing suites; Linux and macOS record 2 each.
+
+The three tables are not one tree. The Linux and macOS runs are at the
+commits named above, before the vendored win32 DLL landed; the Windows run is
+on `main` and has it, which is why `test-pure` passes there. Nothing in the
+DLL commits touches a Linux or macOS code path.
 
 Bun is pinned to 1.3.14 on all three, matching the `bun-types` pin and the
 version the rest of `findings/` was measured on. Nothing needs the network
 beyond `bun install`. No runner needed a package installed: the ubuntu image
 already carries vim, top, tmux and jq.
+
+Further runs, each on a pull request branch rather than on `main`, are cited
+below by number:
+
+| Run                                                                            | Branch                                                 | What                                                                                                                                                                               |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [33688130745](https://github.com/omnilogic-labs/werk/actions/runs/33688130745) | [PR #2](https://github.com/omnilogic-labs/werk/pull/2) | macOS probes: socket buffers, `codesign`, process lifecycle, on `macos-latest` and `macos-15-intel`                                                                                |
+| [33688537937](https://github.com/omnilogic-labs/werk/actions/runs/33688537937) | PR #2                                                  | the macOS lane with the daemon's socket buffers raised; [33688881377](https://github.com/omnilogic-labs/werk/actions/runs/33688881377) is the same image with them left at default |
+| [33691536664](https://github.com/omnilogic-labs/werk/actions/runs/33691536664) | [PR #3](https://github.com/omnilogic-labs/werk/pull/3) | Windows primitives probed directly, `windows-latest`                                                                                                                               |
+| [33690884893](https://github.com/omnilogic-labs/werk/actions/runs/33690884893) | PR #3                                                  | the Windows lane with `win32` branches in the daemon's lock, launcher and paths                                                                                                    |
+| [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325) | [PR #5](https://github.com/omnilogic-labs/werk/pull/5) | eight targets cross-compiled on one Ubuntu job and run on eight native lanes                                                                                                       |
 
 ### ubuntu-latest
 
@@ -87,33 +101,32 @@ already carries vim, top, tmux and jq.
 
 ### windows-latest
 
-`X64/Windows win25-vs2026 20260824.214.3 nt-10.0.26100` · Bun 1.3.14 · commit `e6e891a` · [run 33681043114](https://github.com/omnilogic-labs/werk/actions/runs/33681043114)
+`X64/Windows win25-vs2026 20260824.214.3 nt-10.0.26100` · Bun 1.3.14 · commit `55cee97` (`main`) · [run 33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407)
 
 | Suite       | Result | Time   | What the run recorded                                                                                                |
 | ----------- | ------ | ------ | -------------------------------------------------------------------------------------------------------------------- |
-| `install`   | pass   | 2.0 s  | 18 packages installed [1.87s]                                                                                        |
-| `typecheck` | pass   | 7.8 s  | $ tsc --noEmit && tsc --noEmit -p src/web/client                                                                     |
-| `test-pure` | fail   | 1.8 s  | error: libghostty-vt could not open its library: No bundled libghostty-vt for win32-x64. Supported: darwin-arm64, l… |
-| `build-web` | pass   | 0.2 s  | web bundle: 104626 B in 13 ms -> D:\a\werk\werk\packages\werk-poc\src\web\bundle\app.js                              |
-| `build`     | pass   | 1.0 s  | \| `encodeMouse` \| yes \| no \|                                                                                     |
-| `diff`      | pass   | 26.7 s | \| sequences \| xterm-oracle \| 200/200 \|                                                                           |
-| `ops`       | fail   | 10.4 s | error: daemon did not answer on C:\Users\RUNNER~1\AppData\Local\Temp\wp-ops-cold-0jekWS\run-interpreted-bun-run-src… |
-| `probes`    | pass   | 0.5 s  | PROBE daemon-run: ok — session {"id":"a37a43"}                                                                       |
-| `m0-probes` | fail   | 26.9 s | m0 probes not passing: 01-pty-basic 02-sigint 05-daemon-survives 06-raw-mode                                         |
+| `install`   | pass   | 2.0 s  | 18 packages installed [1.86s]                                                                                        |
+| `typecheck` | pass   | 7.9 s  | $ tsc --noEmit && tsc --noEmit -p src/web/client                                                                     |
+| `test-pure` | pass   | 2.0 s  | Ran 113 tests across 10 files. [1.88s]                                                                               |
+| `build-web` | pass   | 0.2 s  | web bundle: 104626 B in 16 ms -> D:\a\werk\werk\packages\werk-poc\src\web\bundle\app.js                              |
+| `build`     | pass   | 1.1 s  | \| `encodeMouse` \| yes \| no \| no \|                                                                               |
+| `diff`      | pass   | 28.9 s | \| sequences \| xterm-oracle \| 200/200 \|                                                                           |
+| `ops`       | fail   | 10.4 s | error: daemon did not answer on C:\Users\RUNNER~1\AppData\Local\Temp\wp-ops-cold-jVzdNS\run-interpreted-bun-run-src… |
+| `probes`    | pass   | 0.5 s  | PROBE daemon-run: ok — session {"id":"ca3ef9"}                                                                       |
+| `m0-probes` | fail   | 26.7 s | m0 probes not passing: 01-pty-basic 02-sigint 05-daemon-survives 06-raw-mode                                         |
 | `daemon`    | fail   | 0.2 s  | error: cannot dlopen libc for flock: Error: Failed to open library "libc.so": error code 126                         |
 | `wp-cli`    | fail   | 0.2 s  | wp: EBADF: bad file descriptor, read                                                                                 |
-| `test-full` | fail   | 18.6 s | EBADF: bad file descriptor, read                                                                                     |
-| `m2`        | fail   | 1.8 s  | threw: Error: wp run failed (1): wp: EBADF: bad file descriptor, read                                                |
-| `m3`        | pass   | 4.8 s  | \| 3c1ef5b3 \| 3c1ef5b3 (same bytes) \| **identical** \| 1092 \| 1.46 ms \| 0.26 ms, 0 pages \| \|                   |
+| `test-full` | fail   | 19.5 s | EBADF: bad file descriptor, read                                                                                     |
+| `m2`        | fail   | 1.7 s  | threw: Error: wp run failed (1): wp: EBADF: bad file descriptor, read                                                |
+| `m3`        | pass   | 4.5 s  | \| 3c1ef5b3 \| 3c1ef5b3 (same bytes) \| **identical** \| 1092 \| 0.51 ms \| 0.02 ms, 0 pages \| \|                   |
+
+`m3` sometimes does not exit on Windows — it printed its tables and then hung
+to the 180 s step timeout on run 33684207403 and to 600 s on the `win32-arm64`
+lane of run 33689751325 — so the Windows lane keeps it out of the gate.
 
 ## macOS
 
-### The controlling terminal question is answered, and the answer is no
-
-`m0.md` records an open Bun issue saying the PTY is not made the child's
-controlling terminal, notes that it does not reproduce on Linux, and says it
-"may be macOS-specific or fixed; nothing here says which". It does not
-reproduce on macOS either.
+### The PTY is the controlling terminal on macOS too
 
 From `dist/m0/1.3.14/02-sigint.interpreted.log` in the run's artefact,
 identically in the compiled cell:
@@ -133,13 +146,13 @@ on `INT` fires from `0x03`, a plain `sleep` dies of `SIGINT`, and a Bun
 child's own handler runs. `03-sigwinch` passes as a fourth, and needed no
 macOS-specific change to reach that verdict, which is part of why the verdict
 is worth something. `src/daemon/daemon.test.ts`'s `trap 'stty size' WINCH`
-test agrees.
+test agrees. [`m0.md`](./m0.md) §2 records the same result on Linux and the
+Bun issue that neither reproduces.
 
-### The `darwin-arm64` ffi prebuild, measured rather than claimed
+### The `darwin-arm64` ffi prebuild
 
-`m6.md` calls the ffi adapter's four non-Linux platforms "claims not
-measurements". One of them is now a measurement. A compiled `wp` extracts the
-pair to `$TMPDIR/werk-poc-libghostty-vt-0.6.3/darwin-arm64/` at mode 0755 and
+A compiled `wp` extracts the pair to
+`$TMPDIR/werk-poc-libghostty-vt-0.6.3/darwin-arm64/` at mode 0755 and
 dlopens it with no Gatekeeper, codesigning or quarantine trouble, the shim
 resolving the main library through `@loader_path`. All eight `ffi.test.ts`
 cases pass and `src/daemon/ffi-engine.test.ts` runs a real session on it.
@@ -153,8 +166,10 @@ adapter's gaps are, they do not appear to be properties of a platform.
 ### Back-pressure: an 8 KiB socket buffer against Linux's 208 KiB
 
 The one place macOS behaves differently under load. `net.local.stream.sendspace`
-is 8192 on the runner against 212992 on Linux, and the daemon does not ask for
-more, so it begins short-writing after about 8 KB rather than about 218 KB.
+and `recvspace` are 8192 — XNU's default, measured identical on the arm64 and
+the Intel runner in run 33688130745 — against 212992 on Linux, and the daemon
+as committed does not ask for more, so it begins short-writing after about
+8 KB rather than about 218 KB.
 
 |                                          | linux-x64              | macOS arm64    |
 | ---------------------------------------- | ---------------------- | -------------- |
@@ -167,14 +182,40 @@ more, so it begins short-writing after about 8 KB rather than about 218 KB.
 Under M2's 4 MiB burst that is enough for the daemon's queue bound to be
 crossed by a client that never lags on Linux; it is dropped and re-rendered
 two dozen times, and the fidelity check that replays everything a client
-received then fails. A diagnostic step raising both buffers to Linux's figure
-moves the short-write threshold to 213,391 B and cuts the lag episodes from
-24 to 6 — but the scenario still fails and the fast client still loses about
-6 MB. So the socket buffer looks like most of the cause and not all of it,
-with the remainder somewhere downstream of the socket in the attached
-client's own PTY. Whether werk should set `SO_SNDBUF` on its client sockets,
-or accept that a macOS client lags sooner and leans harder on the re-render
-path, is not settled here and nobody has decided it.
+received then fails.
+
+Bun 1.3.14 documents no way to set a socket buffer, but the listener
+`Bun.listen` returns and every socket it accepts expose a numeric `fd`
+(`Bun.listen({ fd })` itself is refused), and `setsockopt` on that fd through
+`bun:ffi` works. The probes in run 33688130745 bound where the limit sits:
+raising the client's `SO_RCVBUF` alone, or both ends on the client, leaves
+the short-write threshold at 8192; `setsockopt(listener.fd, SO_SNDBUF,
+212992)` before the first accept is inherited by every accepted socket and
+moves the threshold to 212992, Linux's figure, and setting it on an accepted
+socket after the fact has the same effect. The bound is the sender's
+`SO_SNDBUF` on the accepted socket.
+
+PR #2 puts that call in the compiled daemon behind a darwin branch and ran
+the macOS lane with it on (run 33688537937) and off (run 33688881377), the
+same image both times:
+
+|                                          | buffers at default | buffers at 212992 |
+| ---------------------------------------- | ------------------ | ----------------- |
+| bytes taken before the first short write | 8,560 / 8,568      | 213,412 / 213,297 |
+| fast-client lag episodes                 | 20 / 22            | 4 / 3             |
+| fast-client bytes lost                   | 6.44 M / 6.61 M    | 6.30 M / 6.91 M   |
+| fast client received                     | 302,448 / 247,032  | 343,180 / 197,032 |
+| slow client received before cutoff       | 11,047             | 264,388           |
+| daemon RSS                               | —                  | 88–92 MiB         |
+| `m2` / `test-full`                       | fail / 167 + 1     | fail / 167 + 1    |
+
+The kernel buffer accounts for most of the lag episodes and none of the
+bytes lost: the remaining loss is downstream of the socket, most likely in
+the fast client's own PTY path in the harness (`pty-cat.ts`). The scenario
+still fails either way. Whether werk should set `SO_SNDBUF` on its listener,
+accept that a macOS client lags sooner and leans harder on the re-render
+path, or both, is not settled here; the raise is cheap and does what it
+claims, and that is all this says.
 
 `TMPDIR` was expected to matter, because `sun_path` is 104 bytes on macOS
 against 108 on Linux and the runner's own `$TMPDIR` is a 49-character
@@ -183,14 +224,47 @@ identical verdicts — sockets land around 80 characters — so the margin is
 there on this image. The job sets `TMPDIR=/tmp` anyway, for a deeper
 temporary directory than this one.
 
+### Every fresh compiled binary fails `codesign --verify`
+
+From run 33688130745, on both architectures. A `bun build --compile` output
+on arm64 carries flags `0x20002` (ad hoc, linker-signed); on Intel, `0x10000`
+(runtime), which on the cross-compiled binary of run 33689751325 is Bun's own
+Developer ID signature. Both fail `codesign --verify` (strict and lax) and
+`spctl` with "invalid signature (code or signature have been modified)": the
+appended bundle invalidates whatever signature the Bun executable arrived
+with. The binary runs anyway on the runner, because nothing has set a
+quarantine attribute on it. `codesign --force --sign -` repairs it in one
+step; the result passes `--verify --strict` and runs.
+
+The extracted `darwin-arm64` ffi dylibs are ad hoc linker-signed, verify
+clean and carry no quarantine attribute. There is no `darwin-x64` prebuild to
+check; `wp caps` on the Intel runner reports
+`ghostty-ffi did not load: no embedded libghostty-vt prebuild for darwin-x64`.
+
+### Process lifecycle
+
+Two probes from the same run. The "responsible process" of a detached child,
+which is what TCC consults, is the ancestor that launched it — on the runner,
+the runner agent — and is readable only under `sudo launchctl procinfo`. A
+daemon a user starts from a terminal would inherit that terminal's grants; a
+LaunchAgent would be its own responsible process and start with none.
+
+Bun issue #40289, a spontaneous `exit` for detached children on macOS, did
+not reproduce: 0 of 50 attempts on each of the arm64 and Intel lanes, with
+and without a terminal attached.
+
 ## Windows
 
 The proposal and Bun's own types both say the PTY is the hard floor here:
 `bun-types@1.3.14/bun.d.ts:7019` documents `Bun.Terminal` as _"Only available
 on POSIX systems (Linux, macOS)"_. The run does not agree with the
-documentation, and the layer that stops first is somewhere else.
+documentation, and the layers that stop `wp.exe` on `main` are elsewhere.
 
-### The cascade, in the order the run found it
+### Where each layer stands
+
+Everything in this section is `windows-latest`, x64, Bun 1.3.14. The
+primitives were measured directly by the probe workflow of run 33691536664
+where the lane's own suites could not reach them.
 
 **1. `bun:ffi` works.** `dlopen("kernel32.dll", { GetCurrentProcessId })` loads
 and the call returns the process id.
@@ -206,27 +280,36 @@ error: cannot dlopen libc for flock: Error: Failed to open library "libc.so": er
 Error 126 is `ERROR_MOD_NOT_FOUND`, which is the expected answer to the
 question the code asks — `flock.ts` names POSIX libraries and has a darwin
 branch but no win32 one. `main.ts:66` treats a lock it cannot take as fatal,
-so `wp __daemon` refuses to start. Since `dlopen` itself works, a Windows
-branch would probably reach for `LockFileEx`/`UnlockFileEx` out of
-`kernel32.dll`, by the mechanism the file already uses; nobody has written or
-measured one.
+so `wp __daemon` refuses to start. The Windows mechanism works when asked
+for: `LockFileEx` out of `kernel32.dll` on a handle from `CreateFileW`, one
+byte at offset 0, takes the lock; a second taker gets `ERROR_LOCK_VIOLATION`
+(33); the lock is released on `CloseHandle` and on process death, about 7 ms
+after it. Opening the lock file with share mode 0 is exclusive too
+(`ERROR_SHARING_VIOLATION`, 32). An exclusive `\\.\pipe\` name through
+`Bun.listen` is a third form that needs no ffi at all.
 
-**3. `Bun.listen({ unix })` works, with a caveat worth keeping.** Both probes
-round-tripped bytes:
+**3. `Bun.listen({ unix })` is a Winsock `AF_UNIX` socket, and the file is
+there.** Both a filesystem path and a `\\.\pipe\` name round-trip bytes:
 
 ```
 PROBE unix-socket-fs-path:    ok — listen and connect round-tripped "ping" (address on disk: no)
 PROBE unix-socket-named-pipe: ok — listen and connect round-tripped "ping" (address on disk: yes)
 ```
 
-A listener on a filesystem path under the temp directory works, but **no file
-appears at that path**, which is consistent with libuv mapping the name onto a
-named pipe rather than with a true `AF_UNIX` socket. Windows 10 and later do
-carry `AF_UNIX`; which of the two this is has not been established here, and
-it probably bears on whether an `ssh -L` forward of the kind `m5.md` measures
-would work.
+"Address on disk: no" is what Bun's `existsSync` says, and it is wrong. The
+path is a reparse point (`IO_REPARSE_TAG_AF_UNIX`): `existsSync` returns
+false, `lstat` and `stat` fail with `EACCES`, and a directory listing reports
+the entry as a symlink. Bun unlinks it on `stop()`. A killed daemon's file
+refuses a rebind until it is unlinked; renaming a fresh socket over a stale
+one works; a second listen on a live socket is refused. So the daemon's
+bind-and-rename holds on Windows provided the stale file is removed first,
+and the lock is probably what should prove it stale. The socket is reachable from Bun and
+from little else: Node and libuv reach only `\\.\pipe\` names, and
+Win32-OpenSSH forwards neither sockets nor pipes
+([`../../../docs/research/09-remote-transport.md`](../../../docs/research/09-remote-transport.md)
+§3).
 
-**4. The readiness pipe is the first thing that actually breaks.**
+**4. The readiness pipe is what stops `wp.exe ls` on `main`.**
 `src/daemon/launch.ts` spawns the daemon with a fourth stdio pipe and reads
 the child's readiness report off it with `fs.readSync`. On Windows
 `proc.stdio[3]` comes back as a number that `fs.readSync` will not take:
@@ -238,8 +321,11 @@ EBADF: bad file descriptor, read
       at ensureDaemon (packages\werk-poc\src\daemon\launch.ts:133:25)
 ```
 
-This single error is what `wp.exe ls`, all eight M2 scenarios and five whole
-test files die of.
+The number is a raw pipe HANDLE (`GetFileType` says 3), and no method tried
+in run 33691536664 reads from the parent's end of it in Bun 1.3.14; the
+child's fd 3 writes fine. A parent-listens handshake and a polled ready file
+both work in its place. This single error is what `wp.exe ls`, all eight M2
+scenarios and five whole test files die of on `main`.
 
 **5. `Bun.Terminal` is documented POSIX-only and works anyway.** A real
 ConPTY, from the probe output:
@@ -252,21 +338,52 @@ PROBE spawn-terminal: ok — the child wrote 102 bytes to the terminal:
 `ESC[?9001h` is win32-input-mode. `stty size` returns the requested `24 80`,
 `data` and `exit` callbacks fire, and the behaviour is identical compiled and
 interpreted. `03-sigwinch` and `04-exit-contract` pass outright. `01-pty-basic`
-is scored fail only because it asserts a `/dev/pts/N` slave name.
+is scored fail only because it asserts a `/dev/pts/N` slave name;
+`06-raw-mode` because the `stty` flags it reads through MSYS do not change
+between modes.
 
-Two gaps are real. Signal semantics differ: `0x03` reaches a bash trap, but a
-plain `sleep` exits 0, which is what one would expect if a ConPTY is not a
-controlling terminal in the POSIX sense. And orphan survival has no analogue —
-`setsid` does not exist, and the detached parent "died on PTY close".
+Signals under ConPTY: `0x03` reaches a bash trap (exit 42), and a plain MSYS
+`sleep` dies of it — its raw exit status is `0x200`, signal number shifted
+left eight bits, which Bun truncates to a byte and reports as 0;
+`GetExitCodeProcess` via ffi says 512. `02-sigint` reads that 0 as "no
+signal" and fails. A `pwsh -c Start-Sleep` ignores `0x03` for at least six
+seconds.
 
-Latency is the other cost: `07-latency` passes at **p50 15.7 ms, p99 24.1 ms**,
+Detachment: a child spawned `detached: true` survives its parent exiting and
+survives the parent's ConPTY closing, judged by a tick file it keeps writing
+and `kill(pid, 0)` six seconds after `terminal.close()`; the parent itself
+dies of the close with exit code 58. `05-daemon-survives` on `main` judges
+liveness by MSYS `ps` reporting `sid == pid`, which it never does for a
+native process, so that probe cannot pass on Windows whatever the daemon
+does. `proc.kill(anything)` on a detached child is `TerminateProcess` with
+exit code 1: no handler fires, and Bun reports the requested `signalCode`
+regardless.
+
+Latency: `07-latency` passes at **p50 15.6 ms, p99 23.4 ms** in process,
 against 59–95 µs on Linux — roughly 200× slower. The socket relay adds
-nothing measurable, so on this image the cost appears to be ConPTY itself.
+nothing measurable (p50 15.6 ms via the relay), so on this image the cost
+appears to be ConPTY itself.
 
-**6. No `win32-x64` prebuild in the npm package.** `ffiPlatform()` returns
-`win32-x64` and the tarball ships none, which is the whole of the `test-pure`
-shortfall (104 of 106; the two are `caps.test.ts` and `ffi.test.ts`). This is
-what the vendored build below addresses.
+**6. `win32-x64` has a prebuild because one was vendored.** The npm tarball
+ships none; `ffiPlatform()` returns `win32-x64` and the load path finds the
+DLL described below, which is why `test-pure` passes on the Windows lane.
+
+Four Bun-on-Windows facts, recorded so nobody finds them again:
+
+- A `u32` argument in `bun:ffi` given a negative JavaScript number arrives as 0. `GENERIC_READ | GENERIC_WRITE` is negative in JavaScript; use
+  `FILE_GENERIC_READ | FILE_GENERIC_WRITE` (`0x12019F`).
+- `_get_osfhandle` from `ucrtbase.dll` on a Bun file descriptor kills the
+  process with exit 9 and no message; Bun's CRT is not `ucrtbase`. Open with
+  `CreateFileW` directly when a HANDLE is needed.
+- `import.meta.path` inside a compiled Windows binary is `B:\~BUN\root\…`
+  with backslashes. A check for `B:/~BUN/` makes `wp.exe` believe it is
+  interpreted.
+- On `windows-11-arm`, Bun 1.3.14 has no `bun:ffi` at all
+  (`bun:ffi dlopen() is not available in this build (TinyCC is disabled)`).
+
+Three smaller facts from the same probes: `mkdir` reports mode `40666`,
+`getuid` is undefined, and `LOCALAPPDATA` is set where `XDG_RUNTIME_DIR` is
+not.
 
 ### The differential corpus agrees with Linux exactly
 
@@ -276,7 +393,7 @@ are byte-identical to the Linux run, and the fuzz on seed 7 matches exactly
 disagreements are the engine differences the corpus already documents,
 unchanged by platform.
 
-### With the lock and the launcher stepped over, the daemon runs
+### With the lock and the launcher stepped over in process, the daemon runs
 
 A probe that starts `startServer()` in-process — skipping `flock` and the
 `launch.ts` readiness pipe — and then connects the real client:
@@ -289,8 +406,42 @@ PROBE daemon-run:    ok — session {"id":"a37a43"}
 ```
 
 The daemon, the wire protocol and a PTY session run on Windows in that
-configuration. What that implies for a Windows port, if anyone wants one, is
-not worked out here.
+configuration.
+
+### With `win32` branches in the daemon, the lane reaches the real questions
+
+[PR #3](https://github.com/omnilogic-labs/werk/pull/3) adds `win32` branches
+to the proof of concept and re-runs the Windows lane
+([run 33690884893](https://github.com/omnilogic-labs/werk/actions/runs/33690884893),
+commit `ccae188`). That code is on the PR's branch, not in
+`packages/werk-poc/` on `main`, and nobody has decided whether it lands. The
+branches:
+
+| File                            | `win32` branch                                                                                                                                                                                         |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `daemon/flock.ts`               | `CreateFileW` + `LockFileEx` via `bun:ffi`; falls back to an exclusive `\\.\pipe\werk-poc-lock-<hash>` listener where `bun:ffi` is absent (verified on x64 via `WP_WIN32_LOCK=pipe`, not run on arm64) |
+| `daemon/launch.ts`              | no fourth stdio pipe; a `--ready-file` polled instead; `detached: true, windowsHide: true`; `cwd` the home directory; compiled detection accepts `B:\~BUN\`                                            |
+| `daemon/main.ts`                | writes the ready file atomically; installs no signal handlers                                                                                                                                          |
+| `daemon/paths.ts`               | `%LOCALAPPDATA%\werk-poc`; skips the uid and `0o077` checks                                                                                                                                            |
+| `daemon/server.ts`              | unlinks a stale socket before bind-and-rename; skips `chmod`; `readRss` via `process.memoryUsage()`                                                                                                    |
+| `alive()`, `05-daemon-survives` | liveness by `kill(pid, 0)` and tick files                                                                                                                                                              |
+
+What the lane recorded with those in place, against `main`:
+
+| Suite       | `main`                               | PR #3                                                                                                                                                                                                                                                                                  |
+| ----------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `daemon`    | fail, `flock`                        | runs until the step timeout                                                                                                                                                                                                                                                            |
+| `wp-cli`    | fail, `EBADF`                        | pass — `wp.exe ls` autostarts a daemon and prints its header                                                                                                                                                                                                                           |
+| `m0-probes` | 01, 02, 05, 06 fail                  | 01, 02, 06 fail; `05-daemon-survives` passes                                                                                                                                                                                                                                           |
+| `test-full` | fail, `EBADF` before any daemon test | reaches the daemon tests: render prologue differs (ConPTY does not open with `ESC[H ESC[2J`), kill test times out (`TerminateProcess` exit 1, no `signalCode`), attach-snapshot expects `snapshot` and gets `output`, a lag-resume assertion; then "connection closed" aborts the file |
+| `m2`        | fail, `EBADF`                        | fail, `EPERM` moving `wp.exe`: the running daemon pins the executable, so the harness cannot rebuild it                                                                                                                                                                                |
+| `ops`       | fail                                 | fail: `bench/ops.ts` spawns its own daemon with `cwd: "/"` and `--ready-fd=3`, a launcher of its own that the branches do not reach                                                                                                                                                    |
+
+The first two `test-full` items are platform facts — ConPTY re-encodes the
+stream rather than passing bytes through, and a kill is `TerminateProcess`
+with no signal name — and the last two are harness shape. Where the PTY relay
+semantics and the kill path go from here is a design question, not a
+measurement, and it is left to the proposal.
 
 ## A win32 `libghostty-vt`, built rather than installed
 
@@ -331,10 +482,10 @@ seed. They match. Byte-level agreement with the wasm adapter and the oracle is
 what says the ABI is right; a successful `dlopen` on its own says only that
 nothing crashed.
 
-**This does not make werk run on Windows.** The layers in the cascade above
-are untouched by a VT library. `ghostty-wasm` already runs on every
-`bun build --compile` target, so Windows was not without an engine before
-this.
+A VT library changes nothing above the engine: the lock and the readiness
+pipe still stop `wp.exe ls` on `main`. `ghostty-wasm` already runs on every
+`bun build --compile` target, so this adds a second engine on Windows rather
+than a first.
 
 The link is **not byte-reproducible**: the PE timestamp and CodeView build-id
 change per run, about 5 KB of 1.6 MB, and `-Wl,/Brepro` does not fix it. The
@@ -374,13 +525,61 @@ Note that the Linux and macOS failures of this same scenario have different
 causes — CPU headroom here, an 8 KiB socket buffer there — and only the Linux
 one is nondeterministic.
 
+## The other five targets
+
+[PR #5](https://github.com/omnilogic-labs/werk/pull/5) compiles all eight
+`bun build --compile` targets on one `ubuntu-24.04` job and hands each binary
+to a native lane, which smokes it (`--help`, `caps`, `ls` against an
+autostarted daemon) and then runs the PoC suites from source
+([run 33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325),
+nine jobs green, every lane's JSON uploaded). All eight targets compile in
+about a minute each. `--help` passes on all eight; `caps` on six, because
+`darwin-x64` and `win32-arm64` have no ffi prebuild; `ls` against an
+autostarted daemon on all six non-Windows lanes, and on neither Windows lane
+for the reasons above (`EBADF` in the client, `flock` in the daemon).
+
+| Lane                | Runner                                    | Cross-compiled smoke                                                                            | `test-pure`          | `diff` vs linux-x64    | `m0`  | `m3`                                                                   | `ops` | `test-full`                                 |
+| ------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------- | ---------------------- | ----- | ---------------------------------------------------------------------- | ----- | ------------------------------------------- |
+| `linux-x64-glibc`   | `ubuntu-24.04`                            | pass                                                                                            | pass                 | identical              | 14/14 | pass                                                                   | pass  | fail: reattach fidelity only                |
+| `linux-arm64-glibc` | `ubuntu-24.04-arm`                        | pass                                                                                            | pass                 | identical              | 14/14 | pass                                                                   | pass  | fail: reattach fidelity, `compiled.test.ts` |
+| `linux-x64-musl`    | `alpine:3.22` container on `ubuntu-24.04` | pass; `ldd`: `ld-musl`, `libstdc++.so.6`, `libgcc_s.so.1`                                       | pass                 | identical              | 14/14 | pass                                                                   | pass  | fail: the same two                          |
+| `linux-arm64-musl`  | `alpine:3.22` via `docker exec` on arm    | pass; same `ldd`                                                                                | pass                 | identical              | 14/14 | pass                                                                   | pass  | fail: the same two                          |
+| `darwin-x64`        | `macos-15-intel` (15.7.9, avx2)           | `--help`, `ls` pass; `caps` no `darwin-x64` prebuild                                            | fail: 106, ffi tests | differs: no ffi column | 14/14 | pass                                                                   | pass  | fail: ffi tests, reattach fidelity          |
+| `darwin-arm64`      | `macos-latest` (26.5.2)                   | pass                                                                                            | pass                 | identical              | 14/14 | pass                                                                   | pass  | fail: reattach fidelity only                |
+| `win32-x64`         | `windows-latest` (26100)                  | `--help`, `caps` pass; `ls` `EBADF`                                                             | pass                 | identical              | 3/7   | pass                                                                   | fail  | fail: 141 tests                             |
+| `win32-arm64`       | `windows-11-arm` (26200), native Bun      | `--help` pass; `caps` no prebuild; `ls` `EBADF`, daemon: `bun:ffi` unavailable, TinyCC disabled | fail: ffi tests      | differs: no ffi        | 3/7   | timed out at 600 s after printing its tables (4.7 s on an earlier run) | fail  | fail: 134 tests                             |
+
+`m0` takes 42.5 s on the Intel Mac against about 24 s on the others. The
+differential summary is byte-identical on every lane where all three engines
+load. Findings that are not platform facts, recorded so they do not read as
+one:
+
+- `spikes/m6/compiled.test.ts` hard-codes `linux-x64-glibc` as the expected
+  extracted prebuild for every non-darwin host, so it fails on `linux-arm64`
+  and both musl targets whatever the binary does.
+- The libghostty-vt binding's own loader does not find its prebuild inside a
+  compiled binary on `linux-arm64` or either musl target
+  (`Bundled libghostty-vt missing at /$bunfs/prebuilds/linux-arm64-glibc/libghostty-vt.so`);
+  the PoC's shim finds it, which is why `caps` passes on those lanes.
+- The musl Bun is not static: both Alpine lanes need `apk add libstdc++ libgcc`
+  before the binary runs.
+- `container: alpine` is refused on arm64 runners (container jobs are x64
+  Linux only), hence `docker exec`; `setup-bun` does not detect musl, so the
+  lane fetches the musl zip by hand.
+- `codesign` on the cross-compiled `darwin-x64` binary: Bun's Developer ID
+  signature (runtime flag) invalidated by the appended bundle; `darwin-arm64`:
+  ad hoc, linker-signed; both fail `--verify --strict` with "invalid
+  signature".
+
 ## What changed in the proof of concept
 
 Ten commits, each guarded so that the Linux path is unchanged. Every one is
 `process.platform === "darwin" ? … : …` or a `win32` branch, never a
 replacement. After the last of them, on linux-x64-glibc under WSL2:
 `bun test` 168 pass 0 fail, `bun run m0` 28 of 28 cells, `bun run m2` 8 of 8,
-`tsc --noEmit` clean, `prettier --check .` clean.
+`tsc --noEmit` clean, `prettier --check .` clean. The per-OS tables above
+were taken at different points in this series — the commit each names is the
+tree it ran on — and the Linux and macOS ones predate the last two rows.
 
 | Commit               | What                                                                                                                                                                                                            |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -393,36 +592,39 @@ replacement. After the last of them, on linux-x64-glibc under WSL2:
 | `7760e0f`            | the detached-daemon session check reads what BSD `ps` reports                                                                                                                                                   |
 | `d3fdc37`, `d0121b0` | the vendored win32 DLL, and the load path that finds it                                                                                                                                                         |
 
-Windows needed no change to `packages/werk-poc/` at all.
+The last two are the only Windows changes on `main`; the `win32` branches in
+the daemon's lock, launcher, paths and server are on PR #3's branch.
 
 ## What was not taken
 
-- **One machine per platform, one image, one Bun version.** Where a row reads
-  "works", it works there. Nobody has looked at Windows 10, at Windows on
-  arm64, at an Intel Mac, at Bun 1.4 on either, or at a Windows machine
-  without Git for Windows on the path — `sh` resolving to
-  `C:\Program Files\Git\usr\bin\sh.exe` is a property of the runner image.
-- **`darwin-x64` and the ffi adapter's remaining platforms.** `linux-arm64`,
-  both musl targets and `darwin-x64` are still claims rather than
-  measurements.
-- **The M5 transport spike** on any of the three. It needs Docker and
-  `NET_ADMIN` for `tc netem`, so it did not run in CI; whether the `ssh -L`
-  forward it measures works over whatever Bun's Windows `unix:` option
-  actually is, is untested.
+- **One image and one Bun version per platform.** Where a row reads "works",
+  it works there. Nobody has looked at Windows 10 (no hosted image exists),
+  at Bun 1.4 on any of them, or at a Windows machine without Git for Windows
+  on the path — `sh` resolving to `C:\Program Files\Git\usr\bin\sh.exe` is a
+  property of the runner image.
+- **The M5 transport spike** on any platform but the WSL2 machine. It needs
+  Docker and `NET_ADMIN` for `tc netem`, so it did not run in CI. Whether an
+  `ssh -L` forward of the kind it measures works against a Windows `AF_UNIX`
+  socket is answered by the research rather than by a run: Win32-OpenSSH
+  does not forward it.
 - **The soak**, on any platform, and `bench/perf.ts` as anything but
   information — timings on a shared runner are not comparable with `m6.md`'s.
-- **Whether the Windows `unix:` listener is `AF_UNIX` or a named pipe**, which
-  the "no file on disk" result raises but does not answer.
-- **Any port.** The `flock` Windows branch, the readiness-pipe replacement and
-  a `setsid` analogue are described where the run found them and were not
-  written.
+- **A `win32-arm64` run of the pipe lock.** PR #3's no-ffi lock is verified
+  on x64 by forcing it; the one platform that needs it has not run it.
+- **Logout survival on macOS**, and App Nap's effect on a headless Bun
+  daemon; both unverified either way.
+- **The rest of the Windows port.** The PR #3 branches stop where the
+  measurements above say they stop: the ConPTY render prologue, kill through
+  the protocol, the pinned executable, `bench/ops.ts`'s own launcher, a
+  `darwin-x64` ffi build.
 
 ## Auditing this
 
 The workflow is `.github/workflows/poc.yml` — it runs when a pull request is
 given the `ci:poc` label, and from the Actions tab or `gh workflow run`. The
 win32 build has its own, `.github/workflows/vt-win32.yml`. Neither runs on an
-ordinary commit.
+ordinary commit. The macOS probes, the Windows probes and the eight-target
+matrix are workflows on the branches of PR #2, PR #3 and PR #5.
 
 ```console
 $ gh workflow run poc.yml --ref <branch> -f os=all
@@ -431,8 +633,8 @@ $ gh run download <id> -n ci-result-macos     # the table above, as JSON
 
 Each job uploads `ci-result-<os>.json` plus the raw suite logs, and the
 per-probe M0 logs quoted here are in the macOS artefact under
-`packages/werk-poc/dist/m0/`. Artefacts are kept 14 days; the runs named above
-predate that window, so re-running is the way to check them now.
+`packages/werk-poc/dist/m0/`. Artefacts are kept 14 days; re-running is the
+way to check anything older than that.
 
 To re-derive the vendored DLL, `vendor/ghostty-vt-ffi/build.md` has the zig
 version and the command line. The sha256 in `PIN` matches the committed file

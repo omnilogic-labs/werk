@@ -227,10 +227,12 @@ all of which we will hit:
   worth knowing before promising Windows-host parity.
 - `close()` can block on Windows builds before 26100.
 
-**Unverified and important: nobody documents whether `Bun.Terminal` works inside
-`--compile` output.** It is native runtime code rather than an embedded asset, so
-there is no structural reason it wouldn't — but it is a smoke test to run in week
-one, because the entire TypeScript plan rests on it.
+**`Bun.Terminal` works inside `--compile` output**, measured rather than
+documented: the proof of concept's M0 probes behave identically interpreted and
+compiled on Linux, on macOS and — as a ConPTY — on Windows
+([`platforms.md`](../../packages/werk-poc/findings/platforms.md)). It is native
+runtime code rather than an embedded asset, which is why there was no structural
+reason it wouldn't.
 
 ### `.node` addons: possible, fragile
 
@@ -330,15 +332,15 @@ and orgs, EU/UK orgs only.
 
 Workable, with sharp edges that land squarely on a process supervisor.
 
-| Area              | Status                                                                                                                                                                                                                                                    |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **PTY**           | `Bun.Terminal` + ConPTY (v1.3.14). Output re-encoded, no termios, no echo without an attached child.                                                                                                                                                      |
-| **Signals**       | **`proc.kill(signal)` ignores the signal argument** — every kill is effectively hard. Bun's own docs say so. The `SIGHUP → grace → SIGKILL` teardown in [04 §6](04-daemon-best-practices.md) _does not work as designed_ on native Windows.               |
-| **IPC**           | No `AF_UNIX`. Named pipes via `Bun.listen`/`node:net` (`\\.\pipe\name`), Node's model. Needs a literal double-backslash path. **werk's daemon IPC needs a Windows-specific path.**                                                                        |
-| **Symlinks**      | Real bugs, including [#25113](https://github.com/oven-sh/bun/issues/25113) — `bun rm -rf` following symlinks and causing data loss, closed as a duplicate of an earlier one, i.e. a recurring class. Don't rely on symlinks in werk's Windows deployment. |
-| **Long paths**    | Fixed — `\\?\` extended-length support merged in #16422.                                                                                                                                                                                                  |
-| **File watching** | `fs.watch` reported unstable; add a polling fallback rather than trusting it.                                                                                                                                                                             |
-| **Minimum**       | Windows 10 1809+. arm64 native since v1.3.10.                                                                                                                                                                                                             |
+| Area              | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **PTY**           | `Bun.Terminal` + ConPTY (v1.3.14). Output re-encoded, no termios, no echo without an attached child.                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Signals**       | **Every `proc.kill(signal)` is `TerminateProcess`** — exit code 1, no handler fires, and Bun reports the requested `signalCode` anyway (measured in [`platforms.md`](../../packages/werk-poc/findings/platforms.md)). The `SIGHUP → grace → SIGKILL` teardown in [04 §6](04-daemon-best-practices.md) has to be a protocol shutdown on native Windows.                                                                                                                                                      |
+| **IPC**           | `AF_UNIX` exists (Windows 10 1803+, `SOCK_STREAM` only) and `Bun.listen({ unix })` uses it. The path is a reparse point that Bun's `existsSync`/`stat` cannot see, and a stale one must be unlinked before rebinding. A `\\.\pipe\` name goes to a named pipe instead. Node reaches only pipes and Win32-OpenSSH forwards neither, so anything but a Bun client probably wants loopback TCP ([09 §3](09-remote-transport.md)). Measured in [`platforms.md`](../../packages/werk-poc/findings/platforms.md). |
+| **Symlinks**      | Real bugs, including [#25113](https://github.com/oven-sh/bun/issues/25113) — `bun rm -rf` following symlinks and causing data loss, closed as a duplicate of an earlier one, i.e. a recurring class. Don't rely on symlinks in werk's Windows deployment.                                                                                                                                                                                                                                                   |
+| **Long paths**    | Fixed — `\\?\` extended-length support merged in #16422.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| **File watching** | `fs.watch` reported unstable; add a polling fallback rather than trusting it.                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| **Minimum**       | Windows 10 1809+. arm64 native since v1.3.10.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 v1.4 claims 2.5× faster Windows startup and 17% smaller binaries — and
 reintroduced a macOS signing regression within days. **Pin exact Bun versions and
@@ -429,8 +431,10 @@ daemons, not one. See [`../product/02-journeys.md`](../product/02-journeys.md) �
 
 ## Open questions
 
-1. **Does `Bun.Terminal` work inside `--compile` output?** Nobody documents it
-   either way. Smoke-test in week one; the whole TypeScript plan depends on it.
+1. **Does `Bun.Terminal` work inside `--compile` output?** It does, on all three
+   operating systems ([`platforms.md`](../../packages/werk-poc/findings/platforms.md));
+   what stays open is whether ConPTY's re-encoded output is acceptable for a
+   Windows host.
 2. Does Apple's notary service care about opaque embedded binary data in a
    Mach-O segment? Reasoned, not tested. Run a real notarization dry run early.
 3. Is there any size ceiling on a single embedded asset? Only the ≥8-file _count_
@@ -439,8 +443,11 @@ daemons, not one. See [`../product/02-journeys.md`](../product/02-journeys.md) �
 5. Current merge status of the musl `libstdc++` fix — matters if werk runs inside
    the containers it provisions.
 6. Is the `bun:ffi` route (`ts-libghostty`) within noise of the WASM one on
-   throughput and latency? If so, there is no reason to ever carry a native
-   prebuild matrix for the engine.
+   throughput and latency? On the one machine both ran, the WASM one is faster
+   ([`m6.md`](../../packages/werk-poc/findings/m6.md)), and the prebuild matrix
+   has a measured hole: no `darwin-x64` build exists and Bun 1.3.14 has no
+   `bun:ffi` on `win32-arm64` ([`platforms.md`](../../packages/werk-poc/findings/platforms.md)).
+   Whether to carry the matrix at all is still open.
 
 ## Sources
 

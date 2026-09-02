@@ -13,11 +13,14 @@ everything below:
   whose state you cannot see. §9 is the worst of it: "the daemon outlives the
   binary" becomes "six daemons outlive the binary". See
   [`../product/02-journeys.md`](../product/02-journeys.md) §11.
-- **Windows is a first-class client.** §1's Unix socket becomes a named pipe;
-  §2's `setsid`/`fork` discussion does not apply; and §6's
-  `SIGHUP → grace → SIGKILL` teardown **does not work as designed**, because
-  Bun's `proc.kill(signal)` ignores the signal argument on Windows
-  ([07 §6](07-packaging.md)).
+- **Windows is a first-class client.** §1's Unix socket works as `AF_UNIX` on
+  Windows, and a named pipe is an option rather than a requirement; §2's
+  `setsid`/`fork` discussion becomes `DETACHED_PROCESS` semantics — a detached
+  child has no console, so no console-control event reaches it; and §6's
+  `SIGHUP → grace → SIGKILL` teardown has to be a protocol shutdown there,
+  because a signal cannot reach a detached daemon and Bun's `proc.kill(signal)`
+  is `TerminateProcess` whatever signal is named ([07 §6](07-packaging.md),
+  measured in [`platforms.md`](../../packages/werk-poc/findings/platforms.md)).
 
 The principles here are language-agnostic and hold whatever
 [02](02-language-choice.md) resolves to; the crate shortlist at the end is
@@ -126,6 +129,13 @@ because the port was taken / the state dir was unwritable" from a silent hang
 into a printed message.
 
 `sd_notify`-style readiness, but hand-rolled — the same idea systemd formalised.
+
+The pipe does not travel: on Windows in Bun 1.3.14 the parent's end of an extra
+stdio slot is a raw HANDLE that nothing reads
+([`platforms.md`](../../packages/werk-poc/findings/platforms.md)). The portable
+form is the client polling `connect` and completing `hello` under a deadline,
+with the daemon writing its failure reason to a log the client prints on
+timeout; where the pipe works it is only a faster route to the same message.
 
 ## 5. Filesystem layout: XDG, per-uid, 0700
 
