@@ -117,6 +117,22 @@ jobs:
         timeout-minutes: 20
         run: .github/ci/linux.sh diff
 
+      - name: experiment m2 slow client
+        continue-on-error: true
+        timeout-minutes: 20
+        working-directory: packages/werk-poc
+        run: |
+          for i in 1 2 3 4 5; do
+            echo "--- plain run $i"
+            bun run spikes/m2/run-all.ts "slow client" 2>&1 |
+              grep -E '^(PASS|FAIL)  |FAIL:|fast client (never lagged|saw)|slow client: dropped' || true
+          done
+          for b in 524288 1048576; do
+            echo "--- WP_QUEUE_BOUND=$b"
+            WP_QUEUE_BOUND=$b bun run spikes/m2/run-all.ts "slow client" 2>&1 |
+              grep -E '^(PASS|FAIL)  |FAIL:|fast client (never lagged|saw)|slow client: dropped' || true
+          done
+
       - name: report
         id: report
         if: always()
