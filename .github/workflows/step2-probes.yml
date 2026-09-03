@@ -80,7 +80,7 @@ jobs:
         timeout-minutes: 5
         run: |
           set -o pipefail
-          bun test .github/ci/win32-kill.test.ts 2>&1 | tee -a probes.log || true
+          bun test ./.github/ci/win32-kill.test.ts 2>&1 | tee -a probes.log || true
           {
             echo
             echo '```'
