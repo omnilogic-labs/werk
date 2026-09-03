@@ -221,6 +221,32 @@ far enough to hit questions rather than blockers:
   that costs every file the runner had not reached yet, so the Windows lane
   runs the files one process at a time; with the timing-out test filtered
   out, the same file reaches a verdict.
+- **A process that has run the wasm engine may not exit.** On
+  `windows-latest` a `bun test` process whose file ran the ghostty-wasm
+  engine prints its whole tally and then, about one time in a hundred,
+  never exits: 11 of 2,340 such processes in run 33745611845, and none of
+  1,200 that only compiled the module or loaded nothing. `bun run m3` ends
+  the same way about one lane run in four. It is Bun 1.3.14's exit rather
+  than the tree: `ExitProcess` terminates JSC's helper threads, and the exit
+  can then wait on one of them forever — oven-sh/bun#40513 is the arm64
+  shape of it, a wasm compiler thread killed while it holds the JS thread
+  suspended, fixed after 1.3.14; which thread it is on x64 is not
+  separated, only which pool removes it. With JSC's concurrent JIT off
+  (`BUN_JSC_useConcurrentJIT=false`) the same files did not hang once in
+  1,200 runs, and with the concurrent collector off they hung 36 times, so
+  the lane's harness runs its `bun test` with that option, at about half a
+  second of synchronous compilation per engine file, and the `m3` step sets
+  it too; Bun refuses a `BUN_JSC_*` name its JSC does not know, so a Bun
+  that drops the option fails the lane loudly. Such a process is not ended
+  from outside either: `timeout`'s kill returned, and a reader on the
+  process's pipe never saw the end of it (run 33744140485). So the harness
+  keeps stdout on a file, watches it for Bun's `Ran N tests` line, gives the
+  process fifteen seconds after it, then kills what it can and moves on.
+  That file's tests passed and its process did not exit, and the roll-up
+  records the two separately — `passed but did not exit: <files>` in its
+  `DETAIL` line — without going red, since the tally is complete and the
+  cause is Bun's. A file with no tally at all, or a failing one, is red as
+  before.
 - **A socket path can be too long for Winsock.** `bench/ops.ts` named a
   runtime directory after the target it was timing, which put the daemon's
   socket 116 characters under `%TEMP%`; the daemon exited 1 saying it had
@@ -701,8 +727,9 @@ ls` against a live daemon at 79–82 ms (runs 33712817886, 33712812822).
    or four of seven PTY probes pass, and which ones moves — `03-sigwinch`
    and `06-raw-mode` swap places on both runners between runs 33712817886
    and 33714530862. `m3`: every snapshot it encodes decodes identically, and
-   then the process does not exit, on some runs on either runner.
-   `test-full`: the ConPTY costs §3 records. Gating any of those would gate
+   then on some runs on either runner the process does not exit, which is
+   Bun's exit rather than the tree (§3). `test-full`: the ConPTY costs §3
+   records. Gating any of those would gate
    on something already understood, which is worse than not gating it.
 
 6. **macOS.** The listener buffer raise stays, now a row of the
@@ -842,12 +869,12 @@ honest summary of where the port stands:
 Four of those have a cause outside the PoC and no obvious cost to fix: the
 slow-client scenario is CPU headroom on a shared runner (§5) and unexplained
 throughput on macOS (§4); `darwin-x64` and `win32-arm64`'s ffi failures are a
-missing prebuild and a `bun:ffi` that cannot `dlopen`; `m3` and `m0` are
-nondeterministic, and `m3` still prints every table and then does not exit
-on about one run of the merged tree in six (run 33744965310), the same shape
-as the engine test files' non-exit below. `test-full` and `m2` hold on
-`win32-x64`: three runs of the merged tree (33742714239, 33742717583 and
-33742721321) and three more with the gate in place (33744959953,
+missing prebuild and a `bun:ffi` that cannot `dlopen`; `m0` is
+nondeterministic, and `m3` printed every table and then did not exit on
+about one run of the merged tree in six (run 33744965310), which is Bun's
+exit racing a JSC compiler thread, the same as the engine test files' (§3),
+and the lane now runs `m3` without that thread. `test-full` and `m2` hold on
+`win32-x64`: three runs of the merged tree (33742714239, 33742717583 and 33742721321) and three more with the gate in place (33744959953,
 33744962470 and 33744965310) each pass 171 tests across 23 files, one
 process per file, and nine `m2` scenarios of nine, after the unit runs that
 closed each file one by one (§3, §11) and `m2`'s own eighteen runs in
@@ -899,28 +926,29 @@ find, and what the runs leave undone.
 Each of these was diagnosed as something else first, and each would be easy
 to re-introduce.
 
-| What you see                                                      | What it is                                                                                                                                                                                                                                                                                     |
-| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Bun reports `signalCode: "SIGTERM"` on Windows                    | The name you passed to `proc.kill()`, echoed back. `TerminateProcess` ran and no signal was delivered (§3).                                                                                                                                                                                    |
-| `bun:ffi` "missing" on Windows arm64                              | The module imports; every `dlopen` through it throws "TinyCC is disabled". Detect by what `dlopen` does, not by whether the import works (§3).                                                                                                                                                 |
-| A whole `bun test` file dying with "connection closed"            | A test timed out, Bun killed the daemon the file had started, and then panicked. One process per file bounds the damage to that file (§3).                                                                                                                                                     |
-| A test that burns five seconds and then fails                     | `expect(promise).rejects` hangs on Windows where catching the same rejection returns at once. Other `expect().rejects` in the same file are fine.                                                                                                                                              |
-| "daemon did not answer within 10 s", with no reason               | Often an `AF_UNIX` path too long — Winsock refused 116 characters where 75 bound (§3). Have the launcher report the last connect error.                                                                                                                                                        |
-| A reattach test failing on the render prologue                    | It was not the prologue; that assertion passed. ConPTY re-encodes the stream, so compare cell grids, never bytes (§3).                                                                                                                                                                         |
-| `m3` red on Windows                                               | Probably the run, not the tree: it prints every table and then does not exit. It is not gated (§8).                                                                                                                                                                                            |
-| vim not redrawing after a resize on Windows                       | Not the daemon's resize: the ConPTY answers the new size at once to a child that asks. The MSYS runtime between vim and the console drops about one resize in five until vim next reads input, and then sizes it one row too tall. `m2` records that and asserts the resize through the child. |
-| `wp` has exited but its last line is not in the pty               | A ConPTY delivers for up to 40 ms after the process it fed is gone. Wait for the line, not the exit.                                                                                                                                                                                           |
-| The slow-client scenario red on a hosted lane                     | CPU headroom on a shared runner — roughly two attempts in seven pass. A green lane is not evidence it is fixed (§5).                                                                                                                                                                           |
-| macOS losing about 6 MB in the fast-client scenario               | Not the client's sink: a pipe and a plain file lose as much as a PTY. An unexplained delivery rate; §4 says what is ruled out.                                                                                                                                                                 |
-| A stale binary answering a `hello`                                | `PROTOCOL_VERSION` catches a changed wire shape only if it is bumped when the wire changes. `dist/bench-ops/` caches a binary across runs.                                                                                                                                                     |
-| A ConPTY carrying 20 KiB/s                                        | The producer and the line count. MSYS `yes \| head -c` reaches the pseudoconsole three bytes a read; a ConPTY's own cost is per line, about 200,000 a second at any length, 13 MiB/s of full rows (§3).                                                                                        |
-| `GenerateConsoleCtrlEvent` returning success at the daemon        | It delivered nothing: a detached daemon has no console, and `AttachConsole` to it fails with error 5. Given a console, the event ends the process without Bun running a handler (§3).                                                                                                          |
-| `process.kill(pid, "SIGQUIT")` never returning on Windows x64     | libuv's `kill` writes a minidump of the target for that name; the caller sat in it until a 420 s step timeout (run 33737447986). arm64 terminates the child instead.                                                                                                                           |
-| An `output` frame ahead of the snapshot on a snapshot-mode attach | The connection was still attached to another session: the client installs the new handlers before the daemon has processed the attach, and that session's output lands in them. A flood an earlier test left running fills the window at ConPTY's pace.                                        |
-| `existsSync` saying the Windows daemon's socket is not there      | It is. A Winsock `AF_UNIX` path is a reparse point that `existsSync`, `stat` and `lstat` cannot open (`EACCES`); the directory listing can. Ask `platform.socketExists()` (§3).                                                                                                                |
-| A 0600 token file reading as 0666 on Windows                      | NTFS has no mode bits Bun can read and `writeFileSync`'s mode changes nothing. Who can read a file is its ACL, inherited from the profile directory; `platform.privateToUser()` reads it (§3).                                                                                                 |
-| `Bun.connect` failing on a symlink to a Windows socket            | Winsock does not follow a file symlink to the reparse point. A junction to the socket's directory is resolved on the way and reaches it (§3).                                                                                                                                                  |
-| A compiled spike's binary reading as 0 MB on Windows              | `bun build --compile --outfile x` wrote `x.exe`; `CreateProcess` appends the suffix and `Bun.file` does not. `os.tmpdir()` there reads `TEMP`, not `TMPDIR` (§3).                                                                                                                              |
+| What you see                                                       | What it is                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bun reports `signalCode: "SIGTERM"` on Windows                     | The name you passed to `proc.kill()`, echoed back. `TerminateProcess` ran and no signal was delivered (§3).                                                                                                                                                                                                                            |
+| `bun:ffi` "missing" on Windows arm64                               | The module imports; every `dlopen` through it throws "TinyCC is disabled". Detect by what `dlopen` does, not by whether the import works (§3).                                                                                                                                                                                         |
+| A whole `bun test` file dying with "connection closed"             | A test timed out, Bun killed the daemon the file had started, and then panicked. One process per file bounds the damage to that file (§3).                                                                                                                                                                                             |
+| A test that burns five seconds and then fails                      | `expect(promise).rejects` hangs on Windows where catching the same rejection returns at once. Other `expect().rejects` in the same file are fine.                                                                                                                                                                                      |
+| "daemon did not answer within 10 s", with no reason                | Often an `AF_UNIX` path too long — Winsock refused 116 characters where 75 bound (§3). Have the launcher report the last connect error.                                                                                                                                                                                                |
+| A reattach test failing on the render prologue                     | It was not the prologue; that assertion passed. ConPTY re-encodes the stream, so compare cell grids, never bytes (§3).                                                                                                                                                                                                                 |
+| A Windows process that printed everything and then does not exit   | Bun 1.3.14's exit, not the tree: `ExitProcess` terminates a JSC compiler thread the exit then waits on, about one `bun test` process in a hundred once the wasm engine has run, and `m3` about one run in four (§3). `BUN_JSC_useConcurrentJIT=false` removes the thread; the harness reads the tally and records the exit separately. |
+| `timeout` said it killed a Windows process, and a pipe still waits | It did not end it. A process stuck in its own exit outlives `timeout`'s kill, and a reader on its pipe never sees the end. Send such a process's output to a file and stop waiting on it.                                                                                                                                              |
+| vim not redrawing after a resize on Windows                        | Not the daemon's resize: the ConPTY answers the new size at once to a child that asks. The MSYS runtime between vim and the console drops about one resize in five until vim next reads input, and then sizes it one row too tall. `m2` records that and asserts the resize through the child.                                         |
+| `wp` has exited but its last line is not in the pty                | A ConPTY delivers for up to 40 ms after the process it fed is gone. Wait for the line, not the exit.                                                                                                                                                                                                                                   |
+| The slow-client scenario red on a hosted lane                      | CPU headroom on a shared runner — roughly two attempts in seven pass. A green lane is not evidence it is fixed (§5).                                                                                                                                                                                                                   |
+| macOS losing about 6 MB in the fast-client scenario                | Not the client's sink: a pipe and a plain file lose as much as a PTY. An unexplained delivery rate; §4 says what is ruled out.                                                                                                                                                                                                         |
+| A stale binary answering a `hello`                                 | `PROTOCOL_VERSION` catches a changed wire shape only if it is bumped when the wire changes. `dist/bench-ops/` caches a binary across runs.                                                                                                                                                                                             |
+| A ConPTY carrying 20 KiB/s                                         | The producer and the line count. MSYS `yes \| head -c` reaches the pseudoconsole three bytes a read; a ConPTY's own cost is per line, about 200,000 a second at any length, 13 MiB/s of full rows (§3).                                                                                                                                |
+| `GenerateConsoleCtrlEvent` returning success at the daemon         | It delivered nothing: a detached daemon has no console, and `AttachConsole` to it fails with error 5. Given a console, the event ends the process without Bun running a handler (§3).                                                                                                                                                  |
+| `process.kill(pid, "SIGQUIT")` never returning on Windows x64      | libuv's `kill` writes a minidump of the target for that name; the caller sat in it until a 420 s step timeout (run 33737447986). arm64 terminates the child instead.                                                                                                                                                                   |
+| An `output` frame ahead of the snapshot on a snapshot-mode attach  | The connection was still attached to another session: the client installs the new handlers before the daemon has processed the attach, and that session's output lands in them. A flood an earlier test left running fills the window at ConPTY's pace.                                                                                |
+| `existsSync` saying the Windows daemon's socket is not there       | It is. A Winsock `AF_UNIX` path is a reparse point that `existsSync`, `stat` and `lstat` cannot open (`EACCES`); the directory listing can. Ask `platform.socketExists()` (§3).                                                                                                                                                        |
+| A 0600 token file reading as 0666 on Windows                       | NTFS has no mode bits Bun can read and `writeFileSync`'s mode changes nothing. Who can read a file is its ACL, inherited from the profile directory; `platform.privateToUser()` reads it (§3).                                                                                                                                         |
+| `Bun.connect` failing on a symlink to a Windows socket             | Winsock does not follow a file symlink to the reparse point. A junction to the socket's directory is resolved on the way and reaches it (§3).                                                                                                                                                                                          |
+| A compiled spike's binary reading as 0 MB on Windows               | `bun build --compile --outfile x` wrote `x.exe`; `CreateProcess` appends the suffix and `Bun.file` does not. `os.tmpdir()` there reads `TEMP`, not `TMPDIR` (§3).                                                                                                                                                                      |
 
 Two rules follow from that list. **Detect a platform capability by trying it
 rather than by asking what platform this is** — the arm64 `bun:ffi` row is
@@ -952,13 +980,15 @@ bytes**, because one of the three platforms rewrites the bytes.
 Nobody has decided any of this is worth doing; it is what the measurements
 stopped short of.
 
-- **A `bun test` process that does not exit on Windows.** In three lane
-  runs of fourteen a pure engine test file — `ghostty-wasm/reattach.test.ts`
-  in runs 33740949544 and 33738651937, `encoders.test.ts` in 33738278048 —
-  printed a clean tally (`15 pass`, `Ran 15 tests across 1 file [168 ms]`)
-  and then sat until the harness's 180 s kill; none of the four runs of the
-  merged tree did. The files start nothing and spawn nothing. What holds the
-  process is not known, and a gated `test-full` goes red on it.
+- **Which JSC thread the Windows exit waits on, and Bun past 1.3.14.** The
+  engine files' non-exit is gone with the concurrent JIT off and not with
+  the collector off (§3), which names the pool and not the thread or the
+  lock; oven-sh/bun#40513 names both for arm64, and whether its fix covers
+  the x64 shape is what a Bun bump would show. Until then the lane's
+  `bun test` and `m3` compile synchronously, and the harness's roll-up
+  carries `passed but did not exit` for any process that still stays.
+  `win32-arm64`'s `m3` has the same symptom and has not been measured with
+  the option.
 - **The stop pipe's ACL.** Who else on the machine can write `stop` to
   `\\.\pipe\werk-poc-stop-<hash>` has not been measured (§3).
 - **What an MSYS vim does with a resize on a ConPTY.** The console has the

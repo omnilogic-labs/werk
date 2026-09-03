@@ -658,11 +658,13 @@ jobs:
       # rather than gated, so a red gate means one of these regressed. Two
       # things are deliberately not here. `m3`: every snapshot it encodes
       # decodes identically, but on one run in four the process printed all
-      # of its tables and then did not exit. `m0-probes`: three probes ask a
-      # POSIX pty question a ConPTY answers differently. One thing gated here
-      # is known to be red on some runs: a pure engine test file that prints
-      # its tally and then does not exit until the harness kills it, about
-      # three lane runs in fourteen (docs/proposals/01-cross-platform.md §11).
+      # of its tables and then did not exit — Bun's exit racing a JSC
+      # compiler thread, which its step now runs without. `m0-probes`: three
+      # probes ask a POSIX pty question a ConPTY answers differently. The
+      # same non-exit hit `test-full`'s engine files about three lane runs
+      # in fourteen; its harness runs without the thread too, and records a
+      # process that still stays separately from the file's tally rather
+      # than as a failure (docs/proposals/01-cross-platform.md §3).
       EXPECTED_PASS: >-
         install typecheck test-pure build-web build diff ops probes daemon
         wp-cli kill test-full m2
