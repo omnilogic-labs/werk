@@ -16,6 +16,7 @@ import {
   type ScreenResult,
 } from "../../src/client/index.ts";
 import { loadGhosttyWasmEngine } from "../../src/engine/ghostty-wasm/bun.ts";
+import { platform } from "../../src/platform/index.ts";
 import type {
   GhosttyWasmEngine,
   GhosttyWasmTerminal,
@@ -77,7 +78,7 @@ export function tempEnv(wp: string): TestEnv {
       WP_TRACE: path.join(root, "trace.log"),
       // A prompt with no colour and no cwd, so screens are predictable.
       PS1: "$ ",
-      // The daemon's socket-buffer switch (sockopt.ts) is the one knob the
+      // The daemon's socket-buffer switch (src/platform/) is the one knob the
       // harness forwards, so a run can be repeated with it off.
       ...(process.env.WP_SNDBUF !== undefined
         ? { WP_SNDBUF: process.env.WP_SNDBUF }
@@ -111,28 +112,8 @@ export async function stopEnv(env: TestEnv, keep = false): Promise<void> {
   fs.rmSync(env.root, { recursive: true, force: true });
 }
 
-export function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-  } catch {
-    return false;
-  }
-  // No zombies on Windows; signal 0 is the whole answer (spike/win32-daemon).
-  if (process.platform === "win32") return true;
-  try {
-    // A zombie still answers signal 0; macOS has no /proc to read its state
-    // from, so `ps` reports it instead.
-    if (process.platform === "darwin") {
-      return !Bun.spawnSync(["ps", "-o", "state=", "-p", String(pid)])
-        .stdout.toString()
-        .trim()
-        .startsWith("Z");
-    }
-    return !/\) Z /.test(fs.readFileSync(`/proc/${pid}/stat`, "utf8"));
-  } catch {
-    return false;
-  }
-}
+/** Whether `pid` is a live process; a zombie waiting to be reaped counts as dead. */
+export const alive = (pid: number): boolean => platform.isAlive(pid);
 
 /** A client on the environment's daemon, for `screen`, `ls`, `logs`. */
 export function daemonClient(env: TestEnv): Promise<Client> {

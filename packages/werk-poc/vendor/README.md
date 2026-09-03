@@ -69,8 +69,9 @@ from it. Those offsets are identical on win32 — `build.md` §4 records how
 that was checked — so no Windows-specific regeneration is needed.
 
 This buys the fast adapter on Windows, and nothing else. `Bun.Terminal` is
-POSIX-only, `src/daemon/flock.ts` dlopens libc, and the daemon speaks over a
-Unix socket; none of those are VT concerns. `ghostty-wasm` already runs
+POSIX-only, the daemon's lock dlopens libc on a POSIX system
+(`src/platform/posix.ts`), and the daemon speaks over a Unix socket; none of
+those are VT concerns. `ghostty-wasm` already runs
 anywhere `bun build --compile` targets, so Windows was never without an
 engine.
 

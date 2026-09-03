@@ -10,6 +10,7 @@ import {
   type AttachOptions,
   type Attachment,
 } from "../client/index.ts";
+import { platform } from "../platform/index.ts";
 
 // Every daemon a test starts inherits this environment, so point snapshots
 // at a directory of their own rather than the user's real state directory.
@@ -35,30 +36,7 @@ export async function waitFor(
 }
 
 /** Whether `pid` is a live process; a zombie waiting to be reaped counts as dead. */
-export function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-  } catch {
-    return false;
-  }
-  // Windows has no zombies: once the process object reports an exit code,
-  // libuv's kill(pid, 0) already says ESRCH (spike/win32-daemon).
-  if (process.platform === "win32") return true;
-  try {
-    // A zombie still answers signal 0. macOS has no /proc, so its STAT column
-    // from `ps` is the only place the state shows up.
-    if (process.platform === "darwin") {
-      return !Bun.spawnSync(["ps", "-o", "state=", "-p", String(pid)])
-        .stdout.toString()
-        .trim()
-        .startsWith("Z");
-    }
-    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
-    return !/\) Z /.test(stat);
-  } catch {
-    return false;
-  }
-}
+export const alive = (pid: number): boolean => platform.isAlive(pid);
 
 export function tempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "wp-m2-"));
