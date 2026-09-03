@@ -37,16 +37,16 @@ unknown.
 
 Every "measured" cell names a run in §7. A cell is a claim until it does.
 
-| Target            | Runner             | wasm engine, differential | Daemon from a cross-compiled binary | PoC suites                                                     |
-| ----------------- | ------------------ | ------------------------- | ----------------------------------- | -------------------------------------------------------------- |
-| linux-x64-glibc   | `ubuntu-24.04`     | reference                 | starts, answers `ls`                | all pass but the slow-client scenario                          |
-| linux-arm64-glibc | `ubuntu-24.04-arm` | identical                 | starts, answers `ls`                | same                                                           |
-| linux-x64-musl    | Alpine 3.22        | identical                 | starts, answers `ls`                | same; the binary needs `libstdc++` and `libgcc_s` there        |
-| linux-arm64-musl  | Alpine 3.22 on arm | identical                 | starts, answers `ls`                | same                                                           |
-| darwin-arm64      | `macos-latest`     | identical                 | starts, answers `ls`                | same as Linux                                                  |
-| darwin-x64        | `macos-15-intel`   | identical                 | starts, answers `ls`                | same; no ffi prebuild exists, so ffi tests fail                |
-| win32-x64         | `windows-latest`   | identical                 | starts, answers `ls` (§3)           | reattach fidelity holds; `m0-probes` and `test-full` fail (§3) |
-| win32-arm64       | `windows-11-arm`   | identical                 | starts, answers `ls`; no `bun:ffi`  | as x64, plus no ffi engine at all in Bun 1.3.14                |
+| Target            | Runner             | wasm engine, differential | Daemon from a cross-compiled binary | PoC suites                                                           |
+| ----------------- | ------------------ | ------------------------- | ----------------------------------- | -------------------------------------------------------------------- |
+| linux-x64-glibc   | `ubuntu-24.04`     | reference                 | starts, answers `ls`                | all pass but the slow-client scenario                                |
+| linux-arm64-glibc | `ubuntu-24.04-arm` | identical                 | starts, answers `ls`                | same                                                                 |
+| linux-x64-musl    | Alpine 3.22        | identical                 | starts, answers `ls`                | same; the binary needs `libstdc++` and `libgcc_s` there              |
+| linux-arm64-musl  | Alpine 3.22 on arm | identical                 | starts, answers `ls`                | same                                                                 |
+| darwin-arm64      | `macos-latest`     | identical                 | starts, answers `ls`                | same as Linux                                                        |
+| darwin-x64        | `macos-15-intel`   | identical                 | starts, answers `ls`                | same; no ffi prebuild exists, so ffi tests fail                      |
+| win32-x64         | `windows-latest`   | identical                 | starts, answers `ls` (§3)           | reattach fidelity holds; `m0-probes`, `test-full` and `m2` fail (§3) |
+| win32-arm64       | `windows-11-arm`   | identical                 | starts, answers `ls`; no `bun:ffi`  | as x64, plus no ffi engine at all in Bun 1.3.14                      |
 
 Three things the table says that the research did not expect:
 
@@ -446,6 +446,7 @@ so re-running is the way to check anything older.
 | The Windows lane with the M2 and `ops` harness items done                 | `step/04-harness`, `poc.yml`                                               | [33705813223](https://github.com/omnilogic-labs/werk/actions/runs/33705813223), [33706143058](https://github.com/omnilogic-labs/werk/actions/runs/33706143058)                                                                                 |
 | ConPTY's re-encoding, compared as bytes and as cells                      | `poc.yml`'s `probes` suite                                                 | [33706788925](https://github.com/omnilogic-labs/werk/actions/runs/33706788925)                                                                                                                                                                 |
 | The Windows lane with the fidelity oracle on the grid                     | `poc.yml`                                                                  | [33706788925](https://github.com/omnilogic-labs/werk/actions/runs/33706788925)                                                                                                                                                                 |
+| The three lanes with every Windows step of §8 merged                      | `poc.yml`                                                                  | [33710644108](https://github.com/omnilogic-labs/werk/actions/runs/33710644108)                                                                                                                                                                 |
 | The three lanes with teardown through the protocol                        | `poc.yml`                                                                  | [33707334391](https://github.com/omnilogic-labs/werk/actions/runs/33707334391)                                                                                                                                                                 |
 | Job Objects, the kill path and `expect().rejects` on both Windows runners | `step2-probes.yml`                                                         | [33704743713](https://github.com/omnilogic-labs/werk/actions/runs/33704743713), [33706263111](https://github.com/omnilogic-labs/werk/actions/runs/33706263111), [33707210922](https://github.com/omnilogic-labs/werk/actions/runs/33707210922) |
 
