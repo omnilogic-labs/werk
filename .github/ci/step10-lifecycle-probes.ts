@@ -216,7 +216,9 @@ if (role === null) {
   };
 
   // ---- 1. What Bun's process.kill does to a daemon-shaped child, per name.
-  for (const sig of ["SIGTERM", "SIGINT", "SIGBREAK", "SIGHUP", "SIGQUIT"]) {
+  // Not SIGQUIT: on win32-x64 process.kill(pid, "SIGQUIT") takes libuv's
+  // minidump path and did not return in seven minutes (run 33737447986).
+  for (const sig of ["SIGTERM", "SIGINT", "SIGBREAK", "SIGHUP"]) {
     const { dir, child, up } = await startDaemonish(`kill-${sig}`);
     if (!up) {
       say(`kill-${sig}`, `child never came up (exit ${child.exitCode()})`);
