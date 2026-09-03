@@ -312,8 +312,13 @@ async function run(p: Parsed): Promise<number> {
 async function attach(p: Parsed): Promise<number> {
   const id = oneId(p, "attach");
   const { attachInteractive } = await import("./attach.ts");
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    console.error("wp attach: stdin and stdout must be a terminal");
+  // Raw mode is a property of stdin, so a terminal there is the whole
+  // requirement; the session's bytes go to fd 1 whatever it is. Attaching
+  // with stdout redirected records the stream a terminal would have shown,
+  // which is how the M2 slow-client scenario measures a sink that cannot
+  // apply back-pressure of its own.
+  if (!process.stdin.isTTY) {
+    console.error("wp attach: stdin must be a terminal");
     return 1;
   }
   return withClient(false, (client) =>

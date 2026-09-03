@@ -276,19 +276,21 @@ jobs:
         timeout-minutes: 15
         run: .github/ci/macos.sh suite diff
 
-      # Diagnostic, not a gate and not part of ci-result-macos.json: macOS
-      # gives a unix stream socket an 8 KiB buffer where Linux gives 208 KiB,
-      # which is the suspect for the m2 slow-client scenario. Re-run it with
-      # Linux-sized buffers and see whether the failure goes away.
-      - name: m2 with Linux-sized socket buffers (diagnostic)
-        id: m2-bigbuf
+      # Diagnostic, not a gate and not part of ci-result-macos.json: the
+      # slow-client scenario's *fast* client loses bytes on macOS and not on
+      # Linux, and the daemon already raises its listener's SO_SNDBUF to
+      # Linux's figure (src/daemon/sockopt.ts), so what is left to separate is
+      # the sink. `WP_M2_SINK=pipe` puts the fast client's `wp attach` behind
+      # a pipe instead of a PTY: the line discipline goes out of the path, and
+      # what the daemon still drops is the daemon's.
+      - name: m2 with a pipe sink under the fast client (diagnostic)
+        id: m2-pipe-sink
         continue-on-error: true
         timeout-minutes: 20
         working-directory: packages/werk-poc
-        run: |
-          sudo sysctl -w net.local.stream.sendspace=212992 net.local.stream.recvspace=212992
-          sysctl net.local.stream.sendspace net.local.stream.recvspace
-          bun run m2
+        env:
+          WP_M2_SINK: pipe
+        run: bun run m2
 
       - name: Result
         id: result
