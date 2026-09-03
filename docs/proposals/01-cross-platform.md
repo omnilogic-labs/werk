@@ -212,21 +212,22 @@ compiled daemon on the real macOS lane:
 | slow-client scenario                     | fail               | fail              |
 
 So the kernel buffer accounts for most of the lag episodes and none of the
-loss. Neither does the fast client's sink. `spikes/m2/pty-cat.ts` will put
-that client behind a PTY, a pipe, or a plain file it writes itself, and run
-33702443671 measured all three on the one runner: 6.4 M, 5.8 M and 6.5 M
-bytes lost, 5–6 lag episodes each. A file sink cannot apply back-pressure and
-asks nothing of the harness, so what is left is upstream of the client's
-fd 1: the daemon delivers 1.3–1.8 MB in three to four seconds to a client
-that cannot be blocking, and the queue for that client sits at its 262,144 B
-bound throughout. The same scenario delivers 5.9 MB in 1.6 s on the
-four-vCPU `ubuntu-latest` lane, losing 0.4 MB (run 33702651201), and all
-6.29 MB in about 700 ms on the eight-core machine M2 was measured on, losing
-none. Where the macOS difference goes is unmeasured — Bun's socket write on
-XNU, the client's read loop, the daemon's event loop with the wasm engine on
-it, or CPU share on a hosted runner are all still open — but it is not the
-harness, and across three machines the loss tracks how fast the bytes move
-rather than anything a client did.
+loss, and neither does the fast client's sink. `spikes/m2/pty-cat.ts` will
+put that client behind a PTY, a pipe, or a plain file it writes itself, and run
+33703344148 measured all three on the one runner: 5.8 M, 5.8 M and 6.4 M
+bytes lost, six to eight lag episodes each. A file sink cannot apply
+back-pressure and asks nothing of the harness, so what is left is upstream of
+the client's fd 1: the daemon delivers 1.5–1.9 MB in about three seconds to a
+client that cannot be blocking, and the queue for that client sits at its
+262,144 B bound throughout. The same scenario delivers 4.2–5.9 MB in
+1.2–1.6 s on the four-vCPU `ubuntu-latest` lane, losing 2.1 M and 0.4 M bytes
+on two attempts an hour apart, and all 6.29 MB in about 700 ms on the
+eight-core machine M2 was measured on, losing none. Where the macOS
+difference goes is unmeasured — Bun's socket write on XNU, the client's read
+loop, the daemon's event loop with the wasm engine on it, or CPU share on a
+hosted runner are all still open — but it is not the harness, and across
+three machines the loss tracks how fast the bytes move rather than anything a
+client did.
 
 The buffer raise is cheap and best-effort and probably worth keeping;
 whether the slow-client scenario should gate anything on macOS is a separate
@@ -247,12 +248,13 @@ both cases the appended bundle invalidates it. It still runs locally because
 nothing has quarantined it. `codesign --force --sign -` repairs it in one
 step and the result passes `--strict`. So the first macOS release step is a
 re-sign: the macOS build steps do it, and both darwin lanes verify what comes
-out — the `poc` lane gates a `codesign` suite on it (run 33702025134), and the
-matrix lanes check the natively built binary and the cross-compiled one, which
-arrives from a Linux job that can sign nothing (run 33702043320). That is also
-what would catch a Bun signer regression on a version bump. Beyond that, the path is Developer ID with Bun's JIT entitlement
-set, and notarising the zipped binary (a bare executable cannot be stapled,
-so first run does an online check, or ship a `.pkg`). The wasm-only engine
+out — the `poc` lane gates a `codesign` suite on it (run 33703344148), and
+the matrix lanes check the natively built binary and the cross-compiled one,
+which arrives from a Linux job that can sign nothing (run 33703355321). That
+is also what would catch a Bun signer regression on a version bump. Beyond
+that, the path is Developer ID with Bun's JIT entitlement set, and notarising
+the zipped binary (a bare executable cannot be stapled, so first run does an
+online check, or ship a `.pkg`). The wasm-only engine
 makes this one signature: no extracted dylib, no library-validation
 entitlement. The ffi engine on macOS would cost exactly those things; the
 extracted prebuilds are already linker-signed and verify clean, so it is
@@ -352,20 +354,19 @@ Every "measured" in §1 points at one of these; each run uploads a
 `ci-result-<lane>.json` that is the record, and artefacts are kept 14 days
 so re-running is the way to check anything older.
 
-| What                                                    | Where                                                                      | Run                                                                                                                                                            |
-| ------------------------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The three lanes on `main` with every spike merged       | [`poc.yml`](../../.github/workflows/poc.yml)                               | [33696942295](https://github.com/omnilogic-labs/werk/actions/runs/33696942295)                                                                                 |
-| The eight-target matrix on that same `main`             | [`matrix.yml`](../../.github/workflows/matrix.yml)                         | [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598)                                                                                 |
-| The Windows lane before the daemon had `win32` branches | `poc.yml`                                                                  | [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407)                                                                                 |
-| Lane gates made fail-closed                             | [PR #4](https://github.com/omnilogic-labs/werk/pull/4)                     | [33688264859](https://github.com/omnilogic-labs/werk/actions/runs/33688264859)                                                                                 |
-| Eight targets built on Linux, smoked on native runners  | [PR #5](https://github.com/omnilogic-labs/werk/pull/5), `matrix.yml`       | [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325)                                                                                 |
-| The Linux lanes with the musl and AVX records           | `step/07-linux-musl`, `matrix.yml`                                         | [33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138)                                                                                 |
-| macOS socket buffers, signing, process lifecycle probes | [PR #2](https://github.com/omnilogic-labs/werk/pull/2), `macos-probes.yml` | [33688130745](https://github.com/omnilogic-labs/werk/actions/runs/33688130745)                                                                                 |
-| The daemon with buffers raised, on the macOS lane       | PR #2, `poc.yml`                                                           | [33688537937](https://github.com/omnilogic-labs/werk/actions/runs/33688537937)                                                                                 |
-| Both darwin lanes signing and verifying the binary      | `step/06-macos`, `poc.yml` and `matrix.yml`                                | [33702025134](https://github.com/omnilogic-labs/werk/actions/runs/33702025134), [33702043320](https://github.com/omnilogic-labs/werk/actions/runs/33702043320) |
-| The slow-client scenario under a PTY, a pipe and a file | `step/06-macos`, `poc.yml`                                                 | [33702443671](https://github.com/omnilogic-labs/werk/actions/runs/33702443671)                                                                                 |
-| Windows primitives probed directly                      | [PR #3](https://github.com/omnilogic-labs/werk/pull/3), `win32-spike.yml`  | [33691536664](https://github.com/omnilogic-labs/werk/actions/runs/33691536664)                                                                                 |
-| The Windows lane with the three blockers stepped over   | PR #3, `poc.yml`                                                           | [33690884893](https://github.com/omnilogic-labs/werk/actions/runs/33690884893)                                                                                 |
+| What                                                               | Where                                                                      | Run                                                                                                                                                            |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The three lanes on `main` with every spike merged                  | [`poc.yml`](../../.github/workflows/poc.yml)                               | [33696942295](https://github.com/omnilogic-labs/werk/actions/runs/33696942295)                                                                                 |
+| The eight-target matrix on that same `main`                        | [`matrix.yml`](../../.github/workflows/matrix.yml)                         | [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598)                                                                                 |
+| The Windows lane before the daemon had `win32` branches            | `poc.yml`                                                                  | [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407)                                                                                 |
+| Lane gates made fail-closed                                        | [PR #4](https://github.com/omnilogic-labs/werk/pull/4)                     | [33688264859](https://github.com/omnilogic-labs/werk/actions/runs/33688264859)                                                                                 |
+| Eight targets built on Linux, smoked on native runners             | [PR #5](https://github.com/omnilogic-labs/werk/pull/5), `matrix.yml`       | [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325)                                                                                 |
+| The Linux lanes with the musl and AVX records                      | `step/07-linux-musl`, `matrix.yml`                                         | [33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138)                                                                                 |
+| macOS socket buffers, signing, process lifecycle probes            | [PR #2](https://github.com/omnilogic-labs/werk/pull/2), `macos-probes.yml` | [33688130745](https://github.com/omnilogic-labs/werk/actions/runs/33688130745)                                                                                 |
+| The daemon with buffers raised, on the macOS lane                  | PR #2, `poc.yml`                                                           | [33688537937](https://github.com/omnilogic-labs/werk/actions/runs/33688537937)                                                                                 |
+| Both darwin lanes verifying a signed binary, each M2 sink measured | `step/06-macos`, `poc.yml` and `matrix.yml`                                | [33703344148](https://github.com/omnilogic-labs/werk/actions/runs/33703344148), [33703355321](https://github.com/omnilogic-labs/werk/actions/runs/33703355321) |
+| Windows primitives probed directly                                 | [PR #3](https://github.com/omnilogic-labs/werk/pull/3), `win32-spike.yml`  | [33691536664](https://github.com/omnilogic-labs/werk/actions/runs/33691536664)                                                                                 |
+| The Windows lane with the three blockers stepped over              | PR #3, `poc.yml`                                                           | [33690884893](https://github.com/omnilogic-labs/werk/actions/runs/33690884893)                                                                                 |
 
 The cheap way to ask any further question is the same: a branch, a workflow
 with a `push` trigger scoped to it (or `gh workflow run poc.yml --ref

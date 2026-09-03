@@ -235,29 +235,31 @@ lost. The sink accounts for neither. The fast client's `wp attach` runs under
 between the client and the bytes on disk: a PTY, as a terminal gives a
 client; a pipe, with no line discipline; and a regular file the client writes
 itself, which applies no back-pressure and asks nothing of the harness. Run
-33702443671 ran the scenario once per sink on the one runner:
+33703344148 ran the scenario once per sink on the one runner:
 
 | fast client                 | pty sink  | pipe sink | file sink |
 | --------------------------- | --------- | --------- | --------- |
-| lag episodes                | 6         | 5         | 5         |
-| bytes lost                  | 6,449,613 | 5,815,124 | 6,533,636 |
-| bytes delivered             | 1,395,388 | 1,848,875 | 1,330,672 |
-| lines received of 2,097,152 | 386,229   | 515,034   | 367,600   |
-| flood typed to marker seen  | 2,856 ms  | 3,995 ms  | 3,080 ms  |
-| short writes / drains       | 6 / 6     | 8 / 8     | 5 / 5     |
+| lag episodes                | 8         | 6         | 6         |
+| bytes lost                  | 5,794,584 | 5,794,161 | 6,442,096 |
+| bytes delivered             | 1,926,716 | 1,816,633 | 1,456,344 |
+| lines received of 2,097,152 | 538,540   | 520,462   | 400,028   |
+| flood typed to marker seen  | 3,276 ms  | 3,032 ms  | 2,673 ms  |
+| short writes / drains       | 8 / 8     | 8 / 8     | 6 / 6     |
 
 So the loss is upstream of the client's own fd 1, and the harness is not what
 was losing it. What the three sinks have in common is the rate: the daemon
-delivers 1.3–1.8 MB to a client that cannot be blocking, and its queue for
-that client sits at the 262,144 B bound with five to eight short writes on a
+delivers 1.5–1.9 MB to a client that cannot be blocking, and its queue for
+that client sits at the 262,144 B bound with six to eight short writes on a
 socket whose send buffer is 212,992 B.
 
 Put beside the same scenario on Linux, that rate looks like the whole story.
-The hosted `ubuntu-latest` lane, four vCPUs, loses 393,427 B in one episode
-and delivers 5,903,896 B in 1,649 ms (run 33702651201); the eight-core
-machine [m2](./m2.md) was measured on loses nothing under any of the three
-sinks and reaches the marker in about 700 ms. Three machines, one scenario, a
-loss that tracks how fast the bytes move rather than anything a client did.
+The hosted `ubuntu-latest` lane, four vCPUs, delivered 5.9 MB in 1,649 ms and
+lost 0.4 MB on one attempt, 4.2 MB in 1,232 ms and lost 2.1 MB on another an
+hour later (runs 33702651201 and 33703344148); the eight-core machine
+[m2](./m2.md) was measured on loses nothing under any of the three sinks and
+reaches the marker in about 700 ms. Three machines, one scenario, a loss that
+tracks how fast the bytes move rather than anything a client did, and that
+varies from attempt to attempt wherever the CPU is shared.
 
 Where the macOS difference goes — Bun's socket write on XNU, the client's
 read loop, the daemon's own event loop with the wasm engine on it, or how
@@ -296,10 +298,10 @@ step; the result passes `--verify --strict` and runs.
 
 So both darwin lanes re-sign and then verify. The `poc` macOS lane signs
 `dist/wp` inside its `build` suite and gates a `codesign` suite on
-`codesign --verify --strict` (run 33702025134: `flags=0x2(adhoc)`, "valid on
+`codesign --verify --strict` (run 33703344148: `flags=0x2(adhoc)`, "valid on
 disk"). The matrix lanes verify the natively built binary the same way, and
 re-sign the cross-compiled one first, since it arrives from a Linux job that
-can sign nothing (run 33702043320, both `darwin-arm64` and `darwin-x64`:
+can sign nothing (run 33703355321, both `darwin-arm64` and `darwin-x64`:
 `x-codesign` and `native-codesign` pass, where on run 33696944598 all four
 failed). A Bun bump that changes what `--compile` leaves behind is then a red
 lane rather than a discovery at release time.
