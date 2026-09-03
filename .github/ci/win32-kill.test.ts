@@ -37,14 +37,22 @@ afterAll(async () => {
 
 /** Runs a session, kills it, and removes it; returns the id it left behind. */
 async function spentSession(): Promise<string> {
+  const t0 = performance.now();
   const { id } = await client.run({ argv: ["sleep", "30"] });
+  lap("  spent: run", t0);
+  const t1 = performance.now();
   await client.kill(id);
+  lap("  spent: kill", t1);
+  const t2 = performance.now();
   for (let i = 0; i < 200; i++) {
     const s = (await client.ls()).find((x) => x.id === id);
     if (s && s.status !== "running") break;
     await Bun.sleep(20);
   }
+  lap("  spent: wait for exit", t2);
+  const t3 = performance.now();
   await client.kill(id); // removes it
+  lap("  spent: remove", t3);
   return id;
 }
 
@@ -64,9 +72,18 @@ test("a request for a gone session, awaited with try/catch", async () => {
 
 test("the same, through expect().rejects", async () => {
   const id = await spentSession();
+  console.log(`spent session is ${id}; asking for it again`);
   const t0 = performance.now();
   await expect(client.kill(id)).rejects.toThrow(/no session/);
   lap("expect().rejects kill", t0);
+}, 20_000);
+
+test("expect().rejects on a promise that is already rejected", async () => {
+  const t0 = performance.now();
+  await expect(Promise.reject(new Error("no session nothing"))).rejects.toThrow(
+    /no session/,
+  );
+  lap("expect().rejects on a settled promise", t0);
 }, 20_000);
 
 test("the same, on a session id that never existed", async () => {
