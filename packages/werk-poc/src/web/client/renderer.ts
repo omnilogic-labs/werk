@@ -1,9 +1,15 @@
-// The deliberately minimal renderer: a monospace cell grid on a canvas,
-// painting the rows `frame().changed` names, with foreground/background
-// colours, bold/italic/underline/inverse/strikethrough, wide cells and
-// the cursor. It exists to prove the round trip and to be measured; it is
-// behind `Renderer` so the ghostty-web evaluation can swap it out. What it
-// does not do is listed in findings/m4.md.
+// The renderer seam, and the deliberately minimal renderer behind it.
+//
+// `Renderer` is what the page paints through, and four things implement it:
+// the minimal canvas grid in this file, the renderer rebased from
+// ghostty-web, and adapters onto two published renderers, `@wterm/dom` and
+// `@beamterm/renderer`. `?renderer=` picks one at load; they are meant to be
+// interchangeable so the same session can be measured through each.
+//
+// The minimal one paints the rows `frame().changed` names, with
+// foreground/background colours, bold/italic/underline/inverse/strikethrough,
+// wide cells and the cursor. It exists to prove the round trip and to be
+// measured. What it does not do is listed in findings/m4.md.
 
 import type {
   Cell,
@@ -30,13 +36,101 @@ export interface PaintStats {
   lastRowsPainted: number;
 }
 
+/**
+ * What a renderer is handed at construction. It is deliberately wider than
+ * the minimal renderer needs, because the two published renderers bring
+ * their own selection and want the things a selection asks the page for.
+ */
+export interface RendererHost {
+  /** The bounded terminal area (`#wrap`). A renderer may append its own elements to it. */
+  readonly mount: HTMLElement;
+  /** The canvas the page ships with. Canvas-backed renderers draw into it; DOM ones hide it. */
+  readonly canvas: HTMLCanvasElement;
+  /** Ask the replica to deliver another frame. */
+  requestPaint(): void;
+  /** Rows above the viewport's first row, from the latest frame. */
+  viewportOffset(): number;
+  cols(): number;
+  rows(): number;
+  /** The text between two points in screen row space, inclusive; null when nothing is selected. */
+  textBetween(
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+  ): string | null;
+  scrollLines(amount: number): void;
+  /** Whether a press should start a selection now (false while the program tracks the mouse and Shift is not held). */
+  selectionEnabled(e: MouseEvent): boolean;
+}
+
+/**
+ * The selection surface the page exposes on `window.__wp`, so the browser
+ * automation reads the same shape whichever renderer is mounted. The
+ * ghostty-web `SelectionController` satisfies it structurally; the two
+ * published renderers each supply their own.
+ */
+export interface RendererSelection {
+  /** The selected text, or "" when nothing is selected. */
+  getSelection(): string;
+  hasSelection(): boolean;
+  clearSelection(): void;
+  /** Select a viewport-relative range as a drag would, copy it, and return its text. */
+  selectViewport(
+    startCol: number,
+    startRow: number,
+    endCol: number,
+    endRow: number,
+  ): string;
+  /** The page calls this after every paint, so a selection follows a scroll. */
+  viewportChanged(): void;
+  /** The last text copied, for a harness that cannot read the clipboard. */
+  readonly lastCopied: string | null;
+}
+
 export interface Renderer {
   readonly cell: CellSize;
   paint(frame: Frame): void;
   resizeTo(cols: number, rows: number): void;
   dispose(): void;
   readonly stats: PaintStats;
+  /**
+   * The element that takes focus, keys and mouse events. The page falls back
+   * to the canvas when a renderer does not name one.
+   */
+  readonly surface?: HTMLElement;
+  /** Non-null when the renderer brings its own selection rather than the page wiring one. */
+  readonly selection?: RendererSelection | null;
 }
+
+/** How the page constructs one. Async because a renderer may fetch a WASM module first. */
+export type RendererFactory = (host: RendererHost) => Promise<Renderer>;
+
+/** A fresh, zeroed `PaintStats`, so every renderer reports the same shape. */
+export function newPaintStats(): PaintStats {
+  return {
+    paints: 0,
+    fullPaints: 0,
+    lastMs: 0,
+    maxMs: 0,
+    lastFullMs: null,
+    lastPartialMs: null,
+    lastRowsPainted: 0,
+  };
+}
+
+/** Fold one paint's cost into `stats`, the way every renderer reports it. */
+export function recordPaint(stats: PaintStats, frame: Frame, ms: number): void {
+  stats.paints++;
+  stats.lastMs = ms;
+  stats.lastRowsPainted = frame.changed.length;
+  if (ms > stats.maxMs) stats.maxMs = ms;
+  if (frame.dirtyAll) {
+    stats.fullPaints++;
+    stats.lastFullMs = ms;
+  } else if (frame.changed.length === 1) stats.lastPartialMs = ms;
+}
+
+/** The palette and colour resolution the renderers share. */
+export { palette, css as cssColor, DEFAULT_FG, DEFAULT_BG };
 
 /** xterm's default 16, then the 6×6×6 cube and the grey ramp, computed on demand. */
 const ANSI = [

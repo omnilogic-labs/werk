@@ -15,20 +15,36 @@ import {
   keyEventFromDom,
   mouseEventFromDom,
   wheelEventFromDom,
+  type SurfaceOrigin,
 } from "./input.ts";
-import { CanvasRenderer, type Renderer } from "./renderer.ts";
+import {
+  CanvasRenderer,
+  type Renderer,
+  type RendererHost,
+  type RendererSelection,
+} from "./renderer.ts";
 import { GhosttyWebRenderer } from "./renderer-ghostty-web.ts";
+import { createBeamtermRenderer } from "./renderer-beamterm.ts";
+import { createWtermRenderer } from "./renderer-wterm.ts";
 import { Replica, type DecodeTimings } from "./replica.ts";
 import { SelectionController } from "./selection-ghostty-web.ts";
 
 /**
- * `?renderer=ghostty-web` paints with the renderer rebased from ghostty-web
- * (findings/m4.md); the minimal one stays the default.
+ * The four renderers the page can mount, all behind `Renderer` and all fed
+ * the same frames, so one session can be measured through each in turn.
+ * `minimal` is the deliberately small canvas grid, `ghostty-web` the one
+ * rebased from ghostty-web (findings/m4.md), and the other two are adapters
+ * onto published renderers: `@wterm/dom`, which paints real DOM rows, and
+ * `@beamterm/renderer`, which paints WebGL2 from Rust compiled to WASM.
  */
-const rendererName =
-  new URLSearchParams(location.search).get("renderer") === "ghostty-web"
-    ? "ghostty-web"
-    : "minimal";
+const RENDERER_NAMES = ["minimal", "ghostty-web", "wterm", "beamterm"] as const;
+type RendererName = (typeof RENDERER_NAMES)[number];
+
+/** `?renderer=`; the minimal one is the default. */
+const rendererName: RendererName =
+  RENDERER_NAMES.find(
+    (n) => n === new URLSearchParams(location.search).get("renderer"),
+  ) ?? "minimal";
 
 const id = decodeURIComponent(location.pathname.split("/").pop() ?? "");
 const statusEl = document.getElementById("status")!;
@@ -81,10 +97,18 @@ const state: State = {
 };
 
 let renderer: Renderer;
+/** The element that takes focus, keys and mouse; a DOM renderer supplies its own. */
+let surface: HTMLElement;
+/** Set only while the surface is not the canvas, so mouse pixels can be re-based on it. */
+let surfaceOrigin: SurfaceOrigin | undefined;
 let replica: Replica;
 let ws: WebSocket;
-/** Only with the ghostty-web renderer: selection, and the viewport of the last frame. */
-let selection: SelectionController | null = null;
+/**
+ * Selection, where the mounted renderer has one, and the viewport of the
+ * last frame. The ghostty-web renderer is driven by a controller this page
+ * wires; the two published renderers bring their own.
+ */
+let selection: RendererSelection | null = null;
 let lastViewport: { offset: number; active: boolean } | null = null;
 
 function fmt(ms: number | null): string {
@@ -205,7 +229,19 @@ function onMessage(ev: MessageEvent): void {
   }
 }
 
+/**
+ * Re-measure where the surface sits. Only a renderer that paints DOM rows
+ * needs it, and `#wrap` only moves when the window does, so this runs on a
+ * resize rather than on every mouse event.
+ */
+function measureSurface(): void {
+  if (renderer.surface === undefined) return;
+  const r = surface.getBoundingClientRect();
+  surfaceOrigin = { x: r.left, y: r.top };
+}
+
 function applySize(): void {
+  measureSurface();
   const g = gridFor();
   if (g.cols === state.cols && g.rows === state.rows) return;
   state.cols = g.cols;
@@ -291,6 +327,23 @@ function sendMouse(ev: ReturnType<typeof mouseEventFromDom> | null): void {
 
 let engine: GhosttyWasmEngine;
 
+/** Construct the renderer `?renderer=` named. Async: one of them fetches a WASM module first. */
+async function mountRenderer(host: RendererHost): Promise<Renderer> {
+  switch (rendererName) {
+    case "ghostty-web":
+      return new GhosttyWebRenderer(host.canvas, {
+        fontSize: 14,
+        requestPaint: host.requestPaint,
+      });
+    case "wterm":
+      return createWtermRenderer(host);
+    case "beamterm":
+      return createBeamtermRenderer(host);
+    case "minimal":
+      return new CanvasRenderer(host.canvas);
+  }
+}
+
 async function main(): Promise<void> {
   renderStatus();
   const t0 = performance.now();
@@ -300,13 +353,24 @@ async function main(): Promise<void> {
   });
   engine = await GhosttyWasmEngine.load(wasm);
   const loadMs = performance.now() - t0;
-  renderer =
-    rendererName === "ghostty-web"
-      ? new GhosttyWebRenderer(canvas, {
-          fontSize: 14,
-          requestPaint: () => replica?.requestPaint(),
-        })
-      : new CanvasRenderer(canvas);
+  // One host for every renderer, and the same object the ghostty-web
+  // selection controller takes: a renderer that owns its own selection asks
+  // the page for exactly what a controller would.
+  const host: RendererHost = {
+    mount: wrap,
+    canvas,
+    requestPaint: () => replica?.requestPaint(),
+    viewportOffset: () => lastViewport?.offset ?? 0,
+    cols: () => state.cols,
+    rows: () => state.rows,
+    textBetween: (a, b) => replica.selectionText(a, b),
+    scrollLines: (n) => replica.scrollViewport({ kind: "delta", delta: n }),
+    // The program gets the mouse when it asked for it, unless Shift is held.
+    selectionEnabled: (e) => !mouseOn() || e.shiftKey,
+  };
+  renderer = await mountRenderer(host);
+  surface = renderer.surface ?? canvas;
+  measureSurface();
   const g = gridFor();
   state.cols = g.cols;
   state.rows = g.rows;
@@ -328,18 +392,13 @@ async function main(): Promise<void> {
   state.notices.push(
     `wasm ${(wasm.byteLength / 1024).toFixed(0)} KiB loaded in ${loadMs.toFixed(0)} ms`,
   );
-  if (renderer instanceof GhosttyWebRenderer) {
-    selection = new SelectionController(renderer, {
-      viewportOffset: () => lastViewport?.offset ?? 0,
-      cols: () => state.cols,
-      rows: () => state.rows,
-      textBetween: (a, b) => replica.selectionText(a, b),
-      scrollLines: (n) => replica.scrollViewport({ kind: "delta", delta: n }),
-      requestPaint: () => replica.requestPaint(),
-      // The program gets the mouse when it asked for it, unless Shift is held.
-      selectionEnabled: (e) => !mouseOn() || e.shiftKey,
-    });
-  }
+  // A renderer that brings its own selection reports it; the ghostty-web
+  // one paints to a canvas and has a controller wired to it instead.
+  selection =
+    renderer.selection ??
+    (renderer instanceof GhosttyWebRenderer
+      ? new SelectionController(renderer, host)
+      : null);
 
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(
@@ -365,24 +424,37 @@ async function main(): Promise<void> {
 
   document.addEventListener("keydown", onKeyDown);
   document.addEventListener("paste", onPaste);
-  canvas.addEventListener("contextmenu", (e) => {
+  surface.addEventListener("contextmenu", (e) => {
     if (mouseOn()) e.preventDefault();
   });
-  canvas.addEventListener("mousedown", (e) => {
-    canvas.focus();
-    if (mouseOn()) sendMouse(mouseEventFromDom(e, "press", renderer.cell));
+  surface.addEventListener("mousedown", (e) => {
+    surface.focus();
+    if (mouseOn())
+      sendMouse(
+        mouseEventFromDom(e, "press", renderer.cell, undefined, surfaceOrigin),
+      );
   });
-  canvas.addEventListener("mouseup", (e) => {
-    if (mouseOn()) sendMouse(mouseEventFromDom(e, "release", renderer.cell));
+  surface.addEventListener("mouseup", (e) => {
+    if (mouseOn())
+      sendMouse(
+        mouseEventFromDom(
+          e,
+          "release",
+          renderer.cell,
+          undefined,
+          surfaceOrigin,
+        ),
+      );
   });
   let lastCell = "";
-  canvas.addEventListener("mousemove", (e) => {
+  surface.addEventListener("mousemove", (e) => {
     if (!mouseOn()) return;
     const ev = mouseEventFromDom(
       e,
       "motion",
       renderer.cell,
       heldButtonOf(e.buttons),
+      surfaceOrigin,
     );
     // TRACK_LAST_CELL is off in the encoder, so dedupe here.
     const key = `${ev.x},${ev.y},${ev.button}`;
@@ -390,12 +462,12 @@ async function main(): Promise<void> {
     lastCell = key;
     sendMouse(ev);
   });
-  canvas.addEventListener(
+  surface.addEventListener(
     "wheel",
     (e) => {
       if (mouseOn()) {
         e.preventDefault();
-        sendMouse(wheelEventFromDom(e, renderer.cell));
+        sendMouse(wheelEventFromDom(e, renderer.cell, surfaceOrigin));
       } else if (selection) {
         e.preventDefault();
         scrollByWheel(e);
@@ -404,7 +476,7 @@ async function main(): Promise<void> {
     { passive: false },
   );
   new ResizeObserver(() => applySize()).observe(wrap);
-  canvas.focus();
+  surface.focus();
 }
 
 // For the browser automation and the findings.
@@ -445,11 +517,11 @@ async function main(): Promise<void> {
     return performance.now() - t0;
   },
   send: (text: string) => send(new TextEncoder().encode(text)),
-  /** Move the viewport through scrollback (ghostty-web renderer only). */
+  /** Move the viewport through scrollback; every renderer that brings a selection. */
   scroll: (delta: number) => replica.scrollViewport({ kind: "delta", delta }),
   scrollTo: (where: "top" | "bottom") =>
     replica.scrollViewport({ kind: where }),
-  /** Select a viewport range as a drag would, copy it, and return its text (ghostty-web renderer only). */
+  /** Select a viewport range as a drag would, copy it, and return its text; null under the minimal renderer, which has no selection. */
   select: (x0: number, y0: number, x1: number, y1: number) =>
     selection?.selectViewport(x0, y0, x1, y1) ?? null,
   selection: () => selection?.getSelection() ?? null,

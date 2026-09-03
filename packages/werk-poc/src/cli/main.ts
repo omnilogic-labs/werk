@@ -1,7 +1,7 @@
 // Entry point for `wp`, the proof-of-concept binary. Commands arrive with
-// their milestones (see the proposal, §7). Argument parsing is hand-rolled
-// and small: `--flag`, `--flag=value`, `--flag value`, and `--` to end
-// options.
+// their milestones (see the proposal, §7). Argument parsing goes through
+// `node:util`'s `parseArgs`: `--flag`, `--flag=value`, `--flag value`, and
+// `--` to end options.
 //
 // Command output goes through `fs.writeSync(1)`, not `console.log`, so that
 // the `process.exit` that follows cannot race a buffered pipe write. Once,
@@ -11,6 +11,7 @@
 // (findings/m2.md).
 
 import fs from "node:fs";
+import { parseArgs } from "node:util";
 
 function out(text: string): void {
   fs.writeSync(1, text);
@@ -51,7 +52,7 @@ which is where an ssh -L from Windows has to end up; it needs the token
 from that daemon's wp.tcp file in WP_TOKEN. The benches run their daemons
 on temporary directories and never touch that one.`;
 
-interface Parsed {
+export interface Parsed {
   flags: Map<string, string | true>;
   positional: string[];
   /** Everything after `--`. */
@@ -80,26 +81,54 @@ const VALUED = new Set([
   "trap-child",
 ]);
 
-function parse(argv: string[]): Parsed {
+// Every valued flag becomes a `type: "string"` option; everything else is
+// left undeclared, which — with `strict: false` — parseArgs treats as an
+// ordinary boolean and never complains about. That is what lets `wp bench
+// perf --json` and a typo'd `--jsno` alike through unexamined, exactly as
+// the flags a command doesn't ask for always have been.
+const VALUED_OPTIONS: Record<string, { type: "string" }> = {};
+for (const name of VALUED) VALUED_OPTIONS[name] = { type: "string" };
+
+export function parse(argv: string[]): Parsed {
   const out: Parsed = { flags: new Map(), positional: [], rest: [] };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!;
-    if (a === "--") {
-      out.rest = argv.slice(i + 1);
+  const { tokens } = parseArgs({
+    args: argv,
+    options: VALUED_OPTIONS,
+    tokens: true,
+    allowPositionals: true,
+    strict: false,
+  });
+  // Reconstructed from `tokens`, not from `values`/`positionals`: a token
+  // still names its `index` into `argv`, which is what lets the `--`
+  // boundary and the child's argv survive untouched below.
+  const seen = new Set<number>();
+  for (const token of tokens) {
+    if (token.kind === "option-terminator") {
+      // `--` may have already been swallowed as a valued flag's value (see
+      // below); when it hasn't, this is the boundary, taken straight from
+      // `argv` rather than from parseArgs's positionals so that nothing
+      // after it — including a second `--`, or something that reads as one
+      // of wp's own flags — is reinterpreted.
+      out.rest = argv.slice(token.index + 1);
       break;
     }
-    if (a.startsWith("--")) {
-      const eq = a.indexOf("=");
-      const name = eq < 0 ? a.slice(2) : a.slice(2, eq);
-      if (eq >= 0) out.flags.set(name, a.slice(eq + 1));
-      else if (VALUED.has(name)) {
-        const v = argv[++i];
-        if (v === undefined) throw new UsageError(`--${name} needs a value`);
-        out.flags.set(name, v);
-      } else out.flags.set(name, true);
+    if (token.kind === "positional") {
+      out.positional.push(token.value);
       continue;
     }
-    out.positional.push(a);
+    // A single `-x` is not a short option here — nothing in `wp` defines
+    // one — so it is a positional argument, verbatim; only `--` (two
+    // dashes) ends option parsing.
+    if (!token.rawName.startsWith("--")) {
+      if (seen.has(token.index)) continue;
+      seen.add(token.index);
+      out.positional.push(argv[token.index]!);
+      continue;
+    }
+    if (token.value !== undefined) out.flags.set(token.name, token.value);
+    else if (VALUED.has(token.name))
+      throw new UsageError(`--${token.name} needs a value`);
+    else out.flags.set(token.name, true);
   }
   return out;
 }

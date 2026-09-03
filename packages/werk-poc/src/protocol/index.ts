@@ -259,15 +259,18 @@ export interface SnapshotStats {
 }
 
 /**
- * Event-loop lag, from a 100 ms `setInterval` inside the daemon whose
- * drift past its due time is sampled: a GC pause, a long synchronous
- * encode, or a busy PTY callback all show up here. `recent` is over the
- * last few hundred samples (about a minute); `total` is since start.
+ * Event-loop lag, from a `monitorEventLoopDelay` histogram inside the
+ * daemon: a GC pause, a long synchronous encode, or a busy PTY callback
+ * all show up as delay past the sampler's due time. `recent` covers the
+ * window since the previous read of these stats; `total` is since start,
+ * accumulated across those windows, which is why it carries a count and
+ * a worst case but no percentiles. Every figure is in milliseconds.
  */
 export interface LoopLagStats {
-  intervalMs: number;
+  /** The histogram's sampling period, in milliseconds. */
+  resolutionMs: number;
   recent: { samples: number; p50Ms: number; p99Ms: number; maxMs: number };
-  total: { samples: number; maxMs: number; buckets: Record<string, number> };
+  total: { samples: number; maxMs: number };
 }
 
 export interface DaemonStats {

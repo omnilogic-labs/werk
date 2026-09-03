@@ -7,6 +7,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import type { Socket, TCPSocketListener } from "bun";
 import { heapStats } from "bun:jsc";
 import { GHOSTTY_COMMIT } from "../engine/ghostty-wasm/bytes.ts";
@@ -107,7 +108,7 @@ export async function startServer(
     restore: { files: 0, ms: 0 },
     lastPass: null,
   };
-  const lag = new LagSampler(LAG_INTERVAL_MS);
+  const lag = new LagSampler(LAG_RESOLUTION_MS);
 
   // -- snapshots -------------------------------------------------------------
 
@@ -604,76 +605,74 @@ export async function startServer(
   return server;
 }
 
-const LAG_INTERVAL_MS = 100;
-const LAG_RECENT = 600;
-const LAG_BUCKETS_MS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
+// The histogram samples on a thread of its own, so the period costs the
+// loop nothing and can be far finer than a JavaScript timer would dare.
+// 10 ms is fine enough to catch a single snapshot pass or wasm encode
+// whole, and leaves a minute's window several thousand samples to take a
+// p99 from.
+const LAG_RESOLUTION_MS = 10;
+/** Reads closer together than this share a window instead of ending it. */
+const LAG_MIN_WINDOW_MS = 5_000;
+
+/** The histogram counts nanoseconds; the wire carries milliseconds. */
+function nsToMs(ns: number): number {
+  return Number.isFinite(ns) && ns > 0 ? ns / 1e6 : 0;
+}
 
 /**
- * A `setInterval` whose drift past its due time is the daemon's event-loop
- * lag: whatever held the loop — a GC pause, a synchronous encode, a long
- * PTY callback — shows up as a late tick. The proposal's soak asks for a
- * GC pause distribution; this is the proxy a JavaScript process can give
- * without a profiler attached.
+ * `monitorEventLoopDelay` measures how far past its due time the loop
+ * takes to run the sampler, and does it from a native thread that is not
+ * queued behind the work being measured: whatever held the loop — a GC
+ * pause, a synchronous encode, a long PTY callback — lands in the
+ * histogram. The proposal's soak asks for a GC pause distribution; this
+ * is the proxy a JavaScript process can give without a profiler attached.
+ *
+ * A histogram runs from `enable()` until `reset()`, and Bun hands back one
+ * shared instance however many times it is asked, so a single histogram
+ * has to answer both questions: each read takes the window and resets it,
+ * and the run's count and worst case are carried forward beside it.
  */
 class LagSampler {
-  private readonly recent: number[] = [];
-  private samples = 0;
-  private maxMs = 0;
-  private readonly buckets = new Map<string, number>();
-  private last: number;
-  private readonly timer: ReturnType<typeof setInterval>;
+  private readonly hist: ReturnType<typeof monitorEventLoopDelay>;
+  private windowStart = performance.now();
+  private priorSamples = 0;
+  private priorMaxMs = 0;
 
-  constructor(readonly intervalMs: number) {
-    for (const b of LAG_BUCKETS_MS) this.buckets.set(`<${b}`, 0);
-    this.buckets.set(`>=${LAG_BUCKETS_MS[LAG_BUCKETS_MS.length - 1]}`, 0);
-    this.last = performance.now();
-    this.timer = setInterval(() => this.tick(), intervalMs);
-  }
-
-  private tick(): void {
-    // Each tick is measured against the previous one, not against a fixed
-    // schedule: `setInterval` re-arms after the callback, so a schedule
-    // would accumulate the timer's own drift as though it were lag.
-    const now = performance.now();
-    const lag = Math.max(0, now - this.last - this.intervalMs);
-    this.last = now;
-    this.samples++;
-    if (lag > this.maxMs) this.maxMs = lag;
-    let key = `>=${LAG_BUCKETS_MS[LAG_BUCKETS_MS.length - 1]}`;
-    for (const b of LAG_BUCKETS_MS)
-      if (lag < b) {
-        key = `<${b}`;
-        break;
-      }
-    this.buckets.set(key, (this.buckets.get(key) ?? 0) + 1);
-    this.recent.push(lag);
-    if (this.recent.length > LAG_RECENT) this.recent.shift();
+  constructor(readonly resolutionMs: number) {
+    this.hist = monitorEventLoopDelay({ resolution: resolutionMs });
+    this.hist.enable();
   }
 
   stats(): LoopLagStats {
-    const sorted = [...this.recent].sort((a, b) => a - b);
-    const q = (p: number) =>
-      sorted.length === 0
-        ? 0
-        : sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]!;
-    return {
-      intervalMs: this.intervalMs,
+    const maxMs = nsToMs(this.hist.max);
+    const out: LoopLagStats = {
+      resolutionMs: this.resolutionMs,
       recent: {
-        samples: sorted.length,
-        p50Ms: q(0.5),
-        p99Ms: q(0.99),
-        maxMs: sorted.length ? sorted[sorted.length - 1]! : 0,
+        samples: this.hist.count,
+        p50Ms: nsToMs(this.hist.percentile(50)),
+        p99Ms: nsToMs(this.hist.percentile(99)),
+        maxMs,
       },
       total: {
-        samples: this.samples,
-        maxMs: this.maxMs,
-        buckets: Object.fromEntries(this.buckets),
+        samples: this.priorSamples + this.hist.count,
+        maxMs: Math.max(this.priorMaxMs, maxMs),
       },
     };
+    // A second reader arriving moments after the first is shown the same
+    // window rather than a fresh and nearly empty one, so a stray
+    // `wp stats` cannot cut a soak's minute down to a handful of samples.
+    const now = performance.now();
+    if (now - this.windowStart >= LAG_MIN_WINDOW_MS) {
+      this.priorSamples = out.total.samples;
+      this.priorMaxMs = out.total.maxMs;
+      this.hist.reset();
+      this.windowStart = now;
+    }
+    return out;
   }
 
   stop(): void {
-    clearInterval(this.timer);
+    this.hist.disable();
   }
 }
 

@@ -49,7 +49,7 @@ private runtime and state directories, and nothing was left running afterwards.
 | Throughput and fault isolation           | `bun run bench/perf.ts --only throughput,trap` | Reproduces `m6.md`.                                                  |
 | Memory and slow client                   | `bun run bench/perf.ts --only memory,slow`     | Reproduces `m6.md`.                                                  |
 | Command-line walkthrough                 | `wp run`, `ls`, `logs`, `attach`, `kill`       | Works, including corpse restore after `SIGTERM`.                     |
-| Web interface                            | `wp serve` plus a real Chrome browser          | Works with both renderers.                                           |
+| Web interface                            | `wp serve` plus a real Chrome browser          | Works with all four renderers.                                       |
 | Protocol through a forwarded socket      | `socat` relay in front of the daemon socket    | `ls`, attach and typed input all work through the relay.             |
 
 Three headline numbers reproduced closely enough to trust:
@@ -242,8 +242,10 @@ protocol definition: nothing exists to send.
 
 **Why it matters.** One person with two terminals open on the same session gets
 a broken screen in one of them. Two people, or a terminal and a browser tab, get
-it constantly. The browser and the terminal do not even agree on a grid size for
-the same window, because the two renderers measure characters differently.
+it constantly. The browser's own renderers do not even agree on a grid size for
+the same window: a live run gave 142×30 for the `minimal` renderer, 142×36 for
+`ghostty-web`, 151×32 for `wterm` and 142×32 for `beamterm`, because each derives
+its own cell box from its own font metrics.
 
 **Options.** Tell the other clients when the size changes, so they can redraw or
 letterbox. Let the smallest attached client set the size. Refuse to resize when
@@ -256,20 +258,23 @@ the size and pads or crops instead.
 scroll up in the terminal client. History is reachable only by detaching and
 running `wp logs`, which prints everything at once.
 
-In the browser, scrolling works only in the alternative renderer, selected with
-`?renderer=ghostty-web`. The default renderer ignores the scroll wheel.
+In the browser, scrolling and selection work in three of the four renderers —
+`ghostty-web`, `wterm` and `beamterm`, chosen with `?renderer=` — where a live
+run confirmed scrolling through scrollback, clamping at the top, returning to
+the bottom, and a selection that returns text. The default `minimal` renderer
+has neither: it ignores the scroll wheel and offers no selection.
 
 **Evidence.** `m2.md` records that the first paint after attaching is the
 visible screen and that `logs` exists for history. In the browser code, the
-scroll-wheel handler only reaches the viewport when the alternative renderer is
-active.
+scroll-wheel handler and the selection controller are wired up for three of
+the four renderers and absent from `minimal`.
 
 **Why it matters.** Coming back to a long-running process and reading what it
 did while you were away is the main thing people will want to do.
 
 **Options.** Add scrolling to the terminal client, which means the client
 holding an emulator of its own, or the daemon answering requests for older rows.
-Make the alternative renderer the default in the browser. Both are additions
+Make one of the other renderers the default in the browser. Both are additions
 rather than repairs.
 
 ### 9. Everything above the visible screen is capped at 2,000 lines
@@ -423,12 +428,12 @@ reusable package. These are facts about the code as it stands, not a proposal.
 | `src/engine/ghostty-wasm/` core four files |                   2,802 | No. `loader.ts`, `layout.ts`, `encoders.ts` and `index.ts` use no Bun API. Reading the file bytes is separate.                    |
 | `src/engine/ghostty-ffi/`                  |                     735 | Yes. Uses `bun:ffi`, `node:fs`, `process` and `Bun.file`.                                                                         |
 | `src/engine/xterm-oracle/`                 |                     423 | No Bun API, but depends on the `@xterm/headless` package.                                                                         |
-| `src/protocol/`                            |                     442 | No.                                                                                                                               |
-| `src/web/client/`                          |                   2,529 | No. It has its own TypeScript configuration with browser types and no Bun types, and the build checks this.                       |
+| `src/protocol/`                            |                     445 | No.                                                                                                                               |
+| `src/web/client/`                          |                   4,380 | No. It has its own TypeScript configuration with browser types and no Bun types, and the build checks this.                       |
 | `src/platform/`                            |                   1,356 | Yes, by definition. Everything that differs between operating systems lives here and nothing outside it reads `process.platform`. |
-| `src/daemon/`                              |                   2,117 | Yes.                                                                                                                              |
+| `src/daemon/`                              |                   2,405 | Yes.                                                                                                                              |
 | `src/client/`                              |                     550 | Yes.                                                                                                                              |
-| `src/cli/`                                 |                     780 | Yes.                                                                                                                              |
+| `src/cli/`                                 |                     809 | Yes.                                                                                                                              |
 
 Two qualifications on the parts that do not depend on Bun:
 
@@ -443,8 +448,8 @@ Two qualifications on the parts that do not depend on Bun:
   provide them and every call site has a fallback, so nothing breaks today. A
   fourth engine would have to provide them or lose those features quietly.
 
-Whole proof of concept, for scale: 13,087 lines under `src/` excluding tests,
-4,061 lines of tests under `src/`, and 9,169 more lines under `spikes/` and
+Whole proof of concept, for scale: 15,042 lines under `src/` excluding tests,
+4,114 lines of tests under `src/`, and 9,364 more lines under `spikes/` and
 `bench/`.
 
 ## Questions this leaves open

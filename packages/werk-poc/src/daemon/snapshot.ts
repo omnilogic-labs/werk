@@ -15,6 +15,7 @@
 // as corrupt, not decoded. A header with no bytes (`bytes: 0`) is legal
 // and restores as a listed-only corpse with nothing to render.
 
+import { writeFileSync as writeFileAtomicSync } from "atomically";
 import fs from "node:fs";
 import path from "node:path";
 import type { CorpseInfo, SessionStatus } from "../protocol/index.ts";
@@ -66,8 +67,12 @@ export function ensureStateDir(stateDir: string): void {
 
 /**
  * Writes the header and bytes to a temp file in the same directory and
- * renames it into place, so a reader never sees a half-written file and a
- * crash mid-write leaves the previous snapshot intact. Returns the size.
+ * commits them with an atomic rename, so a reader never sees a half-written
+ * file and a crash mid-write leaves the previous snapshot intact. The
+ * rename is retried against `EPERM`, `EBUSY`, `EACCES` and `EMFILE` — the
+ * transient failures a virus scanner or search indexer can cause by holding
+ * the target open. Synchronous: a shutdown snapshot runs from a signal
+ * handler that must finish before the process exits. Returns the size.
  */
 export function writeSnapshot(
   stateDir: string,
@@ -76,20 +81,17 @@ export function writeSnapshot(
 ): number {
   ensureStateDir(stateDir);
   const target = snapshotPath(stateDir, header.id);
-  const tmp = `${target}.${process.pid}.tmp`;
   const head = new TextEncoder().encode(
     JSON.stringify({ ...header, bytes: bytes.byteLength }) + "\n",
   );
-  const fd = fs.openSync(tmp, "w", 0o600);
-  try {
-    fs.writeSync(fd, head);
-    if (bytes.byteLength) fs.writeSync(fd, bytes);
-    fs.fsyncSync(fd);
-  } finally {
-    fs.closeSync(fd);
-  }
-  fs.renameSync(tmp, target);
-  return head.byteLength + bytes.byteLength;
+  const file = new Uint8Array(head.byteLength + bytes.byteLength);
+  file.set(head, 0);
+  file.set(bytes, head.byteLength);
+  // `mode` matches the 0o600 the file has always been created with;
+  // `fsync` (and its default wait) makes the bytes durable before the
+  // rename that commits them, as the hand-rolled write did.
+  writeFileAtomicSync(target, file, { mode: 0o600, fsync: true });
+  return file.byteLength;
 }
 
 export class SnapshotFormatError extends Error {}

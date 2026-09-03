@@ -2,17 +2,18 @@
 // page. Plain strings; no templating. The list refreshes itself from
 // `/api/ls` every two seconds; the terminal page is a status line, a
 // canvas, and the bundle.
+//
+// The bundle is a module script. `Bun.build` emits ESM, and the renderer
+// adapters pull in glue that reads `import.meta.url`, which is a parse-time
+// error in a classic script whether or not the line ever runs.
 
+import { createRequire } from "node:module";
 import type { SessionInfo } from "../protocol/index.ts";
 
-const esc = (s: string): string =>
-  s.replace(
-    /[&<>"']/g,
-    (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        c
-      ]!,
-  );
+// escape-html is CommonJS; createRequire is what pulls a `module.exports =`
+// default into an ESM build without a synthetic-default flag.
+const require = createRequire(import.meta.url);
+const esc: typeof import("escape-html") = require("escape-html");
 
 const CSS = `
   :root { color-scheme: dark; }
@@ -89,6 +90,6 @@ export function terminalPage(id: string): string {
 <body>
 <div id="status">${esc(id)} loading…</div>
 <div id="wrap"><canvas id="term" tabindex="0"></canvas></div>
-<script src="/app.js"></script>
+<script type="module" src="/app.js"></script>
 </body></html>`;
 }

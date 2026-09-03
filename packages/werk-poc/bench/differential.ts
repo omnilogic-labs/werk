@@ -8,11 +8,17 @@
 //
 // Reattach cases run each restore strategy per engine and compare the
 // copy against a terminal that was never detached, after the resize the
-// case ends with. Fuzz generates random bytes and random valid sequences
-// from a seeded PRNG and compares plainText only, reporting how often the
-// cells agreed too.
+// case ends with. Fuzz explores random bytes and random valid sequences
+// through fast-check arbitraries and compares plainText, reporting how
+// often the cells agreed too; a mulberry32 stream seeded from the harness's
+// own seed decides where each input is cut into writes, so a cut always
+// falls the same way for a given input regardless of how fast-check reached
+// it. A disagreement is handed back to fast-check to shrink, which prints a
+// minimal input plus a seed and path a person can paste into a fresh
+// `fc.assert` call to land on exactly that case again.
 
 import path from "node:path";
+import * as fc from "fast-check";
 import { engineIds, getEngine } from "../src/engine/all.ts";
 import type {
   Cell,
@@ -379,10 +385,13 @@ export function prng(seed: number): () => number {
   };
 }
 
-function randomBytes(rnd: () => number, n: number): Uint8Array {
-  const out = new Uint8Array(n);
-  for (let i = 0; i < n; i++) out[i] = Math.floor(rnd() * 256);
-  return out;
+/** Where a write of `length` bytes is cut into pieces, from a fresh mulberry32 stream. */
+function cutPoints(rnd: () => number, length: number): number[] {
+  const cuts = [0];
+  for (let k = 0; k < 3; k++) cuts.push(Math.floor(rnd() * length));
+  cuts.push(length);
+  cuts.sort((a, b) => a - b);
+  return cuts;
 }
 
 const WORDS = [
@@ -421,61 +430,205 @@ const CSI_FINALS = [
   "u",
 ];
 
-export function randomSequences(rnd: () => number, steps: number): string {
-  const pick = <T>(xs: T[]) => xs[Math.floor(rnd() * xs.length)]!;
-  const int = (n: number) => Math.floor(rnd() * n);
-  let s = "";
-  for (let i = 0; i < steps; i++) {
-    const r = rnd();
-    if (r < 0.4) s += pick(WORDS) + (rnd() < 0.5 ? " " : "");
-    else if (r < 0.55) s += pick(["\r\n", "\n", "\r", "\b", "\t"]);
-    else if (r < 0.75) {
-      // SGR
-      const params: string[] = [];
-      const k = 1 + int(3);
-      for (let j = 0; j < k; j++) {
-        const q = rnd();
-        if (q < 0.3)
-          params.push(String(pick([0, 1, 3, 4, 7, 9, 22, 23, 24, 27, 29])));
-        else if (q < 0.55) params.push(String(30 + int(8)));
-        else if (q < 0.7) params.push(String(40 + int(8)));
-        else if (q < 0.85) params.push(`${pick([38, 48])};5;${int(256)}`);
-        else
-          params.push(
-            `${pick([38, 48])};2;${int(256)};${int(256)};${int(256)}`,
-          );
-      }
-      s += `\x1b[${params.join(";")}m`;
-    } else if (r < 0.9) {
-      const f = pick(CSI_FINALS);
-      const n = int(4);
-      const params =
-        f === "H"
-          ? `${1 + int(12)};${1 + int(40)}`
-          : n === 0
-            ? ""
-            : String(1 + int(10));
-      s += `\x1b[${params}${f}`;
-    } else {
-      // OSC 133 is left out: libghostty moves to a fresh line on 133;A mid-line
-      // (kitty's semantics) and xterm ignores it, which the osc133-prompt case records.
-      const kind = pick([0, 2, 7, 8, 9]);
-      const payload =
-        kind === 8
-          ? `;${rnd() < 0.5 ? "https://e.com/" + int(100) : ""}`
-          : kind === 9
-            ? rnd() < 0.5
-              ? `4;${int(5)};${int(101)}`
-              : "note " + int(10)
-            : kind === 133
-              ? pick(["A", "B", "C", "D;0"])
-              : kind === 7
-                ? "file://localhost/tmp/" + int(10)
-                : "title " + int(10);
-      s += `\x1b]${kind};${payload}${rnd() < 0.5 ? "\x07" : "\x1b\\"}`;
-    }
+// fast-check arbitraries for the two fuzz modes, shaped to match what the
+// harness explored before fast-check ran it: the same length ranges, the
+// same alphabet of words (with the same multi-byte UTF-8), the same SGR/CSI/
+// OSC fragments in the same proportions. Lengths keep the historical floor
+// (200 bytes, 20 steps) rather than reaching down to nothing, so the
+// population `--fuzz N` samples from is unchanged; a shrunk counterexample
+// therefore bottoms out at that floor too, trading a smaller minimal repro
+// for a sampling distribution nobody has to guess has moved.
+
+const bytesArb: fc.Arbitrary<Uint8Array> = fc.uint8Array({
+  minLength: 200,
+  maxLength: 1999,
+});
+
+const wordArb = fc
+  .tuple(fc.constantFrom(...WORDS), fc.boolean())
+  .map(([w, space]) => w + (space ? " " : ""));
+
+const controlArb = fc.constantFrom("\r\n", "\n", "\r", "\b", "\t");
+
+const sgrParamArb = fc.oneof(
+  {
+    weight: 30,
+    arbitrary: fc
+      .constantFrom(0, 1, 3, 4, 7, 9, 22, 23, 24, 27, 29)
+      .map(String),
+  },
+  { weight: 25, arbitrary: fc.integer({ min: 30, max: 37 }).map(String) },
+  { weight: 15, arbitrary: fc.integer({ min: 40, max: 47 }).map(String) },
+  {
+    weight: 15,
+    arbitrary: fc
+      .tuple(fc.constantFrom(38, 48), fc.integer({ min: 0, max: 255 }))
+      .map(([p, n]) => `${p};5;${n}`),
+  },
+  {
+    weight: 15,
+    arbitrary: fc
+      .tuple(
+        fc.constantFrom(38, 48),
+        fc.integer({ min: 0, max: 255 }),
+        fc.integer({ min: 0, max: 255 }),
+        fc.integer({ min: 0, max: 255 }),
+      )
+      .map(([p, r, g, b]) => `${p};2;${r};${g};${b}`),
+  },
+);
+const sgrArb = fc
+  .array(sgrParamArb, { minLength: 1, maxLength: 3 })
+  .map((params) => `\x1b[${params.join(";")}m`);
+
+const csiArb = fc.constantFrom(...CSI_FINALS).chain((f) =>
+  f === "H"
+    ? fc
+        .tuple(fc.integer({ min: 1, max: 12 }), fc.integer({ min: 1, max: 40 }))
+        .map(([row, col]) => `\x1b[${row};${col}${f}`)
+    : fc
+        .oneof(
+          { weight: 1, arbitrary: fc.constant("") },
+          {
+            weight: 3,
+            arbitrary: fc.integer({ min: 1, max: 10 }).map(String),
+          },
+        )
+        .map((params) => `\x1b[${params}${f}`),
+);
+
+// OSC 133 is left out: libghostty moves to a fresh line on 133;A mid-line
+// (kitty's semantics) and xterm ignores it, which the osc133-prompt case records.
+const oscArb = fc.constantFrom(0, 2, 7, 8, 9).chain((kind) => {
+  const payload =
+    kind === 7
+      ? fc.integer({ min: 0, max: 9 }).map((n) => `file://localhost/tmp/${n}`)
+      : kind === 8
+        ? fc
+            .oneof(
+              { weight: 1, arbitrary: fc.constant("") },
+              {
+                weight: 1,
+                arbitrary: fc
+                  .integer({ min: 0, max: 99 })
+                  .map((n) => `https://e.com/${n}`),
+              },
+            )
+            .map((u) => `;${u}`)
+        : kind === 9
+          ? fc.oneof(
+              {
+                weight: 1,
+                arbitrary: fc
+                  .tuple(
+                    fc.integer({ min: 0, max: 4 }),
+                    fc.integer({ min: 0, max: 100 }),
+                  )
+                  .map(([a, b]) => `4;${a};${b}`),
+              },
+              {
+                weight: 1,
+                arbitrary: fc
+                  .integer({ min: 0, max: 9 })
+                  .map((n) => `note ${n}`),
+              },
+            )
+          : fc.integer({ min: 0, max: 9 }).map((n) => `title ${n}`);
+  return fc
+    .tuple(payload, fc.boolean())
+    .map(([p, bel]) => `\x1b]${kind};${p}${bel ? "\x07" : "\x1b\\"}`);
+});
+
+const stepArb = fc.oneof(
+  { weight: 40, arbitrary: wordArb },
+  { weight: 15, arbitrary: controlArb },
+  { weight: 20, arbitrary: sgrArb },
+  { weight: 15, arbitrary: csiArb },
+  { weight: 10, arbitrary: oscArb },
+);
+
+const sequencesArb: fc.Arbitrary<Uint8Array> = fc
+  .array(stepArb, { minLength: 20, maxLength: 79 })
+  .map((steps) => enc.encode(steps.join("")));
+
+function describeInput(
+  mode: "bytes" | "sequences",
+  input: Uint8Array,
+  truncate: boolean,
+): string {
+  if (mode === "sequences") return JSON.stringify(dec.decode(input));
+  const b64 = Buffer.from(input).toString("base64");
+  return JSON.stringify(truncate ? b64.slice(0, 80) + "…" : b64);
+}
+
+interface FuzzOutcome {
+  cuts: number[];
+  splitInvariant: Record<string, boolean>;
+  splitDetail: Record<string, string[]>;
+  textAgree: Record<string, boolean>;
+  cellsAgree: Record<string, boolean>;
+  pairDetail: Record<string, string[]>;
+}
+
+/**
+ * Writes `input` into a fresh terminal per engine, cut into a few pieces at
+ * points a mulberry32 stream seeded from the harness's `seed` picks — so the
+ * same input always cuts the same way, whether fast-check reached it by
+ * plain sampling or by shrinking. Checks split invariance against one write
+ * of the whole input, then compares engines pairwise. Detail lines are
+ * always trimmed to 3, independent of `--verbose`: a fuzz example can fire
+ * on every run, and the corpus's per-case verbosity would make it noisy.
+ */
+async function runOnce(
+  engines: VtEngine[],
+  input: Uint8Array,
+  seed: number,
+): Promise<FuzzOutcome> {
+  const cuts = cutPoints(prng(seed), input.length);
+  const lives = engines.map((e) => create(e, 40, 10));
+  for (const l of lives) {
+    for (let k = 0; k + 1 < cuts.length; k++)
+      l.term.write(input.subarray(cuts[k]!, cuts[k + 1]!));
+    await settle(l.term);
   }
-  return s;
+  // Split invariance: the same bytes fed whole must read the same as fed in pieces.
+  const splitInvariant: Record<string, boolean> = {};
+  const splitDetail: Record<string, string[]> = {};
+  for (const l of lives) {
+    const whole = create(l.engine, 40, 10);
+    whole.term.write(input);
+    await settle(whole.term);
+    const c = compare(l, whole, 3);
+    splitInvariant[l.engine.id] = c.text && c.cells;
+    if (!splitInvariant[l.engine.id])
+      splitDetail[l.engine.id] = c.detail.filter(
+        (d) => !d.startsWith("effects") && !d.startsWith("  #"),
+      );
+    whole.term.dispose();
+  }
+  const textAgree: Record<string, boolean> = {};
+  const cellsAgree: Record<string, boolean> = {};
+  const pairDetail: Record<string, string[]> = {};
+  for (let a = 0; a < lives.length; a++)
+    for (let b = a + 1; b < lives.length; b++) {
+      const p = `${engines[a]!.id} ↔ ${engines[b]!.id}`;
+      const c = compare(lives[a]!, lives[b]!, 3);
+      textAgree[p] = c.text;
+      cellsAgree[p] = c.cells;
+      if (!c.text)
+        pairDetail[p] = c.detail.filter(
+          (d) => !d.startsWith("styledCells") && !d.startsWith("  cell"),
+        );
+    }
+  for (const l of lives) l.term.dispose();
+  return {
+    cuts,
+    splitInvariant,
+    splitDetail,
+    textAgree,
+    cellsAgree,
+    pairDetail,
+  };
 }
 
 async function fuzz(
@@ -485,7 +638,11 @@ async function fuzz(
   seed: number,
   limit: number,
 ): Promise<FuzzResult> {
-  const rnd = prng(seed + (mode === "bytes" ? 0 : 1000));
+  const arb = mode === "bytes" ? bytesArb : sequencesArb;
+  // fast-check's own seed for this mode, kept apart from `seed` (which
+  // `runOnce` uses for cut points) so the two streams never compete for the
+  // same randomness.
+  const fcSeed = seed + (mode === "bytes" ? 0 : 1000);
   const pairs = pairNames(engines);
   const textAgree: Record<string, number> = Object.fromEntries(
     pairs.map((p) => [p, 0]),
@@ -497,59 +654,97 @@ async function fuzz(
     engines.map((e) => [e.id, 0]),
   );
   const examples: string[] = [];
-  for (let i = 0; i < iterations; i++) {
-    const input =
-      mode === "bytes"
-        ? randomBytes(rnd, 200 + Math.floor(rnd() * 1800))
-        : enc.encode(randomSequences(rnd, 20 + Math.floor(rnd() * 60)));
-    // Cut into a few writes at random points.
-    const cuts = [0];
-    for (let k = 0; k < 3; k++) cuts.push(Math.floor(rnd() * input.length));
-    cuts.push(input.length);
-    cuts.sort((a, b) => a - b);
-    const lives = engines.map((e) => create(e, 40, 10));
-    for (const l of lives) {
-      for (let k = 0; k + 1 < cuts.length; k++)
-        l.term.write(input.subarray(cuts[k]!, cuts[k + 1]!));
-      await settle(l.term);
-    }
-    // Split invariance: the same bytes fed whole must read the same as fed in pieces.
-    for (const l of lives) {
-      const whole = create(l.engine, 40, 10);
-      whole.term.write(input);
-      await settle(whole.term);
-      const c = compare(l, whole, 3);
-      if (c.text && c.cells) splitInvariant[l.engine.id]!++;
-      else if (examples.length < limit)
-        examples.push(
-          `${mode} #${i} (seed ${seed}) ${l.engine.id} is not split-invariant at cuts ${cuts.join(",")}:\n` +
-            c.detail
-              .filter((d) => !d.startsWith("effects") && !d.startsWith("  #"))
-              .join("\n") +
-            `\n  input: ${JSON.stringify(mode === "bytes" ? Buffer.from(input).toString("base64") : dec.decode(input))}`,
-        );
-      whole.term.dispose();
-    }
-    for (let a = 0; a < lives.length; a++)
-      for (let b = a + 1; b < lives.length; b++) {
-        const p = `${engines[a]!.id} ↔ ${engines[b]!.id}`;
-        const c = compare(lives[a]!, lives[b]!, 3);
-        if (c.text) textAgree[p]!++;
-        else if (examples.length < limit)
+  let sawFailure = false;
+
+  // `numRuns: iterations` is the same iteration count `--fuzz N` has always
+  // taken; fc.sample draws the exact `iterations` inputs fast-check's own
+  // run loop would generate for `fcSeed`, so walking them by hand here reads
+  // the same agreement counts a plain fc.assert run would have produced.
+  const inputs = fc.sample(arb, { numRuns: iterations, seed: fcSeed });
+  for (let i = 0; i < inputs.length; i++) {
+    const input = inputs[i]!;
+    const o = await runOnce(engines, input, seed);
+    for (const e of engines) {
+      if (o.splitInvariant[e.id]) splitInvariant[e.id]!++;
+      else {
+        sawFailure = true;
+        if (examples.length < limit)
           examples.push(
-            `${mode} #${i} (seed ${seed}) ${p} at cuts ${cuts.join(",")}:\n` +
-              c.detail
-                .filter(
-                  (d) =>
-                    !d.startsWith("styledCells") && !d.startsWith("  cell"),
-                )
-                .join("\n") +
-              `\n  input: ${JSON.stringify(mode === "bytes" ? Buffer.from(input).toString("base64").slice(0, 80) + "…" : dec.decode(input))}`,
+            `${mode} #${i} (seed ${fcSeed}) ${e.id} is not split-invariant at cuts ${o.cuts.join(",")}:\n` +
+              o.splitDetail[e.id]!.join("\n") +
+              `\n  input: ${describeInput(mode, input, false)}`,
           );
-        if (c.cells) cellsAgree[p]!++;
       }
-    for (const l of lives) l.term.dispose();
+    }
+    for (const p of pairs) {
+      if (o.textAgree[p]) textAgree[p]!++;
+      else {
+        sawFailure = true;
+        if (examples.length < limit)
+          examples.push(
+            `${mode} #${i} (seed ${fcSeed}) ${p} at cuts ${o.cuts.join(",")}:\n` +
+              o.pairDetail[p]!.join("\n") +
+              `\n  input: ${describeInput(mode, input, true)}`,
+          );
+      }
+      if (o.cellsAgree[p]) cellsAgree[p]!++;
+    }
   }
+
+  // A disagreement above is worth a minimal repro. Re-running the same
+  // arbitrary and seed through fast-check's own loop meets the same first
+  // failure fc.sample did (fc.sample previews exactly what that loop
+  // generates), and this time fast-check shrinks it. `endOnFailure` is left
+  // at its default: unset, a run already stops generating further cases the
+  // moment one fails and proceeds to shrink that one — which is what a
+  // minimal repro needs; `endOnFailure: true` instead skips shrinking
+  // entirely, so it is only useful for replaying an already-minimal case
+  // (the pasteable snippet fast-check prints on failure sets it that way,
+  // for exactly that quick replay). `includeErrorInReport` folds the
+  // triggering detail into the same message rather than a separate `cause`,
+  // so one block is all a person needs to paste back.
+  //
+  // Bytes-mode fuzz disagrees on essentially every run — the DEL-handling
+  // gap findings/m6.md records — so this is not a rare-failure cost; it is
+  // the steady cost of fuzzing bytes at all. `skipAllAfterTimeLimit` caps it
+  // at two seconds so an input that shrinks slowly cannot make `--fuzz N`
+  // scale with how large the corpus of irrelevant bytes happens to be before
+  // it converges. The printed `{ seed, path, endOnFailure: true }` replays
+  // this exact, possibly still-large, counterexample rather than continuing
+  // to shrink it; dropping `endOnFailure` from that snippet resumes shrinking
+  // from where the cap interrupted it.
+  if (sawFailure) {
+    try {
+      await fc.assert(
+        fc.asyncProperty(arb, async (input) => {
+          const o = await runOnce(engines, input, seed);
+          for (const e of engines)
+            if (!o.splitInvariant[e.id])
+              throw new Error(
+                `${e.id} is not split-invariant at cuts ${o.cuts.join(",")}:\n` +
+                  o.splitDetail[e.id]!.join("\n"),
+              );
+          for (const p of pairs)
+            if (!o.textAgree[p])
+              throw new Error(
+                `${p} disagree at cuts ${o.cuts.join(",")}:\n` +
+                  o.pairDetail[p]!.join("\n"),
+              );
+        }),
+        {
+          seed: fcSeed,
+          numRuns: iterations,
+          includeErrorInReport: true,
+          skipAllAfterTimeLimit: 2000,
+        },
+      );
+    } catch (err) {
+      examples.push(
+        `${mode} shrunk counterexample:\n${(err as Error).message}`,
+      );
+    }
+  }
+
   return { mode, iterations, textAgree, cellsAgree, splitInvariant, examples };
 }
 

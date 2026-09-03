@@ -53,15 +53,35 @@ function buttonOf(e: MouseEvent): number {
   }
 }
 
+/**
+ * The terminal surface's top-left in client coordinates. A canvas renderer
+ * needs none: `offsetX` is already relative to the canvas, because the
+ * canvas is always the event's target. A renderer that paints DOM rows makes
+ * a row element the target, so its events are re-based on the surface
+ * instead. The page caches the origin rather than measuring per event.
+ */
+export interface SurfaceOrigin {
+  x: number;
+  y: number;
+}
+
+function pixelsIn(
+  e: MouseEvent | WheelEvent,
+  origin: SurfaceOrigin | undefined,
+): { px: number; py: number } {
+  if (!origin) return { px: e.offsetX, py: e.offsetY };
+  return { px: e.clientX - origin.x, py: e.clientY - origin.y };
+}
+
 export function mouseEventFromDom(
   e: MouseEvent,
   action: "press" | "release" | "motion",
   cell: CellSize,
   /** Buttons held during a motion event, as `MouseEvent.buttons`. */
   heldButton?: number,
+  origin?: SurfaceOrigin,
 ): SeamMouseEvent {
-  const px = e.offsetX;
-  const py = e.offsetY;
+  const { px, py } = pixelsIn(e, origin);
   const button =
     action === "motion" ? (heldButton ?? MouseButton.none) : buttonOf(e);
   return {
@@ -78,6 +98,7 @@ export function mouseEventFromDom(
 export function wheelEventFromDom(
   e: WheelEvent,
   cell: CellSize,
+  origin?: SurfaceOrigin,
 ): SeamMouseEvent | null {
   let button: number;
   if (e.deltaY < 0) button = MouseButton.wheelUp;
@@ -85,18 +106,14 @@ export function wheelEventFromDom(
   else if (e.deltaX < 0) button = MouseButton.wheelLeft;
   else if (e.deltaX > 0) button = MouseButton.wheelRight;
   else return null;
+  const { px, py } = pixelsIn(e, origin);
   return {
     action: "press",
     button,
-    x: Math.floor(e.offsetX / cell.width),
-    y: Math.floor(e.offsetY / cell.height),
+    x: Math.floor(px / cell.width),
+    y: Math.floor(py / cell.height),
     mods: modsOf(e),
-    pixels: {
-      x: e.offsetX,
-      y: e.offsetY,
-      cellWidth: cell.width,
-      cellHeight: cell.height,
-    },
+    pixels: { x: px, y: py, cellWidth: cell.width, cellHeight: cell.height },
   };
 }
 

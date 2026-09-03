@@ -24,6 +24,13 @@ import {
 import { connect, type Attachment, type Client } from "../client/index.ts";
 import type { SessionInfo } from "../protocol/index.ts";
 import APP_JS from "./bundle/app.js" with { type: "text" };
+// `?renderer=beamterm` fetches this. `type: "file"` is the form `bun build
+// --compile` embeds, so the compiled binary serves it from `$bunfs` with
+// nothing on disk. The path is spelled out because the package exports no
+// subpath for the artifact, and it is the `cdn` copy because the `web` one
+// sits beside a `.d.ts` that would shadow the `*.wasm` declaration in
+// `src/wasm.d.ts`; the three copies the package ships are byte-identical.
+import beamtermWasmPath from "../../node_modules/@beamterm/renderer/dist/cdn/beamterm_bg.wasm" with { type: "file" };
 import { listPage, listRows, terminalPage } from "./pages.ts";
 import {
   tagged,
@@ -69,6 +76,21 @@ interface SocketData {
 
 const COOKIE = "wp";
 
+// The route paths, spelled out so `Bun.serve`'s second type parameter can
+// be given explicitly: with `SocketData` given for the first and this one
+// left to inference, `strict` mode's checking of the route handlers'
+// return types stops TypeScript from inferring it and every handler's
+// `req` falls back to implicit `any`.
+type RoutePath =
+  | "/"
+  | "/api/ls"
+  | "/api/ws"
+  | "/app.js"
+  | "/wasm"
+  | "/beamterm.wasm"
+  | "/s/:id"
+  | "/ws/:id";
+
 export async function serveWeb(opts: ServeOptions = {}): Promise<WebServer> {
   const log = opts.log ?? (() => {});
   const token = crypto.randomUUID().replace(/-/g, "");
@@ -78,6 +100,34 @@ export async function serveWeb(opts: ServeOptions = {}): Promise<WebServer> {
   function authed(req: Request): boolean {
     const cookie = req.headers.get("cookie") ?? "";
     return cookie.split(";").some((c) => c.trim() === `${COOKIE}=${token}`);
+  }
+
+  // Every route calls this first. It is the whole auth story: a `?t=`
+  // token turns into the cookie and a redirect that drops the token from
+  // the URL, and everything else needs that cookie already set. Bun runs
+  // route handlers instead of `fetch` for anything matched in `routes`,
+  // so the gate has to live here rather than in one shared `fetch` — a
+  // route with no gate of its own would be reachable with neither token
+  // nor cookie.
+  function gate(req: Request): Response | null {
+    const url = new URL(req.url);
+    const t = url.searchParams.get("t");
+    if (t !== null) {
+      if (t !== token) return new Response("bad token", { status: 403 });
+      url.searchParams.delete("t");
+      return new Response(null, {
+        status: 302,
+        headers: {
+          location: url.pathname + url.search,
+          "set-cookie": `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/`,
+        },
+      });
+    }
+    if (!authed(req))
+      return new Response("open the URL printed by wp serve", {
+        status: 403,
+      });
+    return null;
   }
 
   async function withDaemon<T>(
@@ -234,38 +284,23 @@ export async function serveWeb(opts: ServeOptions = {}): Promise<WebServer> {
     });
   }
 
-  const server = Bun.serve<SocketData>({
+  const server = Bun.serve<SocketData, RoutePath>({
     hostname: "127.0.0.1",
     port: opts.port ?? 0,
-    async fetch(req, server) {
-      const url = new URL(req.url);
-      const t = url.searchParams.get("t");
-      if (t !== null) {
-        if (t !== token) return new Response("bad token", { status: 403 });
-        url.searchParams.delete("t");
-        return new Response(null, {
-          status: 302,
-          headers: {
-            location: url.pathname + url.search,
-            "set-cookie": `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/`,
-          },
-        });
-      }
-      if (!authed(req))
-        return new Response("open the URL printed by wp serve", {
-          status: 403,
-        });
-
-      const p = url.pathname;
-      if (p === "/") {
+    routes: {
+      "/": async (req) => {
+        const g = gate(req);
+        if (g) return g;
         try {
           const sessions = await withDaemon((c) => c.ls(), true);
           return html(listPage(sessions));
         } catch (e) {
           return html(listPage(null, (e as Error).message), 503);
         }
-      }
-      if (p === "/api/ls") {
+      },
+      "/api/ls": async (req) => {
+        const g = gate(req);
+        if (g) return g;
         try {
           const sessions = await withDaemon((c) => c.ls(), false);
           return html(listRows(sessions));
@@ -275,26 +310,56 @@ export async function serveWeb(opts: ServeOptions = {}): Promise<WebServer> {
             503,
           );
         }
-      }
-      if (p === "/api/ws")
+      },
+      "/api/ws": (req) => {
+        const g = gate(req);
+        if (g) return g;
         return Response.json({ sockets: [...sockets].map((s) => s.stats) });
-      if (p === "/app.js")
+      },
+      "/app.js": (req) => {
+        const g = gate(req);
+        if (g) return g;
         return new Response(APP_JS, {
           headers: { "content-type": "text/javascript; charset=utf-8" },
         });
-      if (p === "/wasm")
+      },
+      "/wasm": (req) => {
+        const g = gate(req);
+        if (g) return g;
         return new Response(Bun.file(ghosttyWasmPath), {
           headers: {
             "content-type": "application/wasm",
             "x-ghostty-commit": GHOSTTY_COMMIT,
           },
         });
-      if (p.startsWith("/s/"))
-        return html(terminalPage(decodeURIComponent(p.slice(3))));
-      if (p.startsWith("/ws/")) {
-        const id = decodeURIComponent(p.slice(4));
+      },
+      // 1.4 MB, on top of the libghostty artifact the page already fetches.
+      // Only the beamterm renderer asks for it, so nothing else pays for it.
+      "/beamterm.wasm": (req) => {
+        const g = gate(req);
+        if (g) return g;
+        return new Response(Bun.file(beamtermWasmPath), {
+          headers: { "content-type": "application/wasm" },
+        });
+      },
+      // The route parameter is decoded the same way `decodeURIComponent`
+      // decoded the old hand-sliced tail: percent-escapes (including an
+      // escaped slash) resolve the same way. It only diverges from the old
+      // slicing for a literal, un-escaped slash in the id, which the
+      // router reads as a further path segment rather than part of the
+      // id; session ids are daemon-issued hex and never contain one.
+      "/s/:id": (req) => {
+        const g = gate(req);
+        if (g) return g;
+        return html(terminalPage(req.params.id));
+      },
+      "/ws/:id": (req, server) => {
+        const g = gate(req);
+        if (g) return g;
+        const url = new URL(req.url);
         const cols = Number(url.searchParams.get("cols")) || 80;
         const rows = Number(url.searchParams.get("rows")) || 24;
+        const id = req.params.id;
         const data: SocketData = {
           id,
           seq: ++seq,
@@ -322,7 +387,12 @@ export async function serveWeb(opts: ServeOptions = {}): Promise<WebServer> {
         };
         if (server.upgrade(req, { data })) return;
         return new Response("upgrade failed", { status: 400 });
-      }
+      },
+    },
+    fetch(req) {
+      // Anything not matched above: still gated, then a plain 404.
+      const g = gate(req);
+      if (g) return g;
       return new Response("not found", { status: 404 });
     },
     websocket: {
