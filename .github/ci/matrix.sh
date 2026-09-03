@@ -6,6 +6,7 @@
 #   .github/ci/matrix.sh machine        record the runner; write the summary header
 #   .github/ci/matrix.sh suite <id>     run one suite, record its verdict
 #   .github/ci/matrix.sh report         merge the verdicts into ci-result-<lane>.json
+#   .github/ci/matrix.sh cleanup        stop leftover daemons and remove their sockets
 #
 # A suite writes $MATRIX_OUT/suites/<n>-<id>.json, appends a row to
 # $GITHUB_STEP_SUMMARY, and exits with the suite's own status; every caller
@@ -132,13 +133,44 @@ native_bin() {
   if [ -f "$POC/dist/wp.exe" ]; then echo "$POC/dist/wp.exe"; else echo "$POC/dist/wp"; fi
 }
 
-# The daemon a `wp ls` autostarted, found by the pid its log records.
+# The daemon a `wp ls` autostarted, found by the pid its log records, and
+# the socket it leaves behind. A daemon on Windows takes no signal — Git
+# Bash's `kill` did nothing to it — so it is `taskkill` there, followed by
+# any other `wp.exe` still running (the native suites autostart their own).
+# The socket matters as much as the process: a Winsock AF_UNIX socket is a
+# reparse point that `stat` refuses with EACCES, and upload-artifact refuses
+# the whole output directory over one, so every `wp.sock` under the runtime
+# dir goes too. Prints what it stopped and removed.
 stop_daemon() {
-  local dir="$1" pid
+  local dir="$1" pid s
   pid="$(grep -aoE '\(pid [0-9]+' "$dir/werk-poc/wp.log" 2>/dev/null | head -1 | grep -oE '[0-9]+')"
-  if [ -n "$pid" ]; then
+  if [ "$OS" = win32 ]; then
+    if [ -n "$pid" ]; then
+      MSYS_NO_PATHCONV=1 taskkill /F /PID "$pid" 2>&1 | head -1
+    fi
+    if MSYS_NO_PATHCONV=1 tasklist /FI "IMAGENAME eq wp.exe" /NH 2>/dev/null | grep -aq wp.exe; then
+      MSYS_NO_PATHCONV=1 tasklist /FI "IMAGENAME eq wp.exe" /NH 2>/dev/null | grep -a wp.exe | tr -s ' ' | cut -d' ' -f1-2
+      MSYS_NO_PATHCONV=1 taskkill /F /IM wp.exe 2>&1 | head -3
+    fi
+  elif [ -n "$pid" ]; then
     kill "$pid" 2>/dev/null && echo "stopped daemon pid $pid"
   fi
+  for s in "$dir"/werk-poc/wp.sock "$dir"/werk-poc/.wp.sock.*; do
+    remove_socket "$s"
+  done
+}
+
+# A socket file, gone. `-e` and `rm`'s exit status cannot be trusted on the
+# Windows reparse point, so the directory listing is what decides.
+socket_present() { ls -A "$(dirname "$1")" 2>/dev/null | grep -qxF "$(basename "$1")"; }
+remove_socket() {
+  local s="$1"
+  socket_present "$s" || return 0
+  rm -f "$s" 2>/dev/null
+  if socket_present "$s" && [ "$OS" = win32 ]; then
+    MSYS_NO_PATHCONV=1 cmd /c "del /f /q \"$(native_path "$s")\"" 2>&1 | head -1
+  fi
+  if socket_present "$s"; then echo "could not remove $s"; else echo "removed $s"; fi
 }
 
 # codesign, twice: describe, then verify. The verdict is the verify.
@@ -252,10 +284,27 @@ if [ "$CMD" = "report" ]; then
   exit 0
 fi
 
+# ------------------------------------------------------------------ cleanup
+
+# Before the upload: whatever daemon a suite left running, and any socket
+# under the output directory, which upload-artifact cannot even stat on
+# Windows. Says what it found; exits 0 either way.
+if [ "$CMD" = "cleanup" ]; then
+  stop_daemon "$OUT/xrt"
+  for s in $(find "$OUT" \( -name 'wp.sock' -o -name '.wp.sock.*' \) 2>/dev/null); do
+    remove_socket "$s"
+  done
+  if [ "$OS" = win32 ] && MSYS_NO_PATHCONV=1 tasklist /FI "IMAGENAME eq wp.exe" /NH 2>/dev/null | grep -aq wp.exe; then
+    echo "wp.exe still running after cleanup"
+  fi
+  echo "cleanup done"
+  exit 0
+fi
+
 # ------------------------------------------------------------------- suites
 
 if [ "$CMD" != "suite" ] || [ -z "${2:-}" ]; then
-  echo "usage: matrix.sh machine | suite <id> | report" >&2
+  echo "usage: matrix.sh machine | suite <id> | report | cleanup" >&2
   exit 2
 fi
 SUITE="$2"
