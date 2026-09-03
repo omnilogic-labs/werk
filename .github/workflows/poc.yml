@@ -645,22 +645,27 @@ jobs:
       SUITE_ORDER: >-
         install typecheck test-pure build-web build diff ops probes m0-probes
         daemon wp-cli kill test-full m2 m3
-      # The suites that pass on windows today, the daemon's lifecycle, the
+      # The suites that pass on windows today: the daemon's lifecycle, the
       # compiled binary talking to a daemon it autostarts, the ops bench
-      # reaching a daemon it spawned through the seam, and a kill reaching
-      # the child through the protocol included. Everything else is expected
-      # to fail and is recorded rather than gated, so a red gate means one of
-      # these regressed rather than "windows still does not run test-full".
-      # Two suites are deliberately not here. `m3`: every snapshot it encodes
+      # reaching a daemon it spawned through the seam, a kill reaching the
+      # child through the protocol, the whole test suite one process per
+      # file, and the reattach-fidelity scenarios through a ConPTY.
+      # `test-full` and `m2` are held on three runs of the merged tree
+      # (33742714239, 33742717583, 33742721321) and three with this gate in
+      # place (33744959953, 33744962470, 33744965310): 171 pass, 0 fail across
+      # 23 files, and nine scenarios of nine, on each, after the unit runs
+      # that closed each file. Everything else is expected to fail and is recorded
+      # rather than gated, so a red gate means one of these regressed. Two
+      # things are deliberately not here. `m3`: every snapshot it encodes
       # decodes identically, but on one run in four the process printed all
-      # of its tables and then did not exit. `m2`: its reattach fidelity does
-      # hold through a ConPTY, but the two vim scenarios race the pty's
-      # delivery and the suite failed one of the first two runs on the merged
-      # tree (33708479479 red, 33709340151 green). Gating either would gate
-      # on that.
+      # of its tables and then did not exit. `m0-probes`: three probes ask a
+      # POSIX pty question a ConPTY answers differently. One thing gated here
+      # is known to be red on some runs: a pure engine test file that prints
+      # its tally and then does not exit until the harness kills it, about
+      # three lane runs in fourteen (docs/proposals/01-cross-platform.md §11).
       EXPECTED_PASS: >-
         install typecheck test-pure build-web build diff ops probes daemon
-        wp-cli kill
+        wp-cli kill test-full m2
       # The probes that fail on windows today, recorded rather than gated: the
       # readiness pipe's parent-side fd is a raw HANDLE that fs.readSync
       # refuses, which is why the win32 launcher polls a ready file instead.

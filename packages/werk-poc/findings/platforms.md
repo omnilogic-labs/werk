@@ -790,20 +790,24 @@ of the seam's interface, from [PR #3](https://github.com/omnilogic-labs/werk/pul
 What the lane records with those in place and the fidelity oracle above,
 against the last run without either:
 
-| Suite       | before, run 33686941407              | run 33710644108                                                                                                       |
-| ----------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| `daemon`    | fail, `flock`                        | pass — `hello` at 141 ms, `ls`, and gone 100 ms after `shutdown`                                                      |
-| `wp-cli`    | fail, `EBADF`                        | pass — `wp.exe ls` autostarts a daemon and prints its header                                                          |
-| `kill`      | —                                    | pass — a kill reaches the child and the session reports how, in 349 ms                                                |
-| `ops`       | fail                                 | pass — the cold-start table, its daemon spawned through the seam                                                      |
-| `m0-probes` | 01, 02, 05, 06 fail                  | 01, 02, 06 fail; `05-daemon-survives` passes                                                                          |
-| `m2`        | fail, `EBADF`                        | fail — seven of eight scenarios, the vim resize failing; the SIGSTOPped slow client is skipped for want of the signal |
-| `test-full` | fail, `EBADF` before any daemon test | 158 pass, 10 fail across 22 files, one process per file; every file reaches a verdict and none is left without one    |
+| Suite       | before, run 33686941407              | run 33710644108                                                                                                     |
+| ----------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `daemon`    | fail, `flock`                        | pass — `hello` at 141 ms, `ls`, and gone 100 ms after `shutdown`                                                    |
+| `wp-cli`    | fail, `EBADF`                        | pass — `wp.exe ls` autostarts a daemon and prints its header                                                        |
+| `kill`      | —                                    | pass — a kill reaches the child and the session reports how, in 349 ms                                              |
+| `ops`       | fail                                 | pass — the cold-start table, its daemon spawned through the seam                                                    |
+| `m0-probes` | 01, 02, 05, 06 fail                  | 01, 02, 06 fail; `05-daemon-survives` passes                                                                        |
+| `m2`        | fail, `EBADF`                        | pass — nine scenarios of nine, every wait a statement about the screen (runs 33742714239, 33742717583, 33742721321) |
+| `test-full` | fail, `EBADF` before any daemon test | 171 pass, 0 fail across 23 files, one process per file, on each of the same three runs                              |
 
-Four of those rows are gated, and a red gate means a regression rather than
-"windows still does not run `test-full`": `daemon`, `wp-cli`, `kill` and
-`ops`, along with `install`, `typecheck`, `test-pure`, `build-web`, `build`,
-`diff` and `probes`. `m0-probes`, `test-full`, `m2` and `m3` are recorded.
+Six of those rows are gated, and a red gate means a regression: `daemon`,
+`wp-cli`, `kill`, `ops`, `test-full` and `m2`, along with `install`,
+`typecheck`, `test-pure`, `build-web`, `build`, `diff` and `probes`.
+`m0-probes` and `m3` are recorded. One thing turns the gated `test-full` red
+without a test failing: in about three lane runs in fourteen a pure engine
+test file prints its tally and the process does not exit until the harness
+kills it (`reattach.test.ts` in runs 33740949544 and 33738651937,
+`encoders.test.ts` in 33738278048; none of the four merged-tree runs).
 
 `m2`'s reattach fidelity holds through a ConPTY — the scenarios compare cell
 grids, not bytes — and the suite passes eighteen runs in eighteen on
