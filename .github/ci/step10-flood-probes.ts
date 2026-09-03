@@ -26,6 +26,7 @@ import os from "node:os";
 import path from "node:path";
 import { connect } from "../../packages/werk-poc/src/client/index.ts";
 import {
+  flood,
   stopDaemon,
   tempDir,
 } from "../../packages/werk-poc/src/daemon/_testlib.ts";
@@ -67,6 +68,13 @@ for (const [name, pattern] of Object.entries(patterns)) {
   fs.writeFileSync(p, corpus(pattern, BYTES));
   files[name] = p;
 }
+// `cmd` reads its script from a file rather than an argument, since a `&`
+// and a quoted path inside one `/c` argument do not survive Bun's quoting.
+const cmdScript = path.join(work, "type.cmd");
+fs.writeFileSync(
+  cmdScript,
+  `@type "${files.lines!.replace(/\//g, "\\")}"\r\n@echo DONE\r\n`,
+);
 
 /** A `bun -e` script that writes `pattern` up to `bytes` in 64 KiB chunks, then DONE. */
 function bunScript(pattern: string, bytes: number, stream: boolean): string {
@@ -119,7 +127,7 @@ const producers: Producer[] = [
     bytes: BYTES,
     argv: () =>
       process.platform === "win32" && Bun.which("cmd")
-        ? ["cmd", "/c", `type "${win(files.lines!)}" & echo DONE`]
+        ? ["cmd", "/c", win(cmdScript)]
         : null,
   },
   {
@@ -159,6 +167,12 @@ const producers: Producer[] = [
     name: "bun-lines80",
     bytes: BYTES,
     argv: () => [bun, "-e", bunScript(patterns.lines80, BYTES, false)],
+  },
+  {
+    // What the two tests run now: _testlib.ts's producer, with no idle after DONE.
+    name: "testlib-flood",
+    bytes: BYTES,
+    argv: () => flood(BYTES, 0, 0),
   },
 ];
 

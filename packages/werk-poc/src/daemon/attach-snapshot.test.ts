@@ -11,7 +11,14 @@ import { connect, type Client, type Attachment } from "../client/index.ts";
 import { loadGhosttyWasmEngine } from "../engine/ghostty-wasm/bun.ts";
 import type { GhosttyWasmTerminal } from "../engine/ghostty-wasm/index.ts";
 import { isUnsupported, type VtEngine } from "../engine/types.ts";
-import { sleep, stopDaemon, tempDir, waitFor } from "./_testlib.ts";
+import {
+  flood,
+  floodDelivered,
+  sleep,
+  stopDaemon,
+  tempDir,
+  waitFor,
+} from "./_testlib.ts";
 
 const dir = tempDir();
 let client: Client;
@@ -182,27 +189,25 @@ test("a snapshot-mode attach gets a snapshot, then only the output written after
 }, 30_000);
 
 test("a lagging snapshot-mode client is resumed with a fresh snapshot, not a render", async () => {
+  // 4 MiB of full rows from Bun itself (_testlib.ts `flood`): the same
+  // producer on every platform, and one a ConPTY carries in well under a
+  // second where `yes | head -c` under MSYS would take minutes.
   const bytes = 4 * 1024 * 1024;
-  const { id } = await client.run({
-    argv: sh(`sleep 0.3; yes | head -c ${bytes}; echo DONE; sleep 30`),
-  });
+  const { id } = await client.run({ argv: flood(bytes) });
   const slowClient = await connect({ dir, requestTimeoutMs: 20_000 });
   const slow = new Replica(slowClient);
   await slow.attach(id);
   expect(await waitFor(() => slow.snapshots.length === 1, 3000)).toBe(true);
   slowClient.pauseReading();
 
+  // A second reader keeps receiving while the first is paused. The end of
+  // the flood is read off the daemon's screen rather than out of the
+  // watcher's frames: a watcher that lags on a shared runner is resumed
+  // with a snapshot, and `DONE` would then be inside that rather than in
+  // any output frame.
   const watcher = new Replica(client);
   await watcher.attach(id);
-  expect(
-    await waitFor(
-      () =>
-        watcher.pendingOutput.some((b) =>
-          new TextDecoder().decode(b).includes("DONE"),
-        ),
-      15_000,
-    ),
-  ).toBe(true);
+  await settled(id, "DONE");
   await sleep(300);
   slowClient.resumeReading();
   expect(await waitFor(() => slow.resumed >= 1, 5000)).toBe(true);
@@ -220,7 +225,7 @@ test("a lagging snapshot-mode client is resumed with a fresh snapshot, not a ren
   expect(term.plainText()).toBe(screen.text);
   expect(term.cursor()).toEqual(screen.cursor);
   console.log(
-    `lagging snapshot client: ${slow.snapshots.length} snapshots (${slow.snapshots.map((s) => s.byteLength).join(", ")} B), lagged ${slow.lagged}x, ${slow.outputBytes} output bytes kept of ${(bytes * 3) / 2}`,
+    `lagging snapshot client: ${slow.snapshots.length} snapshots (${slow.snapshots.map((s) => s.byteLength).join(", ")} B), lagged ${slow.lagged}x, ${slow.outputBytes} output bytes kept of ${floodDelivered(bytes)}; the watcher got ${watcher.outputBytes} output bytes${watcher.lagged ? ` and lagged ${watcher.lagged}x` : " with no lag"}`,
   );
 
   term.dispose();

@@ -120,3 +120,42 @@ export class Capture {
 export async function connectTo(dir: string): Promise<Client> {
   return connect({ dir });
 }
+
+/** The line a `flood` repeats: 79 characters and a newline, a full row at 80 columns. */
+export const FLOOD_LINE = `${"y".repeat(79)}\n`;
+
+/**
+ * A child that floods its terminal with `bytes` of full 80-column lines
+ * after a short pause, prints `DONE`, and then idles so the session stays
+ * alive: the producer behind the slow-client rule and the snapshot
+ * lag-resume. It is Bun itself, writing 64 KiB chunks, so it is the same
+ * program on all three platforms. The shape of the output is the point:
+ * a pseudoconsole's cost is per line rather than per byte — about
+ * 200,000 lines/s whatever their length, so `y\n` lines arrive at
+ * 0.6 MiB/s and full rows at 12–13 MiB/s — and `yes | head -c` under
+ * MSYS `sh` reaches it three bytes at a time, at 20 KiB/s
+ * (.github/ci/step10-flood-probes.ts, findings/platforms.md). What the
+ * line discipline makes of the bytes is `floodDelivered`.
+ */
+export function flood(bytes: number, pauseMs = 300, idleMs = 30_000): string[] {
+  const script =
+    `const fs=require("node:fs");` +
+    `const chunk=Buffer.from(${JSON.stringify(FLOOD_LINE)}.repeat(819));` +
+    `const w=(b,n)=>{let off=0;while(off<n){try{off+=fs.writeSync(1,b,off,n-off);}catch(e){if(e.code!=="EAGAIN")throw e;}}};` +
+    `await Bun.sleep(${pauseMs});` +
+    `let left=${bytes};` +
+    `while(left>0){const n=Math.min(left,chunk.length);w(chunk,n);left-=n;}` +
+    `w(Buffer.from("DONE\\n"),5);` +
+    `await Bun.sleep(${idleMs});`;
+  return [process.execPath, "-e", script];
+}
+
+/**
+ * How many bytes a `flood(bytes)` puts on the wire on a POSIX pty, where
+ * the line discipline turns each `\n` into `\r\n`. A ConPTY re-encodes
+ * rather than translates and sends about an eighth more than this, so a
+ * test holds this figure as a floor rather than an exact count.
+ */
+export const floodDelivered = (bytes: number) =>
+  Math.floor(bytes / FLOOD_LINE.length) * (FLOOD_LINE.length + 1) +
+  (bytes % FLOOD_LINE.length);

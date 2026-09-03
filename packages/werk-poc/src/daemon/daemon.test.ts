@@ -11,7 +11,15 @@ import {
   rowIndex,
 } from "./_grid.ts";
 import { platform } from "../platform/index.ts";
-import { Capture, sleep, stopDaemon, tempDir, waitFor } from "./_testlib.ts";
+import {
+  Capture,
+  flood,
+  floodDelivered,
+  sleep,
+  stopDaemon,
+  tempDir,
+  waitFor,
+} from "./_testlib.ts";
 import { QUEUE_BOUND } from "./connection.ts";
 
 const dir = tempDir();
@@ -279,11 +287,14 @@ test("resize from the attacher reaches the child", async () => {
 });
 
 test("a slow client lags and is re-rendered; a fast one keeps receiving; memory stays bounded", async () => {
+  // 8 MiB of full rows from Bun itself (_testlib.ts `flood`): the same
+  // producer on every platform, and one a ConPTY carries in under a second
+  // where `yes | head -c` under MSYS would take minutes. `expected` is the
+  // POSIX line discipline's count; a ConPTY sends about an eighth more, so
+  // it is a floor.
   const bytes = 8 * 1024 * 1024;
-  const expected = (bytes / 2) * 3; // the line discipline turns "y\n" into "y\r\n"
-  const { id } = await client.run({
-    argv: sh(`sleep 0.3; yes | head -c ${bytes}; echo DONE; sleep 30`),
-  });
+  const expected = floodDelivered(bytes);
+  const { id } = await client.run({ argv: flood(bytes) });
   const fast = new Capture(client);
   await fast.attach(id);
   const slowClient = await another();
