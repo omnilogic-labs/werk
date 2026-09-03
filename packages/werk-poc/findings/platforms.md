@@ -446,7 +446,7 @@ appears to be ConPTY itself.
 ships none; `ffiPlatform()` returns `win32-x64` and the load path finds the
 DLL described below, which is why `test-pure` passes on the Windows lane.
 
-Four Bun-on-Windows facts, recorded so nobody finds them again:
+Five Bun-on-Windows facts, recorded so nobody finds them again:
 
 - A `u32` argument in `bun:ffi` given a negative JavaScript number arrives as 0. `GENERIC_READ | GENERIC_WRITE` is negative in JavaScript; use
   `FILE_GENERIC_READ | FILE_GENERIC_WRITE` (`0x12019F`).
@@ -458,6 +458,16 @@ Four Bun-on-Windows facts, recorded so nobody finds them again:
   interpreted.
 - On `windows-11-arm`, Bun 1.3.14 has no `bun:ffi` at all
   (`bun:ffi dlopen() is not available in this build (TinyCC is disabled)`).
+- `expect(promise).rejects` under `bun test` never resumes when the promise is
+  still pending as it is handed over. `.github/ci/win32-kill.test.ts` asks for
+  a session the daemon has already removed three ways on both Windows runners
+  (run 33707210922): caught with `catch`, the error comes back in under a
+  millisecond; through `expect().rejects`, the assertion hangs to the test's
+  timeout, and `bun test` then kills the daemon it started and every later
+  test in the file says `connection closed`. `expect().rejects` on a promise
+  that is already rejected is fine. That one line was the whole of the kill
+  test's five seconds on the Windows lane, and it is worth checking wherever
+  else a suite waits on a rejection.
 
 Three smaller facts from the same probes: `mkdir` reports mode `40666`,
 `getuid` is undefined, and `LOCALAPPDATA` is set where `XDG_RUNTIME_DIR` is

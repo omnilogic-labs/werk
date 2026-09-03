@@ -88,11 +88,33 @@ jobs:
             echo '```'
           } >>"$GITHUB_STEP_SUMMARY"
 
+      # How far the daemon suite gets now that the kill test does not hang:
+      # what is left is the fidelity prologue and whatever follows it, which
+      # is §8 step 3's. `test-full` on the poc lane runs every file and no
+      # longer fits its step's timeout, so this asks for the one file.
+      - name: The daemon suite alone
+        if: always()
+        timeout-minutes: 6
+        working-directory: packages/werk-poc
+        run: |
+          bun test src/daemon/daemon.test.ts 2>&1 | tee daemon-suite.log || true
+          {
+            echo
+            echo '## daemon.test.ts on ${{ matrix.lane }}'
+            echo
+            echo '```'
+            tr -d '\r' <daemon-suite.log | grep -a "(pass)\|(fail)\|dangling\|timed out\| pass$\| fail$" || true
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          mv daemon-suite.log "$GITHUB_WORKSPACE/daemon-suite.log"
+
       - name: Upload probes.log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: step2-probes-${{ matrix.lane }}
-          path: probes.log
+          path: |
+            probes.log
+            daemon-suite.log
           if-no-files-found: warn
           retention-days: 14

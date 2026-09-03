@@ -194,8 +194,25 @@ finds them again:
   ("TinyCC is disabled"; fixed upstream after 1.3.14). Anything Windows does
   through ffi needs a non-ffi fallback there; the lock falls back to an
   exclusive `\\.\pipe\` name, which is the lock the `win32-arm64` lane's
-  daemon holds (run 33696944598). Its refusal of a second taker is verified
-  on x64 by forcing the pipe lock, not yet on arm64.
+  daemon holds (run 33696944598), and the session tree falls back to the
+  child alone. Its refusal of a second taker is verified on x64 by forcing
+  the pipe lock, not yet on arm64.
+- `expect(promise).rejects` under `bun test` never resumes on Windows when
+  the promise is still pending as it is handed over; the assertion hangs to
+  the test's timeout and `bun test` then kills the daemon, so every later
+  test in the file says `connection closed`. Catching the rejection instead
+  answers in under a millisecond (run 33707210922). That one line was all of
+  the kill test's five seconds, and the same pattern appears elsewhere in the
+  suites.
+
+**A session's tree is a Job Object.** A ConPTY child can be assigned to one
+from Bun, and `TerminateJobObject` — or dropping the last handle to a job
+carrying `KILL_ON_JOB_CLOSE` — takes the child and its descendants in two or
+three milliseconds. The daemon is itself already inside a job on a hosted
+runner and the nested assign still succeeds. So tree kill on Windows needs no
+native helper on `win32-x64`; on `win32-arm64` there is no `bun:ffi` and the
+kill is `TerminateProcess` on the child alone, which loses anything that has
+left the ConPTY behind. Both are run 33706263111.
 
 **The socket, beyond Bun.** A Windows `AF_UNIX` socket is reachable from Bun
 and from little else werk cares about: Node reaches only `\\.\pipe\` names,
@@ -211,10 +228,10 @@ Bun-only client, and nothing forces the choice yet.
 **What a Windows host would still cost** after the seam: ConPTY latency
 (p50 15.7 ms against 59–95 µs, which bounds how a Windows-hosted session
 feels through any client), the re-encoding above, logoff killing the daemon
-(a service or Run-key relaunch is the only cure), the shell question, and
-the Job Object work for tree kill. None of these looks like a stopper; all
-of them are work that the WSL2 answer avoids. §6 says what that does to the
-open question.
+(a service or Run-key relaunch is the only cure), the shell question, and an
+`arm64` build with no `bun:ffi`, which has neither a job for the tree nor a
+lock of its own. None of these looks like a stopper; all of them are work
+that the WSL2 answer avoids. §6 says what that does to the open question.
 
 ## 4. macOS, specifically
 
@@ -357,9 +374,10 @@ gated" is what the lanes do today and probably the right default.
 
 - **Windows as host** ([`../product/04-open-questions.md`](../product/04-open-questions.md) §4).
   The measured costs of hosting on Windows are output re-encoding, kill
-  being `TerminateProcess` with graceful teardown moved into the protocol,
-  ConPTY latency, and WSL2 teardown if that is the placement; `AF_UNIX` is
-  not one of them. The lean towards client-first with WSL2 as the documented
+  being `TerminateProcess` with teardown moved into the protocol, ConPTY
+  latency, and WSL2 teardown if that is the placement; `AF_UNIX` is not one
+  of them, and neither is tree kill, which a Job Object handles wherever
+  `bun:ffi` exists. The lean towards client-first with WSL2 as the documented
   placement probably still holds on effort grounds — the seam is small but
   the ConPTY semantics behind it are real work — but nothing measured says
   the platform blocks native hosting.
