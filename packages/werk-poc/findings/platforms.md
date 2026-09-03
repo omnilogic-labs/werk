@@ -356,7 +356,8 @@ file with share mode 0 is exclusive too (`ERROR_SHARING_VIOLATION`, 32).
 Where `bun:ffi` is absent, the lock is an exclusive
 `\\.\pipe\werk-poc-lock-<hash>` listener through `Bun.listen`, which needs no
 ffi at all; `WP_WIN32_LOCK=pipe` forces it on x64, and it is the lock the
-`win32-arm64` daemon holds (run 33696944598, below). Asking Windows for
+`win32-arm64` daemon holds (run 33696944598, below). It refuses a second
+taker where it has to — see "The pipe lock, contended" below. Asking Windows for
 `libc.so` returns error 126, `ERROR_MOD_NOT_FOUND`, which is what the daemon
 died of before the branch existed:
 
@@ -603,6 +604,34 @@ arm64 (run 33706263111). x64 reports `exitCode` 1 with the kill delivered as
 `job`; arm64 reports `exitCode` null delivered as `terminate`, which is all a
 Windows exit can say when the signal name is dropped and no job set the code.
 
+### The pipe lock, contended
+
+Where `bun:ffi` is absent the lock is a `\\.\pipe\` name, and on
+`win32-arm64` there is nothing else it could be. `.github/ci/win32-lock-probes.ts`
+contends it the way a second `wp` would: a daemon on a runtime directory of
+its own, then a second `wp __daemon --dir=` the same directory, then the
+holder killed with `taskkill /F` and a third one started. It runs as the
+matrix's `lock` suite, so every run asks again rather than the question
+having been settled once (runs 33712812822 and 33713142782, then four runs as
+a suite, 33713887366 through 33715705924, where it takes 1.1–2.3 s).
+
+| Question                                                   | `win32-arm64`, natively | `win32-x64`, `LockFileEx` | `win32-x64`, pipe forced |
+| ---------------------------------------------------------- | ----------------------- | ------------------------- | ------------------------ |
+| `bun:ffi` `dlopen`                                         | throws, TinyCC disabled | opens `kernel32.dll`      | not consulted            |
+| what `platform.lock` returned                              | `fd` -1, a pipe         | `fd`, a handle            | forced to the pipe       |
+| a second `lock()` in the same process                      | refused                 | refused                   | —                        |
+| a second `wp __daemon`, interpreted                        | exits 1, refused        | exits 1, refused          | exits 1, refused         |
+| a second `wp __daemon`, compiled binary                    | exits 1, refused        | exits 1, refused          | —                        |
+| who is still on the socket afterwards                      | the first daemon        | the first daemon          | the first daemon         |
+| a third daemon, after the holder is killed with `taskkill` | takes it in 99–105 ms   | takes it in 96–135 ms     | takes it in 105–133 ms   |
+
+The refused daemon says
+`wp __daemon: another daemon holds <dir>\wp.lock` on stderr and exits 1,
+which is `daemonMain` refusing before it binds anything — the same line on
+both runners, so what refuses differs and what a caller sees does not. The
+two probe runs agree cell for cell, and the suite has since said the same
+twice more.
+
 ### The differential corpus agrees with Linux exactly
 
 All 23 `ghostty-wasm` ↔ `xterm-oracle` case verdicts and all 10 reattach rows
@@ -827,13 +856,15 @@ one is nondeterministic.
 `.github/workflows/matrix.yml` compiles all eight `bun build --compile`
 targets on one `ubuntu-24.04` job and hands each binary to a native lane,
 which smokes it (`--help`, `caps`, `ls` against an autostarted daemon) and
-then runs the PoC suites from source. On `main` it ran as
-[run 33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598)
-(commit `0265837`), which the four non-Linux rows below are read from;
+then runs the PoC suites from source. The two Windows rows below are read
+from [run 33712817886](https://github.com/omnilogic-labs/werk/actions/runs/33712817886),
+the workflow on the tree with the seam, teardown through the protocol, the
+grid oracle and the harness items all in place;
 [run 33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138)
-(commit `789b481`) is the same workflow once the compiled-binary test asked
-the host for its platform id and the lanes recorded what a musl host carries
-and what AVX the CPU offers, and the four Linux rows are read from that.
+(commit `789b481`) is where the four Linux rows are read from, and
+[run 33703355321](https://github.com/omnilogic-labs/werk/actions/runs/33703355321)
+the two darwin ones. All six non-Windows lanes report the same verdicts on
+33712817886 that they do on 33703355321, suite for suite.
 [Run 33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325)
 is the same workflow from [PR #5](https://github.com/omnilogic-labs/werk/pull/5),
 before the daemon's `win32` branches. All eight targets compile in about a
@@ -842,30 +873,37 @@ minute each. `--help` passes on all eight; `caps` on six, because
 autostarted daemon on all eight — on `win32-arm64` through the named-pipe
 lock, since that Bun has no `bun:ffi`.
 
-The two Windows jobs of run 33696944598 are red, and not for a suite: every
-suite step ran, and `actions/upload-artifact` then failed with
-`EACCES: permission denied, stat 'D:\a\_temp\matrix-out\xrt\werk-poc\wp.sock'`
-(`C:\a\…` on arm64). The daemon `x-ls` autostarts listens under the lane's
-output directory, its `AF_UNIX` path is the reparse point that `stat` cannot
-read, and the action refuses the directory. Neither lane's JSON was uploaded;
-the `report` step prints it into the job log, and the two Windows rows below
-are read from there. The other six lanes' JSON uploaded as usual.
+A Windows lane stops its daemons and removes their sockets before the
+upload. A Winsock `AF_UNIX` path is a reparse point that `stat` cannot read,
+and `actions/upload-artifact` refuses the whole output directory over one
+(`EACCES: permission denied, stat 'D:\a\_temp\matrix-out\xrt\werk-poc\wp.sock'`,
+`C:\a\…` on arm64), which is what cost run 33696944598 both Windows
+artefacts.
 
-| Lane                | Runner                                    | Cross-compiled smoke                                                                     | `test-pure`          | `diff` vs linux-x64    | `m0`  | `m3`                                                                      | `ops` | `test-full`                                                                                                                    |
-| ------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------- | ---------------------- | ----- | ------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `linux-x64-glibc`   | `ubuntu-24.04`                            | pass                                                                                     | pass                 | identical              | 14/14 | pass                                                                      | pass  | fail: reattach fidelity only, and only sometimes — it passes on 33696944598 and fails on the other two runs                    |
-| `linux-arm64-glibc` | `ubuntu-24.04-arm`                        | pass                                                                                     | pass                 | identical              | 14/14 | pass                                                                      | pass  | pass: all 168 tests, reattach fidelity included                                                                                |
-| `linux-x64-musl`    | `alpine:3.22` container on `ubuntu-24.04` | pass; `ldd`: `ld-musl`, `libstdc++.so.6`, `libgcc_s.so.1` (below)                        | pass                 | identical              | 14/14 | pass                                                                      | pass  | fail: reattach fidelity only                                                                                                   |
-| `linux-arm64-musl`  | `alpine:3.22` via `docker exec` on arm    | pass; same `ldd`                                                                         | pass                 | identical              | 14/14 | pass                                                                      | pass  | fail: reattach fidelity only                                                                                                   |
-| `darwin-x64`        | `macos-15-intel` (15.7.9, avx2)           | `--help`, `ls` pass; `caps` no `darwin-x64` prebuild                                     | fail: 106, ffi tests | differs: no ffi column | 14/14 | pass                                                                      | pass  | fail: ffi tests, reattach fidelity                                                                                             |
-| `darwin-arm64`      | `macos-latest` (26.5.2)                   | pass                                                                                     | pass                 | identical              | 14/14 | pass                                                                      | pass  | fail: reattach fidelity only                                                                                                   |
-| `win32-x64`         | `windows-latest` (26100)                  | pass; `ls` autostarts the daemon                                                         | pass                 | identical              | 4/7   | pass, 4.6 s                                                               | fail  | fail: six tests (bench `ops` and `soak`, lag-resume, exited-session snapshot, render prologue, kill), then "connection closed" |
-| `win32-arm64`       | `windows-11-arm` (26200), native Bun      | `--help`, `ls` pass, the daemon on the named-pipe lock; `caps` no prebuild; no `bun:ffi` | fail: ffi tests      | differs: no ffi        | 3/7   | pass, 4.7 s (timed out at 600 s after printing its tables on 33689751325) | fail  | fail: twelve tests, the six above plus the ffi-dependent ones and the "connection closed" cascade                              |
+The two Windows lanes are also the only ones here that gate. Each names what
+it is held to and records the rest, so a red job means one of those
+regressed: `x-help`, `x-ls`, `install`, `lock` and `ops` on both, plus
+`x-caps`, `test-pure`, `build` and `diff` on x64, which need an ffi engine
+`win32-arm64` has no way to load.
+
+| Lane                | Runner                                    | Cross-compiled smoke                                                                                              | `test-pure`          | `diff` vs linux-x64    | `m0`  | `m3`                                                                        | `ops`       | `test-full`                                                                                                 |
+| ------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | -------------------- | ---------------------- | ----- | --------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
+| `linux-x64-glibc`   | `ubuntu-24.04`                            | pass                                                                                                              | pass                 | identical              | 14/14 | pass                                                                        | pass        | fail: reattach fidelity only, and only sometimes — it passes on 33696944598 and fails on the other two runs |
+| `linux-arm64-glibc` | `ubuntu-24.04-arm`                        | pass                                                                                                              | pass                 | identical              | 14/14 | pass                                                                        | pass        | pass: all 168 tests, reattach fidelity included                                                             |
+| `linux-x64-musl`    | `alpine:3.22` container on `ubuntu-24.04` | pass; `ldd`: `ld-musl`, `libstdc++.so.6`, `libgcc_s.so.1` (below)                                                 | pass                 | identical              | 14/14 | pass                                                                        | pass        | fail: reattach fidelity only                                                                                |
+| `linux-arm64-musl`  | `alpine:3.22` via `docker exec` on arm    | pass; same `ldd`                                                                                                  | pass                 | identical              | 14/14 | pass                                                                        | pass        | fail: reattach fidelity only                                                                                |
+| `darwin-x64`        | `macos-15-intel` (15.7.9, avx2)           | `--help`, `ls` pass; `caps` no `darwin-x64` prebuild                                                              | fail: 106, ffi tests | differs: no ffi column | 14/14 | pass                                                                        | pass        | fail: ffi tests, reattach fidelity                                                                          |
+| `darwin-arm64`      | `macos-latest` (26.5.2)                   | pass                                                                                                              | pass                 | identical              | 14/14 | pass                                                                        | pass        | fail: reattach fidelity only                                                                                |
+| `win32-x64`         | `windows-latest` (26100)                  | pass; `ls` autostarts the daemon                                                                                  | pass                 | identical              | 3–4/7 | pass, 4.7 s                                                                 | pass, 1.4 s | fail: 168 tests run, the ConPTY set above                                                                   |
+| `win32-arm64`       | `windows-11-arm` (26200), native Bun      | `--help`, `ls` pass, the daemon on the named-pipe lock and a second one refused; `caps` no prebuild; no `bun:ffi` | fail: ffi tests      | differs: no ffi        | 3–4/7 | printed every table and did not exit (600 s); passes in 4.7 s on other runs | pass, 1.5 s | fail: 161 tests run, the same set plus the ffi-dependent ones                                               |
 
 Before the `win32` branches (run 33689751325) both Windows lanes failed `ls`
 with `EBADF` in the client and `flock` in the daemon, `m0` reached 3/7 on
-both, and `test-full` failed 141 and 134 tests respectively. `m0` on
-`win32-arm64` fails `03-sigwinch` where x64 passes it, on both runs.
+both, and `test-full` failed 141 and 134 tests respectively. Three of the
+seven M0 probes pass on either runner now, sometimes four, and which ones
+moves: on run 33712817886 both runners fail `01-pty-basic`, `02-sigint` and
+`03-sigwinch`, and on 33714530862 both fail `01-pty-basic`, `02-sigint` and
+`06-raw-mode` instead. That is why neither lane gates on `m0`.
 
 `m0` takes 31–43 s on the Intel Mac across the two runs against about 24 s
 on the others. The differential summary is byte-identical on every lane
@@ -1004,10 +1042,6 @@ clean, `prettier --check .` clean).
   does not forward it.
 - **The soak**, on any platform, and `bench/perf.ts` as anything but
   information — timings on a shared runner are not comparable with `m6.md`'s.
-- **A contested pipe lock on `win32-arm64`.** The lane's daemon holds the
-  named-pipe lock (run 33696944598), but nothing there tried to start a
-  second daemon against it; the refusal is verified on x64 by forcing the
-  pipe lock, not on the one platform that needs it.
 - **Logout survival on macOS**, and App Nap's effect on a headless Bun
   daemon; both unverified either way.
 - **The rest of the Windows port.** The seam's `win32` side stops where the
@@ -1020,10 +1054,12 @@ clean, `prettier --check .` clean).
 The workflow is `.github/workflows/poc.yml` — it runs when a pull request is
 given the `ci:poc` label, and from the Actions tab or `gh workflow run`. The
 win32 build has its own, `.github/workflows/vt-win32.yml`. The macOS probes
-(`macos-probes.yml`), the Windows probes (`win32-spike.yml`) and the
-eight-target matrix (`matrix.yml`) are on `main` too; the first two trigger
-on pushes to their spike branches, the matrix on `workflow_dispatch` as well.
-None runs on an ordinary commit.
+(`macos-probes.yml`), the Windows probes (`win32-spike.yml`,
+`step2-probes.yml` and `step5-probes.yml`), the transport probes
+(`step9-probes.yml`) and the eight-target matrix (`matrix.yml`) are on `main`
+too; the probe workflows trigger on pushes to the branch each was written
+for, the matrix on `workflow_dispatch` as well. None runs on an ordinary
+commit.
 
 ```console
 $ gh workflow run poc.yml --ref <branch> -f os=all
@@ -1032,10 +1068,8 @@ $ gh run download <id> -n ci-result-macos     # the table above, as JSON
 
 Each job uploads `ci-result-<os>.json` plus the raw suite logs, and the
 per-probe M0 logs quoted here are in the macOS artefact under
-`packages/werk-poc/dist/m0/`. The two Windows lanes of `matrix.yml` upload
-nothing while the daemon's socket sits under the output directory; their
-JSON is in the `report` step's log. Artefacts are kept 14 days; re-running
-is the way to check anything older than that.
+`packages/werk-poc/dist/m0/`. Artefacts are kept 14 days; re-running is the
+way to check anything older than that.
 
 To re-derive the vendored DLL, `vendor/ghostty-vt-ffi/build.md` has the zig
 version and the command line. The sha256 in `PIN` matches the committed file

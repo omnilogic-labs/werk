@@ -7,6 +7,7 @@
 #   .github/ci/matrix.sh suite <id>     run one suite, record its verdict
 #   .github/ci/matrix.sh report         merge the verdicts into ci-result-<lane>.json
 #   .github/ci/matrix.sh cleanup        stop leftover daemons and remove their sockets
+#   .github/ci/matrix.sh gate           red when a suite on MATRIX_EXPECTED_PASS did not
 #
 # A suite writes $MATRIX_OUT/suites/<n>-<id>.json, appends a row to
 # $GITHUB_STEP_SUMMARY, and exits with the suite's own status; every caller
@@ -22,6 +23,7 @@
 #   MATRIX_XBIN    directory holding the cross-compiled `wp` for this target
 #   MATRIX_REF     directory holding the Linux x64 diff-summary.json
 #   MATRIX_M0      full (bun run m0) | probes (one probe file at a time)
+#   MATRIX_EXPECTED_PASS  the suites this lane is held to, if it is held to any
 
 set -uo pipefail
 
@@ -46,7 +48,7 @@ mkdir -p "$OUT/suites" "$OUT/logs"
 
 # The order the suites appear in the artefact and the step summary. Anything
 # else that ran is appended after these.
-ORDER=(x-help x-caps x-ls x-ldd x-codesign install test-pure build native-codesign diff m0 m3 ops test-full)
+ORDER=(x-help x-caps x-ls x-ldd x-codesign install lock test-pure build native-codesign diff m0 m3 ops test-full)
 
 # ------------------------------------------------------------------ helpers
 
@@ -323,6 +325,42 @@ if [ "$CMD" = "report" ]; then
   exit 0
 fi
 
+# --------------------------------------------------------------------- gate
+
+# The lane's own verdict, over the suites named in MATRIX_EXPECTED_PASS and
+# nothing else: red when one of those stops passing, and a printed line for
+# every other suite so what is recorded rather than gated stays visible. A
+# lane that names none is measured only, which is what most of them are.
+if [ "$CMD" = "gate" ]; then
+  expected="${MATRIX_EXPECTED_PASS:-}"
+  if [ -z "$expected" ]; then
+    echo "$LANE is measured, not gated"
+    exit 0
+  fi
+  rc=0
+  for id in $expected; do
+    f="$(ls "$OUT/suites/"*"-$id.json" 2>/dev/null | head -1)"
+    st=missing
+    if [ -n "$f" ]; then
+      case "$(cat "$f")" in *'"status":"pass"'*) st=pass ;; *) st=fail ;; esac
+    fi
+    if [ "$st" = pass ]; then
+      echo "ok      $id"
+    else
+      echo "::error::$id is expected to pass on $LANE and did not ($st)"
+      rc=1
+    fi
+  done
+  for f in "$OUT/suites/"*.json; do
+    [ -f "$f" ] || continue
+    id="$(basename "$f" .json | sed 's/^[0-9]*-//')"
+    case " $expected " in *" $id "*) continue ;; esac
+    case "$(cat "$f")" in *'"status":"pass"'*) st=pass ;; *) st=fail ;; esac
+    echo "known   $id: $st"
+  done
+  exit $rc
+fi
+
 # ------------------------------------------------------------------ cleanup
 
 # Before the upload: whatever daemon a suite left running, and any socket
@@ -411,6 +449,19 @@ install)
   NAME="bun install --frozen-lockfile (packages/werk-poc)"
   SECS=300
   SCRIPT="bun install --frozen-lockfile"
+  ;;
+lock)
+  # A second `wp __daemon` against a live one has to be refused, and the lock
+  # that refuses it is a `\\.\pipe\` name wherever `bun:ffi` is absent —
+  # `win32-arm64`, where nothing had ever contended it. Asked of the source
+  # and of the binary this lane ships; `--gate` turns a bad answer into an
+  # exit status. Runs after `install`, since the interpreted daemon needs the
+  # workspace's dependencies.
+  NAME="a second wp __daemon is refused while the first holds the lock"
+  SECS=180
+  BIN="$(xbin)" || true
+  if [ -n "${BIN:-}" ]; then export WP_LOCK_BIN="$(native_path "$BIN")"; fi
+  SCRIPT="bun run '$ROOT/.github/ci/win32-lock-probes.ts' --gate"
   ;;
 test-pure)
   NAME="bun test src/engine src/protocol"
@@ -516,6 +567,15 @@ x-codesign | native-codesign)
 install)
   DETAIL="$(pick '[0-9]+ packages installed|Checked [0-9]+ package')"
   [ -n "$DETAIL" ] || DETAIL="$(why)"
+  ;;
+lock)
+  # The probe prints one line per question and says which lock it took; the
+  # detail carries that plus every answer that did not hold.
+  DETAIL="$(pick '^PROBE ffi: ' | sed 's/^PROBE ffi: //' | cut -c1-110)"
+  badlines="$(grep -a '^PROBE ' "$CLEAN" | grep -a 'BAD\|fail —\|no daemon\|not there' | sed 's/^PROBE //' | head -3 | paste -sd';' - | cut -c1-240)"
+  n="$(grep -ac '^PROBE .* second: refused' "$CLEAN")"
+  DETAIL="${DETAIL:-?}; $n of $(grep -ac '^PROBE .* second: ' "$CLEAN") second daemons refused${badlines:+; $badlines}"
+  [ "$CODE" -eq 0 ] || DETAIL="$DETAIL; $(why)"
   ;;
 test-pure | test-full)
   DETAIL="$(bun_test_detail)"
