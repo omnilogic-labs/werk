@@ -336,9 +336,10 @@ both cases the appended bundle invalidates it. It still runs locally because
 nothing has quarantined it. `codesign --force --sign -` repairs it in one
 step and the result passes `--strict`. So the first macOS release step is a
 re-sign: the macOS build steps do it, and both darwin lanes verify what comes
-out — the `poc` lane gates a `codesign` suite on it (run 33703344148), and
-the matrix lanes check the natively built binary and the cross-compiled one,
-which arrives from a Linux job that can sign nothing (run 33703355321). That
+out — a `codesign` suite on the natively built binary, gated on
+`darwin-arm64` (run 33703344148), and an `x-codesign` suite on the
+cross-compiled one, which arrives from a Linux job that can sign nothing
+(run 33703355321). That
 is also what would catch a Bun signer regression on a version bump. Beyond
 that, the path is Developer ID with Bun's JIT entitlement set, and notarising
 the zipped binary (a bare executable cannot be stapled, so first run does an
@@ -370,13 +371,20 @@ Every target werk cares about has a free native hosted runner for a public
 repository: `ubuntu-24.04-arm`, Alpine in a container on x64 and via
 `docker exec` on arm64 (GitHub's container jobs are x64-only), `macos-15-intel`,
 `windows-11-arm`. QEMU is never needed, which matters because Bun under
-`qemu-user` is known-broken. So the release shape this proposes is the one
-several Bun-compiled CLIs already use and the matrix spike
-([PR #5](https://github.com/omnilogic-labs/werk/pull/5)) exercised: one Linux
-job builds all eight targets (about a minute each; every one compiled), each
-native lane downloads its own binary and smokes it (`--help`, `caps`, a
-daemon start and `ls`), a macOS lane runs `codesign -v` to catch Bun's
-recurring signer regressions, and a Windows lane exists only to sign.
+`qemu-user` is known-broken. So the release shape is the one several
+Bun-compiled CLIs already use, and
+[`poc.yml`](../../.github/workflows/poc.yml) is it: one `ubuntu-24.04` job
+builds all eight targets and the reference differential summary in under a
+minute, and eight native lanes each download their own binary, smoke it
+(`--help`, `caps`, a daemon start and `ls`, plus `ldd` on Alpine, the ad-hoc
+re-sign and `codesign --verify` a macOS release would do, and a contended
+lock on Windows) and diff their own normalised summary against the
+reference. One dispatch is nine jobs, eight binaries and a
+`ci-result-<lane>.json` per lane.
+
+Three of the eight lanes — `linux-x64-glibc`, `darwin-arm64` and
+`win32-x64` — are also where the PoC suites run natively, so the smoke and
+the suites share a job rather than each claiming a runner of its own.
 
 Three Linux-side risks the matrix should keep measuring:
 
@@ -450,12 +458,14 @@ gated" is what the lanes do today and probably the right default.
 
 Every "measured" in §1 points at one of these; each run uploads a
 `ci-result-<lane>.json` that is the record, and artefacts are kept 14 days
-so re-running is the way to check anything older.
+so re-running is the way to check anything older. A row naming `matrix.yml`
+is a run of the eight smoke lanes in a workflow of their own; the lanes, the
+suites and the artefact names are the same ones `poc.yml` runs.
 
 | What                                                                      | Where                                                                      | Run                                                                                                                                                                                                                                                                                                                            |
 | ------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | The three lanes on `main` with every spike merged                         | [`poc.yml`](../../.github/workflows/poc.yml)                               | [33696942295](https://github.com/omnilogic-labs/werk/actions/runs/33696942295)                                                                                                                                                                                                                                                 |
-| The eight-target matrix on that same `main`                               | [`matrix.yml`](../../.github/workflows/matrix.yml)                         | [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598)                                                                                                                                                                                                                                                 |
+| The eight-target matrix on that same `main`                               | `matrix.yml`                                                               | [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598)                                                                                                                                                                                                                                                 |
 | The Windows lane once its daemon suite is gated                           | `poc.yml`                                                                  | [33697939359](https://github.com/omnilogic-labs/werk/actions/runs/33697939359)                                                                                                                                                                                                                                                 |
 | The eight-target matrix once Windows uploads its result                   | `matrix.yml`                                                               | [33698568476](https://github.com/omnilogic-labs/werk/actions/runs/33698568476)                                                                                                                                                                                                                                                 |
 | The three lanes with §2's seam in place                                   | `poc.yml`                                                                  | [33702171963](https://github.com/omnilogic-labs/werk/actions/runs/33702171963)                                                                                                                                                                                                                                                 |
@@ -483,6 +493,8 @@ so re-running is the way to check anything older.
 | The daemon's lock contended on both Windows runners                       | `step5-probes.yml`                                                         | [33712812822](https://github.com/omnilogic-labs/werk/actions/runs/33712812822), [33713142782](https://github.com/omnilogic-labs/werk/actions/runs/33713142782)                                                                                                                                                                 |
 | The eight targets with steps 1–4, 6 and 7 merged                          | `matrix.yml`                                                               | [33712817886](https://github.com/omnilogic-labs/werk/actions/runs/33712817886)                                                                                                                                                                                                                                                 |
 | The two Windows matrix lanes once they are gated                          | `matrix.yml`                                                               | [33713887366](https://github.com/omnilogic-labs/werk/actions/runs/33713887366), [33714530862](https://github.com/omnilogic-labs/werk/actions/runs/33714530862), [33715134773](https://github.com/omnilogic-labs/werk/actions/runs/33715134773), [33715705924](https://github.com/omnilogic-labs/werk/actions/runs/33715705924) |
+| The eight lanes side by side in two workflows, for §8's eighth step       | `poc.yml` and `matrix.yml`                                                 | [33716396025](https://github.com/omnilogic-labs/werk/actions/runs/33716396025), [33716397542](https://github.com/omnilogic-labs/werk/actions/runs/33716397542)                                                                                                                                                                 |
+| The eight lanes folded into one workflow, one dispatch                    | `poc.yml`                                                                  | [33716828853](https://github.com/omnilogic-labs/werk/actions/runs/33716828853)                                                                                                                                                                                                                                                 |
 
 The cheap way to ask any further question is the same: a branch, a workflow
 with a `push` trigger scoped to it (or `gh workflow run poc.yml --ref
@@ -605,15 +617,18 @@ suites stop; 6 and 7 the platforms that already pass; 8 and 9 shape.
    about 100 ms after the holder is killed — from the source and from the
    compiled binary, natively on `win32-arm64` and with the pipe forced on
    `win32-x64` (runs 33712812822 and 33713142782). It is a `lock` suite
-   rather than a one-off probe, so every matrix run asks it again. `ops`
+   rather than a one-off probe, so every run of either lane asks it again.
+   `ops`
    reaches the daemon there too: what stopped it was step 4's socket path,
    and with the runtime directories shortened it passes in 1.5 s with its
    cold-start table — `wp __daemon` to a first `hello` at 124–128 ms, `wp
 ls` against a live daemon at 79–82 ms (runs 33712817886, 33712812822).
 
    The lane is gated on `x-help`, `x-ls`, `install`, `lock` and `ops`, and
-   `win32-x64` on the same plus `x-caps`, `test-pure`, `build` and `diff`;
-   both lanes are green over their own list, and the whole matrix with them
+   `win32-x64` on the same plus `x-caps`, `test-pure`, `build` and `diff` —
+   there across two gate lists, since that lane runs `install`, `test-pure`,
+   `build` and `ops` through the PoC's own suite runner. Both lanes are
+   green over their own list, and every other lane with them
    (four runs, 33713887366 through 33715705924). Those four are the difference, and
    they are recorded on arm64 rather than gated: there is no `bun:ffi` there
    and libghostty-vt ships no prebuild for the target, so the ffi engine
@@ -653,11 +668,44 @@ ls` against a live daemon at 79–82 ms (runs 33712817886, 33712812822).
    `libstdc++.so.6` and `libgcc_s.so.1`, or the release carries them. The
    AVX2 exposure is recorded per lane and nothing is decided about it.
 
-8. **The release shape.** One build job producing all eight binaries, one
-   native smoke lane per target, with `matrix.yml` folded into `poc.yml` or
-   kept alongside it — measure both and take the cheaper.
-   _Done when_ one dispatch yields eight binaries and a `ci-result-<lane>.json`
-   per lane. No stop condition beyond runner limits.
+8. **The release shape — done.** `poc.yml` is one build job producing all
+   eight binaries and one native smoke lane per target, and the three lanes
+   that also run the PoC suites do both in the same job. One dispatch is
+   nine jobs, eight binaries and a `ci-result-<lane>.json` per lane
+   (run 33716828853). A lane that runs two suite runners writes two records
+   and `.github/ci/lane-result.ts` merges them, so the file the docs cite
+   holds every suite the lane ran.
+
+   Folded and side by side were both built and dispatched on the same
+   commit, seven minutes apart: nine jobs against twelve
+   (run 33716828853, against 33716396025 and 33716397542 together). Six of
+   the nine jobs are the same job in both shapes, so what the fold changes
+   is the three targets that had a lane each in two workflows:
+   `linux-x64-glibc` 2.2 minutes against 2.0 + 1.9, `darwin-arm64` 2.5
+   against 2.6 + 2.0, and `win32-x64` 8.0 against 6.8 + 4.1 — 12.7
+   runner-minutes against 19.4, and three fewer runners to wait on. What it
+   costs is wall clock on the critical path: a folded lane runs both suite
+   runners in series and starts behind `build-all`, so the folded run
+   finishes about two minutes later.
+
+   The two runs' totals do not show that, because the lane that bounds them
+   both is `win32-arm64`, which is the same job in either shape and takes
+   either about 5 or about 15 minutes depending on whether `m3` and
+   `test-full` exit or wait out their deadlines: 37.9 runner-minutes and 16.0
+   of wall clock folded, against 34.9 and 6.9 side by side, with that lane
+   at 15.1 and 5.3 minutes respectively. Hold it equal and the comparison is
+   22.8 runner-minutes against 29.6, and 8.9 minutes of wall clock against
+   6.9. The minutes are raw and unweighted, because a public repository is
+   billed nothing and the timing API returns zero for every job; on
+   private-repo multipliers the macOS and Windows savings would count for
+   ten and two times as much again.
+
+   Every gate survives the fold. `win32-x64` is held to the same nine
+   suites, across two lists because it runs two suite runners:
+   `x-help`, `x-caps`, `x-ls`, `lock` and `diff` under
+   `MATRIX_EXPECTED_PASS`, and `install`, `test-pure`, `build` and `ops`
+   under the lane's own `EXPECTED_PASS`, which held them already. Both gates
+   run after the artefact is uploaded, so a red gate never costs the record.
 
 9. **Transport — done.** M5 has an RTT table on macOS and a Windows `wp.exe`
    completes `hello` with a daemon it did not start, through a forward.
@@ -714,9 +762,9 @@ ls` against a live daemon at 79–82 ms (runs 33712817886, 33712812822).
    against the real daemon. What separates them is §3's list, and §10 still
    holds the choice.
 
-**Done** is every lane in `poc.yml` and `matrix.yml` green with no forgiven
-suites except the slow-client scenario, on a pinned Bun, with a
-`ci-result-<lane>.json` per lane that says so.
+**Done** is every lane in `poc.yml` green with no forgiven suites except the
+slow-client scenario, on a pinned Bun, with a `ci-result-<lane>.json` per
+lane that says so.
 
 ## 9. What would change the answer
 
