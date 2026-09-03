@@ -258,6 +258,16 @@ export const vimResize: Scenario = {
         `daemon says ${s.daemon.cols}×${s.daemon.rows}`,
       );
       r.screensAgree("reattach at 100×30", s);
+      // vim redraws the new rows in its own time, and on a ConPTY every
+      // round trip through the pty costs about 15 ms, so wait for the redraw
+      // rather than sampling once and calling a slow one wrong.
+      const fileRows = () => {
+        const l = t2.screen().split("\n");
+        return (
+          l.length === 30 && l.slice(0, 28).every((x) => /^line \d+:/.test(x))
+        );
+      };
+      await waitFor(fileRows, 3000);
       const lines = t2.screen().split("\n");
       r.check(
         lines.length === 30 &&
@@ -669,6 +679,10 @@ export const unknownId: Scenario = {
     const t = await UserTerminal.spawn(env, ["attach", "nope"]);
     try {
       const exited = await t.waitExit(5000);
+      // The message goes through the pty, which does not have to be done
+      // with it when the process is: a ConPTY was still carrying it a moment
+      // after `wp` had exited 1.
+      await waitFor(() => t.text.includes("no session nope"), 2000);
       r.check(
         exited && t.exitCode === 1 && t.text.includes("no session nope"),
         "wp attach nope: exit 1, 'no session nope'",

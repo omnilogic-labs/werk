@@ -65,6 +65,8 @@ below by number:
 | [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325) | [PR #5](https://github.com/omnilogic-labs/werk/pull/5) | eight targets cross-compiled on one Ubuntu job and run on eight native lanes, before the `win32` branches                                                                          |
 | [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598) | `main` at `0265837`                                    | the same eight lanes on the merged tree                                                                                                                                            |
 | [33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138) | `step/07-linux-musl` at `789b481`                      | the same eight lanes with the compiled-binary test host-derived, and the Linux lanes recording what a musl host carries and what AVX the CPU offers                                |
+| [33705737351](https://github.com/omnilogic-labs/werk/actions/runs/33705737351) | `step/03-conpty-oracle`                                | ConPTY's re-encoding compared six ways, and `daemon.test.ts` with and without the test that times out                                                                              |
+| [33706788925](https://github.com/omnilogic-labs/werk/actions/runs/33706788925) | `step/03-conpty-oracle`                                | the Windows lane with the fidelity oracle on the grid and `test-full` run one process per file                                                                                     |
 
 ### ubuntu-latest
 
@@ -463,6 +465,88 @@ Three smaller facts from the same probes: `mkdir` reports mode `40666`,
 `getuid` is undefined, and `LOCALAPPDATA` is set where `XDG_RUNTIME_DIR` is
 not.
 
+### ConPTY re-encodes, and it is the cells that survive it
+
+A ConPTY does not pass a child's bytes on. It keeps a screen of its own and
+emits whatever it thinks brings the host terminal to that screen, so the
+proof of concept's assertions about what a session sends cannot hold here.
+The `probes` suite runs the same scripted session six times and compares the
+byte streams and the cell grids the wasm engine ends up with, so the question
+is measured rather than argued.
+
+The session `daemon.test.ts` drives — a shell, a prompt, `echo hi` typed in —
+comes back as 174 bytes:
+
+```
+\x1b[?9001h\x1b[?1004h\x1b[?25l\x1b[2J\x1b[m\x1b[Hhello\r\n
+\x1b]0;C:\Program Files\Git\usr\bin\sh.exe\x07\x1b[?25h
+\x1b[?2004hsh-5.3$ echo hi\x1b[?2004l\x1b[?2004h\r\nhi\r\n
+sh-5.3$ exit\x1b[?2004l\r\nexit\r\n\x1b[?9001l\x1b[?1004l
+```
+
+`echo hi\r\nhi\r\n`, which a POSIX pty sends and which the test used to look
+for, is not in there: the bracketed-paste toggles sit between the echoed
+command and its output, and an OSC 0 title arrives unasked.
+
+| Same input, six sessions                   | bytes                                                    | cells and cursor                       |
+| ------------------------------------------ | -------------------------------------------------------- | -------------------------------------- |
+| a script that writes three lines and exits | identical, 131 B, every run                              | identical                              |
+| a shell with `echo hi` typed into it       | identical in two runs of the job, five of six in a third | identical in all three runs of the job |
+
+The one session that differed was the same 174 bytes with the toggles moved:
+`sh-5.3$ ` then `ESC[?2004l ESC[?2004h` then `echo hi`, where the other five
+put `echo hi` first. Its grid is the same grid, down to the hash — and that
+hash, `90491758d1d4`, is the same across separate jobs on different machines
+([33704865317](https://github.com/omnilogic-labs/werk/actions/runs/33704865317),
+[33705104981](https://github.com/omnilogic-labs/werk/actions/runs/33705104981),
+[33705737351](https://github.com/omnilogic-labs/werk/actions/runs/33705737351)).
+
+So a recorded ConPTY prologue could not be a fidelity oracle here and the
+grid can. `src/daemon/_grid.ts` is that oracle for the daemon tests: it
+replays everything one attached client received into a fresh terminal of the
+session's size and holds the result against the daemon's own screen, cell
+for cell and cursor included. `daemon.test.ts`'s echo test asks the grid for
+the command and its output rather than the stream for a byte sequence, and
+passes on Windows in 234 ms. M2's slow-client scenario asks whether the bytes
+that reached a resumed client redraw the whole screen on their own — which is
+what a render is and what ordinary output, with most of the flood missed,
+could not be — rather than looking for the clear sequence inside them.
+
+M2 says the same thing at the level the spike exists to test: on the Windows
+lane, `vim` reattached at three sizes, a 200 ms-redraw TUI reattached mid-
+count, and a coloured shell after typing all agree with the daemon's screen
+and cursor, through a ConPTY, cell for cell.
+
+**Throughput is the other half of the ConPTY cost.** `yes | head -c 4M`
+through a pseudoconsole does not finish inside a minute: 1.05 MiB and
+1.29 MiB of the 4 MiB reached the reader in 60 s on two runs, about
+20 KiB/s, against roughly 99 MiB/s through a session on Linux. That, and not
+fidelity, is what the two assertions that pour megabytes through a session
+fail on — `daemon.test.ts`'s slow-client rule (8 MiB) and
+`attach-snapshot.test.ts`'s lag-resume (4 MiB) both time out waiting for the
+end of a flood that is still arriving.
+
+### `bun test` panics after a test times out
+
+When a test in `daemon.test.ts` runs past its deadline, Bun 1.3.14 on
+Windows kills the daemon the file started — `killed 1 dangling process` — so
+the timed-out test's own continuation gets `connection closed` from the
+client, and the process then panics:
+
+```
+panic(main thread): Segmentation fault at address 0x249A1A2FAA2
+```
+
+In one `bun test` that takes down every file the runner has not reached:
+`test-full` on `main` reported five files of twenty-two and nothing at all
+about the other seventeen. Two measurements pin it to the timeout rather
+than to anything the file's other tests do. `bun test src/daemon/daemon.test.ts`
+alone panics the same way; the same command with the one timing-out test
+filtered out runs to `9 pass 1 fail` and exits (run 33705737351). So the
+Windows lane runs the files one process at a time
+(`.github/ci/windows-test-full.sh`), which costs the panic one file's verdict
+instead of seventeen.
+
 ### The differential corpus agrees with Linux exactly
 
 All 23 `ghostty-wasm` ↔ `xterm-oracle` case verdicts and all 10 reattach rows
@@ -503,23 +587,33 @@ of the seam's interface, from [PR #3](https://github.com/omnilogic-labs/werk/pul
 | `shutdown()`               | installs no signal handlers; the `shutdown` message over the socket is the only way in                                                                                                                           |
 | `isAlive()`                | `kill(pid, 0)` alone — there are no zombies to exclude; `05-daemon-survives` judges by that and a tick file                                                                                                      |
 
-What the lane records with those in place, against the last run without
-them:
+What the lane records with those in place and the fidelity oracle above,
+against the last run without either:
 
-| Suite       | before, run 33686941407              | `main`, run 33696942295                                                                                                                                                                                                                                                                                                                                                                            |
-| ----------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `daemon`    | fail, `flock`                        | runs until the step's 2-minute timeout; recorded as `skip`                                                                                                                                                                                                                                                                                                                                         |
-| `wp-cli`    | fail, `EBADF`                        | pass — `wp.exe ls` autostarts a daemon and prints its header                                                                                                                                                                                                                                                                                                                                       |
-| `m0-probes` | 01, 02, 05, 06 fail                  | 01, 02, 06 fail; `05-daemon-survives` passes                                                                                                                                                                                                                                                                                                                                                       |
-| `test-full` | fail, `EBADF` before any daemon test | reaches the daemon tests: `run, attach, see output` fails on the render prologue (ConPTY does not open with `ESC[H ESC[2J`); `kill signals the child` times out at 5 s (`TerminateProcess`, exit 1, no `signalCode`); the exited-session snapshot attach and the lag-resume assertions fail; `bench.test.ts`'s `ops` and `soak` cases fail as `ops` does; then "connection closed" aborts the file |
-| `m2`        | fail, `EBADF`                        | fail, `EPERM` moving `wp.exe`: the running daemon pins the executable, so the harness cannot rebuild it                                                                                                                                                                                                                                                                                            |
-| `ops`       | fail                                 | fail: `bench/ops.ts` spawns its own daemon with `cwd: "/"` and `--ready-fd=3`, a launcher of its own that the branches do not reach                                                                                                                                                                                                                                                                |
+| Suite       | before, run 33686941407              | run 33706788925                                                                                                                                         |
+| ----------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `daemon`    | fail, `flock`                        | pass — `hello` at 120 ms, `ls`, and gone 99 ms after `shutdown`                                                                                         |
+| `wp-cli`    | fail, `EBADF`                        | pass — `wp.exe ls` autostarts a daemon and prints its header                                                                                            |
+| `m0-probes` | 01, 02, 05, 06 fail                  | 01, 02, 06 fail; `05-daemon-survives` passes                                                                                                            |
+| `m2`        | fail, `EBADF`                        | pass — eight scenarios, seven run and one (the SIGSTOPped slow client) skipped for want of a signal Windows does not have                               |
+| `test-full` | fail, `EBADF` before any daemon test | 146 pass, 11 fail across 22 files, one process per file; `daemon.test.ts` reaches the timing-out kill test and then panics, so it has no verdict at all |
+| `ops`       | fail                                 | fail: `bench/ops.ts` spawns its own daemon with `cwd: "/"` and `--ready-fd=3`, a launcher of its own that the seam does not reach                       |
 
-The first two `test-full` items are platform facts — ConPTY re-encodes the
-stream rather than passing bytes through, and a kill is `TerminateProcess`
-with no signal name — and the last two are harness shape. Where the PTY relay
-semantics and the kill path go from here is a design question, not a
-measurement, and it is left to the proposal.
+The eleven failing tests, by cause:
+
+| Test                                                       | Why                                                                                              |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `bench.test.ts`: `ops`                                     | `bench/ops.ts`'s own launcher, as the `ops` suite                                                |
+| `attach-snapshot.test.ts`: lag-resume                      | a 4 MiB flood against 20 KiB/s of ConPTY; the watcher never sees the end of it                   |
+| `attach-snapshot.test.ts`: exited session in snapshot mode | an output frame reaches the client before the snapshot, where on Linux the snapshot is first     |
+| `launch.test.ts`: four                                     | `stat` on the socket's reparse point (`EACCES`), a stale socket `existsSync` cannot see, `pgrep` |
+| `snapshot.test.ts`: a real SIGTERM snapshots every session | signals do not reach a detached Windows daemon                                                   |
+| `m1/embedded.test.ts`, `m6/compiled.test.ts`               | both name `/$bunfs/`, which is `B:/~BUN/` here                                                   |
+| `m2/fidelity.test.ts`                                      | the same scenarios `m2` passes, run again inside `bun test`; two of eight flaked on this run     |
+
+None of the eleven is a fidelity failure. Where the kill path, the snapshot
+ordering and the two harness launchers go from here is a design question
+rather than a measurement, and it is left to the proposal.
 
 ## A win32 `libghostty-vt`, built rather than installed
 
@@ -792,10 +886,11 @@ clean, `prettier --check .` clean).
   pipe lock, not on the one platform that needs it.
 - **Logout survival on macOS**, and App Nap's effect on a headless Bun
   daemon; both unverified either way.
-- **The rest of the Windows port.** The `win32` branches stop where the
-  measurements above say they stop: the ConPTY render prologue, kill through
-  the protocol, the pinned executable, `bench/ops.ts`'s own launcher, a
-  `darwin-x64` ffi build.
+- **The rest of the Windows port.** The seam's `win32` side stops where the
+  measurements above say it stops: kill through the protocol, the snapshot
+  frame's ordering against late ConPTY output, the pinned executable,
+  `bench/ops.ts`'s own launcher, the socket's reparse point where a test
+  calls `stat` on it, a `darwin-x64` ffi build.
 
 ## Auditing this
 

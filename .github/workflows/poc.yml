@@ -336,16 +336,17 @@ jobs:
       SUITE_ORDER: >-
         install typecheck test-pure build-web build diff ops probes m0-probes
         daemon wp-cli test-full m2 m3
-      # The suites that pass on windows today, the daemon's lifecycle and the
-      # compiled binary talking to a daemon it autostarts included. Everything
-      # else is expected to fail and is recorded rather than gated, so a red
-      # gate means one of these regressed rather than "windows still does not
-      # run test-full". `m3` is deliberately not here: every snapshot it
-      # encodes decodes identically, but on one run in four the process
-      # printed all of its tables and then did not exit, so gating on it would
-      # gate on that.
+      # The suites that pass on windows today, the daemon's lifecycle, the
+      # compiled binary talking to a daemon it autostarts, and M2's reattach
+      # fidelity through a ConPTY included. Everything else is expected to
+      # fail and is recorded rather than gated, so a red gate means one of
+      # these regressed rather than "windows still does not run test-full".
+      # `m3` is deliberately not here: every snapshot it encodes decodes
+      # identically, but on one run in four the process printed all of its
+      # tables and then did not exit, so gating on it would gate on that.
       EXPECTED_PASS: >-
         install typecheck test-pure build-web build diff probes daemon wp-cli
+        m2
       # The probes that fail on windows today, recorded rather than gated: the
       # readiness pipe's parent-side fd is a raw HANDLE that fs.readSync
       # refuses, which is why the win32 launcher polls a ready file instead.

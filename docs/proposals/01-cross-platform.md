@@ -37,16 +37,16 @@ unknown.
 
 Every "measured" cell names a run in §7. A cell is a claim until it does.
 
-| Target            | Runner             | wasm engine, differential | Daemon from a cross-compiled binary | PoC suites                                               |
-| ----------------- | ------------------ | ------------------------- | ----------------------------------- | -------------------------------------------------------- |
-| linux-x64-glibc   | `ubuntu-24.04`     | reference                 | starts, answers `ls`                | all pass but the slow-client scenario                    |
-| linux-arm64-glibc | `ubuntu-24.04-arm` | identical                 | starts, answers `ls`                | same                                                     |
-| linux-x64-musl    | Alpine 3.22        | identical                 | starts, answers `ls`                | same; the binary needs `libstdc++` and `libgcc_s` there  |
-| linux-arm64-musl  | Alpine 3.22 on arm | identical                 | starts, answers `ls`                | same                                                     |
-| darwin-arm64      | `macos-latest`     | identical                 | starts, answers `ls`                | same as Linux                                            |
-| darwin-x64        | `macos-15-intel`   | identical                 | starts, answers `ls`                | same; no ffi prebuild exists, so ffi tests fail          |
-| win32-x64         | `windows-latest`   | identical                 | starts, answers `ls` (§3)           | four suites fail: ConPTY render, kill, two harness items |
-| win32-arm64       | `windows-11-arm`   | identical                 | starts, answers `ls`; no `bun:ffi`  | as x64, plus no ffi engine at all in Bun 1.3.14          |
+| Target            | Runner             | wasm engine, differential | Daemon from a cross-compiled binary | PoC suites                                                         |
+| ----------------- | ------------------ | ------------------------- | ----------------------------------- | ------------------------------------------------------------------ |
+| linux-x64-glibc   | `ubuntu-24.04`     | reference                 | starts, answers `ls`                | all pass but the slow-client scenario                              |
+| linux-arm64-glibc | `ubuntu-24.04-arm` | identical                 | starts, answers `ls`                | same                                                               |
+| linux-x64-musl    | Alpine 3.22        | identical                 | starts, answers `ls`                | same; the binary needs `libstdc++` and `libgcc_s` there            |
+| linux-arm64-musl  | Alpine 3.22 on arm | identical                 | starts, answers `ls`                | same                                                               |
+| darwin-arm64      | `macos-latest`     | identical                 | starts, answers `ls`                | same as Linux                                                      |
+| darwin-x64        | `macos-15-intel`   | identical                 | starts, answers `ls`                | same; no ffi prebuild exists, so ffi tests fail                    |
+| win32-x64         | `windows-latest`   | identical                 | starts, answers `ls` (§3)           | reattach fidelity holds; `ops`, `m0-probes`, `test-full` fail (§3) |
+| win32-arm64       | `windows-11-arm`   | identical                 | starts, answers `ls`; no `bun:ffi`  | as x64, plus no ffi engine at all in Bun 1.3.14                    |
 
 Three things the table says that the research did not expect:
 
@@ -138,15 +138,35 @@ Windows lane of `main` (run 33696942295), `wp.exe ls` starts a daemon and
 prints its header, the orphan-survival probe passes, and the test suite runs
 far enough to hit questions rather than blockers:
 
-- **The render prologue differs.** ConPTY does not start a session with
-  `ESC[H ESC[2J`, so a test asserting that exact prefix fails. ConPTY
-  re-encodes output rather than passing bytes through — semantically
-  equivalent, not byte-identical — which was known from
-  [`../research/07-packaging.md`](../research/07-packaging.md) §4 and is now
-  measured. Reattach fidelity on a Windows host would need its own oracle.
+- **The stream is re-encoded, so the oracle has to be the grid.** ConPTY
+  rewrites what a child writes rather than passing the bytes on, which
+  [`../research/07-packaging.md`](../research/07-packaging.md) §4 expected and
+  the `probes` suite now measures on every run. A shell that echoes `echo hi`
+  sends it back wrapped in bracketed-paste toggles and an OSC 0 title, never
+  as the `echo hi CR LF hi CR LF` a POSIX pty sends, so a PoC assertion
+  naming a byte sequence cannot hold. Six sessions of the same input leave
+  identical cells and an identical cursor, the same hash across separate
+  jobs, while their byte streams are usually but not always identical: one
+  session in six put the bracketed-paste toggles before the echoed line
+  rather than after it, at the same length. A recorded prologue therefore
+  could not carry the fidelity guarantee and the grid can, which is what the
+  PoC's assertions compare.
 - **Kill semantics.** `kill` through the protocol is `TerminateProcess`, exit
   code 1, no signal name; a test that waits for a signal to be reported times
   out. This is the `shutdown()`/`interrupt()` row of §2 as a design item.
+- **A ConPTY carries about 20 KiB/s.** A 4 MiB flood does not finish inside a
+  minute: 1.0–1.3 MiB of it reaches the reader in 60 s, against about
+  99 MiB/s through a session on Linux. Every PoC assertion that pushes
+  megabytes through a session — the daemon's slow-client rule, the
+  snapshot lag-resume — times out on that alone, and it bounds what a
+  Windows-hosted session can do under load as firmly as the latency does.
+- **A timed-out test takes `bun test` down.** When a test in `daemon.test.ts`
+  times out, Bun 1.3.14 kills the daemon the file started ("killed 1 dangling
+  process"), the client's next request rejects with "connection closed", and
+  the process then panics with a segmentation fault. In a single `bun test`
+  that costs every file the runner had not reached yet, so the Windows lane
+  runs the files one process at a time; with the timing-out test filtered
+  out, the same file reaches a verdict.
 - Two harness problems that are not platform facts: a running daemon pins
   `wp.exe` so the M2 harness cannot rebuild it, and `bench/ops.ts` has its own
   POSIX-shaped launcher.
@@ -201,11 +221,12 @@ Bun-only client, and nothing forces the choice yet.
 
 **What a Windows host would still cost** after the seam: ConPTY latency
 (p50 15.7 ms against 59–95 µs, which bounds how a Windows-hosted session
-feels through any client), the re-encoding above, logoff killing the daemon
-(a service or Run-key relaunch is the only cure), the shell question, and
-the Job Object work for tree kill. None of these looks like a stopper; all
-of them are work that the WSL2 answer avoids. §6 says what that does to the
-open question.
+feels through any client) and its throughput (about 20 KiB/s, which bounds
+what a session can pour through one), the re-encoding above, logoff killing
+the daemon (a service or Run-key relaunch is the only cure), the shell
+question, and the Job Object work for tree kill. None of these looks like a
+stopper; all of them are work that the WSL2 answer avoids. §6 says what that
+does to the open question.
 
 ## 4. macOS, specifically
 
@@ -349,11 +370,13 @@ gated" is what the lanes do today and probably the right default.
 - **Windows as host** ([`../product/04-open-questions.md`](../product/04-open-questions.md) §4).
   The measured costs of hosting on Windows are output re-encoding, kill
   being `TerminateProcess` with graceful teardown moved into the protocol,
-  ConPTY latency, and WSL2 teardown if that is the placement; `AF_UNIX` is
-  not one of them. The lean towards client-first with WSL2 as the documented
-  placement probably still holds on effort grounds — the seam is small but
-  the ConPTY semantics behind it are real work — but nothing measured says
-  the platform blocks native hosting.
+  ConPTY latency and throughput, and WSL2 teardown if that is the placement;
+  `AF_UNIX` is not one of them, and neither, as it turns out, is reattach
+  fidelity: the cells the same input leaves are identical run after run even
+  where the bytes carrying them are not (§3). The lean towards client-first
+  with WSL2 as the documented placement probably still holds on effort
+  grounds — the seam is small but the ConPTY semantics behind it are real
+  work — but nothing measured says the platform blocks native hosting.
 - **Windows transport** ([`../research/09-remote-transport.md`](../research/09-remote-transport.md)
   open question 3) is narrowed: unix-socket forwarding is confirmed absent on
   both sides of Win32-OpenSSH, so a Windows client of a remote daemon
@@ -388,6 +411,8 @@ so re-running is the way to check anything older.
 | Both darwin lanes verifying a signed binary, each M2 sink measured | `poc.yml` and `matrix.yml`                                                 | [33703344148](https://github.com/omnilogic-labs/werk/actions/runs/33703344148), [33703355321](https://github.com/omnilogic-labs/werk/actions/runs/33703355321) |
 | Windows primitives probed directly                                 | [PR #3](https://github.com/omnilogic-labs/werk/pull/3), `win32-spike.yml`  | [33691536664](https://github.com/omnilogic-labs/werk/actions/runs/33691536664)                                                                                 |
 | The Windows lane with the three blockers stepped over              | PR #3, `poc.yml`                                                           | [33690884893](https://github.com/omnilogic-labs/werk/actions/runs/33690884893)                                                                                 |
+| ConPTY's re-encoding, compared as bytes and as cells               | `poc.yml`'s `probes` suite                                                 | [33706788925](https://github.com/omnilogic-labs/werk/actions/runs/33706788925)                                                                                 |
+| The Windows lane with the fidelity oracle on the grid              | `poc.yml`                                                                  | [33706788925](https://github.com/omnilogic-labs/werk/actions/runs/33706788925)                                                                                 |
 
 The cheap way to ask any further question is the same: a branch, a workflow
 with a `push` trigger scoped to it (or `gh workflow run poc.yml --ref
@@ -432,17 +457,35 @@ hear exited` in `src/daemon/daemon.test.ts` passes on the `windows` lane
    ConPTY child cannot be placed in a Job Object from Bun — then tree kill
    needs a native helper, a cost for §10.
 
-3. **A ConPTY-aware fidelity oracle.** The assertions that expect a
-   byte-identical prologue — `daemon.test.ts` and `spikes/m2/scenarios.ts`
-   look for `ESC[H ESC[2J` — compare instead against what ConPTY emits for
-   the same input: compare cell grids through the engine, or diff against a
-   recorded ConPTY prologue. _Proves_ reattach fidelity
-   is a property of the grid rather than the bytes. _Done when_ `test-full`
-   on the `windows` lane runs every file to a verdict rather than dying of
-   "connection closed", and the failing set is only steps 4 and 5. _Wrong
-   if_ ConPTY's re-encoding of the same input differs between runs — then a
-   Windows host cannot carry the fidelity guarantee the PoC measures, and §6
-   changes.
+3. **A ConPTY-aware fidelity oracle — done.** The daemon tests and M2 ask
+   the grid rather than the stream. `src/daemon/_grid.ts` replays everything
+   one attached client received into a fresh terminal of the session's size
+   and holds the result against the daemon's own screen, cell for cell and
+   cursor included; M2 judges a render by whether what reached a resumed
+   client redraws the whole screen on its own, which is what a render is and
+   what a replay of ordinary output could not be. The measurement that chose
+   between the grid and a recorded prologue is in §3: six sessions of the
+   same input leave the same cells and the same cursor, run after run and
+   job after job, while the bytes carrying them are usually but not always
+   identical — so a recorded prologue could not have carried the guarantee.
+   On the `windows` lane, `run, attach, see output; input is echoed back`
+   passes in 234 ms and `m2` passes outright, its reattach scenarios agreeing
+   with the daemon's screen through a ConPTY (run 33706788925).
+
+   `test-full` there now runs every file to a verdict — 146 pass, 11 fail
+   across 22 files — because the lane runs one `bun test` process per file.
+   The abort it used to die of was Bun panicking after step 2's kill test
+   timed out, which took the seventeen files it had not reached with it;
+   `daemon.test.ts` is still the one file with no verdict, and with that one
+   test filtered out it reaches `9 pass 1 fail` (run 33705737351), so step 2
+   is what closes it. The failing set is wider than "steps 4 and 5", because
+   most of these tests had never run at all: besides `bench/ops.ts` and the
+   M2 harness, `launch.test.ts` calls `stat` on the socket's reparse point
+   and `pgrep`, `snapshot.test.ts` waits for a SIGTERM a detached Windows
+   daemon never sees, `attach-snapshot.test.ts` waits out a 4 MiB flood
+   against 20 KiB/s of ConPTY and takes an output frame before its snapshot,
+   and `m1`/`m6` name `/$bunfs/` where Windows has `B:/~BUN/`. None of them
+   is a fidelity failure, and each is a row for whoever takes it.
 
 4. **The harness items.** The running daemon pins `wp.exe`, so the M2
    harness cannot rebuild it (`EPERM`): build to a per-run path or stop the
