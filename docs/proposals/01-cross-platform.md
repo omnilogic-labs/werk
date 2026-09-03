@@ -167,12 +167,25 @@ far enough to hit questions rather than blockers:
   none: a `kill` is a mode, a session records how the platform carried it out,
   and a Windows exit says `exitCode` 1 with no `signalCode`. The tree comes
   from a Job Object — see below.
-- **A ConPTY carries about 20 KiB/s.** A 4 MiB flood does not finish inside a
-  minute: 1.0–1.3 MiB of it reaches the reader in 60 s, against about
-  99 MiB/s through a session on Linux. Every PoC assertion that pushes
-  megabytes through a session — the daemon's slow-client rule, the
-  snapshot lag-resume — times out on that alone, and it bounds what a
-  Windows-hosted session can do under load as firmly as the latency does.
+- **A ConPTY's cost is per line, not per byte.** It carries about 200,000
+  lines a second whatever their length: `y\n` lines at 0.6–0.7 MiB/s, full
+  80-column rows at 13–16 MiB/s, one 4 MiB line at 12–14 MiB/s, against
+  about 5, 46 and 65 MiB/s for the same three through a session on the
+  hosted Linux runner and 12–23, 23–42 and 27–43 MiB/s on macOS, with the
+  reader taking the lines in 24–98 KiB reads
+  (`.github/ci/step10-flood-probes.ts`, runs 33737032975 and 33737795804).
+  `yes | head -c` under Git's MSYS `sh` is thirty times worse again — the
+  reader gets one `y\r\n` per read, 300,000 reads of three bytes,
+  20 KiB/s — so a 4 MiB flood of it does not finish inside a minute, and
+  the same producer reaches a POSIX pty in reads of 8 KiB on Linux and 21 B
+  on macOS. The two PoC assertions that pour megabytes through a session —
+  the daemon's slow-client rule and the snapshot lag-resume — flood full
+  rows from Bun itself, the same producer on all three platforms, and pass
+  on Windows in about 1.0 s and 1.4 s (run 33737795804 in three attempts,
+  and runs 33738278048 and 33739430935). What a pseudoconsole bounds,
+  then, is how many lines a second a Windows-hosted session can scroll, and
+  a program that prints short lines quickly is the one that would feel it;
+  the latency below is the other bound.
 - **A timed-out test takes `bun test` down.** When a test in `daemon.test.ts`
   times out, Bun 1.3.14 kills the daemon the file started ("killed 1 dangling
   process"), the client's next request rejects with "connection closed", and
@@ -273,9 +286,9 @@ proposal picks.
 
 **What a Windows host would still cost** after the seam: ConPTY latency
 (p50 15.7 ms against 59–95 µs, which bounds how a Windows-hosted session
-feels through any client) and its throughput (about 20 KiB/s, which bounds
-what a session can pour through one), the re-encoding above, logoff killing
-the daemon (a service or Run-key relaunch is the only cure), the shell
+feels through any client) and its line rate (about 200,000 lines a second,
+which bounds what a session can scroll through one), the re-encoding
+above, logoff killing the daemon (a service or Run-key relaunch is the only cure), the shell
 question, and an `arm64` build with no `bun:ffi`, which has no job to hold a
 session's tree — its lock is a pipe name and that much holds. None of these
 looks like a stopper; all of
@@ -588,8 +601,9 @@ suites stop; 6 and 7 the platforms that already pass; 8 and 9 shape.
    most of these tests had never run at all: besides `bench/ops.ts` and the
    M2 harness, `launch.test.ts` calls `stat` on the socket's reparse point
    and `pgrep`, `snapshot.test.ts` waits for a SIGTERM a detached Windows
-   daemon never sees, `attach-snapshot.test.ts` waits out a 4 MiB flood
-   against 20 KiB/s of ConPTY and takes an output frame before its snapshot,
+   daemon never sees, `attach-snapshot.test.ts` waits out a 4 MiB flood of
+   `y\n` lines from MSYS `yes | head -c`, which reach a ConPTY at 20 KiB/s,
+   and takes an output frame before its snapshot,
    `m1`/`m6` name `/$bunfs/` where Windows has `B:/~BUN/`, and M2's
    vim-resize scenario counts the file rows vim redraws into a taller window,
    which is 28 through a pty that passes bytes on and 23 through a ConPTY —
@@ -821,18 +835,19 @@ find, and what the runs leave undone.
 Each of these was diagnosed as something else first, and each would be easy
 to re-introduce.
 
-| What you see                                           | What it is                                                                                                                                          |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Bun reports `signalCode: "SIGTERM"` on Windows         | The name you passed to `proc.kill()`, echoed back. `TerminateProcess` ran and no signal was delivered (§3).                                         |
-| `bun:ffi` "missing" on Windows arm64                   | The module imports; every `dlopen` through it throws "TinyCC is disabled". Detect by what `dlopen` does, not by whether the import works (§3).      |
-| A whole `bun test` file dying with "connection closed" | A test timed out, Bun killed the daemon the file had started, and then panicked. One process per file bounds the damage to that file (§3).          |
-| A test that burns five seconds and then fails          | `expect(promise).rejects` hangs on Windows where catching the same rejection returns at once. Other `expect().rejects` in the same file are fine.   |
-| "daemon did not answer within 10 s", with no reason    | Often an `AF_UNIX` path too long — Winsock refused 116 characters where 75 bound (§3). Have the launcher report the last connect error.             |
-| A reattach test failing on the render prologue         | It was not the prologue; that assertion passed. ConPTY re-encodes the stream, so compare cell grids, never bytes (§3).                              |
-| `m2` or `m3` red on Windows                            | Probably the run, not the tree: `m2`'s vim scenarios race ConPTY's delivery, `m3` prints every table and then does not exit. Neither is gated (§8). |
-| The slow-client scenario red on a hosted lane          | CPU headroom on a shared runner — roughly two attempts in seven pass. A green lane is not evidence it is fixed (§5).                                |
-| macOS losing about 6 MB in the fast-client scenario    | Not the client's sink: a pipe and a plain file lose as much as a PTY. An unexplained delivery rate; §4 says what is ruled out.                      |
-| A stale binary answering a `hello`                     | `PROTOCOL_VERSION` catches a changed wire shape only if it is bumped when the wire changes. `dist/bench-ops/` caches a binary across runs.          |
+| What you see                                           | What it is                                                                                                                                                                                              |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bun reports `signalCode: "SIGTERM"` on Windows         | The name you passed to `proc.kill()`, echoed back. `TerminateProcess` ran and no signal was delivered (§3).                                                                                             |
+| `bun:ffi` "missing" on Windows arm64                   | The module imports; every `dlopen` through it throws "TinyCC is disabled". Detect by what `dlopen` does, not by whether the import works (§3).                                                          |
+| A whole `bun test` file dying with "connection closed" | A test timed out, Bun killed the daemon the file had started, and then panicked. One process per file bounds the damage to that file (§3).                                                              |
+| A test that burns five seconds and then fails          | `expect(promise).rejects` hangs on Windows where catching the same rejection returns at once. Other `expect().rejects` in the same file are fine.                                                       |
+| "daemon did not answer within 10 s", with no reason    | Often an `AF_UNIX` path too long — Winsock refused 116 characters where 75 bound (§3). Have the launcher report the last connect error.                                                                 |
+| A reattach test failing on the render prologue         | It was not the prologue; that assertion passed. ConPTY re-encodes the stream, so compare cell grids, never bytes (§3).                                                                                  |
+| `m2` or `m3` red on Windows                            | Probably the run, not the tree: `m2`'s vim scenarios race ConPTY's delivery, `m3` prints every table and then does not exit. Neither is gated (§8).                                                     |
+| The slow-client scenario red on a hosted lane          | CPU headroom on a shared runner — roughly two attempts in seven pass. A green lane is not evidence it is fixed (§5).                                                                                    |
+| macOS losing about 6 MB in the fast-client scenario    | Not the client's sink: a pipe and a plain file lose as much as a PTY. An unexplained delivery rate; §4 says what is ruled out.                                                                          |
+| A stale binary answering a `hello`                     | `PROTOCOL_VERSION` catches a changed wire shape only if it is bumped when the wire changes. `dist/bench-ops/` caches a binary across runs.                                                              |
+| A ConPTY carrying 20 KiB/s                             | The producer and the line count. MSYS `yes \| head -c` reaches the pseudoconsole three bytes a read; a ConPTY's own cost is per line, about 200,000 a second at any length, 13 MiB/s of full rows (§3). |
 
 Two rules follow from that list. **Detect a platform capability by trying it
 rather than by asking what platform this is** — the arm64 `bun:ffi` row is
@@ -864,11 +879,11 @@ bytes**, because one of the three platforms rewrites the bytes.
 Nobody has decided any of this is worth doing; it is what the measurements
 stopped short of.
 
-- **`test-full`'s ten failures on Windows**, which §3 accounts for one by
-  one: four are `launch.test.ts` asking the filesystem about a socket that is
-  a reparse point, two name `/$bunfs/` where the path is `B:/~BUN/`, one
-  wants a real SIGTERM to reach a detached daemon, and two are ConPTY
-  throughput against a 4 MiB flood.
+- **`test-full`'s eight failures on Windows**, which §3 accounts for one
+  by one: four are `launch.test.ts` asking the filesystem about a socket
+  that is a reparse point, two name `/$bunfs/` where the path is
+  `B:/~BUN/`, one wants a real SIGTERM to reach a detached daemon, and one
+  takes an output frame before its snapshot.
 - **`m2`'s vim scenarios**, racing ConPTY's delivery. One `waitFor` has
   already not been enough, so the next attempt probably wants the grid oracle
   rather than another timeout.

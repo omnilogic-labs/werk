@@ -535,14 +535,52 @@ The suite passes there: seven scenarios run, and the eighth, which makes one
 client slow by stopping it, is skipped for want of a SIGSTOP Windows does not
 have.
 
-**Throughput is the other half of the ConPTY cost.** `yes | head -c 4M`
-through a pseudoconsole does not finish inside a minute: 1.05 MiB and
-1.29 MiB of the 4 MiB reached the reader in 60 s on two runs, about
-20 KiB/s, against roughly 99 MiB/s through a session on Linux. That, and not
-fidelity, is what the two assertions that pour megabytes through a session
-fail on — `daemon.test.ts`'s slow-client rule (8 MiB) and
-`attach-snapshot.test.ts`'s lag-resume (4 MiB) both time out waiting for the
-end of a flood that is still arriving.
+**Throughput is the other half of the ConPTY cost, and it is a line rate.**
+`.github/ci/step10-flood-probes.ts` pours the same 4 MiB through the
+daemon's own PTY path — a real daemon, `run` and `attach` over the socket,
+so the emulator and the client queue are in the path as the tests have
+them — from one producer after another, and again through `Session` alone
+with no client, on all three runners (runs 33737032975 and 33737795804):
+
+| 4 MiB from                            | win32-x64                                 | linux-x64                     | darwin-arm64                 |
+| ------------------------------------- | ----------------------------------------- | ----------------------------- | ---------------------------- |
+| `yes \| head -c` under `sh`, `y\n`    | 0.02 MiB/s; 3 B reads; unfinished at 45 s | 4.4–4.6 MiB/s; 8–12 KiB reads | 1.7–2.6 MiB/s; 18–21 B reads |
+| `cat` of a `y\n` file under `sh`      | 0.56–0.70 MiB/s; 24 KiB reads             | 4.9 MiB/s                     | 10–23 MiB/s; 1 KiB reads     |
+| Bun writing `y\n` in 64 KiB chunks    | 0.58–0.73 MiB/s; 24–98 KiB reads          | 4.8–4.9 MiB/s                 | 12–23 MiB/s                  |
+| `powershell` writing the file's bytes | 0.56–0.70 MiB/s through `Session` alone   | —                             | —                            |
+| `cmd /c type` of the file             | 0.4 MiB/s; 120 B reads                    | —                             | —                            |
+| Bun, `ESC[31m y ESC[0m` per line      | 1.8–2.3 MiB/s through `Session` alone     | 12 MiB/s                      | 14–27 MiB/s                  |
+| Bun, one 4 MiB line                   | 12–14 MiB/s; 75 KiB reads                 | 64–68 MiB/s                   | 27–43 MiB/s                  |
+| Bun, full 80-column rows              | 13–16 MiB/s; 74 KiB reads                 | 46 MiB/s                      | 23–42 MiB/s                  |
+
+Read down the Windows column and the pseudoconsole is carrying about
+200,000 lines a second whatever is on them: `y\r\n` at 0.6–0.7 MiB/s, a
+14-byte styled line at about 2, an 81-byte row at 13–16, and one unbroken
+line as fast as the rows. Read across the first row and MSYS `yes | head -c` is
+something else again: the reader gets one `y\r\n` per read, 300,000 reads
+of three bytes, 20 KiB/s, where the same bytes from `cat` or from Bun come
+in 24 KiB reads at thirty times the rate. Two producers came through the
+whole daemon slower than `Session` alone delivered them — the styled lines
+at 0.09 MiB/s against about 2, PowerShell at 0.04 against 0.6 with the
+probe's own client lagging six times — which on a four-vCPU runner carrying
+a child, a conhost, a daemon and a client is probably CPU share, and is not
+measured further. The other two columns say the line cost is not Windows's alone —
+Linux carries `y\n` at 5 MiB/s and full rows at 46, and the emulator
+scrolls a row for every line on every platform — only that a ConPTY pays
+about ten times more per line.
+
+So the pseudoconsole's bandwidth is not what stops an assertion that pours
+megabytes through a session; the producer and the shape of its lines are.
+`daemon.test.ts`'s slow-client rule (8 MiB) and `attach-snapshot.test.ts`'s
+lag-resume (4 MiB) flood full 80-column rows from Bun itself
+(`_testlib.ts`'s `flood`), the same program on all three platforms, with
+the sizes and the assertions those of the `y\n` flood, and both pass on
+Windows in about 1.0 s and 1.4 s (run 33737795804 in three attempts, and
+runs 33738278048 and 33739430935), against 0.6 and 1.1 s on the hosted
+Linux runner and 0.9 and 1.2 s on macOS. A ConPTY delivers about
+an eighth more bytes than the POSIX line discipline's `\r\n` for the same
+rows, so the tests hold the POSIX count as a floor rather than an exact
+figure.
 
 ### `bun test` panics after a test times out
 
@@ -704,7 +742,7 @@ drew — a number both screens agree on, so this is vim's redraw arriving late
 rather than a fidelity gap, and a `waitFor` on the redrawn rows has already
 not been enough.
 
-`test-full`'s ten are below. `daemon.test.ts` is in the failing set rather
+`test-full`'s eight are below. `daemon.test.ts` is in the failing set rather
 than the no-verdict set now: teardown through the protocol closed the file
 that used to panic, so nothing is hidden behind it any more.
 
@@ -737,19 +775,17 @@ with it changed (runs 33705813223 and 33706143058):
   Winsock's bound is has not been measured, only that 116 refuses and 75
   binds. The Windows lane gates on `ops` now.
 
-The ten failing tests, by cause:
+The eight failing tests, by cause:
 
 | Test                                                       | Why                                                                                              |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `attach-snapshot.test.ts`: lag-resume                      | a 4 MiB flood against 20 KiB/s of ConPTY; the watcher never sees the end of it                   |
 | `attach-snapshot.test.ts`: exited session in snapshot mode | an output frame reaches the client before the snapshot, where on Linux the snapshot is first     |
 | `launch.test.ts`: four                                     | `stat` on the socket's reparse point (`EACCES`), a stale socket `existsSync` cannot see, `pgrep` |
 | `snapshot.test.ts`: a real SIGTERM snapshots every session | signals do not reach a detached Windows daemon                                                   |
 | `m1/embedded.test.ts`, `m6/compiled.test.ts`               | both name `/$bunfs/`, which is `B:/~BUN/` here                                                   |
 | `m2/fidelity.test.ts`                                      | the vim-resize scenario, the same race the `m2` suite fails on about two runs in three           |
-| `daemon.test.ts`                                           | the slow-client scenario, which the hosted Linux and macOS lanes fail too                        |
 
-None of the ten is a fidelity failure. Where the kill path, the snapshot
+None of the eight is a fidelity failure. Where the kill path, the snapshot
 ordering and the two harness launchers go from here is a design question
 rather than a measurement, and it is left to the proposal.
 
@@ -761,12 +797,12 @@ the missing session's error rather than waiting on it through
 `expect().rejects`, which hangs here.
 
 Run on its own, `src/daemon/daemon.test.ts` reaches a verdict on every test
-on both Windows runners (run 33707978762):
+on both Windows runners:
 
-| Runner        | Result                                                                                          |
-| ------------- | ----------------------------------------------------------------------------------------------- |
-| `win32-x64`   | 10 pass, 1 fail — the slow-client scenario, which fails on the hosted Linux and macOS lanes too |
-| `win32-arm64` | 9 pass, 2 fail — the same, plus `run, attach, see output`                                       |
+| Runner        | Result                                                                                                             |
+| ------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `win32-x64`   | 11 pass (runs 33738278048 and 33739430935), the slow-client rule included, with its flood coming from Bun          |
+| `win32-arm64` | 9 pass, 2 fail — the slow-client rule under MSYS `yes \| head -c`, and `run, attach, see output` (run 33707978762) |
 
 ## A win32 `libghostty-vt`, built rather than installed
 
