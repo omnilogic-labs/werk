@@ -846,7 +846,8 @@ missing prebuild and a `bun:ffi` that cannot `dlopen`; `m3` and `m0` are
 nondeterministic, and `m3` still prints every table and then does not exit
 on about one run of the merged tree in six (run 33744965310), the same shape
 as the engine test files' non-exit below. `test-full` and `m2` hold on
-`win32-x64`: three runs of the merged tree (33742714239, 33742717583 and 33742721321) and three more with the gate in place (33744959953,
+`win32-x64`: three runs of the merged tree (33742714239, 33742717583 and
+33742721321) and three more with the gate in place (33744959953,
 33744962470 and 33744965310) each pass 171 tests across 23 files, one
 process per file, and nine `m2` scenarios of nine, after the unit runs that
 closed each file one by one (§3, §11) and `m2`'s own eighteen runs in
