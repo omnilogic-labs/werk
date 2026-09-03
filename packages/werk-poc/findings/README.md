@@ -47,12 +47,45 @@ eight targets. What it opens: macOS gives a unix stream socket an 8 KiB
 buffer against Linux's 208 KiB, which changes when a client lags — raising it
 on the listener's fd removes most of the lag episodes and none of the bytes
 lost; and on Windows the PTY works while the daemon's readiness pipe does
-not, which is the opposite of the order everyone expected, and a spike that
-replaces the pipe and the lock reaches ConPTY's re-encoded output and
-`TerminateProcess` kill semantics as the next questions.
+not, the opposite of the order everyone expected — with a ready file and a
+Windows lock in its place the daemon runs, and ConPTY's re-encoded output and
+`TerminateProcess` kill semantics are the next questions.
 
 The one row the PoC does not simply clear is trap isolation, and it clears in
 werk's favour differently than feared: the shared instance is robust to
 everything a session's own output can do to it, and fragile only to a
 control-flow bug in werk's handle management — which instance-per-session, or
 a supervised worker, would contain.
+
+## What the platform work found
+
+[platforms.md](./platforms.md) runs the same suites on hosted runners for all
+eight `bun build --compile` targets. As plain findings:
+
+- The wasm engine's differential report is byte-identical on all eight
+  targets ([the other five targets](./platforms.md#the-other-five-targets)).
+- The daemon starts from a cross-compiled binary and answers `ls` on every
+  non-Windows target, and on both Windows targets through the package's
+  `win32` branches (same section).
+- On Windows the PTY works: `Bun.Terminal` is a real ConPTY, documented
+  POSIX-only. With the lock done as `LockFileEx`, readiness as a polled file
+  and the daemon spawned detached, `wp.exe ls` starts it; the suite then
+  stops at ConPTY's re-encoded prologue and `TerminateProcess` kill
+  semantics, at p50 15.6 ms in-process latency against 59–95 µs on Linux
+  ([where each layer stands](./platforms.md#where-each-layer-stands),
+  [where the Windows lane stands on `main`](./platforms.md#where-the-windows-lane-stands-on-main)).
+- macOS gives a unix stream socket 8 KiB against Linux's 208 KiB.
+  `setsockopt(SO_SNDBUF)` on the listener's fd is inherited by every accepted
+  socket and cuts fast-client lag episodes from 20–22 to 3–4 without moving
+  the bytes lost (6.3–6.9 MB either way), so the slow-client scenario fails
+  regardless
+  ([back-pressure](./platforms.md#back-pressure-an-8-kib-socket-buffer-against-linuxs-208-kib)).
+- Every fresh `bun build --compile` binary fails `codesign --verify` on both
+  macOS architectures until `codesign --force --sign -`
+  ([codesign](./platforms.md#every-fresh-compiled-binary-fails-codesign---verify)).
+- The musl Bun is not static: both Alpine lanes need `libstdc++.so.6` and
+  `libgcc_s.so.1` before the binary runs
+  ([the other five targets](./platforms.md#the-other-five-targets)).
+- Bun 1.3.14 on Windows arm64 has no `bun:ffi`, so the daemon there locks
+  through an exclusive named pipe
+  ([where each layer stands](./platforms.md#where-each-layer-stands)).
