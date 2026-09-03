@@ -4,7 +4,7 @@
 // path. So: does a second `wp __daemon` get refused while a first one is
 // live, and does the name come back when the first one dies?
 //
-//   bun run .github/ci/win32-lock-probes.ts
+//   bun run .github/ci/win32-lock-probes.ts [--gate]
 //
 // One `PROBE <name>: <verdict>` line per question; nothing here throws. The
 // same file runs on `win32-x64`, where `bun:ffi` exists and the lock is
@@ -12,6 +12,12 @@
 // lock is also forced there through `WP_WIN32_LOCK=pipe` — the same forcing
 // `win32-spike-probes.ts` uses, now against the daemon rather than against
 // `platform.lock` alone.
+//
+// `--gate` makes a bad answer an exit status, which is what the matrix's
+// `lock` suite needs; without it the file always exits 0 and the verdicts
+// are the whole output. `WP_LOCK_BIN` names the compiled `wp` to ask as
+// well as the source — the matrix points it at the cross-compiled binary
+// that lane ships, and without it `dist/wp` is used where one was built.
 //
 // Paths are kept short on purpose. A Winsock `AF_UNIX` path refused to bind
 // at 116 characters under `%TEMP%` and binds at 75 (run 33704932420), so a
@@ -22,7 +28,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-function say(name: string, verdict: string): void {
+const GATE = process.argv.slice(2).includes("--gate");
+/** Bad answers so far; under `--gate` they are the exit status. */
+let bad = 0;
+
+/**
+ * One verdict line. `ok` is what a gate reads: false for an answer that says
+ * the lock does not hold, null for a line that only reports something.
+ */
+function say(name: string, verdict: string, ok: boolean | null = null): void {
+  if (ok === false) bad++;
   const line = `PROBE ${name}: ${verdict}\n`;
   try {
     fs.writeSync(1, line);
@@ -60,12 +75,29 @@ const interpreted: Wp = {
   argv: [process.execPath, "run", MAIN],
 };
 
+/**
+ * The compiled `wp` to ask as well as the source: whatever `WP_LOCK_BIN`
+ * names, else `dist/wp` where a build left one. Naming one that is not there
+ * is a bad answer rather than a skip — a caller that asked for the binary
+ * meant the binary.
+ */
 function compiled(): Wp | null {
+  const named = process.env.WP_LOCK_BIN;
+  if (named) {
+    if (fs.existsSync(named)) return { label: "compiled", argv: [named] };
+    say(
+      "daemon compiled",
+      `WP_LOCK_BIN names ${named}, which is not there`,
+      false,
+    );
+    return null;
+  }
   for (const f of [
     path.join(POC, "dist", "wp.exe"),
     path.join(POC, "dist", "wp"),
   ])
     if (fs.existsSync(f)) return { label: "compiled", argv: [f] };
+  say("daemon compiled", "skipped — no compiled wp was built or named");
   return null;
 }
 
@@ -167,20 +199,19 @@ function hardKill(pid: number): void {
 // The verdict below is only meaningful next to the path the seam took, and
 // on `win32-arm64` that is decided by `bun:ffi` not existing at all.
 {
-  let ffi = "absent";
+  let ffi: string;
   try {
     const m = await import("bun:ffi");
-    ffi = typeof m.dlopen === "function" ? "present" : "present but no dlopen";
     try {
       m.dlopen("kernel32.dll", {
         GetLastError: { args: [], returns: m.FFIType.u32 },
       });
-      ffi = "present, kernel32 opens";
+      ffi = "dlopen opens kernel32, so the lock is LockFileEx";
     } catch (e) {
-      ffi = `present, kernel32 refused — ${firstLine(e)}`;
+      ffi = `the module imports but dlopen could not open kernel32, so the lock is the pipe — ${firstLine(e)}`;
     }
   } catch (e) {
-    ffi = `absent — ${firstLine(e)}`;
+    ffi = `the module is not there at all, so the lock is the pipe — ${firstLine(e)}`;
   }
   say("ffi", ffi);
   say(
@@ -203,14 +234,19 @@ function hardKill(pid: number): void {
       "seam-lock take",
       mine
         ? `ok — fd=${mine.fd} (${mine.fd === -1 ? "named pipe, no handle" : "a lock handle"})`
-        : "refused (BAD)",
+        : "refused, with nothing else holding it (BAD)",
+      mine !== null,
     );
     const again = platform.lock(file);
-    say("seam-lock same-process", again ? "locked too (BAD)" : "refused");
+    say(
+      "seam-lock same-process",
+      again ? "locked it too (BAD)" : "refused",
+      again === null,
+    );
     again?.release();
     mine?.release();
   } catch (e) {
-    say("seam-lock", `fail — ${firstLine(e)}`);
+    say("seam-lock", `fail — ${firstLine(e)}`, false);
   }
 }
 
@@ -245,10 +281,11 @@ async function daemonContention(wp: Wp, tag: string, forcePipe: boolean) {
       say(
         `${tag} first`,
         `no daemon answered within 15 s (spawn pid ${first.proc.pid}, exit ${first.proc.exitCode}); log: ${log || "none"}`,
+        false,
       );
       return;
     }
-    say(`${tag} first`, `ok — daemon pid ${first.pid} answered hello`);
+    say(`${tag} first`, `ok — daemon pid ${first.pid} answered hello`, true);
 
     const second = await contend(wp, dir, env);
     const detail = [
@@ -269,6 +306,7 @@ async function daemonContention(wp: Wp, tag: string, forcePipe: boolean) {
     say(
       `${tag} second`,
       `${refused ? "refused" : "TOOK THE LOCK (BAD)"} — ${detail}; socket still pid ${stillFirst ?? "none"} (first was ${first.pid})`,
+      refused,
     );
 
     // The other half of a lock: the name has to come back when the holder
@@ -286,11 +324,12 @@ async function daemonContention(wp: Wp, tag: string, forcePipe: boolean) {
       third.pid === null
         ? `no daemon took the lock within 15 s of the holder's death (BAD; holder gone: ${gone})`
         : `ok — pid ${third.pid} took it ${(performance.now() - t0).toFixed(0)} ms after the kill`,
+      third.pid !== null,
     );
     if (third.pid !== null) hardKill(third.pid);
     first = null;
   } catch (e) {
-    say(tag, `fail — ${firstLine(e)}`);
+    say(tag, `fail — ${firstLine(e)}`, false);
   } finally {
     if (first?.pid) hardKill(first.pid);
   }
@@ -299,7 +338,6 @@ async function daemonContention(wp: Wp, tag: string, forcePipe: boolean) {
 const wps: [Wp, string][] = [[interpreted, "daemon interpreted"]];
 const c = compiled();
 if (c) wps.push([c, "daemon compiled"]);
-else say("daemon compiled", "skipped — no dist/wp.exe was built");
 
 for (const [wp, tag] of wps) await daemonContention(wp, tag, false);
 
@@ -321,4 +359,5 @@ try {
   fs.rmSync(ROOT, { recursive: true, force: true });
 } catch {}
 
-process.exit(0);
+say("verdict", bad === 0 ? "every answer holds" : `${bad} bad answers above`);
+process.exit(GATE && bad > 0 ? 1 : 0);

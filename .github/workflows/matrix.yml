@@ -8,12 +8,14 @@
 # the differential corpus. Every lane then downloads the binary for its own
 # target and smokes it (`--help`, `caps`, `ls` against an autostarted daemon,
 # plus `ldd` on Alpine and `codesign` on macOS), and runs the native suites:
-# install, test-pure, build, diff (byte-compared against the Linux summary),
-# m0, m3, ops, and test-full under a ten-minute deadline.
+# install, lock, test-pure, build, diff (byte-compared against the Linux
+# summary), m0, m3, ops, and test-full under a ten-minute deadline.
 #
 # Every measurement step carries `continue-on-error`, so one run reports every
 # verdict; each lane uploads `ci-result-<lane>.json` and prints a table into
-# the step summary. A red suite is a finding, not a failure of the job.
+# the step summary. On the six lanes with no `expected` list a red suite is a
+# finding rather than a failure of the job; the two Windows lanes name what
+# they are held to and go red when one of those regresses.
 #
 # `workflow_dispatch` only reaches a workflow that exists on the default
 # branch, so this runs on every push to `spike/matrix` instead.
@@ -646,8 +648,18 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------
-  # Windows, arm64 and x64. The daemon is known to stop at flock; the m0
-  # probes run one file at a time as the poc workflow's windows job does.
+  # Windows, arm64 and x64. The m0 probes run one file at a time as the poc
+  # workflow's windows job does.
+  #
+  # These two lanes are the only ones here with a gate. `expected` is what
+  # each is held to, and everything else it runs is recorded: red means one
+  # of those regressed rather than "Windows still does not run test-full".
+  # arm64's list is x64's minus every suite that needs the ffi engine, since
+  # Bun 1.3.14 has no `bun:ffi` on `win32-arm64` at all and libghostty-vt
+  # ships no prebuild for that target -- `x-caps`, `test-pure`, `build` and
+  # `diff` cannot pass there, for reasons the run records rather than
+  # regressions to catch. `m0` and `test-full` are on neither list: both fail
+  # on x64 too, for the ConPTY reasons the proposal's section 3 records.
   # ---------------------------------------------------------------------
   windows:
     needs: build-all
@@ -658,9 +670,12 @@ jobs:
           - lane: win32-arm64
             runner: windows-11-arm
             target: bun-windows-arm64
+            expected: x-help x-ls install lock m3 ops
           - lane: win32-x64
             runner: windows-latest
             target: bun-windows-x64
+            expected: >-
+              x-help x-caps x-ls install lock test-pure build diff m3 ops
     name: ${{ matrix.lane }} (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
@@ -672,6 +687,7 @@ jobs:
       MATRIX_OS: win32
       MATRIX_TARGET: ${{ matrix.target }}
       MATRIX_M0: probes
+      MATRIX_EXPECTED_PASS: ${{ matrix.expected }}
     steps:
       # Git for Windows checks out with CRLF by default, which would rewrite
       # the .cast corpus fixtures and every source file before anything ran.
@@ -719,6 +735,14 @@ jobs:
         continue-on-error: true
         timeout-minutes: 6
         run: bash .github/ci/matrix.sh suite install
+      # A second `wp __daemon` against a live one, refused. The lock that
+      # refuses it is `LockFileEx` on x64 and an exclusive `\\.\pipe\` name
+      # on arm64, where there is no `bun:ffi` to call it with; the suite asks
+      # both runners, and on x64 the pipe as well, forced.
+      - name: lock
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bash .github/ci/matrix.sh suite lock
       - name: test-pure
         continue-on-error: true
         timeout-minutes: 6
@@ -764,3 +788,8 @@ jobs:
           name: ci-result-${{ matrix.lane }}
           path: ${{ runner.temp }}/matrix-out
           if-no-files-found: error
+
+      # The job's own verdict, after the report is safely uploaded.
+      - name: gate
+        if: always()
+        run: bash .github/ci/matrix.sh gate
