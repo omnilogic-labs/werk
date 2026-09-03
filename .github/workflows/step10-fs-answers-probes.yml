@@ -1,0 +1,110 @@
+# The four `test-full` files whose Windows failures are the filesystem or
+# the runtime answering a POSIX-shaped question differently — the socket's
+# reparse point, NTFS mode bits, `/$bunfs/` against `B:/~BUN/` — run the way
+# the Windows lane runs them: one `bun test` process per file with a daemon
+# stop between. First a probe script asks the runner the questions the
+# fixes depend on, one `PROBE name: verdict` line each.
+#
+# Runs on every push to the step branch. `workflow_dispatch` only works for a
+# workflow file that is on the default branch, and this one is not meant to
+# reach it.
+name: step10-fs-answers-probes
+
+on:
+  push:
+    branches: [step/10-fs-answers]
+
+concurrency:
+  group: step10-fs-answers-probes
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  probes:
+    name: win32-x64
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep line endings as committed
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Runner
+        run: |
+          bun --version
+          bun -e 'console.log(process.platform, process.arch, require("node:os").release())'
+          echo "ImageOS=${ImageOS:-} ImageVersion=${ImageVersion:-}"
+
+      - name: install
+        timeout-minutes: 3
+        run: bun install --frozen-lockfile
+
+      - name: build
+        timeout-minutes: 8
+        working-directory: packages/werk-poc
+        run: bun run build
+
+      - name: Filesystem probes
+        continue-on-error: true
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          bun run .github/ci/step10-fs-probes.ts 2>&1 | tee probes.log
+          bun run .github/ci/windows-daemon.ts stop || true
+
+      # The Windows lane's shape: one process per file, a daemon stop between.
+      - name: The four files
+        timeout-minutes: 12
+        working-directory: packages/werk-poc
+        run: |
+          rc=0
+          for f in src/daemon/launch.test.ts src/daemon/tcp.test.ts spikes/m1/embedded.test.ts spikes/m6/compiled.test.ts; do
+            echo "::group::$f"
+            timeout -k 15 180 bun test "$f" 2>&1 | tr -d '\r' | tee -a "$GITHUB_WORKSPACE/tests.log"
+            code=${PIPESTATUS[0]}
+            echo "::endgroup::"
+            echo "FILE $f exit=$code" | tee -a "$GITHUB_WORKSPACE/tests.log"
+            [ "$code" -eq 0 ] || rc=1
+            bun run "$GITHUB_WORKSPACE/.github/ci/windows-daemon.ts" stop || true
+          done
+          echo "--- verdicts ---"
+          grep -aE '^\(pass\)|^\(fail\)|^FILE ' "$GITHUB_WORKSPACE/tests.log"
+          exit $rc
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## step10 fs-answers — win32-x64"
+            echo
+            echo "commit \`${GITHUB_SHA:0:8}\`, bun \`$(bun --version)\`"
+            echo
+            echo '```'
+            grep -aE '^PROBE ' probes.log || true
+            echo
+            grep -aE '^\(pass\)|^\(fail\)|^FILE ' tests.log || true
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step10-fs-answers-win32-x64
+          path: |
+            probes.log
+            tests.log
+          if-no-files-found: warn
+          retention-days: 14
