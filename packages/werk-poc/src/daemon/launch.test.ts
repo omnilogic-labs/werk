@@ -186,8 +186,18 @@ test("shutdown over the socket ends the daemon and its sessions", async () => {
   });
   const info = (await client.ls()).find((s) => s.id === id)!;
   expect(info.status).toBe("running");
-  expect(await waitFor(() => fs.existsSync(pidFile), 5000)).toBe(true);
-  const childPid = Number(fs.readFileSync(pidFile, "utf8"));
+  // The file exists before its bytes do: `Bun.write` creates it and then
+  // writes, and on Windows the gap is wide enough to read an empty file
+  // (run 33743825984). Wait for the pid, not the file.
+  const readPid = () => {
+    try {
+      return Number(fs.readFileSync(pidFile, "utf8").trim()) || 0;
+    } catch {
+      return 0;
+    }
+  };
+  expect(await waitFor(() => readPid() > 0, 5000)).toBe(true);
+  const childPid = readPid();
   expect(childPid).toBeGreaterThan(0);
   expect(alive(childPid)).toBe(true);
   await client.shutdown();
