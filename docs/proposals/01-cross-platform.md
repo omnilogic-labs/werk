@@ -40,8 +40,8 @@ Every "measured" cell names a run in §7. A cell is a claim until it does.
 | Target            | Runner             | wasm engine, differential | Daemon from a cross-compiled binary | PoC suites                                               |
 | ----------------- | ------------------ | ------------------------- | ----------------------------------- | -------------------------------------------------------- |
 | linux-x64-glibc   | `ubuntu-24.04`     | reference                 | starts, answers `ls`                | all pass but the slow-client scenario                    |
-| linux-arm64-glibc | `ubuntu-24.04-arm` | identical                 | starts, answers `ls`                | same, plus one test that hard-codes x64                  |
-| linux-x64-musl    | Alpine 3.22        | identical                 | starts, answers `ls`                | same; binary needs `libstdc++` and `libgcc_s` installed  |
+| linux-arm64-glibc | `ubuntu-24.04-arm` | identical                 | starts, answers `ls`                | same                                                     |
+| linux-x64-musl    | Alpine 3.22        | identical                 | starts, answers `ls`                | same; the binary needs `libstdc++` and `libgcc_s` there  |
 | linux-arm64-musl  | Alpine 3.22 on arm | identical                 | starts, answers `ls`                | same                                                     |
 | darwin-arm64      | `macos-latest`     | identical                 | starts, answers `ls`                | same as Linux                                            |
 | darwin-x64        | `macos-15-intel`   | identical                 | starts, answers `ls`                | same; no ffi prebuild exists, so ffi tests fail          |
@@ -58,9 +58,11 @@ Three things the table says that the research did not expect:
   without a measured benefit. This proposal treats wasm as the engine on every
   target and the ffi build as reference material.
 - **The musl Bun is not static.** Both Alpine lanes show the compiled binary
-  linked against `libstdc++.so.6` and `libgcc_s.so.1`, which matters if werk
-  runs inside containers it provisions: the image has to carry them, or the
-  binary has to be a glibc one on a glibc base.
+  linked against `libstdc++.so.6` and `libgcc_s.so.1`, and on a bare
+  `alpine:3.22` it never reaches its own code. That matters if werk runs
+  inside containers it provisions: the image has to carry them, or the
+  release has to carry them beside the binary, or the binary has to be a
+  glibc one on a glibc base. §5 has the sizes.
 - **Windows is not blocked by the PTY.** Three small things in the daemon
   layer stood in the way; §3 records where the lane stands with them done
   the Windows way.
@@ -270,21 +272,35 @@ Three Linux-side risks the matrix should keep measuring:
 
 - **AVX2.** Bun 1.3.x after 1.3.8 crashes on CPUs without AVX2 even in the
   `-baseline` build (an open upstream tracker; one trace is inside JSC's
-  assembler, so the wasm engine is implicated). Both hosted x64 runners have
-  AVX2, so the fleet cannot measure this. Bun 1.4 ships one x64 binary with
+  assembler, so the wasm engine is implicated). Every Linux lane records
+  what its CPU offers: both x64 lanes report `avx` and `avx2`, both arm64
+  ones have no such extension, and the Intel Mac reports
+  `hw.optional.avx2_0: 1`. So the fleet has never run the x64 build on a CPU
+  without AVX2 and cannot measure this. Bun 1.4 ships one x64 binary with
   runtime dispatch; whether that is trustworthy is unverified.
-- **musl runtime deps.** `libstdc++.so.6` and `libgcc_s.so.1`, as above.
+- **musl runtime deps.** `libstdc++.so.6` and `libgcc_s.so.1`, as above: the
+  `x-ldd` suite records them at 2.77 MB and 174 KB on x64, 2.75 MB and 133 KB
+  on arm64, and the Alpine lanes `apk add libstdc++ libgcc` so the binary
+  starts at all. Carrying the pair instead was measured on x64 — copied
+  beside the binary with either `LD_LIBRARY_PATH` or an `$ORIGIN` rpath, a
+  bare `alpine:3.22` runs `wp ls` and its daemon
+  ([`platforms.md`](../../packages/werk-poc/findings/platforms.md)) — so the
+  choice between requiring the pair and shipping it is a live one, and
+  nobody has taken it.
 - **Prebuild lookup on non-x64 compiled binaries.** The libghostty-vt
   binding's own loader fails to find its prebuild inside a compiled binary on
   `linux-arm64` and both musl targets (`Bundled libghostty-vt missing at
-/$bunfs/prebuilds/linux-arm64-glibc/…`) while the PoC's shim finds it. Only
-  relevant if the ffi engine ships; recorded because it is the kind of thing
-  that reads as "arm64 is broken" when it is not.
+/$bunfs/prebuilds/linux-arm64-glibc/…`) while the PoC's shim finds it, which
+  `spikes/m6/compiled.test.ts` checks on whatever platform it runs on.
+  Only relevant if the ffi engine ships; recorded because it is the kind of
+  thing that reads as "arm64 is broken" when it is not.
 
-The slow-client scenario fails on every 4-vCPU hosted Linux lane for the
-reason [`platforms.md`](../../packages/werk-poc/findings/platforms.md)
-records — the fast client's own queue crosses the drop bound on shared
-CPUs — and the lanes forgive exactly that one failure. Whether it should be
+The slow-client scenario fails on most attempts on every 4-vCPU hosted
+Linux lane, for the reason
+[`platforms.md`](../../packages/werk-poc/findings/platforms.md) records —
+the fast client's own queue crosses the drop bound on shared CPUs — and the
+lanes forgive exactly that one failure. It is nondeterministic: roughly two
+attempts in seven pass, so a green lane is not evidence that it is fixed. Whether it should be
 a gate at all, be scaled to the machine, or be split into a deterministic
 fidelity check and a recorded headroom number, is open; "measured, not
 gated" is what the lanes do today and probably the right default.
@@ -322,6 +338,7 @@ so re-running is the way to check anything older.
 | The Windows lane before the daemon had `win32` branches | `poc.yml`                                                                  | [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407) |
 | Lane gates made fail-closed                             | [PR #4](https://github.com/omnilogic-labs/werk/pull/4)                     | [33688264859](https://github.com/omnilogic-labs/werk/actions/runs/33688264859) |
 | Eight targets built on Linux, smoked on native runners  | [PR #5](https://github.com/omnilogic-labs/werk/pull/5), `matrix.yml`       | [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325) |
+| The Linux lanes with the musl and AVX records           | `step/07-linux-musl`, `matrix.yml`                                         | [33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138) |
 | macOS socket buffers, signing, process lifecycle probes | [PR #2](https://github.com/omnilogic-labs/werk/pull/2), `macos-probes.yml` | [33688130745](https://github.com/omnilogic-labs/werk/actions/runs/33688130745) |
 | The daemon with buffers raised, on the macOS lane       | PR #2, `poc.yml`                                                           | [33688537937](https://github.com/omnilogic-labs/werk/actions/runs/33688537937) |
 | Windows primitives probed directly                      | [PR #3](https://github.com/omnilogic-labs/werk/pull/3), `win32-spike.yml`  | [33691536664](https://github.com/omnilogic-labs/werk/actions/runs/33691536664) |
@@ -402,14 +419,16 @@ hear exited` in `src/daemon/daemon.test.ts` passes on the `windows` lane
    policy itself behaves differently on XNU, and the slow-client scenario
    cannot gate macOS until that is understood.
 
-7. **Linux and musl.** Record `libstdc++.so.6` and `libgcc_s.so.1` as what a
-   musl host must carry, or bundle them; fix
-   `spikes/m6/compiled.test.ts`'s hard-coded `linux-x64-glibc`. Record the
-   AVX2 exposure and decide nothing about it. _Done when_ `test-full` on
-   `linux-arm64-glibc` and both musl lanes fails only on the slow-client
-   scenario. _Wrong if_ the fixed test shows the PoC's own shim missing a
-   prebuild — then prebuild lookup in compiled binaries is a real problem
-   rather than a binding quirk.
+7. **Linux and musl.** `test-full` on `linux-arm64-glibc` and both musl
+   lanes fails only on the slow-client scenario (run 33701438138, where the
+   arm64 glibc lane passed even that), `spikes/m6/compiled.test.ts` derives
+   the prebuild it expects from the host rather than naming one target, and
+   the PoC's shim finds its prebuild on all four Linux targets — so prebuild
+   lookup inside a compiled binary is a quirk of the binding's own loader,
+   not a problem of the approach. What is left is the choice §5 records and
+   nobody has taken: whether a musl host is required to have
+   `libstdc++.so.6` and `libgcc_s.so.1`, or the release carries them. The
+   AVX2 exposure is recorded per lane and nothing is decided about it.
 
 8. **The release shape.** One build job producing all eight binaries, one
    native smoke lane per target, with `matrix.yml` folded into `poc.yml` or
