@@ -12,6 +12,7 @@
 // method, and in the M0 probes, which exist to measure those primitives
 // directly and so cannot go through an abstraction of them.
 
+import type { KillDelivery, KillMode } from "../protocol/index.ts";
 import { posix } from "./posix.ts";
 import { win32 } from "./win32.ts";
 
@@ -40,8 +41,61 @@ export interface SpawnDaemonOptions {
   argv(extra: string[]): string[];
 }
 
+/** A session's child, as much of it as the seam needs to end it. */
+export interface SessionChild {
+  readonly pid: number;
+  /**
+   * Bun's own kill. On Windows this is `TerminateProcess` whatever signal
+   * name is passed, and Bun echoes the name back as `signalCode` — so it is
+   * the last resort, not the first choice.
+   */
+  kill(signal?: string): void;
+  /** Writes bytes to the session's PTY, which is how an interrupt reaches a ConPTY child. */
+  writePty(bytes: Uint8Array): void;
+}
+
+/**
+ * A session's child together with whatever holds its descendants: a process
+ * group on POSIX, a Job Object on Windows, and on a Windows without
+ * `bun:ffi` the child alone.
+ */
+/** What a platform did when it was asked to end a tree. */
+export interface KillOutcome {
+  delivery: KillDelivery;
+  /** The signal actually sent, or null where the platform sends none. */
+  signal: string | null;
+}
+
+export interface ProcessTree {
+  /** What this platform holds the tree with; a `KillOutcome` says what a kill did. */
+  readonly holds: "group" | "job" | "child";
+  /**
+   * An interrupt to whatever is in the foreground; the child decides what
+   * that means. `signal` is the POSIX signal a client named, honoured where
+   * the platform has signals and ignored where it has none.
+   */
+  interrupt(signal?: string): KillOutcome;
+  /** Ends the tree. `force` is the one a child cannot catch. */
+  kill(mode: "terminate" | "force", signal?: string): KillOutcome;
+  /**
+   * Lets go of whatever holds the tree. On Windows that is itself a tree
+   * kill, since the job carries `KILL_ON_JOB_CLOSE` and this is the last
+   * handle to it; on POSIX there is nothing to let go of.
+   */
+  close(): void;
+}
+
 export interface Platform {
   readonly id: "posix" | "win32";
+
+  /**
+   * Whether a child's exit status names the signal that ended it. False on
+   * Windows, where there are no signals: Bun reports the name a caller
+   * passed to `proc.kill()` even though `TerminateProcess` is what ran
+   * (run 33704743713), so a signal name there says what was asked for and
+   * nothing about what happened.
+   */
+  readonly signalsExits: boolean;
 
   /** Where the socket, lock and log live when nothing overrides it. */
   runtimeDir(): string;
@@ -75,8 +129,26 @@ export interface Platform {
   /** What this machine calls its CPU, for a report that has to name it. */
   cpuModel(): string;
 
-  /** Registers whatever signals reach a detached daemon on this platform. */
+  /**
+   * Registers whatever signals reach a detached daemon on this platform.
+   * The `shutdown` message is the way in on all three; this is the second
+   * route, for a `kill` typed at a shell.
+   */
   onShutdownSignal(handler: (reason: string) => void): void;
+
+  /** Takes hold of a just-spawned session child, so a later kill can take its tree. */
+  adoptTree(child: SessionChild): ProcessTree;
+
+  /** Ends a process that did not go when it was asked to; nothing is left to wait for. */
+  terminate(pid: number): void;
+}
+
+/** The mode a POSIX signal name asks for; unknown names are a `terminate`. */
+export function modeForSignal(signal: string): KillMode {
+  const s = signal.toUpperCase();
+  if (s === "SIGINT" || s === "INT") return "interrupt";
+  if (s === "SIGKILL" || s === "KILL") return "force";
+  return "terminate";
 }
 
 export const platform: Platform = process.platform === "win32" ? win32 : posix;

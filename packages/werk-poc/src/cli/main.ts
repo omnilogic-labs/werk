@@ -25,7 +25,8 @@ usage:
   wp ls                                        id, command, engine, status, title, age, snapshot, clients
   wp attach [--read-only] <id>                 come back to a session
   wp logs [--vt] <id>                          dump the whole screen incl. scrollback
-  wp kill [--signal SIG] [--rm] <id>           signal a running session; --rm removes an exited one
+  wp kill [--mode interrupt|terminate|force] [--signal SIG] [--rm] <id>
+                                               end a running session; --rm removes an exited one
   wp serve [--port N]                          loopback web UI: session list, live terminals
   wp bench diff [--fuzz N] [--seed N] [--verbose] [case...]
                                                the differential corpus across the three engines
@@ -60,6 +61,7 @@ const VALUED = new Set([
   "cols",
   "rows",
   "signal",
+  "mode",
   "port",
   "socket",
   "fuzz",
@@ -358,16 +360,24 @@ async function serve(p: Parsed): Promise<number> {
 async function kill(p: Parsed): Promise<number> {
   const id = oneId(p, "kill");
   const signal = p.flags.get("signal");
+  const mode = p.flags.get("mode");
+  // `--mode` is the portable request and `--signal` the POSIX spelling of
+  // the same thing; the daemon takes either and says what it did with it.
+  const request =
+    typeof mode === "string"
+      ? mode
+      : typeof signal === "string"
+        ? signal
+        : undefined;
   return withClient(false, async (client) => {
-    const r = await client.kill(
-      id,
-      typeof signal === "string" ? signal : undefined,
-    );
+    const r = await client.kill(id, request);
     if (r.action === "removed") {
       out(`removed ${id}\n`);
       return 0;
     }
-    out(`signalled ${id} (${signal ?? "SIGTERM"})\n`);
+    out(
+      `killed ${id} (${r.kill?.mode ?? "terminate"} as ${r.kill?.delivery ?? "?"}${r.kill?.signal ? `, ${r.kill.signal}` : ""})\n`,
+    );
     if (p.flags.has("rm")) {
       // Wait for the exit, then remove.
       const deadline = Date.now() + 5000;

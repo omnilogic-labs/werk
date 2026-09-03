@@ -60,10 +60,11 @@ export async function stopDaemon(
   if (c && pid == null) pid = c.daemon.pid;
   if (c) await c.shutdown().catch(() => {});
   if (pid != null) {
+    // The message is the way out on every platform; this is the grace
+    // running out, which is the seam's job because a signal name means
+    // nothing on Windows (../platform/).
     if (!(await waitFor(() => !alive(pid), 3000))) {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch {}
+      platform.terminate(pid);
       await waitFor(() => !alive(pid), 2000);
     }
   }

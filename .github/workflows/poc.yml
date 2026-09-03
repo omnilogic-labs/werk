@@ -335,7 +335,7 @@ jobs:
       SUITE_TIMEOUT: "180"
       SUITE_ORDER: >-
         install typecheck test-pure build-web build diff ops probes m0-probes
-        daemon wp-cli test-full m2 m3
+        daemon wp-cli kill test-full m2 m3
       # The suites that pass on windows today, the daemon's lifecycle and the
       # compiled binary talking to a daemon it autostarts included. Everything
       # else is expected to fail and is recorded rather than gated, so a red
@@ -346,6 +346,7 @@ jobs:
       # gate on that.
       EXPECTED_PASS: >-
         install typecheck test-pure build-web build diff probes daemon wp-cli
+        kill
       # The probes that fail on windows today, recorded rather than gated: the
       # readiness pipe's parent-side fd is a raw HANDLE that fs.readSync
       # refuses, which is why the win32 launcher polls a ready file instead.
@@ -523,6 +524,24 @@ jobs:
       # start. Stop whatever is left before each of the suites below that
       # build or test the daemon; the step log says what it found and killed.
       - name: Stop daemons left by earlier suites
+        if: always()
+        timeout-minutes: 2
+        working-directory: packages/werk-poc
+        run: bun run "$GITHUB_WORKSPACE/.github/ci/windows-daemon.ts" stop
+
+      # Teardown through the protocol: the one test in `test-full` that says a
+      # kill reaches the child and the session reports what happened to it.
+      # It runs on its own because `test-full` still fails on the fidelity
+      # prologue, and this is the part of it that windows has to keep.
+      - name: kill
+        id: kill
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          bash .github/ci/windows.sh kill packages/werk-poc \
+            'bun test src/daemon/daemon.test.ts -t "kill signals the child"'
+
+      - name: Stop daemons left by the kill suite
         if: always()
         timeout-minutes: 2
         working-directory: packages/werk-poc

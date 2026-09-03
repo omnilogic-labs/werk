@@ -33,15 +33,24 @@
 // none of them could ever fire; `proc.kill()` from a launcher or a test is
 // `TerminateProcess`, which no handler sees either. Shutdown is the
 // `shutdown` message over the socket, and only that.
+//
+// A session's child is held in a Job Object with `KILL_ON_JOB_CLOSE`, which
+// is what makes a kill take the tree rather than the one process Bun knows
+// about. That, the lock, and nothing else needs `bun:ffi` here, and each
+// falls back where there is none.
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { dlopen, FFIType, ptr } from "bun:ffi";
+
 import type {
   DaemonStart,
   FileLock,
   Platform,
+  KillOutcome,
+  ProcessTree,
+  SessionChild,
   SpawnDaemonOptions,
 } from "./index.ts";
 
@@ -53,6 +62,18 @@ const FILE_SHARE_READ_WRITE_DELETE = 1 | 2 | 4;
 const OPEN_ALWAYS = 4;
 const FILE_ATTRIBUTE_NORMAL = 0x80;
 const INVALID_HANDLE_VALUE = (1n << 64n) - 1n;
+
+const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
+const JobObjectExtendedLimitInformation = 9;
+/** `JOBOBJECT_EXTENDED_LIMIT_INFORMATION` on LLP64: 144 bytes, `LimitFlags` at 16. */
+const EXTENDED_LIMIT_BYTES = 144;
+const LIMIT_FLAGS_OFFSET = 16;
+const PROCESS_TERMINATE = 0x0001;
+const PROCESS_SET_QUOTA = 0x0100;
+/** What `TerminateJobObject` gives the tree, and what Bun's own kill uses. */
+const KILLED_EXIT_CODE = 1;
+/** ^C, the only interrupt a ConPTY child can be sent. */
+const ETX = new Uint8Array([0x03]);
 
 let kernel32: {
   symbols: {
@@ -75,6 +96,16 @@ let kernel32: {
     ) => number;
     GetLastError: () => number;
     CloseHandle: (h: bigint) => number;
+    CreateJobObjectW: (sa: null, name: null) => bigint;
+    SetInformationJobObject: (
+      job: bigint,
+      cls: number,
+      info: ReturnType<typeof ptr>,
+      len: number,
+    ) => number;
+    AssignProcessToJobObject: (job: bigint, proc: bigint) => number;
+    TerminateJobObject: (job: bigint, code: number) => number;
+    OpenProcess: (access: number, inherit: number, pid: number) => bigint;
   };
 } | null = null;
 
@@ -106,8 +137,84 @@ function loadKernel32() {
     },
     GetLastError: { args: [], returns: FFIType.u32 },
     CloseHandle: { args: [FFIType.u64], returns: FFIType.i32 },
+    CreateJobObjectW: {
+      args: [FFIType.ptr, FFIType.ptr],
+      returns: FFIType.u64,
+    },
+    SetInformationJobObject: {
+      args: [FFIType.u64, FFIType.u32, FFIType.ptr, FFIType.u32],
+      returns: FFIType.i32,
+    },
+    AssignProcessToJobObject: {
+      args: [FFIType.u64, FFIType.u64],
+      returns: FFIType.i32,
+    },
+    TerminateJobObject: {
+      args: [FFIType.u64, FFIType.u32],
+      returns: FFIType.i32,
+    },
+    OpenProcess: {
+      args: [FFIType.u32, FFIType.i32, FFIType.u32],
+      returns: FFIType.u64,
+    },
   }) as unknown as typeof kernel32;
   return kernel32!;
+}
+
+/**
+ * A Job Object holding one session's child, with `KILL_ON_JOB_CLOSE` set so
+ * that whatever the child starts goes when the job does — including when the
+ * daemon dies without getting to run any code. Job membership is inherited,
+ * so assigning the child before it spawns anything is enough to hold the
+ * whole tree; the daemon does that as soon as `Bun.spawn` returns. Nesting
+ * works: a runner (and any service manager) already has the daemon in a job
+ * of its own, and the assign still succeeds (run 33704743713).
+ *
+ * Null when there is no `bun:ffi` — Bun 1.3.14 on `win32-arm64` has none —
+ * or when any of the three calls fails. The caller then kills the child
+ * alone, and a grandchild that has detached itself from the ConPTY survives.
+ */
+function createJob(pid: number): bigint | null {
+  let k: NonNullable<typeof kernel32>["symbols"];
+  try {
+    if (process.env.WP_WIN32_JOB === "off") throw new Error("forced");
+    k = loadKernel32().symbols;
+  } catch {
+    return null;
+  }
+  const job = k.CreateJobObjectW(null, null);
+  if (job === INVALID_HANDLE_VALUE || job === 0n) return null;
+  const info = new Uint8Array(EXTENDED_LIMIT_BYTES);
+  new DataView(info.buffer).setUint32(
+    LIMIT_FLAGS_OFFSET,
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    true,
+  );
+  if (
+    k.SetInformationJobObject(
+      job,
+      JobObjectExtendedLimitInformation,
+      ptr(info),
+      EXTENDED_LIMIT_BYTES,
+    ) === 0
+  ) {
+    k.CloseHandle(job);
+    return null;
+  }
+  // PROCESS_SET_QUOTA and PROCESS_TERMINATE are what AssignProcessToJobObject
+  // asks for; nothing here needs more.
+  const h = k.OpenProcess(PROCESS_TERMINATE | PROCESS_SET_QUOTA, 0, pid);
+  if (h === INVALID_HANDLE_VALUE || h === 0n) {
+    k.CloseHandle(job);
+    return null;
+  }
+  const assigned = k.AssignProcessToJobObject(job, h) !== 0;
+  k.CloseHandle(h);
+  if (!assigned) {
+    k.CloseHandle(job);
+    return null;
+  }
+  return job;
 }
 
 /**
@@ -176,6 +283,14 @@ async function readReadyFile(
 
 export const win32: Platform = {
   id: "win32",
+
+  /**
+   * Windows has no signals. Bun echoes back the name passed to
+   * `proc.kill()` — `signalCode=SIGTERM` for a `TerminateProcess` (run
+   * 33704743713) — so a signal name here would say what was asked for and
+   * nothing about what happened, and the daemon reports none.
+   */
+  signalsExits: false,
 
   runtimeDir(): string {
     return path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), "werk-poc");
@@ -331,4 +446,57 @@ export const win32: Platform = {
 
   /** Nothing to register; see the note at the top of this file. */
   onShutdownSignal(): void {},
+
+  /**
+   * The tree is a Job Object with `KILL_ON_JOB_CLOSE`, which
+   * `TerminateJobObject` ends in about 2 ms, grandchildren included (run
+   * 33704743713). An interrupt is `0x03` into the ConPTY, since there is no
+   * signal to send: `sleep` dies of it and `pwsh -c Start-Sleep` ignores it
+   * for at least six seconds (run 33691536664), so what an interrupt means
+   * is the child's to decide.
+   *
+   * Where the job could not be made — no `bun:ffi` on `win32-arm64` — the
+   * kill is `TerminateProcess` on the child alone, which is what Bun's own
+   * `proc.kill()` does. What that loses is the tree: a grandchild that has
+   * left the ConPTY behind keeps running with nothing holding it.
+   */
+  adoptTree(child: SessionChild): ProcessTree {
+    let job = createJob(child.pid);
+    const kill = (): KillOutcome => {
+      if (job !== null) {
+        try {
+          if (
+            loadKernel32().symbols.TerminateJobObject(job, KILLED_EXIT_CODE) !==
+            0
+          )
+            return { delivery: "job", signal: null };
+        } catch {}
+      }
+      child.kill();
+      return { delivery: "terminate", signal: null };
+    };
+    return {
+      holds: job !== null ? "job" : "child",
+      interrupt() {
+        child.writePty(ETX);
+        return { delivery: "pty-interrupt", signal: null };
+      },
+      kill,
+      close() {
+        if (job === null) return;
+        // The last handle to a KILL_ON_JOB_CLOSE job takes the tree with it,
+        // which is what a disposing session wants anyway.
+        try {
+          loadKernel32().symbols.CloseHandle(job);
+        } catch {}
+        job = null;
+      },
+    };
+  },
+
+  terminate(pid: number): void {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {}
+  },
 };

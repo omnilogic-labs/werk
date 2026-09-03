@@ -17,12 +17,15 @@
 import type { Subprocess } from "bun";
 import type { Effect, VtEngine, VtTerminal } from "../engine/types.ts";
 import { isUnsupported } from "../engine/types.ts";
+import { platform, type ProcessTree } from "../platform/index.ts";
 import {
   encodeFrame,
   FrameType,
   RENDER_CLEAR,
   type AttachMode,
   type CorpseInfo,
+  type KillMode,
+  type KillRecord,
   type RestoreStats,
   type ScreenResult,
   type SessionInfo,
@@ -81,12 +84,16 @@ export class Session {
   dirty = false;
   corpse: CorpseInfo | null = null;
   restore: RestoreStats | null = null;
+  /** The last kill this session was asked for; what came of it is `status`. */
+  killRecord: KillRecord | null = null;
 
   readonly clients = new Set<Connection>();
   /** Null only for a mismatch corpse, which has nothing to render. */
   private readonly vt: VtTerminal | null;
   private readonly terminal: Bun.Terminal | null;
   private readonly proc: Subprocess | null;
+  /** What holds the child's descendants, so a kill can take them too. */
+  private readonly tree: ProcessTree | null;
   private ptyDone: () => void = () => {};
   private readonly ptyDonePromise = new Promise<void>(
     (r) => (this.ptyDone = r),
@@ -116,6 +123,7 @@ export class Session {
       this.log = opts.log;
       this.terminal = null;
       this.proc = null;
+      this.tree = null;
       this.vt = this.decode(opts);
       return;
     }
@@ -160,8 +168,16 @@ export class Session {
       },
     });
     this.terminal = this.proc.terminal!;
+    // Before the child can start anything of its own: on Windows the tree is
+    // a Job Object and membership is inherited, so what is assigned here is
+    // everything that follows (../platform/).
+    this.tree = platform.adoptTree({
+      pid: this.proc.pid,
+      kill: (signal) => this.proc?.kill(signal as NodeJS.Signals),
+      writePty: (bytes) => this.terminal?.write(bytes),
+    });
     this.log(
-      `session ${this.id}: spawned pid ${this.proc.pid} ${JSON.stringify(opts.argv)} at ${opts.cols}x${opts.rows}`,
+      `session ${this.id}: spawned pid ${this.proc.pid} ${JSON.stringify(opts.argv)} at ${opts.cols}x${opts.rows}, tree held by ${this.tree.holds}`,
     );
     void this.proc.exited.then(() => this.onExited());
   }
@@ -297,7 +313,11 @@ export class Session {
     const proc = this.proc!;
     this.status = "exited";
     this.exitCode = proc.exitCode;
-    this.signalCode = proc.signalCode;
+    // Only where an exit status names a signal. On Windows Bun reports the
+    // name that was passed to `proc.kill()` even though `TerminateProcess`
+    // is what ran, and reporting that would be reporting a request as an
+    // outcome (../platform/win32.ts).
+    this.signalCode = platform.signalsExits ? proc.signalCode : null;
     this.exitedAt = Date.now();
     this.log(
       `session ${this.id}: exited code=${this.exitCode} signal=${this.signalCode}`,
@@ -501,8 +521,23 @@ export class Session {
     };
   }
 
-  kill(signal: string): void {
-    this.proc?.kill(signal as NodeJS.Signals);
+  /**
+   * Asks the platform to end this session's tree. Returns what was asked and
+   * how it was delivered; whether the child went is `status`, which the
+   * `exited` notice carries when it does.
+   */
+  kill(mode: KillMode, signal?: string): KillRecord {
+    const outcome = this.tree
+      ? mode === "interrupt"
+        ? this.tree.interrupt(signal)
+        : this.tree.kill(mode, signal)
+      : { delivery: "terminate" as const, signal: null };
+    const record: KillRecord = { mode, ...outcome, at: Date.now() };
+    this.killRecord = record;
+    this.log(
+      `session ${this.id}: kill ${mode} delivered as ${record.delivery}${record.signal ? ` (${record.signal})` : ""}`,
+    );
+    return record;
   }
 
   /**
@@ -580,10 +615,11 @@ export class Session {
       snapshotAt: this.snapshotAt,
       corpse: this.corpse,
       restore: this.restore,
+      kill: this.killRecord,
     };
   }
 
-  /** Tears everything down; the child gets SIGKILL if it is still running. */
+  /** Tears everything down; a running child's whole tree goes with it. */
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -591,9 +627,14 @@ export class Session {
     this.clients.clear();
     if (this.status === "running") {
       try {
-        this.proc?.kill("SIGKILL");
+        this.tree?.kill("force");
       } catch {}
     }
+    try {
+      // On Windows this is a second tree kill, since the job carries
+      // KILL_ON_JOB_CLOSE; on POSIX there is nothing to release.
+      this.tree?.close();
+    } catch {}
     try {
       this.terminal?.close();
     } catch {}

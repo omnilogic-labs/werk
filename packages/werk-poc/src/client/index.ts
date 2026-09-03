@@ -29,6 +29,7 @@ import {
   type DaemonStats,
   type DetachResult,
   type HelloInfo,
+  type KillMode,
   type KillResult,
   type LogsResult,
   type RunResult,
@@ -40,11 +41,17 @@ import {
 export type {
   DaemonStats,
   DetachResult,
+  KillMode,
+  KillRecord,
+  KillResult,
   ScreenResult,
   SessionInfo,
   HelloInfo,
   SnapshotResult,
 } from "../protocol/index.ts";
+
+/** The three portable kill requests, for telling one from a signal name. */
+const KILL_MODES: KillMode[] = ["interrupt", "terminate", "force"];
 
 export interface ConnectOptions {
   /** The runtime directory holding `wp.sock`; defaults to `$XDG_RUNTIME_DIR/werk-poc`. */
@@ -435,9 +442,22 @@ export class Client {
     return this.request<SessionInfo[]>({ t: "ls" });
   }
 
-  /** Signals a running session (default SIGTERM); removes an exited one. */
-  kill(id: string, signal?: string): Promise<KillResult> {
-    return this.request<KillResult>({ t: "kill", id, signal });
+  /**
+   * Ends a running session, or removes one that has already ended. The
+   * request is a `KillMode`; a POSIX signal name says the same thing and is
+   * the signal that gets sent where the platform has signals. Neither means
+   * `terminate`.
+   */
+  kill(id: string, request?: KillMode | string): Promise<KillResult> {
+    const mode = KILL_MODES.includes(request as KillMode)
+      ? (request as KillMode)
+      : undefined;
+    return this.request<KillResult>({
+      t: "kill",
+      id,
+      mode,
+      signal: mode === undefined ? request : undefined,
+    });
   }
 
   /** `text`: the whole active screen, scrollback included, as plain text. `vt`: the same as escape sequences. */
