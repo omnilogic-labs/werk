@@ -84,6 +84,10 @@ const detachedRe = /\[detached ([0-9a-f]+)\]/;
 async function detach(t: UserTerminal, r: Report, what: string) {
   t.write("\x1c");
   const exited = await t.waitExit(5000);
+  // The pty is not done when the process is: a ConPTY goes on delivering
+  // for a moment after `wp` has exited, and the `[detached]` line is the
+  // last thing it carries.
+  await waitFor(() => detachedRe.test(t.text), 2000);
   r.check(
     exited && t.exitCode === 0 && detachedRe.test(t.text),
     `${what}: ctrl-\\ detached, wp exited 0, printed [detached]`,
@@ -297,15 +301,35 @@ export const vimResize: Scenario = {
         `vim redrew 28 file rows for the taller window, ${(performance.now() - t0).toFixed(0)} ms after attach`,
         `vim shows ${rows1} file rows in ${t2.screen().split("\n").length}, ${(performance.now() - t0).toFixed(0)} ms after attach; the daemon shows ${fileRows(s.daemon.text)}`,
       );
-      if (!redrawn(30)(t2.screen())) {
-        // Diagnosis: whether the redraw is late or never comes.
-        const late = await waitFor(() => fileRows(t2.screen()) !== rows1, 8000);
+      // Diagnosis of a missing redraw: what the bottom of the screen holds,
+      // whether the redraw is late or never comes, and whether a keystroke
+      // (ctrl-l, a repaint at whatever size vim believes in) brings it.
+      const diagnose = async (rows: number, since: number, what: string) => {
+        const bottom = t2
+          .screen()
+          .split("\n")
+          .slice(rows - 8)
+          .map((l, i) => `${rows - 8 + i}:${JSON.stringify(l.slice(0, 30))}`)
+          .join(" ");
+        r.note(`${what}: bottom rows ${bottom}`);
+        const was = fileRows(t2.screen());
+        const late = await waitFor(() => fileRows(t2.screen()) !== was, 4000);
         r.note(
           late
-            ? `late: ${fileRows(t2.screen())} file rows ${(performance.now() - t0).toFixed(0)} ms after attach`
-            : `no redraw ${(performance.now() - t0).toFixed(0)} ms after attach; daemon shows ${fileRows((await c.screen(id)).text)} file rows`,
+            ? `${what}: late redraw, ${fileRows(t2.screen())} file rows ${(performance.now() - since).toFixed(0)} ms in`
+            : `${what}: no redraw ${(performance.now() - since).toFixed(0)} ms in; daemon shows ${fileRows((await c.screen(id)).text)} file rows`,
         );
-      }
+        if (late) return;
+        const at = performance.now();
+        t2.write("\x0c");
+        const fixed = await waitFor(() => redrawn(rows)(t2.screen()), 2000);
+        r.note(
+          fixed
+            ? `${what}: ctrl-l brought the redraw, ${fileRows(t2.screen())} file rows ${(performance.now() - at).toFixed(0)} ms after the key`
+            : `${what}: ctrl-l did not: ${fileRows(t2.screen())} file rows in ${t2.screen().split("\n").length} after 2 s`,
+        );
+      };
+      if (!redrawn(30)(t2.screen())) await diagnose(30, t0, "at 100×30");
       const t1w = performance.now();
       t2.resize(120, 35);
       const s2 = await settle(c, id, t2, 3000, {
@@ -323,8 +347,92 @@ export const vimResize: Scenario = {
         `vim redrew 33 file rows for the taller window, ${(performance.now() - t1w).toFixed(0)} ms after SIGWINCH`,
         `vim shows ${fileRows(t2.screen())} file rows in ${t2.screen().split("\n").length}, ${(performance.now() - t1w).toFixed(0)} ms after SIGWINCH; the daemon shows ${fileRows(s2.daemon.text)}`,
       );
+      if (!redrawn(35)(t2.screen())) await diagnose(35, t1w, "at 120×35");
       t2.write(":q!\r");
       await t2.waitExit(5000);
+      await wp(env, ["kill", id]);
+    } finally {
+      await t2.close();
+      c.close();
+    }
+    return r.done();
+  },
+};
+
+/**
+ * The resize path with vim taken out of it: a child (resize-probe.ts) that
+ * polls its size, counts its runtime's resize events, and asks the terminal
+ * where the far corner is. What the terminal answers is what the pty
+ * believes its size to be, so a resize that reaches the pty shows up there
+ * whatever the child's runtime makes of it.
+ */
+export const childResize: Scenario = {
+  name: "resize probe: reattach at a new size, then SIGWINCH, as a child sees it",
+  async run(env) {
+    const r = new Report();
+    const script = path.join(import.meta.dir, "resize-probe.ts");
+    const id = await wpRun(env, [process.execPath, "run", script]);
+    const c = await daemonClient(env);
+    const line = (t: UserTerminal) => t.screen().split("\n")[0] ?? "";
+    const asked = (t: UserTerminal, size: string) =>
+      line(t).includes(`asked ${size}`);
+    const t1 = await UserTerminal.spawn(env, ["attach", id]);
+    try {
+      const s = await settle(c, id, t1, 5000, {
+        until: (screen) => screen.includes("asked 80x24"),
+        quietMs: 100,
+      });
+      r.screensAgree("attach", s);
+      r.note(`attach: ${line(t1)}`);
+      await detach(t1, r, "probe");
+    } finally {
+      await t1.close();
+    }
+    const t2 = await UserTerminal.spawn(env, ["attach", id], {
+      cols: 100,
+      rows: 30,
+    });
+    try {
+      const t0 = performance.now();
+      const s = await settle(c, id, t2, 3000, {
+        until: (screen) => screen.includes("asked 100x30"),
+        quietMs: 100,
+      });
+      r.check(
+        s.daemon.cols === 100 && s.daemon.rows === 30,
+        "reattach at 100×30: daemon resized the session",
+        `daemon says ${s.daemon.cols}×${s.daemon.rows}`,
+      );
+      r.screensAgree("reattach at 100×30", s);
+      r.check(
+        asked(t2, "100x30"),
+        `reattach at 100×30: the terminal answers 100x30 to the child, ${(performance.now() - t0).toFixed(0)} ms after attach: ${line(t2)}`,
+        `reattach at 100×30: ${(performance.now() - t0).toFixed(0)} ms after attach the child sees: ${line(t2)}`,
+      );
+      const t1w = performance.now();
+      t2.resize(120, 35);
+      const s2 = await settle(c, id, t2, 3000, {
+        until: (screen) => screen.includes("asked 120x35"),
+        quietMs: 100,
+      });
+      r.check(
+        s2.daemon.cols === 120 && s2.daemon.rows === 35,
+        "SIGWINCH to 120×35: wp attach relayed the resize",
+        `after SIGWINCH the daemon says ${s2.daemon.cols}×${s2.daemon.rows}`,
+      );
+      r.screensAgree("after SIGWINCH", s2);
+      r.check(
+        asked(t2, "120x35"),
+        `SIGWINCH to 120×35: the terminal answers 120x35 to the child, ${(performance.now() - t1w).toFixed(0)} ms after SIGWINCH: ${line(t2)}`,
+        `SIGWINCH to 120×35: ${(performance.now() - t1w).toFixed(0)} ms after SIGWINCH the child sees: ${line(t2)}`,
+      );
+      t2.write("q");
+      const exited = await t2.waitExit(5000);
+      r.check(
+        exited && t2.exitCode === 0,
+        "q ends the probe; wp exits 0",
+        `exited=${exited} code=${t2.exitCode}`,
+      );
       await wp(env, ["kill", id]);
     } finally {
       await t2.close();
@@ -743,6 +851,7 @@ export const scenarios: Scenario[] = [
   shellColour,
   vimReattach,
   vimResize,
+  childResize,
   topTui,
   counterTui,
   altScreenDetach,

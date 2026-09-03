@@ -129,7 +129,7 @@ jobs:
             rc=0
             timeout -k 15 90 bun run ./spikes/m2/run-all.ts "new size" >"$log" 2>&1 || rc=$?
             clean=$(tr -d '\r' <"$log")
-            redraw=$(printf '%s\n' "$clean" | grep -a 'file rows\|late:\|no redraw' | grep -av '^\[' | sed 's/^ *//' | paste -sd';' - || true)
+            redraw=$(printf '%s\n' "$clean" | grep -a 'file rows\|late\|no redraw\|ctrl-l\|bottom rows\|the child sees\|to the child' | grep -av '^\[' | sed 's/^ *//' | paste -sd';' - || true)
             if [ "$rc" -eq 0 ]; then
               echo "PROBE m2-resize-${{ matrix.attempt }}-$n: pass — $redraw"
             else

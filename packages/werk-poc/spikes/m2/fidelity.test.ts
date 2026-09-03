@@ -25,7 +25,7 @@ test("reattach fidelity: every scenario passes (spikes/m2/run-all.ts)", async ()
   ]);
   console.log(out.slice(out.indexOf("| Scenario")));
   if (code !== 0) console.log(out + err);
-  expect(out.match(/^(PASS|FAIL)  /gm)?.length).toBe(8);
+  expect(out.match(/^(PASS|FAIL)  /gm)?.length).toBe(9);
   expect(out.match(/^FAIL  /gm) ?? []).toEqual([]);
   expect(code).toBe(0);
 }, 120_000);
