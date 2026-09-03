@@ -37,16 +37,16 @@ unknown.
 
 Every "measured" cell names a run in §7. A cell is a claim until it does.
 
-| Target            | Runner             | wasm engine, differential | Daemon from a cross-compiled binary | PoC suites                                              |
-| ----------------- | ------------------ | ------------------------- | ----------------------------------- | ------------------------------------------------------- |
-| linux-x64-glibc   | `ubuntu-24.04`     | reference                 | starts, answers `ls`                | all pass but the slow-client scenario                   |
-| linux-arm64-glibc | `ubuntu-24.04-arm` | identical                 | starts, answers `ls`                | same, plus one test that hard-codes x64                 |
-| linux-x64-musl    | Alpine 3.22        | identical                 | starts, answers `ls`                | same; binary needs `libstdc++` and `libgcc_s` installed |
-| linux-arm64-musl  | Alpine 3.22 on arm | identical                 | starts, answers `ls`                | same                                                    |
-| darwin-arm64      | `macos-latest`     | identical                 | starts, answers `ls`                | same as Linux                                           |
-| darwin-x64        | `macos-15-intel`   | identical                 | starts, answers `ls`                | same; no ffi prebuild exists, so ffi tests fail         |
-| win32-x64         | `windows-latest`   | identical                 | fails at the lock (§3)              | six suites fail, all from three daemon-layer causes     |
-| win32-arm64       | `windows-11-arm`   | identical                 | fails at the lock; no `bun:ffi`     | as x64, plus no ffi engine at all in Bun 1.3.14         |
+| Target            | Runner             | wasm engine, differential | Daemon from a cross-compiled binary | PoC suites                                               |
+| ----------------- | ------------------ | ------------------------- | ----------------------------------- | -------------------------------------------------------- |
+| linux-x64-glibc   | `ubuntu-24.04`     | reference                 | starts, answers `ls`                | all pass but the slow-client scenario                    |
+| linux-arm64-glibc | `ubuntu-24.04-arm` | identical                 | starts, answers `ls`                | same, plus one test that hard-codes x64                  |
+| linux-x64-musl    | Alpine 3.22        | identical                 | starts, answers `ls`                | same; binary needs `libstdc++` and `libgcc_s` installed  |
+| linux-arm64-musl  | Alpine 3.22 on arm | identical                 | starts, answers `ls`                | same                                                     |
+| darwin-arm64      | `macos-latest`     | identical                 | starts, answers `ls`                | same as Linux                                            |
+| darwin-x64        | `macos-15-intel`   | identical                 | starts, answers `ls`                | same; no ffi prebuild exists, so ffi tests fail          |
+| win32-x64         | `windows-latest`   | identical                 | starts, answers `ls` (§3)           | four suites fail: ConPTY render, kill, two harness items |
+| win32-arm64       | `windows-11-arm`   | identical                 | starts, answers `ls`; no `bun:ffi`  | as x64, plus no ffi engine at all in Bun 1.3.14          |
 
 Three things the table says that the research did not expect:
 
@@ -61,8 +61,9 @@ Three things the table says that the research did not expect:
   linked against `libstdc++.so.6` and `libgcc_s.so.1`, which matters if werk
   runs inside containers it provisions: the image has to carry them, or the
   binary has to be a glibc one on a glibc base.
-- **Windows is blocked by three small things, not by the PTY.** §3 records
-  what happens once they are stepped over.
+- **Windows is not blocked by the PTY.** Three small things in the daemon
+  layer stood in the way; §3 records where the lane stands with them done
+  the Windows way.
 
 ## 2. The seam: a platform layer the daemon goes through
 
@@ -113,11 +114,11 @@ better one anyway.
 
 ## 3. Windows, specifically
 
-A spike ([PR #3](https://github.com/omnilogic-labs/werk/pull/3)) added the
-Windows rows of §2 to the proof of concept as `win32` branches and re-ran the
-Windows lane. Before it, `wp.exe ls` died at the lock; after it, `wp.exe ls`
-starts a daemon and prints its header, the orphan-survival probe passes, and
-the test suite runs far enough to hit questions rather than blockers:
+The proof of concept carries the Windows rows of §2 as `win32` branches
+([PR #3](https://github.com/omnilogic-labs/werk/pull/3)). With them, on the
+Windows lane of `main` (run 33696942295), `wp.exe ls` starts a daemon and
+prints its header, the orphan-survival probe passes, and the test suite runs
+far enough to hit questions rather than blockers:
 
 - **The render prologue differs.** ConPTY does not start a session with
   `ESC[H ESC[2J`, so a test asserting that exact prefix fails. ConPTY
@@ -164,8 +165,10 @@ finds them again:
   interpreted and relaunch its daemon the wrong way.
 - On `windows-11-arm` in Bun 1.3.14, `bun:ffi` does not exist at all
   ("TinyCC is disabled"; fixed upstream after 1.3.14). Anything Windows does
-  through ffi needs a non-ffi fallback there; the spike's lock falls back to
-  an exclusive `\\.\pipe\` name, verified on x64 and not yet on arm64.
+  through ffi needs a non-ffi fallback there; the lock falls back to an
+  exclusive `\\.\pipe\` name, which is the lock the `win32-arm64` lane's
+  daemon holds (run 33696944598). Its refusal of a second taker is verified
+  on x64 by forcing the pipe lock, not yet on arm64.
 
 **The socket, beyond Bun.** A Windows `AF_UNIX` socket is reachable from Bun
 and from little else werk cares about: Node reaches only `\\.\pipe\` names,
@@ -314,7 +317,9 @@ so re-running is the way to check anything older.
 
 | What                                                    | Where                                                                      | Run                                                                            |
 | ------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| The three original lanes, on `main`, Windows re-run     | [`poc.yml`](../../.github/workflows/poc.yml)                               | [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407) |
+| The three lanes on `main` with every spike merged       | [`poc.yml`](../../.github/workflows/poc.yml)                               | [33696942295](https://github.com/omnilogic-labs/werk/actions/runs/33696942295) |
+| The eight-target matrix on that same `main`             | [`matrix.yml`](../../.github/workflows/matrix.yml)                         | [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598) |
+| The Windows lane before the daemon had `win32` branches | `poc.yml`                                                                  | [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407) |
 | Lane gates made fail-closed                             | [PR #4](https://github.com/omnilogic-labs/werk/pull/4)                     | [33688264859](https://github.com/omnilogic-labs/werk/actions/runs/33688264859) |
 | Eight targets built on Linux, smoked on native runners  | [PR #5](https://github.com/omnilogic-labs/werk/pull/5), `matrix.yml`       | [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325) |
 | macOS socket buffers, signing, process lifecycle probes | [PR #2](https://github.com/omnilogic-labs/werk/pull/2), `macos-probes.yml` | [33688130745](https://github.com/omnilogic-labs/werk/actions/runs/33688130745) |
@@ -328,7 +333,104 @@ with a `push` trigger scoped to it (or `gh workflow run poc.yml --ref
 verdict line per question and never throws. Nothing needs to land on `main`
 to be measured.
 
-## 8. What would change the answer
+## 8. Order of work to a proof of concept that runs everywhere
+
+This is the sequence this proposal proposes, from where
+[`platforms.md`](../../packages/werk-poc/findings/platforms.md) says the lanes
+stand today to every lane green. Each step names what to change, what a
+green result proves, the measurement that says it is done, and the result
+that would mean the approach is wrong. Steps 1–5 are Windows, where the
+suites stop; 6 and 7 the platforms that already pass; 8 and 9 shape.
+
+1. **The platform seam.** Move the inline `process.platform` branches in
+   `src/daemon/flock.ts`, `launch.ts`, `main.ts`, `paths.ts`, `server.ts`,
+   `sockopt.ts`, `_testlib.ts` and `spikes/m2/harness.ts` into one
+   `src/platform/` module with `posix.ts` and `win32.ts` behind the §2
+   interface. No behaviour change. _Proves_ §2's surface is complete: nothing
+   outside `platform/` reads `process.platform`. _Done when_ every lane in
+   `poc.yml` and `matrix.yml` records the same suite verdicts as the runs in
+   §7. _Wrong if_ a branch has no row to live in — then §2's table is short,
+   and the fix is a row, not a call-site branch.
+
+2. **Shutdown and kill through the protocol.** Replace the daemon's
+   signal-based shutdown and the session kill path's `proc.kill(signal)` with
+   protocol messages; on Windows, put each session's child in a Job Object
+   with `KILL_ON_JOB_CLOSE` via `bun:ffi` so a kill takes the tree. _Proves_
+   teardown does not depend on a signal reaching a detached process. _Done
+   when_ `kill signals the child; ls reports the signal; attached clients
+hear exited` in `src/daemon/daemon.test.ts` passes on the `windows` lane
+   and stays green on `ubuntu-latest` and `macos-latest`. _Wrong if_ a
+   ConPTY child cannot be placed in a Job Object from Bun — then tree kill
+   needs a native helper, a cost for §10.
+
+3. **A ConPTY-aware fidelity oracle.** The assertions that expect a
+   byte-identical prologue — `daemon.test.ts` and `spikes/m2/scenarios.ts`
+   look for `ESC[H ESC[2J` — compare instead against what ConPTY emits for
+   the same input: compare cell grids through the engine, or diff against a
+   recorded ConPTY prologue. _Proves_ reattach fidelity
+   is a property of the grid rather than the bytes. _Done when_ `test-full`
+   on the `windows` lane runs every file to a verdict rather than dying of
+   "connection closed", and the failing set is only steps 4 and 5. _Wrong
+   if_ ConPTY's re-encoding of the same input differs between runs — then a
+   Windows host cannot carry the fidelity guarantee the PoC measures, and §6
+   changes.
+
+4. **The harness items.** The running daemon pins `wp.exe`, so the M2
+   harness cannot rebuild it (`EPERM`): build to a per-run path or stop the
+   daemon first. `bench/ops.ts` spawns its own POSIX-shaped daemon; route it
+   through the seam's `spawnDaemon()`. _Done when_ `m2` and `ops` report
+   scenario verdicts on `win32-x64` rather than a launcher error. Harness
+   shape; no stop condition.
+
+5. **Windows arm64 gated like x64.** The `\\.\pipe\` lock already holds on
+   `win32-arm64` (run 33696944598: `x-ls` passes); contend it — a second
+   `wp __daemon` against a live one must be refused — and gate the lane on
+   what `win32-x64` passes. _Done when_ the contention probe passes on
+   `win32-arm64` and `ops` reaches the daemon there. _Wrong if_ a second
+   daemon can take the pipe name while the first holds it — then Windows
+   arm64 needs a lock primitive that is neither ffi nor a pipe.
+
+6. **macOS.** Keep the listener buffer raise in `sockopt.ts`. Replace the
+   fast client's PTY sink in M2 (`spikes/m2/pty-cat.ts`) with a pipe sink,
+   so the run says whether the remaining loss is the harness's or the
+   daemon's. Add `codesign --force --sign -` to the build step and
+   `codesign -v` to both darwin lanes. _Done when_
+   `codesign -v` is green on both darwin lanes and the fast-client bytes-lost
+   figure in `m2` is either zero with the pipe sink or a number the daemon's
+   queue accounts for. _Wrong if_ the
+   loss persists with a pipe sink and the buffers raised — then the drop
+   policy itself behaves differently on XNU, and the slow-client scenario
+   cannot gate macOS until that is understood.
+
+7. **Linux and musl.** Record `libstdc++.so.6` and `libgcc_s.so.1` as what a
+   musl host must carry, or bundle them; fix
+   `spikes/m6/compiled.test.ts`'s hard-coded `linux-x64-glibc`. Record the
+   AVX2 exposure and decide nothing about it. _Done when_ `test-full` on
+   `linux-arm64-glibc` and both musl lanes fails only on the slow-client
+   scenario. _Wrong if_ the fixed test shows the PoC's own shim missing a
+   prebuild — then prebuild lookup in compiled binaries is a real problem
+   rather than a binding quirk.
+
+8. **The release shape.** One build job producing all eight binaries, one
+   native smoke lane per target, with `matrix.yml` folded into `poc.yml` or
+   kept alongside it — measure both and take the cheaper.
+   _Done when_ one dispatch yields eight binaries and a `ci-result-<lane>.json`
+   per lane. No stop condition beyond runner limits.
+
+9. **Transport.** Run the M5 spike on macOS. For a Windows client of a remote
+   daemon, forward to loopback TCP through `ssh -L`; for the Windows daemon's
+   own socket, measure both `AF_UNIX` and loopback TCP with a token file and
+   record both, since §10 leaves that choice open. _Done when_ M5's RTT table
+   exists for macOS and a Windows `wp` completes `hello` with a remote daemon
+   through the forward. _Wrong if_ the forwarded loopback port coalesces or
+   drops frames where the Linux forward in
+   [`m5.md`](../../packages/werk-poc/findings/m5.md) did not.
+
+**Done** is every lane in `poc.yml` and `matrix.yml` green with no forgiven
+suites except the slow-client scenario, on a pinned Bun, with a
+`ci-result-<lane>.json` per lane that says so.
+
+## 9. What would change the answer
 
 - Bun exposing socket buffer sizes, reading the parent's end of an extra
   stdio pipe on Windows, or shipping `bun:ffi` on Windows arm64 — each
@@ -341,7 +443,7 @@ to be measured.
 - The ffi engine winning on some measured metric would bring the prebuild
   matrix, the dylib signing and the `darwin-x64` build problem back.
 
-## 9. What this does not settle
+## 10. What this does not settle
 
 Whether Windows is a host. Whether the daemon should ever be supervised by
 launchd or a Windows service. Which Windows shell is the default. Whether
