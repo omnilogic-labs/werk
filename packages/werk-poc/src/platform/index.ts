@@ -54,11 +54,6 @@ export interface SessionChild {
   writePty(bytes: Uint8Array): void;
 }
 
-/**
- * A session's child together with whatever holds its descendants: a process
- * group on POSIX, a Job Object on Windows, and on a Windows without
- * `bun:ffi` the child alone.
- */
 /** What a platform did when it was asked to end a tree. */
 export interface KillOutcome {
   delivery: KillDelivery;
@@ -66,6 +61,11 @@ export interface KillOutcome {
   signal: string | null;
 }
 
+/**
+ * A session's child together with whatever holds its descendants: a process
+ * group on POSIX, a Job Object on Windows, and on a Windows without
+ * `bun:ffi` the child alone.
+ */
 export interface ProcessTree {
   /** What this platform holds the tree with; a `KillOutcome` says what a kill did. */
   readonly holds: "group" | "job" | "child";
