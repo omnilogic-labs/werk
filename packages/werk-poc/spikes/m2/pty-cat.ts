@@ -29,7 +29,9 @@
 // The pipe and file sinks need a PTY pair for stdin, which Bun 1.3.14 will
 // not hand out on its own (`Bun.spawn({ terminal })` takes all three fds and
 // `Bun.Terminal` exposes no fd), so they open one through libc. Where that
-// fails the run says so and falls back to the PTY.
+// fails the run says so and falls back to the PTY. Under those two sinks
+// `--cols`/`--rows` do nothing: nobody sets a window size on that pair, and
+// a client whose stdout is not a terminal takes its own default size.
 //
 // A progress file `<out>.json` is rewritten every 100 ms with the bytes seen
 // so far, whether `marker` has appeared, and which sink carried them. Under
@@ -160,7 +162,7 @@ async function openPtyPair(): Promise<{
       last = `${name}: ${e instanceof Error ? e.message : String(e)}`;
     }
   }
-  console.error(`pty-cat: no PTY pair for the pipe sink (${last})`);
+  console.error(`pty-cat: no PTY pair for the ${sink} sink (${last})`);
   return null;
 }
 
@@ -170,7 +172,7 @@ if (!pair) sink = "pty";
 /** Bytes towards the client: the PTY master either way. */
 let write: (chunk: Uint8Array) => void;
 let kill: () => void;
-/** Everything the client wrote is in `chunks`, and the child is gone. */
+/** The child is gone and everything it wrote has reached `out`. */
 let finish: () => Promise<number>;
 
 if (pair) {
