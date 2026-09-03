@@ -1,0 +1,124 @@
+# How often `bun run m2` fails on `windows-latest`, and on which scenario.
+#
+# §8's closing table forgives `m2` on `win32-x64` because its two vim
+# scenarios race ConPTY's delivery: red on run 33708479479, green on
+# 33709340151, red again on 33710644108. One lane runs the suite once, which
+# is one sample. This runs it eighteen times for the cost of one lane — six
+# jobs, three runs each, a daemon stop between runs — and prints one
+#
+#   PROBE m2-run-<job>-<n>: <pass|FAIL> <failing scenario names>
+#
+# line per run, with each run's whole table and the notes under every
+# failing scenario in the step log, so a failure can be read rather than
+# counted.
+#
+# Runs on every push to the step branch. `workflow_dispatch` only works for a
+# workflow file that is on the default branch, and this one is not meant to
+# reach it.
+name: step10-m2-vim-probes
+
+on:
+  push:
+    branches: [step/10-m2-vim]
+
+concurrency:
+  group: step10-m2-vim-probes
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  m2:
+    strategy:
+      fail-fast: false
+      matrix:
+        attempt: [1, 2, 3, 4, 5, 6]
+    name: m2 ×3, job ${{ matrix.attempt }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep line endings as committed
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Runner
+        run: |
+          bun --version
+          bun -e 'console.log(process.platform, process.arch, require("node:os").release())'
+          echo "ImageOS=${ImageOS:-} ImageVersion=${ImageVersion:-}"
+          echo "vim: $(command -v vim)"
+          vim --version | head -2
+
+      - name: install
+        timeout-minutes: 3
+        run: bun install --frozen-lockfile
+
+      - name: build
+        timeout-minutes: 8
+        working-directory: packages/werk-poc
+        run: bun run build
+
+      # Three runs of the whole suite, each into its own log, each followed
+      # by the housekeeping the lane does between suites. The verdict line
+      # is derived from the table `run-all.ts` prints; a run that produced no
+      # table (a crash, a hang past the timeout) is `FAIL (no table)`.
+      - name: m2 ×3
+        timeout-minutes: 12
+        working-directory: packages/werk-poc
+        env:
+          WP_M2_VERBOSE: "1"
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/probe-logs"
+          for n in 1 2 3; do
+            log="$GITHUB_WORKSPACE/probe-logs/m2-run-${{ matrix.attempt }}-$n.log"
+            echo "::group::m2 run ${{ matrix.attempt }}-$n"
+            rc=0
+            timeout -k 15 150 bun run m2 >"$log" 2>&1 || rc=$?
+            tr -d '\r' <"$log"
+            echo "exit $rc"
+            echo "::endgroup::"
+            echo "::group::daemon stop after run ${{ matrix.attempt }}-$n"
+            bun run "$GITHUB_WORKSPACE/.github/ci/windows-daemon.ts" stop || true
+            echo "::endgroup::"
+            clean=$(tr -d '\r' <"$log")
+            if ! printf '%s\n' "$clean" | grep -q '^| Scenario |'; then
+              verdict="FAIL (no table, exit $rc)"
+            elif [ "$rc" -eq 0 ]; then
+              verdict="pass"
+            else
+              names=$(printf '%s\n' "$clean" | grep -a '^FAIL  ' | sed 's/^FAIL  //' | cut -d: -f1 | paste -sd, - || true)
+              verdict="FAIL $names"
+            fi
+            echo "PROBE m2-run-${{ matrix.attempt }}-$n: $verdict"
+            {
+              echo "## m2 run ${{ matrix.attempt }}-$n: $verdict"
+              echo
+              printf '%s\n' "$clean" | grep -a '^|'
+              echo
+              if [ "$rc" -ne 0 ]; then
+                echo '```'
+                printf '%s\n' "$clean" | grep -a -A16 '^FAIL  '
+                echo '```'
+              fi
+            } >>"$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step10-m2-vim-probes-${{ matrix.attempt }}
+          path: probe-logs
+          if-no-files-found: warn
+          retention-days: 14
