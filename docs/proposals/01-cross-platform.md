@@ -339,8 +339,8 @@ re-sign: the macOS build steps do it, and both darwin lanes verify what comes
 out — a `codesign` suite on the natively built binary, gated on
 `darwin-arm64` (run 33703344148), and an `x-codesign` suite on the
 cross-compiled one, which arrives from a Linux job that can sign nothing
-(run 33703355321). That
-is also what would catch a Bun signer regression on a version bump. Beyond
+(run 33703355321). That is also what would catch a Bun signer regression on
+a version bump. Beyond
 that, the path is Developer ID with Bun's JIT entitlement set, and notarising
 the zipped binary (a bare executable cannot be stapled, so first run does an
 online check, or ship a `.pkg`). The wasm-only engine
@@ -618,8 +618,7 @@ suites stop; 6 and 7 the platforms that already pass; 8 and 9 shape.
    compiled binary, natively on `win32-arm64` and with the pipe forced on
    `win32-x64` (runs 33712812822 and 33713142782). It is a `lock` suite
    rather than a one-off probe, so every run of either lane asks it again.
-   `ops`
-   reaches the daemon there too: what stopped it was step 4's socket path,
+   `ops` reaches the daemon there too: what stopped it was step 4's socket path,
    and with the runtime directories shortened it passes in 1.5 s with its
    cold-start table — `wp __daemon` to a first `hello` at 124–128 ms, `wp
 ls` against a live daemon at 79–82 ms (runs 33712817886, 33712812822).
