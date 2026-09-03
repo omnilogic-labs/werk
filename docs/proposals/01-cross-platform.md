@@ -357,7 +357,7 @@ so re-running is the way to check anything older.
 | The three lanes with §2's seam in place                 | `poc.yml`                                                                  | [33702171963](https://github.com/omnilogic-labs/werk/actions/runs/33702171963)                                                                                 |
 | The eight targets with §2's seam in place               | `matrix.yml`                                                               | [33702173764](https://github.com/omnilogic-labs/werk/actions/runs/33702173764), [33702588265](https://github.com/omnilogic-labs/werk/actions/runs/33702588265) |
 | The eight targets on `main`, run against those two      | `matrix.yml`                                                               | [33702822069](https://github.com/omnilogic-labs/werk/actions/runs/33702822069)                                                                                 |
-| The Linux lanes with the musl and AVX records            | `matrix.yml`                                                               | [33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138)                                                                                 |
+| The Linux lanes with the musl and AVX records           | `matrix.yml`                                                               | [33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138)                                                                                 |
 | The Windows lane before the daemon had `win32` branches | `poc.yml`                                                                  | [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407)                                                                                 |
 | Lane gates made fail-closed                             | [PR #4](https://github.com/omnilogic-labs/werk/pull/4)                     | [33688264859](https://github.com/omnilogic-labs/werk/actions/runs/33688264859)                                                                                 |
 | Eight targets built on Linux, smoked on native runners  | [PR #5](https://github.com/omnilogic-labs/werk/pull/5), `matrix.yml`       | [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325)                                                                                 |
@@ -381,24 +381,22 @@ green result proves, the measurement that says it is done, and the result
 that would mean the approach is wrong. Steps 1–5 are Windows, where the
 suites stop; 6 and 7 the platforms that already pass; 8 and 9 shape.
 
-1. **The platform seam — done.** The inline `process.platform` branches that
-   were in `src/daemon/flock.ts`, `launch.ts`, `main.ts`, `paths.ts`,
-   `server.ts`, `sockopt.ts`, `_testlib.ts`, `spikes/m2/harness.ts` and
-   `bench/_lib.ts` are now `src/platform/`, with `posix.ts` and `win32.ts`
-   behind the §2 interface, and no behaviour changed with them: run
-   33702171963 records the same verdicts on the three `poc.yml` lanes as the
-   runs above, and run 33702588265's eight `matrix.yml` lanes are verdict for
-   verdict identical to `main` run at the same hour (33702822069) — including
-   that lane's own known-flaky `test-full`, which fails on the slow-client
-   scenario on `main` too. Four
-   branches had no row and are now rows: `stateDir()`, `compiled`,
-   `cpuModel()`, and the zombie check inside `isAlive(pid)`. What still reads
-   `process.platform` outside `platform/` is the ffi engine's target-triple
-   lookup — an engine concern, not the daemon's — the M0 probes, which
-   measure the primitives the seam abstracts and so cannot go through it, and
-   two within-POSIX differences with no column in §2's table: BSD against GNU
-   `ps` keywords in `launch.test.ts` and `script(1)`/`head` flags in
-   `spikes/m2/scenarios.ts`.
+1. **The platform seam — done.** `src/platform/` holds the §2 interface with
+   `posix.ts` and `win32.ts` behind it, and nothing in the daemon, the bench,
+   the M2 harness or the Windows probe scripts branches on `process.platform`
+   at a call site. Nothing moved behaviour with it: run 33702171963 records
+   the same verdicts on the three `poc.yml` lanes as the runs above, and run
+   33702588265's eight `matrix.yml` lanes are verdict for verdict identical
+   to the `main` run of the same hour (33702822069) — including that lane's
+   own flaky `test-full`, which fails on the slow-client scenario on `main`
+   too. Four differences had no row in §2 and now have one: `stateDir()`,
+   `compiled`, `cpuModel()`, and the zombie check inside `isAlive(pid)`.
+   What still reads `process.platform` outside `platform/` is the ffi
+   engine's target-triple lookup — an engine concern, not the daemon's — the
+   M0 probes, which measure the primitives the seam abstracts and so cannot
+   go through it, and two within-POSIX differences with no column in §2's
+   table: BSD against GNU `ps` keywords in `launch.test.ts` and
+   `script(1)`/`head` flags in `spikes/m2/scenarios.ts`.
 
 2. **Shutdown and kill through the protocol.** Replace the daemon's
    signal-based shutdown and the session kill path's `proc.kill(signal)` with

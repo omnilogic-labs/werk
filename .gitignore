@@ -5,3 +5,6 @@ packages/werk-poc/src/web/bundle/app.js
 packages/werk-poc/vendor/ghostty-web/
 packages/werk-poc/*.jsonl
 packages/werk-poc/bench/*.jsonl
+
+# Agent worktrees, provisioned per run.
+.claude/worktrees/

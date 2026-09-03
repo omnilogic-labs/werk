@@ -14,7 +14,7 @@
 # failures it invents.
 #
 # This does not make werk work on Windows. `Bun.Terminal` is POSIX-only,
-# `src/daemon/flock.ts` dlopens libc, and the daemon speaks over a Unix
+# `src/platform/posix.ts` dlopens libc, and the daemon speaks over a Unix
 # socket. None of that is a VT concern, and none of it is touched here.
 
 name: vt-win32
