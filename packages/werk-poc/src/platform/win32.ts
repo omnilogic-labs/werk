@@ -32,7 +32,13 @@
 // console control events, and a daemon spawned detached has no console, so
 // none of them could ever fire; `proc.kill()` from a launcher or a test is
 // `TerminateProcess`, which no handler sees either. Shutdown is the
-// `shutdown` message over the socket, and only that.
+// `shutdown` message over the socket, or a `stop` written to the stop pipe:
+// a `\\.\pipe\` name derived from the lock path that the daemon listens on
+// for as long as it runs (`listenForStop`), which anything on the machine
+// that can open a pipe can reach without a `wp` or a `hello` — the nearest
+// thing a console-less process has to a `kill` typed at a shell. A bare
+// connect does nothing; the word is required so a tool enumerating pipes
+// cannot stop the daemon by opening it.
 //
 // A session's child is held in a Job Object with `KILL_ON_JOB_CLOSE`, which
 // is what makes a kill take the tree rather than the one process Bun knows
@@ -52,6 +58,7 @@ import type {
   ProcessTree,
   SessionChild,
   SpawnDaemonOptions,
+  StopListener,
 } from "./index.ts";
 
 const LOCKFILE_FAIL_IMMEDIATELY = 1;
@@ -253,6 +260,17 @@ function lockPipe(file: string): FileLock | null {
   };
 }
 
+/** The stop pipe's name for the daemon holding `lock`; machine-wide, hence the hash. */
+function stopPipeName(lock: string): string {
+  return `\\\\.\\pipe\\werk-poc-stop-${Bun.hash(lock.toLowerCase())}`;
+}
+
+/** What the daemon logs, and what `requestStop` resolves to, for a stop over `name`. */
+const stopReason = (name: string) => `stop request on ${name}`;
+
+/** The word a requester writes; anything else closes the connection and does nothing. */
+const STOP_WORD = "stop";
+
 /**
  * Polls for the daemon's ready file until it appears, the daemon exits
  * without writing one, or `timeoutMs` passes. The file is removed once read.
@@ -446,6 +464,73 @@ export const win32: Platform = {
 
   /** Nothing to register; see the note at the top of this file. */
   onShutdownSignal(): void {},
+
+  /**
+   * The stop pipe: `Bun.listen` on a `\\.\pipe\` name, the same call the
+   * pipe lock uses and needing no ffi, so it is the same on both Windows
+   * builds. The first chunk that begins with `stop` is the request; the
+   * handler runs once, and every later connection is closed unanswered.
+   */
+  listenForStop(
+    lock: string,
+    handler: (reason: string) => void,
+  ): StopListener | null {
+    const name = stopPipeName(lock);
+    let asked = false;
+    const listener = Bun.listen({
+      unix: name,
+      socket: {
+        open() {},
+        data(socket, chunk) {
+          const word = new TextDecoder().decode(chunk).trim();
+          try {
+            socket.end();
+          } catch {}
+          if (asked || !word.startsWith(STOP_WORD)) return;
+          asked = true;
+          handler(stopReason(name));
+        },
+        error() {},
+      },
+    });
+    return {
+      name,
+      close() {
+        try {
+          listener.stop(true);
+        } catch {}
+      },
+    };
+  },
+
+  /**
+   * Opens the daemon's stop pipe and writes the word. Resolves once the
+   * daemon has closed the connection, which it does on reading the request;
+   * rejects when nothing is listening on the name.
+   */
+  requestStop(_pid: number, lock: string): Promise<string> {
+    const name = stopPipeName(lock);
+    return new Promise<string>((resolve, reject) => {
+      Bun.connect({
+        unix: name,
+        socket: {
+          open(socket) {
+            socket.write(`${STOP_WORD}\n`);
+          },
+          data() {},
+          close() {
+            resolve(stopReason(name));
+          },
+          error(_socket, e) {
+            reject(e);
+          },
+          connectError(_socket, e) {
+            reject(e);
+          },
+        },
+      }).catch(reject);
+    });
+  },
 
   /**
    * The tree is a Job Object with `KILL_ON_JOB_CLOSE`, which

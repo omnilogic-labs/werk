@@ -101,10 +101,20 @@ export async function daemonMain(args: string[]): Promise<number> {
     return 1;
   }
 
-  // Whatever signals reach a detached daemon on this platform end in the same
-  // graceful shutdown, snapshots included; on Windows there are none, and the
-  // `shutdown` message over the socket is the only way in (../platform/).
+  // Whatever reaches a detached daemon from outside the protocol on this
+  // platform ends in the same graceful shutdown, snapshots included: the
+  // signals where there are signals, and where there are none a stop pipe
+  // the daemon keeps open beside the socket (../platform/). Losing the pipe
+  // costs that route and nothing else; the `shutdown` message still works.
   platform.onShutdownSignal((reason) => server.shutdown(reason));
+  try {
+    const stop = platform.listenForStop(paths.lock, (reason) =>
+      server.shutdown(reason),
+    );
+    if (stop) log(`stop requests taken on ${stop.name}`);
+  } catch (e) {
+    log(`no stop listener: ${String((e as Error)?.message ?? e)}`);
+  }
   process.on("uncaughtException", (e) => log(`uncaught: ${e?.stack ?? e}`));
   process.on("unhandledRejection", (e) =>
     log(`unhandled rejection: ${(e as Error)?.stack ?? e}`),

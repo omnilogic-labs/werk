@@ -68,6 +68,8 @@ below by number:
 | [33705813223](https://github.com/omnilogic-labs/werk/actions/runs/33705813223) | `step/04-harness` at `9918e71`                         | the Windows lane with the M2 harness building to a path of its own and `ops` spawning through the seam; [33706143058](https://github.com/omnilogic-labs/werk/actions/runs/33706143058) and [33706712733](https://github.com/omnilogic-labs/werk/actions/runs/33706712733) are all three lanes on that tree, verdict for verdict identical to the merged run on Linux and macOS |
 | [33705737351](https://github.com/omnilogic-labs/werk/actions/runs/33705737351) | `step/03-conpty-oracle`                                | ConPTY's re-encoding compared six ways, and `daemon.test.ts` with and without the test that times out                                                                                                                                                                                                                                                                          |
 | [33706788925](https://github.com/omnilogic-labs/werk/actions/runs/33706788925) | `step/03-conpty-oracle`                                | the Windows lane with the fidelity oracle on the grid and `test-full` run one process per file                                                                                                                                                                                                                                                                                 |
+| [33737447986](https://github.com/omnilogic-labs/werk/actions/runs/33737447986) | `step/10-lifecycle` at `a65ef88`                       | what can stop a detached daemon, and the exited session's attach order, on both Windows runners; the x64 probe hung on `SIGQUIT`                                                                                                                                                                                                                                               |
+| [33738268367](https://github.com/omnilogic-labs/werk/actions/runs/33738268367) | `step/10-lifecycle` at `03031f7`                       | the same without `SIGQUIT`, so the x64 console-event and stop-pipe verdicts are in                                                                                                                                                                                                                                                                                             |
 | [33710644108](https://github.com/omnilogic-labs/werk/actions/runs/33710644108) | `main` with every Windows step merged                  | the three lanes with the seam, teardown through the protocol, the grid oracle and the harness items all in place                                                                                                                                                                                                                                                               |
 
 ### ubuntu-latest
@@ -642,6 +644,54 @@ arm64 (run 33706263111). x64 reports `exitCode` 1 with the kill delivered as
 `job`; arm64 reports `exitCode` null delivered as `terminate`, which is all a
 Windows exit can say when the signal name is dropped and no job set the code.
 
+### A stop the daemon can hear
+
+A detached Windows daemon can be asked to stop from outside the protocol
+only through something it keeps open for the purpose. Every other candidate
+was measured on both Windows runners by
+`.github/ci/step10-lifecycle-probes.ts`, at a child spawned exactly as
+`spawnDaemon` spawns the daemon — `detached`, `windowsHide`, stdio ignored —
+with a Bun handler registered on every signal name (runs 33737447986 and
+33738268367):
+
+| Question                                                        | `win32-x64`                                                                                             | `win32-arm64`              |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `process.kill(pid, "SIGTERM")` / `"SIGINT"`                     | `TerminateProcess`: gone in about 110 ms, no handler run                                                | the same                   |
+| `process.kill(pid, "SIGBREAK")` / `"SIGHUP"`                    | throws `ENOSYS`; the child lives                                                                        | the same                   |
+| `process.kill(pid, "SIGQUIT")`                                  | libuv's minidump path; the caller did not return in seven minutes                                       | `TerminateProcess`, 109 ms |
+| `GenerateConsoleCtrlEvent(CTRL_BREAK, pid)` at a detached child | returns 1 and delivers nothing; `AttachConsole(pid)` fails with error 5, since the child has no console | no `bun:ffi` to ask with   |
+| the same at a child that called `AllocConsole` itself           | the child dies with exit 58; Bun's `SIGBREAK` handler never runs                                        | no `bun:ffi` to ask with   |
+| the word `stop` on the stop pipe, from Bun                      | the child is gone in 62 ms                                                                              | 63 ms                      |
+| the same from PowerShell's `NamedPipeClientStream`              | gone in 485–769 ms                                                                                      | 704 ms                     |
+| a bare connect, then the word `hello`                           | the listener closes each and stays up                                                                   | the same                   |
+| `TerminateProcess` at the real daemon with a session running    | gone in 1 ms, no snapshot on disk, no shutdown line in the log                                          | the same                   |
+| the word `stop` at the real daemon                              | gone in 90–200 ms, the session's `.snap` on disk, `shutdown snapshots: 1 of 1` in the log               | the same, 90 ms            |
+
+So a console control event is a kill on Windows whether or not the daemon
+has a console, and Bun's `process.kill` is a kill by any name it accepts.
+What the daemon has instead is `\\.\pipe\werk-poc-stop-<hash>` — the hash
+is of the case-folded lock path, as the pipe lock's is — which
+`src/platform/win32.ts` opens with the same `Bun.listen` the pipe lock uses,
+so it needs no ffi and is the same on both builds. The first chunk beginning
+with `stop` runs the daemon's graceful shutdown, snapshots included, and the
+requester's connection is closed on reading it; the seam's `requestStop()`
+is that connect-and-write, and on POSIX a `SIGTERM` to the pid. The
+snapshot suite asks through it and holds the daemon's log to the reason it
+resolves — `shutting down: SIGTERM` on Linux and macOS, `shutting down: stop
+request on \\.\pipe\…` on Windows. What the pipe's default ACL lets another
+local user do has not been measured.
+
+The exited session's attach order was never the daemon's. Over a connection
+still attached to a flooding session, a snapshot-mode attach to the exited
+one received 5 output frames before its snapshot on x64 and 10 on arm64;
+over a connection of its own, the snapshot came first and alone on both
+(`exited-attach-order-*` in the same runs). The client installs the new
+attachment's handlers before the daemon has processed the request, and
+whatever the old session writes in between lands in them; on Linux the
+flood is over before the window opens, and on Windows a 4 MiB flood the
+lag-resume test leaves running fills it at ConPTY's pace. The test attaches
+over a connection of its own, which is the order it was asserting.
+
 ### The pipe lock, contended
 
 Where `bun:ffi` is absent the lock is a `\\.\pipe\` name, and on
@@ -699,18 +749,19 @@ obstacle before the branches below existed.
 What Windows does differently is `src/platform/win32.ts`, one implementation
 of the seam's interface, from [PR #3](https://github.com/omnilogic-labs/werk/pull/3):
 
-| Row                        | What it does on Windows                                                                                                                                                                                          |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lock()`                   | `CreateFileW` + `LockFileEx` via `bun:ffi`; falls back to an exclusive `\\.\pipe\werk-poc-lock-<hash>` listener where `bun:ffi` is absent (forced on x64 via `WP_WIN32_LOCK=pipe`; the lock `win32-arm64` holds) |
-| `spawnDaemon()`, readiness | no fourth stdio pipe; a `--ready-file` polled instead, which the daemon writes atomically; `detached: true, windowsHide: true`; `cwd` the home directory                                                         |
-| `compiled`                 | accepts the virtual drive `B:\~BUN\`, backslashes and all                                                                                                                                                        |
-| `runtimeDir()`             | `%LOCALAPPDATA%\werk-poc`; skips the uid and `0o077` checks                                                                                                                                                      |
-| `listen()`                 | unlinks a stale socket before bind-and-rename; no `chmod`                                                                                                                                                        |
-| `rss()`                    | `process.memoryUsage()`                                                                                                                                                                                          |
-| `onShutdownSignal()`       | installs no signal handlers; the `shutdown` message over the socket is the only way in                                                                                                                           |
-| `adoptTree()`              | a Job Object with `KILL_ON_JOB_CLOSE` per session, via `bun:ffi`; the child alone where there is none. An interrupt is `0x03` into the ConPTY                                                                    |
-| `signalsExits`             | false: nothing is delivered as a signal, so no `signalCode` is reported                                                                                                                                          |
-| `isAlive()`                | `kill(pid, 0)` alone — there are no zombies to exclude; `05-daemon-survives` judges by that and a tick file                                                                                                      |
+| Row                                | What it does on Windows                                                                                                                                                                                          |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lock()`                           | `CreateFileW` + `LockFileEx` via `bun:ffi`; falls back to an exclusive `\\.\pipe\werk-poc-lock-<hash>` listener where `bun:ffi` is absent (forced on x64 via `WP_WIN32_LOCK=pipe`; the lock `win32-arm64` holds) |
+| `spawnDaemon()`, readiness         | no fourth stdio pipe; a `--ready-file` polled instead, which the daemon writes atomically; `detached: true, windowsHide: true`; `cwd` the home directory                                                         |
+| `compiled`                         | accepts the virtual drive `B:\~BUN\`, backslashes and all                                                                                                                                                        |
+| `runtimeDir()`                     | `%LOCALAPPDATA%\werk-poc`; skips the uid and `0o077` checks                                                                                                                                                      |
+| `listen()`                         | unlinks a stale socket before bind-and-rename; no `chmod`                                                                                                                                                        |
+| `rss()`                            | `process.memoryUsage()`                                                                                                                                                                                          |
+| `onShutdownSignal()`               | installs no signal handlers: nothing could fire one                                                                                                                                                              |
+| `listenForStop()`, `requestStop()` | a `\\.\pipe\werk-poc-stop-<hash of the lock path>` listener beside the socket, open for the daemon's lifetime; the word `stop` written to it is the request, from Bun or PowerShell alike (below)                |
+| `adoptTree()`                      | a Job Object with `KILL_ON_JOB_CLOSE` per session, via `bun:ffi`; the child alone where there is none. An interrupt is `0x03` into the ConPTY                                                                    |
+| `signalsExits`                     | false: nothing is delivered as a signal, so no `signalCode` is reported                                                                                                                                          |
+| `isAlive()`                        | `kill(pid, 0)` alone — there are no zombies to exclude; `05-daemon-survives` judges by that and a tick file                                                                                                      |
 
 What the lane records with those in place and the fidelity oracle above,
 against the last run without either:
@@ -768,7 +819,7 @@ take 1.3–1.9 s (reattach) and 1.4–4.3 s (resize, the top of the range being
 the 3 s the harness waits for a redraw that is not coming), the probe child
 1.2–1.4 s, the shell 0.8–5.7 s.
 
-`test-full`'s eight are below. `daemon.test.ts` is in the failing set rather
+`test-full`'s failures are below. `daemon.test.ts` is in the failing set rather
 than the no-verdict set now: teardown through the protocol closed the file
 that used to panic, so nothing is hidden behind it any more.
 
@@ -801,18 +852,20 @@ with it changed (runs 33705813223 and 33706143058):
   Winsock's bound is has not been measured, only that 116 refuses and 75
   binds. The Windows lane gates on `ops` now.
 
-The eight failing tests, by cause:
+The failing tests, by cause:
 
-| Test                                                       | Why                                                                                              |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `attach-snapshot.test.ts`: exited session in snapshot mode | an output frame reaches the client before the snapshot, where on Linux the snapshot is first     |
-| `launch.test.ts`: four                                     | `stat` on the socket's reparse point (`EACCES`), a stale socket `existsSync` cannot see, `pgrep` |
-| `snapshot.test.ts`: a real SIGTERM snapshots every session | signals do not reach a detached Windows daemon                                                   |
-| `m1/embedded.test.ts`, `m6/compiled.test.ts`               | both name `/$bunfs/`, which is `B:/~BUN/` here                                                   |
+| Test                                         | Why                                                                                              |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `launch.test.ts`: four                       | `stat` on the socket's reparse point (`EACCES`), a stale socket `existsSync` cannot see, `pgrep` |
+| `m1/embedded.test.ts`, `m6/compiled.test.ts` | both name `/$bunfs/`, which is `B:/~BUN/` here                                                   |
 
-None of the eight is a fidelity failure. Where the kill path, the snapshot
-ordering and the two harness launchers go from here is a design question
-rather than a measurement, and it is left to the proposal.
+None of them is a fidelity failure. Where the two harness launchers go from
+here is a design question rather than a measurement, and it is left to the
+proposal. The two tests about how a process ends — a stop from outside the
+protocol snapshotting every session, and an exited session attaching in
+snapshot mode with its snapshot first — pass on both Windows runners, each
+in a `bun test` process of its own as the lane runs them (runs 33737447986
+and 33738268367); "A stop the daemon can hear" below has the measurements.
 
 Teardown is the other thing that moved. The `kill` suite runs the one test
 that says a kill reaches the child and the session reports what happened to

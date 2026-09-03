@@ -235,6 +235,13 @@ test("a lagging snapshot-mode client is resumed with a fresh snapshot, not a ren
   await client.kill(id, "SIGKILL");
 }, 30_000);
 
+// The order this asserts is the order on one connection that carries
+// nothing else, so the attacher is a connection of its own. Over a
+// connection still attached to another session, `attach` installs its
+// handlers before the daemon has processed the request, and whatever that
+// session writes in between reaches the new handlers as `output` ahead of
+// the snapshot — on Linux a window nothing lands in, on Windows one that a
+// still-running flood from an earlier test fills at ConPTY's pace.
 test("an exited session attaches in snapshot mode with its final screen, then the exited notice", async () => {
   const { id } = await client.run({ argv: sh(`echo bye; exit 3`) });
   expect(
@@ -244,16 +251,20 @@ test("an exited session attaches in snapshot mode with its final screen, then th
       5000,
     ),
   ).toBe(true);
-  const rep = new Replica(client);
+  const own = await connect({ dir, requestTimeoutMs: 20_000 });
+  const rep = new Replica(own);
   const att = await rep.attach(id);
   expect(att.status).toBe("exited");
   expect(await waitFor(() => rep.exited !== null, 3000)).toBe(true);
   expect(rep.snapshots.length).toBe(1);
   expect(rep.order[0]).toBe("snapshot");
+  // Whatever the PTY delivered after the snapshot applies on top of it, and
+  // the replica still shows the final screen.
   const term = rep.decodeLatest();
   expect(term.plainText().split("\n")[0]).toBe("bye");
   expect(rep.exited!.exitCode).toBe(3);
   term.dispose();
   await att.detach();
+  own.close();
   await client.kill(id);
 });
