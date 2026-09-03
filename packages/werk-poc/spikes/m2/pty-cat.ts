@@ -8,33 +8,37 @@
 // (findings/m2.md).
 //
 //   bun run pty-cat.ts --cols=80 --rows=24 --out=<file> --marker=<text> \
-//     [--sink=pty|pipe] -- <argv...>
+//     [--sink=pty|pipe|file] -- <argv...>
 //
-// Two sinks, because where the bytes are lost is itself a question
-// (findings/platforms.md, "Back-pressure"):
+// Three sinks, because where the bytes are lost is itself a question
+// (findings/platforms.md, "Back-pressure"). Each takes one more thing out of
+// the path between the client and the bytes on disk:
 //
 //   --sink=pty   the command's stdin, stdout and stderr are one PTY, and
 //                this process drains the master. What a real terminal does,
 //                and what the fidelity scenarios have always measured.
 //   --sink=pipe  the command keeps a PTY on stdin — `wp attach` needs raw
 //                mode, so it needs a terminal there — and writes to a pipe
-//                this process drains. The line discipline is out of the
-//                path: nothing between the client and this process does
-//                output processing, and any loss left is upstream of the
-//                sink.
+//                this process drains. No line discipline: nothing between
+//                the client and this process does output processing.
+//   --sink=file  as the pipe, but the command writes straight to `<out>`.
+//                A regular file cannot apply back-pressure and nothing in
+//                this process has to keep up, so a loss that survives this
+//                sink is upstream of the client's own fd 1.
 //
-// The pipe sink needs a PTY pair for stdin, which Bun 1.3.14 will not hand
-// out on its own (`Bun.spawn({ terminal })` takes all three fds and
-// `Bun.Terminal` exposes no fd), so it opens one through libc. Where that
-// fails there is no pipe sink; the run says so and falls back to the PTY.
+// The pipe and file sinks need a PTY pair for stdin, which Bun 1.3.14 will
+// not hand out on its own (`Bun.spawn({ terminal })` takes all three fds and
+// `Bun.Terminal` exposes no fd), so they open one through libc. Where that
+// fails the run says so and falls back to the PTY.
 //
-// A progress file `<out>.json` is rewritten every 100 ms with the bytes
-// seen and whether `marker` has appeared. `<out>` is written when the marker
-// appears, again on every tick that adds bytes after it — a reader comparing
-// screens wants what arrived after the marker too, and the pipe sink hands
-// the marker over in a chunk of its own where the PTY's coalescing carried
-// the next prompt with it — and once more when the child exits. This process
-// exits with the child's code.
+// A progress file `<out>.json` is rewritten every 100 ms with the bytes seen
+// so far, whether `marker` has appeared, and which sink carried them. Under
+// the PTY and pipe sinks `<out>` is written when the marker appears, again on
+// every tick that adds bytes after it — a reader comparing screens wants what
+// arrived after the marker too, and the pipe sink hands the marker over in a
+// chunk of its own where the PTY's coalescing carried the next prompt with
+// it — and once more when the child exits; under the file sink the client
+// wrote it all along. This process exits with the child's code.
 
 import fs from "node:fs";
 
@@ -57,9 +61,9 @@ for (let i = 0; i < args.length; i++) {
   else if (a.startsWith("--marker=")) marker = a.slice(9);
   else if (a.startsWith("--sink=")) sink = a.slice(7);
 }
-if (!out || argv.length === 0 || (sink !== "pty" && sink !== "pipe")) {
+if (!out || argv.length === 0 || !["pty", "pipe", "file"].includes(sink)) {
   console.error(
-    "usage: pty-cat.ts --out=<file> [--marker=<text>] [--sink=pty|pipe] -- <argv...>",
+    "usage: pty-cat.ts --out=<file> [--marker=<text>] [--sink=pty|pipe|file] -- <argv...>",
   );
   process.exit(2);
 }
@@ -72,10 +76,31 @@ let tail = "";
 const dec = new TextDecoder();
 
 function dump(): void {
+  if (sink === "file") return; // the client wrote `out` itself
   fs.writeFileSync(out, Buffer.concat(chunks));
   dumped = bytes;
 }
+/** Under the file sink there is nothing in memory to count: ask the file. */
+function poll(): void {
+  if (sink !== "file") return;
+  try {
+    bytes = fs.statSync(out).size;
+  } catch {
+    return;
+  }
+  if (!marker || sawMarker || bytes === 0) return;
+  const from = Math.max(0, bytes - 4096);
+  const buf = Buffer.alloc(bytes - from);
+  const fd = fs.openSync(out, "r");
+  try {
+    fs.readSync(fd, buf, 0, buf.length, from);
+  } finally {
+    fs.closeSync(fd);
+  }
+  if (buf.toString("latin1").includes(marker)) sawMarker = true;
+}
 function progress(): void {
+  poll();
   if (sawMarker && dumped !== bytes) dump();
   fs.writeFileSync(`${out}.json`, JSON.stringify({ bytes, sawMarker, sink }));
 }
@@ -139,8 +164,8 @@ async function openPtyPair(): Promise<{
   return null;
 }
 
-const pair = sink === "pipe" ? await openPtyPair() : null;
-if (sink === "pipe" && !pair) sink = "pty";
+const pair = sink === "pty" ? null : await openPtyPair();
+if (!pair) sink = "pty";
 
 /** Bytes towards the client: the PTY master either way. */
 let write: (chunk: Uint8Array) => void;
@@ -149,23 +174,30 @@ let kill: () => void;
 let finish: () => Promise<number>;
 
 if (pair) {
+  const outFd = sink === "file" ? fs.openSync(out, "w") : undefined;
   const child = Bun.spawn(argv, {
     env: process.env as Record<string, string>,
     stdin: pair.slave,
-    stdout: "pipe",
+    stdout: outFd ?? "pipe",
     stderr: "inherit",
   });
-  // The parent's copy of the slave is not the child's; closing it keeps this
-  // process from holding the terminal open after the child has gone.
+  // The parent's copies of the child's ends are not the child's; closing them
+  // keeps this process from holding them open after the child has gone.
   fs.closeSync(pair.slave);
-  const drained = (async () => {
-    const reader = child.stdout.getReader();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) take(value);
-    }
-  })();
+  if (outFd !== undefined) fs.closeSync(outFd);
+  const drained =
+    outFd === undefined
+      ? (async () => {
+          const reader = (
+            child.stdout as ReadableStream<Uint8Array>
+          ).getReader();
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) take(value);
+          }
+        })()
+      : Promise.resolve();
   write = (chunk) => {
     fs.writeSync(pair.master, chunk);
   };

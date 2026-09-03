@@ -438,10 +438,13 @@ export const slowClient: Scenario = {
     const c = await daemonClient(env);
     // The fast client runs under pty-cat.ts in a process of its own, so
     // that nothing this harness does can slow its sink down. `WP_M2_SINK`
-    // picks that sink: a PTY, which is what a terminal gives a client, or a
-    // pipe, which takes the line discipline out of the path and so says
-    // whether the bytes the daemon dropped were dropped because of the sink.
-    const sink = process.env.WP_M2_SINK === "pipe" ? "pipe" : "pty";
+    // picks that sink: a PTY, which is what a terminal gives a client; a
+    // pipe, which takes the line discipline out of the path; or a file,
+    // which cannot apply back-pressure at all. What the daemon still drops
+    // under the last of those is not the harness's doing.
+    const sink = ["pipe", "file"].includes(process.env.WP_M2_SINK ?? "")
+      ? process.env.WP_M2_SINK!
+      : "pty";
     const outFile = path.join(env.root, "fast.bin");
     const progress = (): {
       bytes: number;

@@ -280,17 +280,21 @@ jobs:
       # slow-client scenario's *fast* client loses bytes on macOS and not on
       # Linux, and the daemon already raises its listener's SO_SNDBUF to
       # Linux's figure (src/daemon/sockopt.ts), so what is left to separate is
-      # the sink. `WP_M2_SINK=pipe` puts the fast client's `wp attach` behind
-      # a pipe instead of a PTY: the line discipline goes out of the path, and
-      # what the daemon still drops is the daemon's.
-      - name: m2 with a pipe sink under the fast client (diagnostic)
-        id: m2-pipe-sink
+      # the sink. The scenario runs once per sink — a PTY as a terminal gives
+      # a client, a pipe with no line discipline, a file that cannot apply
+      # back-pressure at all — and the three bytes-lost figures say how much
+      # of the loss the sink accounts for.
+      - name: the slow-client scenario under each sink (diagnostic)
+        id: m2-sinks
         continue-on-error: true
         timeout-minutes: 20
         working-directory: packages/werk-poc
-        env:
-          WP_M2_SINK: pipe
-        run: bun run m2
+        run: |
+          for s in pty pipe file; do
+            echo "::group::WP_M2_SINK=$s"
+            WP_M2_SINK=$s bun run ./spikes/m2/run-all.ts "slow client" || true
+            echo "::endgroup::"
+          done
 
       - name: Result
         id: result
