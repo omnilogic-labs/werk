@@ -6,8 +6,8 @@
 // main.ts; this file only needs the directories.
 
 import fs from "node:fs";
-import type { Socket, TCPSocketListener } from "bun";
 import path from "node:path";
+import type { Socket, TCPSocketListener } from "bun";
 import { heapStats } from "bun:jsc";
 import { GHOSTTY_COMMIT } from "../engine/ghostty-wasm/bytes.ts";
 import { getEngine, peekEngine } from "../engine/registry.ts";
