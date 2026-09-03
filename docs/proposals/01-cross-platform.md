@@ -86,27 +86,29 @@ and `/proc` reads returned `false` for every live process on any other OS.
 The surface, from what the PoC and the spikes actually needed. The rows with
 no implementation yet are marked; they are what §8's later steps fill in:
 
-| Concern              | POSIX                                                                                      | Windows                                                                                              |
-| -------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `lock(dir)`          | `flock(LOCK_EX\|LOCK_NB)` via `bun:ffi`                                                    | `CreateFileW` + `LockFileEx` via `bun:ffi`; where `bun:ffi` is absent, an exclusive named pipe       |
-| `runtimeDir()`       | `$XDG_RUNTIME_DIR` → `$TMPDIR/werk-$UID`, mode checked                                     | `%LOCALAPPDATA%\werk`; mode and uid checks skipped (Bun reports `40666` and no uid)                  |
-| `stateDir()`         | `$XDG_STATE_HOME` → `~/.local/state/werk`                                                  | `%LOCALAPPDATA%\werk\state`                                                                          |
-| `listen()`           | `AF_UNIX` under `runtimeDir()`, bind-and-rename, `chmod 0600`                              | `AF_UNIX` works for a Bun client; a stale socket has to be unlinked first, and has no mode (§3)      |
-| the socket's reach   | anything that can open the path                                                            | Bun only, unless the daemon also lands on `127.0.0.1:<port>` with a token file — measured, open (§3) |
-| `spawnDaemon()`      | `detached: true` (`setsid`), `cwd: /`                                                      | `detached: true, windowsHide: true`, stdio ignored, `cwd` the home directory                         |
-| readiness            | connect and complete `hello` within a deadline                                             | the same; the failure reason comes from the daemon's log file                                        |
-| `compiled`           | `import.meta.path` starts `/$bunfs/`                                                       | the virtual drive `B:\~BUN\`, and the path arrives with backslashes                                  |
-| `isAlive(pid)`       | `kill(pid, 0)`, then `/proc/<pid>/stat` — `ps -o state=` on macOS — so a zombie reads dead | `kill(pid, 0)` (works in Bun on Windows); there are no zombies to exclude                            |
-| `rss(pid)`           | `/proc/<pid>/status`, or `ps -o rss=` on macOS                                             | `process.memoryUsage()`, so only for this process                                                    |
-| `cpuModel()`         | `machdep.cpu.brand_string` on macOS, `/proc/cpuinfo` on Linux                              | libuv's own `os.cpus()`                                                                              |
-| `onShutdownSignal()` | `SIGTERM`/`SIGINT`/`SIGHUP`, each ending in the same graceful shutdown                     | nothing to register: no console-control event reaches a detached daemon                              |
-| `terminate(pid)`     | `SIGKILL`, when the `shutdown` message's grace has run out                                 | `TerminateProcess`, for the same reason                                                              |
-| `signalsExits`       | true: an exit status names the signal that ended a process                                 | false: Bun echoes back the name `proc.kill` was passed, and reports it for a `TerminateProcess`      |
-| `adoptTree(child)`   | the child's process group, which the inline `terminal` makes it the leader of              | a Job Object with `KILL_ON_JOB_CLOSE`, joined by inheritance; the child alone where there is no ffi  |
-| tree `interrupt()`   | `SIGINT` to that group                                                                     | `0x03` into the ConPTY; what dies of it is up to the child's runtime                                 |
-| tree `kill()`        | `SIGTERM` or `SIGKILL` to that group                                                       | `TerminateJobObject`, which takes the descendants with it                                            |
-| socket buffers       | Linux default 208 KiB; macOS 8 KiB, raised via `setsockopt` on the listener's `fd`         | unmeasured, so the kernel's own figure stands                                                        |
-| `defaultShell()`     | _not implemented:_ `$SHELL` → `/bin/sh`                                                    | _not implemented:_ probably config → `pwsh` → Windows PowerShell → `%COMSPEC%`; nobody has decided   |
+| Concern              | POSIX                                                                                      | Windows                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `lock(dir)`          | `flock(LOCK_EX\|LOCK_NB)` via `bun:ffi`                                                    | `CreateFileW` + `LockFileEx` via `bun:ffi`; where `bun:ffi` is absent, an exclusive named pipe              |
+| `runtimeDir()`       | `$XDG_RUNTIME_DIR` → `$TMPDIR/werk-$UID`, mode checked                                     | `%LOCALAPPDATA%\werk`; mode and uid checks skipped (Bun reports `40666` and no uid)                         |
+| `stateDir()`         | `$XDG_STATE_HOME` → `~/.local/state/werk`                                                  | `%LOCALAPPDATA%\werk\state`                                                                                 |
+| `listen()`           | `AF_UNIX` under `runtimeDir()`, bind-and-rename, `chmod 0600`                              | `AF_UNIX` works for a Bun client; a stale socket has to be unlinked first, and has no mode (§3)             |
+| the socket's reach   | anything that can open the path                                                            | Bun only, unless the daemon also lands on `127.0.0.1:<port>` with a token file — measured, open (§3)        |
+| `spawnDaemon()`      | `detached: true` (`setsid`), `cwd: /`                                                      | `detached: true, windowsHide: true`, stdio ignored, `cwd` the home directory                                |
+| readiness            | connect and complete `hello` within a deadline                                             | the same; the failure reason comes from the daemon's log file                                               |
+| `compiled`           | `import.meta.path` starts `/$bunfs/`                                                       | the virtual drive `B:\~BUN\`, and the path arrives with backslashes                                         |
+| `isAlive(pid)`       | `kill(pid, 0)`, then `/proc/<pid>/stat` — `ps -o state=` on macOS — so a zombie reads dead | `kill(pid, 0)` (works in Bun on Windows); there are no zombies to exclude                                   |
+| `rss(pid)`           | `/proc/<pid>/status`, or `ps -o rss=` on macOS                                             | `process.memoryUsage()`, so only for this process                                                           |
+| `cpuModel()`         | `machdep.cpu.brand_string` on macOS, `/proc/cpuinfo` on Linux                              | libuv's own `os.cpus()`                                                                                     |
+| `onShutdownSignal()` | `SIGTERM`/`SIGINT`/`SIGHUP`, each ending in the same graceful shutdown                     | nothing to register: no console-control event reaches a detached daemon                                     |
+| `listenForStop()`    | nothing to keep open: the signals above are that route                                     | a `\\.\pipe\` name derived from the lock path, open beside the socket; the word `stop` on it is the request |
+| `requestStop()`      | `kill(pid, SIGTERM)`                                                                       | opens that pipe and writes the word; from Bun, PowerShell, or anything that can open a pipe (§3)            |
+| `terminate(pid)`     | `SIGKILL`, when the `shutdown` message's grace has run out                                 | `TerminateProcess`, for the same reason                                                                     |
+| `signalsExits`       | true: an exit status names the signal that ended a process                                 | false: Bun echoes back the name `proc.kill` was passed, and reports it for a `TerminateProcess`             |
+| `adoptTree(child)`   | the child's process group, which the inline `terminal` makes it the leader of              | a Job Object with `KILL_ON_JOB_CLOSE`, joined by inheritance; the child alone where there is no ffi         |
+| tree `interrupt()`   | `SIGINT` to that group                                                                     | `0x03` into the ConPTY; what dies of it is up to the child's runtime                                        |
+| tree `kill()`        | `SIGTERM` or `SIGKILL` to that group                                                       | `TerminateJobObject`, which takes the descendants with it                                                   |
+| socket buffers       | Linux default 208 KiB; macOS 8 KiB, raised via `setsockopt` on the listener's `fd`         | unmeasured, so the kernel's own figure stands                                                               |
+| `defaultShell()`     | _not implemented:_ `$SHELL` → `/bin/sh`                                                    | _not implemented:_ probably config → `pwsh` → Windows PowerShell → `%COMSPEC%`; nobody has decided          |
 
 Two things the table does not say. The environment overrides that name a
 directory outright — `XDG_RUNTIME_DIR`, `XDG_STATE_HOME`, `WP_STATE_DIR`,
@@ -138,9 +140,18 @@ misleading. So the `shutdown` message is the way in on every platform, and a
 `kill` carries a mode — interrupt, terminate or force — rather than a signal
 name. Signals stay a second route into the daemon's shutdown on POSIX,
 because `kill` typed at a shell is a real thing and the snapshot suite sends
-one; nothing on Windows registers a handler, since nothing could fire it. A
-POSIX signal name on a `kill` still says what it always said and is still
-the signal that gets sent; on Windows it names a mode and nothing else.
+one. Windows has no handler to register — a console control event needs a
+console the detached daemon does not have, and a daemon that allocated one
+would only die of the event, since Bun 1.3.14 runs no handler for it (§3) —
+so its second route is a `\\.\pipe\` name derived from the lock path, open
+for as long as the daemon runs, on which the word `stop` asks for the same
+shutdown: reachable from Bun, from PowerShell's pipe client, or from anything
+else that can open a pipe, with no `wp` and no `hello`. A bare connect or
+any other word does nothing. The snapshot suite asks through the seam, which
+sends the signal where there is one and the word where there is not, and
+holds the daemon's log to the reason it resolves. A POSIX signal name on a
+`kill` still says what it always said and is still the signal that gets
+sent; on Windows it names a mode and nothing else.
 
 ## 3. Windows, specifically
 
@@ -167,6 +178,23 @@ far enough to hit questions rather than blockers:
   none: a `kill` is a mode, a session records how the platform carried it out,
   and a Windows exit says `exitCode` 1 with no `signalCode`. The tree comes
   from a Job Object — see below.
+- **The daemon can be asked to stop only through something it keeps open
+  for the purpose.** Bun's `process.kill(pid)` at a detached daemon is
+  `TerminateProcess` for `SIGTERM` and `SIGINT` — gone in about 110 ms, no
+  handler run, nothing written to disk — `ENOSYS` for `SIGBREAK` and
+  `SIGHUP`, and for `SIGQUIT` on x64 a libuv minidump path from which the
+  caller did not return in seven minutes. `GenerateConsoleCtrlEvent` returns
+  success at a detached daemon and delivers nothing, since `AttachConsole`
+  to it fails with error 5: it has no console. At a daemon that allocated
+  one the event ends the process with exit 58 and runs no handler, so a
+  console event is a kill either way. What the daemon has instead is
+  `\\.\pipe\werk-poc-stop-<hash of the lock path>`, listened on beside its
+  socket for as long as it runs, on which the word `stop` is the request:
+  62–63 ms from Bun and 0.5–0.8 s from PowerShell's pipe client to the
+  process being gone with every session on disk, on both runners; a bare
+  connect or any other word closes the connection and does nothing (runs
+  33737447986, 33738268367). Who else on the machine the pipe's ACL lets
+  write that word has not been measured.
 - **A ConPTY carries about 20 KiB/s.** A 4 MiB flood does not finish inside a
   minute: 1.0–1.3 MiB of it reaches the reader in 60 s, against about
   99 MiB/s through a session on Linux. Every PoC assertion that pushes
@@ -782,8 +810,8 @@ slow-client scenario is CPU headroom on a shared runner (§5) and unexplained
 throughput on macOS (§4); `darwin-x64` and `win32-arm64`'s ffi failures are a
 missing prebuild and a `bun:ffi` that cannot `dlopen`; `m3` and `m0` are
 nondeterministic. What remains as work rather than circumstance is
-`test-full`'s ten on Windows, which §3 accounts for one by one, and `m2`'s
-vim scenarios racing ConPTY's delivery.
+`test-full`'s remaining failures on Windows, which §3 and §11 account for
+one by one, and `m2`'s vim scenarios racing ConPTY's delivery.
 
 So the gates say what each lane holds today, and the set each forgives is the
 list of what a Windows host would still cost. Whether the slow-client
@@ -821,18 +849,21 @@ find, and what the runs leave undone.
 Each of these was diagnosed as something else first, and each would be easy
 to re-introduce.
 
-| What you see                                           | What it is                                                                                                                                          |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Bun reports `signalCode: "SIGTERM"` on Windows         | The name you passed to `proc.kill()`, echoed back. `TerminateProcess` ran and no signal was delivered (§3).                                         |
-| `bun:ffi` "missing" on Windows arm64                   | The module imports; every `dlopen` through it throws "TinyCC is disabled". Detect by what `dlopen` does, not by whether the import works (§3).      |
-| A whole `bun test` file dying with "connection closed" | A test timed out, Bun killed the daemon the file had started, and then panicked. One process per file bounds the damage to that file (§3).          |
-| A test that burns five seconds and then fails          | `expect(promise).rejects` hangs on Windows where catching the same rejection returns at once. Other `expect().rejects` in the same file are fine.   |
-| "daemon did not answer within 10 s", with no reason    | Often an `AF_UNIX` path too long — Winsock refused 116 characters where 75 bound (§3). Have the launcher report the last connect error.             |
-| A reattach test failing on the render prologue         | It was not the prologue; that assertion passed. ConPTY re-encodes the stream, so compare cell grids, never bytes (§3).                              |
-| `m2` or `m3` red on Windows                            | Probably the run, not the tree: `m2`'s vim scenarios race ConPTY's delivery, `m3` prints every table and then does not exit. Neither is gated (§8). |
-| The slow-client scenario red on a hosted lane          | CPU headroom on a shared runner — roughly two attempts in seven pass. A green lane is not evidence it is fixed (§5).                                |
-| macOS losing about 6 MB in the fast-client scenario    | Not the client's sink: a pipe and a plain file lose as much as a PTY. An unexplained delivery rate; §4 says what is ruled out.                      |
-| A stale binary answering a `hello`                     | `PROTOCOL_VERSION` catches a changed wire shape only if it is bumped when the wire changes. `dist/bench-ops/` caches a binary across runs.          |
+| What you see                                                      | What it is                                                                                                                                                                                                                                              |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bun reports `signalCode: "SIGTERM"` on Windows                    | The name you passed to `proc.kill()`, echoed back. `TerminateProcess` ran and no signal was delivered (§3).                                                                                                                                             |
+| `bun:ffi` "missing" on Windows arm64                              | The module imports; every `dlopen` through it throws "TinyCC is disabled". Detect by what `dlopen` does, not by whether the import works (§3).                                                                                                          |
+| A whole `bun test` file dying with "connection closed"            | A test timed out, Bun killed the daemon the file had started, and then panicked. One process per file bounds the damage to that file (§3).                                                                                                              |
+| A test that burns five seconds and then fails                     | `expect(promise).rejects` hangs on Windows where catching the same rejection returns at once. Other `expect().rejects` in the same file are fine.                                                                                                       |
+| "daemon did not answer within 10 s", with no reason               | Often an `AF_UNIX` path too long — Winsock refused 116 characters where 75 bound (§3). Have the launcher report the last connect error.                                                                                                                 |
+| A reattach test failing on the render prologue                    | It was not the prologue; that assertion passed. ConPTY re-encodes the stream, so compare cell grids, never bytes (§3).                                                                                                                                  |
+| `m2` or `m3` red on Windows                                       | Probably the run, not the tree: `m2`'s vim scenarios race ConPTY's delivery, `m3` prints every table and then does not exit. Neither is gated (§8).                                                                                                     |
+| The slow-client scenario red on a hosted lane                     | CPU headroom on a shared runner — roughly two attempts in seven pass. A green lane is not evidence it is fixed (§5).                                                                                                                                    |
+| macOS losing about 6 MB in the fast-client scenario               | Not the client's sink: a pipe and a plain file lose as much as a PTY. An unexplained delivery rate; §4 says what is ruled out.                                                                                                                          |
+| A stale binary answering a `hello`                                | `PROTOCOL_VERSION` catches a changed wire shape only if it is bumped when the wire changes. `dist/bench-ops/` caches a binary across runs.                                                                                                              |
+| `GenerateConsoleCtrlEvent` returning success at the daemon        | It delivered nothing: a detached daemon has no console, and `AttachConsole` to it fails with error 5. Given a console, the event ends the process without Bun running a handler (§3).                                                                   |
+| `process.kill(pid, "SIGQUIT")` never returning on Windows x64     | libuv's `kill` writes a minidump of the target for that name; the caller sat in it until a 420 s step timeout (run 33737447986). arm64 terminates the child instead.                                                                                    |
+| An `output` frame ahead of the snapshot on a snapshot-mode attach | The connection was still attached to another session: the client installs the new handlers before the daemon has processed the attach, and that session's output lands in them. A flood an earlier test left running fills the window at ConPTY's pace. |
 
 Two rules follow from that list. **Detect a platform capability by trying it
 rather than by asking what platform this is** — the arm64 `bun:ffi` row is
@@ -864,11 +895,14 @@ bytes**, because one of the three platforms rewrites the bytes.
 Nobody has decided any of this is worth doing; it is what the measurements
 stopped short of.
 
-- **`test-full`'s ten failures on Windows**, which §3 accounts for one by
-  one: four are `launch.test.ts` asking the filesystem about a socket that is
-  a reparse point, two name `/$bunfs/` where the path is `B:/~BUN/`, one
-  wants a real SIGTERM to reach a detached daemon, and two are ConPTY
-  throughput against a 4 MiB flood.
+- **`test-full`'s failures on Windows**, which §3 accounts for one by one:
+  four are `launch.test.ts` asking the filesystem about a socket that is a
+  reparse point, two name `/$bunfs/` where the path is `B:/~BUN/`, one is
+  ConPTY throughput against a 4 MiB flood, and one is the vim-resize race
+  below run as a test. The two about how a process ends — a stop from
+  outside the protocol, and an exited session's attach order — pass on both
+  Windows runners (runs 33737447986, 33738268367); what the stop pipe's ACL
+  allows another local user is the part of that nobody has measured.
 - **`m2`'s vim scenarios**, racing ConPTY's delivery. One `waitFor` has
   already not been enough, so the next attempt probably wants the grid oracle
   rather than another timeout.
