@@ -63,10 +63,10 @@ if (want("ffi")) {
 // --------------------------------------------------------- flock, as werk does
 if (want("flock")) {
   try {
-    const { tryLock } =
-      await import("../../packages/werk-poc/src/daemon/flock.ts");
+    const { platform } =
+      await import("../../packages/werk-poc/src/platform/index.ts");
     const p = path.join(os.tmpdir(), `wp-probe-${process.pid}.lock`);
-    const lock = tryLock(p);
+    const lock = platform.lock(p);
     say("flock", lock ? "ok — lock taken" : "fail — lock refused (no error)");
     lock?.release();
   } catch (e) {

@@ -30,6 +30,7 @@ import {
   type VtTerminal,
 } from "../src/engine/types.ts";
 import type { DaemonStats } from "../src/client/index.ts";
+import { compiled } from "../src/platform/index.ts";
 import { readCast } from "./cast.ts";
 import { CORPUS } from "./corpus/index.ts";
 import {
@@ -738,8 +739,7 @@ export async function trapChild(step: string): Promise<void> {
 }
 
 async function hugeResizeInChild(): Promise<TrapReport["hugeResize"]> {
-  const isCompiled = import.meta.path.startsWith("/$bunfs/");
-  const argv = isCompiled
+  const argv = compiled
     ? [process.execPath, "bench", "perf", "--trap-child", "resize-huge"]
     : [
         process.execPath,
