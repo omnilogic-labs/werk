@@ -37,16 +37,16 @@ unknown.
 
 Every "measured" cell names a run in §7. A cell is a claim until it does.
 
-| Target            | Runner             | wasm engine, differential | Daemon from a cross-compiled binary | PoC suites                                               |
-| ----------------- | ------------------ | ------------------------- | ----------------------------------- | -------------------------------------------------------- |
-| linux-x64-glibc   | `ubuntu-24.04`     | reference                 | starts, answers `ls`                | all pass but the slow-client scenario                    |
-| linux-arm64-glibc | `ubuntu-24.04-arm` | identical                 | starts, answers `ls`                | same                                                     |
-| linux-x64-musl    | Alpine 3.22        | identical                 | starts, answers `ls`                | same; the binary needs `libstdc++` and `libgcc_s` there  |
-| linux-arm64-musl  | Alpine 3.22 on arm | identical                 | starts, answers `ls`                | same                                                     |
-| darwin-arm64      | `macos-latest`     | identical                 | starts, answers `ls`                | same as Linux                                            |
-| darwin-x64        | `macos-15-intel`   | identical                 | starts, answers `ls`                | same; no ffi prebuild exists, so ffi tests fail          |
-| win32-x64         | `windows-latest`   | identical                 | starts, answers `ls` (§3)           | four suites fail: ConPTY render, kill, two harness items |
-| win32-arm64       | `windows-11-arm`   | identical                 | starts, answers `ls`; no `bun:ffi`  | as x64, plus no ffi engine at all in Bun 1.3.14          |
+| Target            | Runner             | wasm engine, differential | Daemon from a cross-compiled binary | PoC suites                                              |
+| ----------------- | ------------------ | ------------------------- | ----------------------------------- | ------------------------------------------------------- |
+| linux-x64-glibc   | `ubuntu-24.04`     | reference                 | starts, answers `ls`                | all pass but the slow-client scenario                   |
+| linux-arm64-glibc | `ubuntu-24.04-arm` | identical                 | starts, answers `ls`                | same                                                    |
+| linux-x64-musl    | Alpine 3.22        | identical                 | starts, answers `ls`                | same; the binary needs `libstdc++` and `libgcc_s` there |
+| linux-arm64-musl  | Alpine 3.22 on arm | identical                 | starts, answers `ls`                | same                                                    |
+| darwin-arm64      | `macos-latest`     | identical                 | starts, answers `ls`                | same as Linux                                           |
+| darwin-x64        | `macos-15-intel`   | identical                 | starts, answers `ls`                | same; no ffi prebuild exists, so ffi tests fail         |
+| win32-x64         | `windows-latest`   | identical                 | starts, answers `ls` (§3)           | three suites fail: ConPTY render, kill, three M0 probes |
+| win32-arm64       | `windows-11-arm`   | identical                 | starts, answers `ls`; no `bun:ffi`  | as x64, plus no ffi engine at all in Bun 1.3.14         |
 
 Three things the table says that the research did not expect:
 
@@ -147,9 +147,13 @@ far enough to hit questions rather than blockers:
 - **Kill semantics.** `kill` through the protocol is `TerminateProcess`, exit
   code 1, no signal name; a test that waits for a signal to be reported times
   out. This is the `shutdown()`/`interrupt()` row of §2 as a design item.
-- Two harness problems that are not platform facts: a running daemon pins
-  `wp.exe` so the M2 harness cannot rebuild it, and `bench/ops.ts` has its own
-  POSIX-shaped launcher.
+- **A socket path can be too long for Winsock.** `bench/ops.ts` named a
+  runtime directory after the target it was timing, which put the daemon's
+  socket 116 characters under `%TEMP%`; the daemon exited 1 saying it had
+  failed to listen, and the seam's readiness detail is what carried that back
+  (run 33704932420). At 75 characters it binds. An AF_UNIX path is bounded at
+  108 bytes on Linux and 104 on macOS; nobody has measured where Winsock's
+  bound falls.
 
 Three verdicts the Windows lane's suites report are artefacts of how the
 suites measure, not platform facts; the spike measured each directly:
@@ -388,6 +392,7 @@ so re-running is the way to check anything older.
 | Both darwin lanes verifying a signed binary, each M2 sink measured | `poc.yml` and `matrix.yml`                                                 | [33703344148](https://github.com/omnilogic-labs/werk/actions/runs/33703344148), [33703355321](https://github.com/omnilogic-labs/werk/actions/runs/33703355321) |
 | Windows primitives probed directly                                 | [PR #3](https://github.com/omnilogic-labs/werk/pull/3), `win32-spike.yml`  | [33691536664](https://github.com/omnilogic-labs/werk/actions/runs/33691536664)                                                                                 |
 | The Windows lane with the three blockers stepped over              | PR #3, `poc.yml`                                                           | [33690884893](https://github.com/omnilogic-labs/werk/actions/runs/33690884893)                                                                                 |
+| The Windows lane with the M2 and `ops` harness items done          | `step/04-harness`, `poc.yml`                                               | [33705813223](https://github.com/omnilogic-labs/werk/actions/runs/33705813223), [33706143058](https://github.com/omnilogic-labs/werk/actions/runs/33706143058) |
 
 The cheap way to ask any further question is the same: a branch, a workflow
 with a `push` trigger scoped to it (or `gh workflow run poc.yml --ref
@@ -444,12 +449,22 @@ hear exited` in `src/daemon/daemon.test.ts` passes on the `windows` lane
    Windows host cannot carry the fidelity guarantee the PoC measures, and §6
    changes.
 
-4. **The harness items.** The running daemon pins `wp.exe`, so the M2
-   harness cannot rebuild it (`EPERM`): build to a per-run path or stop the
-   daemon first. `bench/ops.ts` spawns its own POSIX-shaped daemon; route it
-   through the seam's `spawnDaemon()`. _Done when_ `m2` and `ops` report
-   scenario verdicts on `win32-x64` rather than a launcher error. Harness
-   shape; no stop condition.
+4. **The harness items — done.** The M2 harness compiles to
+   `dist/m2/wp-<pid>` rather than over `dist/wp`, so no daemon running an
+   earlier build can pin the file it writes, and `bench/ops.ts` spawns
+   through the seam's `spawnDaemon()` with runtime directories short enough
+   for Winsock to bind under. Both suites report on `win32-x64` rather than
+   dying in a launcher (runs 33705813223 and 33706143058): `ops` passes in
+   about 1.3 s with its cold-start table, and `m2` reports all eight scenario
+   verdicts, of which five or six pass. `m2` reported them on the lane
+   before too, because the lane stops every daemon it can find before the
+   suites that build; what it no longer needs is that housekeeping. Its
+   stable failures are the alternate-screen scenario, which is step 3's
+   ConPTY oracle, and the `SIGSTOP` slow client, which Windows has no signal
+   for; a third scenario fails on some runs where an assertion reads the PTY
+   buffer before ConPTY has finished delivering into it. `ops` is gated on
+   the Windows lane now; `m2` is recorded rather than gated, since a suite
+   that reports two failures is not one to gate on.
 
 5. **Windows arm64 gated like x64.** The `\\.\pipe\` lock already holds on
    `win32-arm64` (run 33696944598: `x-ls` passes); contend it — a second

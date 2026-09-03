@@ -15,6 +15,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { connect } from "../src/client/index.ts";
+import { daemonPaths, ensureRuntimeDir } from "../src/daemon/paths.ts";
+import { platform } from "../src/platform/index.ts";
 import {
   alive,
   cpuModel,
@@ -319,27 +321,32 @@ function timeRuns(
   };
 }
 
-/** Spawns `wp __daemon` the way the launcher does and times the ready token on fd 3. */
+/**
+ * Spawns `wp __daemon` the way the launcher does — through the seam
+ * (`src/platform/`), so the child gets this platform's spawn shape and its
+ * readiness report rather than a POSIX-shaped one of this file's own — and
+ * times a first successful `hello`.
+ */
 async function daemonToReady(
   argv: string[],
   dir: string,
   stateDir: string,
 ): Promise<number> {
+  // The seam hands the daemon this process's environment, so the state
+  // directory is named in it rather than passed to the spawn.
+  process.env.WP_STATE_DIR = stateDir;
+  ensureRuntimeDir(dir);
+  const paths = daemonPaths(dir, stateDir);
   const t0 = performance.now();
-  const proc = Bun.spawn(
-    [...argv, "__daemon", `--dir=${dir}`, "--ready-fd=3"],
-    {
-      detached: true,
-      cwd: "/",
-      env: { ...process.env, WP_STATE_DIR: stateDir } as Record<string, string>,
-      stdio: ["ignore", "ignore", "ignore", "pipe"],
-    },
-  );
-  proc.unref();
-  // Readiness is a successful hello over the socket, not the pipe: the pipe
-  // read stalls under `bun test` (findings/m2.md), and the launcher itself
-  // treats the socket as the authority. Poll a fresh connection until one
-  // completes its hello, and time to there.
+  const started = await platform.spawnDaemon({
+    dir,
+    readyTimeoutMs: 3000,
+    argv: (extra) => [...argv, "__daemon", ...extra],
+  });
+  // Readiness is a successful hello over the socket, not the report: the
+  // POSIX pipe read stalls under `bun test` (findings/m2.md), and the
+  // launcher itself treats the socket as the authority. Poll a fresh
+  // connection until one completes its hello, and time to there.
   let c: Awaited<ReturnType<typeof connect>> | null = null;
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
@@ -352,10 +359,11 @@ async function daemonToReady(
   const elapsed = performance.now() - t0;
   if (!c) {
     try {
-      process.kill(proc.pid, "SIGKILL");
+      process.kill(started.pid, "SIGKILL");
     } catch {}
     throw new Error(
-      `daemon did not answer on ${path.join(dir, "wp.sock")} within 10 s`,
+      `daemon did not answer on ${paths.socket} within 10 s` +
+        platform.readinessDetail(started, paths.log),
     );
   }
   const pid = c.daemon.pid;
@@ -385,10 +393,15 @@ async function coldStart(
     path.join(PKG, "src", "cli", "main.ts"),
   ];
   try {
-    const targets: [string, string[]][] = [];
-    if (wp) targets.push(["compiled wp", [wp]]);
-    targets.push(["interpreted (bun run src/cli/main.ts)", interpreted]);
-    for (const [label, argv] of targets) {
+    // Each target's runtime directories are one or two characters, not the
+    // label: the daemon binds `<dir>/.wp.sock.<pid>.tmp`, and an AF_UNIX
+    // path is bounded — 108 bytes on Linux, 104 on macOS, and a Windows
+    // runner refused to bind at 116 characters under `%TEMP%` (run
+    // 33704932420), which a label-shaped directory name reached on its own.
+    const targets: [string, string[], string][] = [];
+    if (wp) targets.push(["compiled wp", [wp], "c"]);
+    targets.push(["interpreted (bun run src/cli/main.ts)", interpreted, "i"]);
+    for (const [label, argv, key] of targets) {
       // Process start alone: --help touches no daemon and no engine.
       const help = timeRuns(nLs, () => {
         Bun.spawnSync([...argv, "--help"], { stdout: "pipe", stderr: "pipe" });
@@ -402,7 +415,7 @@ async function coldStart(
       // `wp __daemon` to readiness, fresh runtime dir each time.
       const readyMs: number[] = [];
       for (let i = 0; i < nDaemon; i++) {
-        const dir = path.join(root, `run-${label.replace(/\W+/g, "-")}-${i}`);
+        const dir = path.join(root, `${key}${i}`);
         readyMs.push(await daemonToReady(argv, dir, stateDir));
       }
       out.push({
@@ -414,7 +427,7 @@ async function coldStart(
       });
 
       // `wp ls` with a daemon already up.
-      const dir = path.join(root, `run-${label.replace(/\W+/g, "-")}-ls`);
+      const dir = path.join(root, `${key}ls`);
       process.env.WP_STATE_DIR = stateDir;
       const client = await connect({ dir, autostart: true });
       const pid = client.daemon.pid;
