@@ -216,7 +216,11 @@ function age(since: number): string {
 
 /** The STATUS column: `running`, `exited(code)`, `corpse`, or `corpse(mismatch abcd1234/ef567890)`. */
 function statusOf(s: import("../protocol/index.ts").SessionInfo): string {
-  if (s.status === "exited") return `exited(${s.signalCode ?? s.exitCode})`;
+  // A signal name where the platform has one, then the exit code, then what
+  // the daemon asked for — which is all Windows can say when the child was
+  // killed rather than left to exit.
+  if (s.status === "exited")
+    return `exited(${s.signalCode ?? s.exitCode ?? s.kill?.mode ?? "?"})`;
   if (s.status === "corpse" && s.corpse?.reason === "mismatch")
     return `corpse(mismatch ${s.corpse.snapshotEngine.slice(0, 8)}/${s.corpse.daemonEngine.slice(0, 8)})`;
   return s.status;
