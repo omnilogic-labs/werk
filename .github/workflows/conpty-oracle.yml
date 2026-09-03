@@ -55,28 +55,34 @@ jobs:
             echo '```'
           } >>"$GITHUB_STEP_SUMMARY"
 
-      # `bun test` on the windows lane dies partway through and loses every
-      # file after it. One process per file says which file, and gives the
-      # rest of them a verdict in the meantime.
-      - name: test-full, one file at a time
+      # Which test in `daemon.test.ts` takes the process down: the whole file,
+      # then the file without the one test that times out. If the second run
+      # reaches a verdict, the panic belongs to the timeout rather than to
+      # anything the other tests do.
+      - name: daemon.test.ts, with and without the test that times out
         if: always()
         continue-on-error: true
-        timeout-minutes: 18
+        timeout-minutes: 8
         working-directory: packages/werk-poc
         run: |
           set +e
-          files=$(git ls-files '*.test.ts' | grep -v '^vendor/' | sort)
-          echo "$files"
-          echo "| file | exit | verdict |" >>"$GITHUB_STEP_SUMMARY"
-          echo "| --- | --- | --- |" >>"$GITHUB_STEP_SUMMARY"
-          for f in $files; do
-            echo "::group::$f"
-            timeout 180 bun test "$f" >"one.log" 2>&1
-            rc=$?
-            tr -d '\r' <one.log
-            echo "::endgroup::"
-            v=$(grep -aoE '[0-9]+ pass|[0-9]+ fail|Segmentation fault|panic\(' one.log | tr '\n' ' ')
-            echo "| \`$f\` | $rc | $v |" >>"$GITHUB_STEP_SUMMARY"
-            echo "FILE $f exit=$rc $v"
-            bun run "$GITHUB_WORKSPACE/.github/ci/windows-daemon.ts" stop || true
-          done
+          echo "::group::whole file"
+          timeout 120 bun test src/daemon/daemon.test.ts 2>&1 | tr -d '\r'
+          echo "whole file: exit ${PIPESTATUS[0]}"
+          echo "::endgroup::"
+          bun run "$GITHUB_WORKSPACE/.github/ci/windows-daemon.ts" stop
+          echo "::group::without the kill test"
+          timeout 120 bun test src/daemon/daemon.test.ts \
+            -t '^(?!.*kill signals the child)' 2>&1 | tr -d '\r'
+          echo "without the kill test: exit ${PIPESTATUS[0]}"
+          echo "::endgroup::"
+
+      # `bun test` on the windows lane dies partway through and loses every
+      # file after it. The lane's own script runs one process per file; this
+      # is that script, so the lane and the probe run agree.
+      - name: test-full, one file at a time
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 16
+        working-directory: packages/werk-poc
+        run: bash "$GITHUB_WORKSPACE/.github/ci/windows-test-full.sh"

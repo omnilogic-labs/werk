@@ -396,7 +396,7 @@ if (want("conpty")) {
     // so a difference between runs belongs to ConPTY rather than to timing
     // the probe controls.
     const runs: Record<string, Session[]> = { static: [], echo: [] };
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 6; i++) {
       runs.static!.push(
         await conptySession(
           [
@@ -412,7 +412,7 @@ if (want("conpty")) {
 
     // The session daemon.test.ts drives: a shell, a prompt, a typed line, and
     // that line's output echoed back through the ConPTY.
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 6; i++) {
       runs.echo!.push(
         await conptySession(
           ["sh", "-c", "echo hello; exec sh"],
@@ -449,14 +449,14 @@ if (want("conpty")) {
       say(
         `conpty-${name}-bytes-repeatable`,
         same(bytes)
-          ? `identical — 4 sessions, the same ${group[0]!.bytes.length} bytes (sha ${bytes[0]})`
-          : `differ — 4 sessions: ${group.map((r, i) => `${r.bytes.length}B/${bytes[i]}`).join(" ")}${where}`,
+          ? `identical — ${group.length} sessions, the same ${group[0]!.bytes.length} bytes (sha ${bytes[0]})`
+          : `differ — ${group.length} sessions: ${group.map((r, i) => `${r.bytes.length}B/${bytes[i]}`).join(" ")}${where}`,
       );
       say(
         `conpty-${name}-grid-repeatable`,
         same(cells) && same(cursors)
-          ? `ok — 4 sessions, identical cells and cursor (${cursors[0]}, sha ${cells[0]})`
-          : `fail — 4 sessions differ in cells ${cells.join(" ")} cursors ${cursors.join(" ")}`,
+          ? `ok — ${group.length} sessions, identical cells and cursor (${cursors[0]}, sha ${cells[0]})`
+          : `fail — ${group.length} sessions differ in cells ${cells.join(" ")} cursors ${cursors.join(" ")}`,
       );
     }
 
@@ -475,6 +475,36 @@ if (want("conpty")) {
     );
     say("conpty-echo-grid", `rows: ${JSON.stringify(one.rows)}`);
     say("conpty-static-grid", `rows: ${JSON.stringify(runs.static![0]!.rows)}`);
+
+    // How fast a ConPTY carries a flood, because several suites size their
+    // deadlines against a POSIX pty's throughput. Bytes counted at this end,
+    // so what is measured is what a session's relay would have to move.
+    let carried = 0;
+    let ended = false;
+    const t0 = performance.now();
+    const flood = Bun.spawn(["sh", "-c", "yes | head -c 4194304"], {
+      env: { ...process.env, TERM: "xterm-256color" },
+      // @ts-expect-error the option is typed POSIX-only; it works here
+      terminal: {
+        cols: 80,
+        rows: 24,
+        data: (_t: unknown, d: Uint8Array) => (carried += d.length),
+        exit: () => (ended = true),
+      },
+    });
+    await until(() => ended, 60_000);
+    await Bun.sleep(300);
+    const ms = performance.now() - t0;
+    try {
+      (flood as { terminal?: { close: () => void } }).terminal?.close();
+      flood.kill();
+    } catch {}
+    say(
+      "conpty-throughput",
+      `${(carried / 1048576).toFixed(2)} MiB of 4 MiB in ${(ms / 1000).toFixed(1)} s` +
+        ` = ${(carried / 1048576 / (ms / 1000)).toFixed(2)} MiB/s` +
+        (ended ? "" : " (never exited)"),
+    );
   } catch (e) {
     say("conpty-grid-repeatable", `fail — ${firstLine(e)}`);
   }

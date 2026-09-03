@@ -528,13 +528,20 @@ jobs:
         working-directory: packages/werk-poc
         run: bun run "$GITHUB_WORKSPACE/.github/ci/windows-daemon.ts" stop
 
+      # One `bun test` process per file, unlike the other two lanes. Bun
+      # 1.3.14 panics with a segmentation fault partway through a whole-suite
+      # run here and takes every file it had not reached with it, so a single
+      # process reports five files of twenty-two and nothing about the rest.
+      # `.github/ci/windows-test-full.sh` says why in more detail.
       - name: test-full
         id: test-full
         continue-on-error: true
-        timeout-minutes: 4
+        timeout-minutes: 16
+        env:
+          SUITE_TIMEOUT: "900"
         run: |
           bash .github/ci/windows.sh test-full packages/werk-poc \
-            'bun test >full.log 2>&1; rc=$?; cat full.log; echo "--- files and failures ---"; grep -a "^::group::\|^(fail)" full.log; exit $rc'
+            'bash "$GITHUB_WORKSPACE/.github/ci/windows-test-full.sh"'
 
       - name: Stop daemons left by test-full
         if: always()
