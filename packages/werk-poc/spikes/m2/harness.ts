@@ -40,16 +40,62 @@ export async function waitFor(
   return pred();
 }
 
-/** Compiles `wp` into `dist/` and returns its path. ~150 ms. */
+/** Where this run's binary goes; one directory, one file per live run. */
+const BUILD_DIR = path.join(pkg, "dist", "m2");
+
+/**
+ * Removes the binaries of runs that have exited, so `dist/m2/` holds this
+ * run's and at most one other rather than one per run ever made. A pid that
+ * has been reused keeps its file for one more round, which costs a binary.
+ */
+function sweepBuilds(): void {
+  let names: string[] = [];
+  try {
+    names = fs.readdirSync(BUILD_DIR);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const pid = Number(/^wp-(\d+)(?:\.exe)?$/.exec(name)?.[1]);
+    if (!Number.isInteger(pid) || pid === process.pid || alive(pid)) continue;
+    try {
+      fs.rmSync(path.join(BUILD_DIR, name));
+    } catch {}
+  }
+}
+
+/**
+ * Compiles `wp` into a path of this run's own and returns it. ~150 ms.
+ *
+ * Not `dist/wp`: Windows holds an executable's file open for as long as a
+ * process is running it, so a rebuild over the binary some earlier suite's
+ * daemon is still running fails with `EPERM`, and the harness would have to
+ * stop that daemon before it could build. A path named after this process
+ * cannot be the one anything else is running, so the build depends on
+ * nothing but itself — and it leaves the `dist/wp` an earlier `bun run
+ * build` produced alone.
+ *
+ * The two commands are `package.json`'s `build` script with its output
+ * redirected: the web bundle, then the compile.
+ */
 export function buildWp(): string {
-  const out = path.join(pkg, "dist", "wp");
-  const r = Bun.spawnSync(["bun", "run", "build"], {
+  fs.mkdirSync(BUILD_DIR, { recursive: true });
+  sweepBuilds();
+  const out = path.join(BUILD_DIR, `wp-${process.pid}`);
+  const web = Bun.spawnSync(["bun", "run", "build:web"], {
     cwd: pkg,
     stdout: "pipe",
     stderr: "pipe",
   });
+  if (web.exitCode !== 0) throw new Error(`build:web failed: ${web.stderr}`);
+  const r = Bun.spawnSync(
+    ["bun", "build", "--compile", "./src/cli/main.ts", "--outfile", out],
+    { cwd: pkg, stdout: "pipe", stderr: "pipe" },
+  );
   if (r.exitCode !== 0) throw new Error(`build failed: ${r.stderr}`);
-  return out;
+  // Windows names the compiled output `wp-<pid>.exe`; ask the filesystem
+  // which one arrived rather than the platform which one to expect.
+  return fs.existsSync(out) ? out : `${out}.exe`;
 }
 
 export interface TestEnv {
