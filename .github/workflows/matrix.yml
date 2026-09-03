@@ -746,6 +746,13 @@ jobs:
       - name: report
         if: always()
         run: bash .github/ci/matrix.sh report
+      # The daemon `x-ls` autostarts listens under matrix-out, and a Winsock
+      # AF_UNIX socket is a reparse point that upload-artifact cannot stat:
+      # it refused the whole directory over one. Stop what is left and remove
+      # the sockets before the upload.
+      - name: cleanup
+        if: always()
+        run: bash .github/ci/matrix.sh cleanup
       - uses: actions/upload-artifact@v4
         if: always()
         with:
