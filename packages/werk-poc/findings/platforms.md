@@ -68,6 +68,7 @@ below by number:
 | [33705813223](https://github.com/omnilogic-labs/werk/actions/runs/33705813223) | `step/04-harness` at `9918e71`                         | the Windows lane with the M2 harness building to a path of its own and `ops` spawning through the seam; [33706143058](https://github.com/omnilogic-labs/werk/actions/runs/33706143058) and [33706712733](https://github.com/omnilogic-labs/werk/actions/runs/33706712733) are all three lanes on that tree, verdict for verdict identical to the merged run on Linux and macOS |
 | [33705737351](https://github.com/omnilogic-labs/werk/actions/runs/33705737351) | `step/03-conpty-oracle`                                | ConPTY's re-encoding compared six ways, and `daemon.test.ts` with and without the test that times out                                                                                                                                                                                                                                                                          |
 | [33706788925](https://github.com/omnilogic-labs/werk/actions/runs/33706788925) | `step/03-conpty-oracle`                                | the Windows lane with the fidelity oracle on the grid and `test-full` run one process per file                                                                                                                                                                                                                                                                                 |
+| [33710644108](https://github.com/omnilogic-labs/werk/actions/runs/33710644108) | `main` with every Windows step merged                  | the three lanes with the seam, teardown through the protocol, the grid oracle and the harness items all in place                                                                                                                                                                                                                                                               |
 
 ### ubuntu-latest
 
@@ -647,14 +648,36 @@ of the seam's interface, from [PR #3](https://github.com/omnilogic-labs/werk/pul
 What the lane records with those in place and the fidelity oracle above,
 against the last run without either:
 
-| Suite       | before, run 33686941407              | run 33706788925                                                                                                                                         |
-| ----------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `daemon`    | fail, `flock`                        | pass — `hello` at 120 ms, `ls`, and gone 99 ms after `shutdown`                                                                                         |
-| `wp-cli`    | fail, `EBADF`                        | pass — `wp.exe ls` autostarts a daemon and prints its header                                                                                            |
-| `m0-probes` | 01, 02, 05, 06 fail                  | 01, 02, 06 fail; `05-daemon-survives` passes                                                                                                            |
-| `m2`        | fail, `EBADF`                        | pass — eight scenarios, seven run and one (the SIGSTOPped slow client) skipped for want of a signal Windows does not have                               |
-| `test-full` | fail, `EBADF` before any daemon test | 146 pass, 11 fail across 22 files, one process per file; `daemon.test.ts` reaches the timing-out kill test and then panics, so it has no verdict at all |
-| `ops`       | fail                                 | pass — the cold-start table, its daemon spawned through the seam                                                                                        |
+| Suite       | before, run 33686941407              | run 33710644108                                                                                                       |
+| ----------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `daemon`    | fail, `flock`                        | pass — `hello` at 141 ms, `ls`, and gone 100 ms after `shutdown`                                                      |
+| `wp-cli`    | fail, `EBADF`                        | pass — `wp.exe ls` autostarts a daemon and prints its header                                                          |
+| `kill`      | —                                    | pass — a kill reaches the child and the session reports how, in 349 ms                                                |
+| `ops`       | fail                                 | pass — the cold-start table, its daemon spawned through the seam                                                      |
+| `m0-probes` | 01, 02, 05, 06 fail                  | 01, 02, 06 fail; `05-daemon-survives` passes                                                                          |
+| `m2`        | fail, `EBADF`                        | fail — seven of eight scenarios, the vim resize failing; the SIGSTOPped slow client is skipped for want of the signal |
+| `test-full` | fail, `EBADF` before any daemon test | 158 pass, 10 fail across 22 files, one process per file; every file reaches a verdict and none is left without one    |
+
+Four of those rows are gated, and a red gate means a regression rather than
+"windows still does not run `test-full`": `daemon`, `wp-cli`, `kill` and
+`ops`, along with `install`, `typecheck`, `test-pure`, `build-web`, `build`,
+`diff` and `probes`. `m0-probes`, `test-full`, `m2` and `m3` are recorded.
+
+`m2` is the one that moved and then moved back. Its reattach fidelity does
+hold through a ConPTY — the scenarios compare cell grids now, not bytes — but
+the two vim scenarios race the pty's delivery, and across three runs of this
+tree the suite passed once (33709340151, eight of eight) and failed twice
+(33708479479 on both vim scenarios, 33710644108 on the resize alone). Two
+consecutive passes on one branch are what put it on the gate; a third run is
+what took it off again. What the resize scenario asks for is the 28 file rows
+vim redraws into a 30-row window, and what a ConPTY gives it is the 23 vim
+drew — a number both screens agree on, so this is vim's redraw arriving late
+rather than a fidelity gap, and a `waitFor` on the redrawn rows has already
+not been enough.
+
+`test-full`'s ten are below. `daemon.test.ts` is in the failing set rather
+than the no-verdict set now: teardown through the protocol closed the file
+that used to panic, so nothing is hidden behind it any more.
 
 The `m2` and `ops` rows were harness shape, and both suites reach the daemon
 with it changed (runs 33705813223 and 33706143058):
@@ -685,19 +708,19 @@ with it changed (runs 33705813223 and 33706143058):
   Winsock's bound is has not been measured, only that 116 refuses and 75
   binds. The Windows lane gates on `ops` now.
 
-The eleven failing tests, by cause:
+The ten failing tests, by cause:
 
-| Test                                                       | Why                                                                                                                                                                                                                                                                              |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bench.test.ts`: `ops`                                     | `bench/ops.ts`'s own launcher, as the `ops` suite                                                                                                                                                                                                                                |
-| `attach-snapshot.test.ts`: lag-resume                      | a 4 MiB flood against 20 KiB/s of ConPTY; the watcher never sees the end of it                                                                                                                                                                                                   |
-| `attach-snapshot.test.ts`: exited session in snapshot mode | an output frame reaches the client before the snapshot, where on Linux the snapshot is first                                                                                                                                                                                     |
-| `launch.test.ts`: four                                     | `stat` on the socket's reparse point (`EACCES`), a stale socket `existsSync` cannot see, `pgrep`                                                                                                                                                                                 |
-| `snapshot.test.ts`: a real SIGTERM snapshots every session | signals do not reach a detached Windows daemon                                                                                                                                                                                                                                   |
-| `m1/embedded.test.ts`, `m6/compiled.test.ts`               | both name `/$bunfs/`, which is `B:/~BUN/` here                                                                                                                                                                                                                                   |
-| `m2/fidelity.test.ts`                                      | the vim-resize scenario, which `m2` passes on its own: it asks for the 28 file rows vim redraws into a 30-row window through a pty that passes bytes on, and gets the 23 vim draws through a ConPTY — a number both screens agree on, so vim's redraw rather than a fidelity gap |
+| Test                                                       | Why                                                                                              |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `attach-snapshot.test.ts`: lag-resume                      | a 4 MiB flood against 20 KiB/s of ConPTY; the watcher never sees the end of it                   |
+| `attach-snapshot.test.ts`: exited session in snapshot mode | an output frame reaches the client before the snapshot, where on Linux the snapshot is first     |
+| `launch.test.ts`: four                                     | `stat` on the socket's reparse point (`EACCES`), a stale socket `existsSync` cannot see, `pgrep` |
+| `snapshot.test.ts`: a real SIGTERM snapshots every session | signals do not reach a detached Windows daemon                                                   |
+| `m1/embedded.test.ts`, `m6/compiled.test.ts`               | both name `/$bunfs/`, which is `B:/~BUN/` here                                                   |
+| `m2/fidelity.test.ts`                                      | the vim-resize scenario, the same race the `m2` suite fails on about two runs in three           |
+| `daemon.test.ts`                                           | the slow-client scenario, which the hosted Linux and macOS lanes fail too                        |
 
-None of the eleven is a fidelity failure. Where the kill path, the snapshot
+None of the ten is a fidelity failure. Where the kill path, the snapshot
 ordering and the two harness launchers go from here is a design question
 rather than a measurement, and it is left to the proposal.
 
