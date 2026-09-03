@@ -1,4 +1,17 @@
-# The werk proof of concept, on Linux, macOS and Windows.
+# The werk proof of concept, on every target Bun compiles for.
+#
+# One dispatch is one release rehearsal. `build-all` cross-compiles `wp` for
+# all eight `bun build --compile` targets on one Linux runner and produces the
+# Linux x64 normalised summary of the differential corpus; then one native
+# lane per target downloads the binary for its own target and smokes it
+# (`--help`, `caps`, `ls` against a daemon it autostarts, `ldd` on Alpine,
+# an ad-hoc re-sign and `codesign --verify` on macOS, a contended lock on
+# Windows), and diffs its own normalised summary against the reference.
+#
+# Three of the eight lanes — linux-x64-glibc, darwin-arm64, win32-x64 — also
+# run the PoC suites natively in the same job, which is what makes them the
+# lanes with the longest step lists and their own fail-closed gates. The
+# other five smoke and measure.
 #
 # This never runs on an ordinary commit or when a pull request opens. It runs
 # when someone adds the `ci:poc` label to a pull request, and when someone
@@ -6,9 +19,10 @@
 # re-add the label to run it again.
 #
 # Every suite step carries `continue-on-error`, so one run reports every
-# suite's verdict rather than stopping at the first red one, and each job
-# uploads a `ci-result-<os>.json` recording what happened. The three jobs are
-# independent: a red Windows job says nothing about the Linux one.
+# suite's verdict rather than stopping at the first red one, and each lane
+# uploads a `ci-result-<lane>.json` recording what happened, before its gate
+# runs. The lanes are independent: a red Windows lane says nothing about the
+# Linux one.
 name: poc
 
 on:
@@ -16,10 +30,10 @@ on:
     types: [labeled]
   workflow_dispatch:
     inputs:
-      os:
-        description: Which runners to use
+      lanes:
+        description: Which lanes to run
         type: choice
-        options: [all, ubuntu, macos, windows]
+        options: [all, poc, extra, ubuntu, macos, windows]
         default: all
 
 concurrency:
@@ -29,15 +43,141 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  BUN_VERSION: 1.3.14
+
 jobs:
-  linux:
+  # ---------------------------------------------------------------------
+  # Cross-compile for every target on Linux x64, and produce the reference
+  # differential summary the lanes diff against.
+  # ---------------------------------------------------------------------
+  build-all:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.label.name == 'ci:poc')
+      || github.event_name == 'workflow_dispatch'
+    name: build-all (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: install
+        working-directory: packages/werk-poc
+        run: bun install --frozen-lockfile
+
+      - name: build:web
+        working-directory: packages/werk-poc
+        run: bun run build:web
+
+      - name: linux-x64 differential summary (reference)
+        working-directory: packages/werk-poc
+        run: |
+          bun ../../.github/ci/matrix-summary.ts "$RUNNER_TEMP/ref/diff-summary.json"
+          {
+            echo "## build-all"
+            echo
+            echo "reference diff summary: $(cat "$RUNNER_TEMP/ref/diff-summary.json" | wc -c) bytes"
+            echo
+            echo "| target | result | bytes |"
+            echo "| --- | --- | --- |"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: diff-summary-linux-x64
+          path: ${{ runner.temp }}/ref/diff-summary.json
+
+      - name: cross-compile all eight targets
+        id: compile
+        continue-on-error: true
+        working-directory: packages/werk-poc
+        run: |
+          rc=0
+          for t in bun-linux-x64 bun-linux-arm64 bun-linux-x64-musl bun-linux-arm64-musl \
+                   bun-windows-x64 bun-windows-arm64 bun-darwin-x64 bun-darwin-arm64; do
+            echo "::group::$t"
+            mkdir -p "dist/cross/$t"
+            if bun build --compile --target="$t" ./src/cli/main.ts --outfile "dist/cross/$t/wp" 2>&1 | tee "dist/cross/$t.log"; then
+              f="$(ls dist/cross/$t/wp* | head -1)"
+              echo "| \`$t\` | ok | $(wc -c <"$f") |" >>"$GITHUB_STEP_SUMMARY"
+            else
+              rc=1
+              echo "| \`$t\` | **failed**: $(tail -1 "dist/cross/$t.log" | cut -c1-200) | |" >>"$GITHUB_STEP_SUMMARY"
+            fi
+            ls -l "dist/cross/$t"
+            echo "::endgroup::"
+          done
+          exit $rc
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wp-bun-linux-x64
+          path: packages/werk-poc/dist/cross/bun-linux-x64/
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wp-bun-linux-arm64
+          path: packages/werk-poc/dist/cross/bun-linux-arm64/
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wp-bun-linux-x64-musl
+          path: packages/werk-poc/dist/cross/bun-linux-x64-musl/
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wp-bun-linux-arm64-musl
+          path: packages/werk-poc/dist/cross/bun-linux-arm64-musl/
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wp-bun-windows-x64
+          path: packages/werk-poc/dist/cross/bun-windows-x64/
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wp-bun-windows-arm64
+          path: packages/werk-poc/dist/cross/bun-windows-arm64/
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wp-bun-darwin-x64
+          path: packages/werk-poc/dist/cross/bun-darwin-x64/
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wp-bun-darwin-arm64
+          path: packages/werk-poc/dist/cross/bun-darwin-arm64/
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------
+  # glibc Linux x64: the cross-compiled binary smoked, and the PoC suites
+  # run natively in the same lane.
+  # ---------------------------------------------------------------------
+  linux-x64-glibc:
     if: >-
       (github.event_name == 'pull_request' && github.event.label.name == 'ci:poc')
       || (github.event_name == 'workflow_dispatch'
-          && (inputs.os == 'all' || inputs.os == 'ubuntu'))
-    name: werk-poc on ubuntu-latest
+          && (inputs.lanes == 'all' || inputs.lanes == 'poc' || inputs.lanes == 'ubuntu'))
+    needs: build-all
+    name: linux-x64-glibc (ubuntu-latest)
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      MATRIX_LANE: linux-x64-glibc
+      MATRIX_OS: linux
+      MATRIX_TARGET: bun-linux-x64
 
     steps:
       - uses: actions/checkout@v5
@@ -46,9 +186,22 @@ jobs:
         with:
           bun-version: 1.3.14
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: wp-bun-linux-x64
+          path: ${{ runner.temp }}/xbin
+      - uses: actions/download-artifact@v4
+        with:
+          name: diff-summary-linux-x64
+          path: ${{ runner.temp }}/ref
+
       - name: Environment
         run: |
           echo "CI_OUT_DIR=$RUNNER_TEMP/ci-out" >> "$GITHUB_ENV"
+          echo "MATRIX_OUT=$RUNNER_TEMP/matrix-out" >> "$GITHUB_ENV"
+          echo "MATRIX_XBIN=$RUNNER_TEMP/xbin" >> "$GITHUB_ENV"
+          echo "MATRIX_REF=$RUNNER_TEMP/ref" >> "$GITHUB_ENV"
+          chmod +x .github/ci/matrix.sh
           set -x
           uname -srm
           bun --version
@@ -147,29 +300,93 @@ jobs:
         continue-on-error: true
         run: .github/ci/linux.sh report
 
-      - name: Upload ci-result-linux
+      # ---------------------------------------------------------------------
+      # The cross-compiled binary for this target, smoked the way the five
+      # lanes that only smoke do it: `--help`, `caps`, `ls` against a daemon
+      # it autostarts, and this lane's own normalised differential summary
+      # diffed against the reference `build-all` produced. Measured, not
+      # gated, as this lane is in the matrix; the gate below is the PoC
+      # suites' own.
+      # ---------------------------------------------------------------------
+      - name: cross machine
+        if: always()
+        continue-on-error: true
+        run: .github/ci/matrix.sh machine
+      - name: x-help
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-help
+      - name: x-caps
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-caps
+      - name: x-ls
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-ls
+      - name: cross diff
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 11
+        run: .github/ci/matrix.sh suite diff
+      - name: cross report
+        if: always()
+        continue-on-error: true
+        run: .github/ci/matrix.sh report
+      - name: cross cleanup
+        if: always()
+        continue-on-error: true
+        run: .github/ci/matrix.sh cleanup
+
+      - name: One record for the lane
+        if: always()
+        continue-on-error: true
+        run: |
+          cp -R "$MATRIX_OUT" "$CI_OUT_DIR/cross"
+          bun .github/ci/lane-result.ts "$CI_OUT_DIR/ci-result-$MATRIX_LANE.json" \
+            poc="$CI_OUT_DIR/ci-result-linux.json" \
+            cross="$MATRIX_OUT/ci-result-$MATRIX_LANE.json"
+
+      - name: Upload ci-result-linux-x64-glibc
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-result-linux
+          name: ci-result-linux-x64-glibc
           path: ${{ runner.temp }}/ci-out
           if-no-files-found: warn
           retention-days: 14
 
+      # Both gates, after the record is safely uploaded.
       - name: Fail the job when a suite failed
         if: always() && steps.report.outcome != 'success'
         run: |
-          echo "at least one suite failed; see the step summary and the ci-result-linux artefact" >&2
+          echo "at least one suite failed; see the step summary and the ci-result-linux-x64-glibc artefact" >&2
           exit 1
 
-  macos:
+      - name: gate
+        if: always()
+        run: .github/ci/matrix.sh gate
+
+  # ---------------------------------------------------------------------
+  # Apple silicon: the cross-compiled binary re-signed and verified, and the
+  # PoC suites run natively in the same lane.
+  # ---------------------------------------------------------------------
+  darwin-arm64:
     if: >-
       (github.event_name == 'pull_request' && github.event.label.name == 'ci:poc')
       || (github.event_name == 'workflow_dispatch'
-          && (inputs.os == 'all' || inputs.os == 'macos'))
+          && (inputs.lanes == 'all' || inputs.lanes == 'poc' || inputs.lanes == 'macos'))
+    needs: build-all
+    name: darwin-arm64 (macos-latest)
     runs-on: macos-latest
     timeout-minutes: 60
     env:
+      MATRIX_LANE: darwin-arm64
+      MATRIX_OS: darwin
+      MATRIX_TARGET: bun-darwin-arm64
       # `sun_path` is 104 bytes on macOS, against 108 on Linux, and the
       # runner's own $TMPDIR is a 49-character /var/folders/xx/<32 chars>/T/
       # path. A run on that TMPDIR reaches the same verdicts, so the margin is
@@ -184,8 +401,21 @@ jobs:
         with:
           bun-version: 1.3.14
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: wp-bun-darwin-arm64
+          path: ${{ runner.temp }}/xbin
+      - uses: actions/download-artifact@v4
+        with:
+          name: diff-summary-linux-x64
+          path: ${{ runner.temp }}/ref
+
       - name: Machine
         run: |
+          echo "MATRIX_OUT=$RUNNER_TEMP/matrix-out" >>"$GITHUB_ENV"
+          echo "MATRIX_XBIN=$RUNNER_TEMP/xbin" >>"$GITHUB_ENV"
+          echo "MATRIX_REF=$RUNNER_TEMP/ref" >>"$GITHUB_ENV"
+          chmod +x .github/ci/matrix.sh
           echo "runner: $(uname -sm) $(sw_vers -productVersion)"
           echo "bun: $(bun --version)"
           echo "TMPDIR: $TMPDIR"
@@ -302,36 +532,115 @@ jobs:
         continue-on-error: true
         run: .github/ci/macos.sh summarize "$GITHUB_WORKSPACE/ci-result-macos.json"
 
+      # ---------------------------------------------------------------------
+      # The cross-compiled binary for this target, smoked the way the five
+      # lanes that only smoke do it: `--help`, `caps`, `ls` against a daemon
+      # it autostarts, the ad-hoc re-sign a release would do and the
+      # `codesign --verify` that says it took, and this lane's own normalised
+      # differential summary diffed against the reference `build-all`
+      # produced. Measured, not gated, as this lane is in the matrix; the
+      # gate below is the PoC suites' own.
+      # ---------------------------------------------------------------------
+      - name: cross machine
+        if: always()
+        continue-on-error: true
+        run: .github/ci/matrix.sh machine
+      - name: x-help
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-help
+      - name: x-caps
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-caps
+      - name: x-ls
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-ls
+      - name: x-codesign
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-codesign
+      - name: cross diff
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 11
+        run: .github/ci/matrix.sh suite diff
+      - name: cross report
+        if: always()
+        continue-on-error: true
+        run: .github/ci/matrix.sh report
+      - name: cross cleanup
+        if: always()
+        continue-on-error: true
+        run: .github/ci/matrix.sh cleanup
+
+      - name: One record for the lane
+        if: always()
+        continue-on-error: true
+        run: |
+          cp -R "$MATRIX_OUT" "$GITHUB_WORKSPACE/cross"
+          bun .github/ci/lane-result.ts "$GITHUB_WORKSPACE/ci-result-$MATRIX_LANE.json" \
+            poc="$GITHUB_WORKSPACE/ci-result-macos.json" \
+            cross="$MATRIX_OUT/ci-result-$MATRIX_LANE.json"
+
       - name: Upload result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-result-macos
+          name: ci-result-darwin-arm64
           path: |
+            ci-result-darwin-arm64.json
             ci-result-macos.json
             ci-results/logs/
+            cross/
             packages/werk-poc/dist/m0/**/*.log
             packages/werk-poc/dist/m0/results.json
           if-no-files-found: warn
 
+      # Both gates, after the record is safely uploaded.
       - name: Fail the job when a gated suite failed
         if: always() && steps.result.outcome != 'success'
         run: |
-          echo "a suite that passes on macOS failed; see the summary and the ci-result-macos artefact" >&2
+          echo "a suite that passes on macOS failed; see the summary and the ci-result-darwin-arm64 artefact" >&2
           exit 1
 
-  windows:
+      - name: gate
+        if: always()
+        run: .github/ci/matrix.sh gate
+
+  # ---------------------------------------------------------------------
+  # Windows x64: the cross-compiled binary smoked and its lock contended,
+  # and the PoC suites run natively in the same lane. Two gates, because
+  # the lane runs two suite runners: `EXPECTED_PASS` over the PoC suites,
+  # and `MATRIX_EXPECTED_PASS` over the cross-smoke's. Between them they
+  # hold every suite the win32-x64 matrix lane was held to.
+  # ---------------------------------------------------------------------
+  win32-x64:
     if: >-
       (github.event_name == 'pull_request' && github.event.label.name == 'ci:poc')
       || (github.event_name == 'workflow_dispatch'
-          && (inputs.os == 'all' || inputs.os == 'windows'))
+          && (inputs.lanes == 'all' || inputs.lanes == 'poc' || inputs.lanes == 'windows'))
+    needs: build-all
+    name: win32-x64 (windows-latest)
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     defaults:
       run:
         shell: bash
     env:
       BUN_VERSION: 1.3.14
+      MATRIX_LANE: win32-x64
+      MATRIX_OS: win32
+      MATRIX_TARGET: bun-windows-x64
+      # The cross-smoke's half of the gate. `install`, `test-pure`, `build`
+      # and `ops` are on the other half below, where this lane runs them
+      # through the PoC's own suite runner rather than the matrix's.
+      MATRIX_EXPECTED_PASS: x-help x-caps x-ls lock diff
       SUITE_TIMEOUT: "180"
       SUITE_ORDER: >-
         install typecheck test-pure build-web build diff ops probes m0-probes
@@ -371,11 +680,23 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: wp-bun-windows-x64
+          path: ${{ runner.temp }}/xbin
+      - uses: actions/download-artifact@v4
+        with:
+          name: diff-summary-linux-x64
+          path: ${{ runner.temp }}/ref
+
       - name: Record the runner
         id: runner
         timeout-minutes: 2
         run: |
           set -euo pipefail
+          echo "MATRIX_OUT=$RUNNER_TEMP/matrix-out" >>"$GITHUB_ENV"
+          echo "MATRIX_XBIN=$RUNNER_TEMP/xbin" >>"$GITHUB_ENV"
+          echo "MATRIX_REF=$RUNNER_TEMP/ref" >>"$GITHUB_ENV"
           echo "SUITE_DIR=$RUNNER_TEMP/suites" >>"$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/suites"
           rel=$(bun -e 'console.log(require("node:os").release())')
@@ -586,6 +907,59 @@ jobs:
         timeout-minutes: 3
         run: bash .github/ci/windows.sh m3 packages/werk-poc 'bun run m3'
 
+      # ---------------------------------------------------------------------
+      # The cross-compiled binary for this target, smoked the way the five
+      # lanes that only smoke do it: `--help`, `caps`, `ls` against a daemon
+      # it autostarts, a second `wp __daemon` refused while the first holds
+      # the lock, and this lane's own normalised differential summary diffed
+      # against the reference `build-all` produced. `MATRIX_EXPECTED_PASS`
+      # holds these five.
+      # ---------------------------------------------------------------------
+      - name: cross machine
+        if: always()
+        continue-on-error: true
+        run: bash .github/ci/matrix.sh machine
+      - name: x-help
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/matrix.sh suite x-help
+      - name: x-caps
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/matrix.sh suite x-caps
+      - name: x-ls
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/matrix.sh suite x-ls
+      # A second `wp __daemon` against a live one, refused. The lock that
+      # refuses it is `LockFileEx` on x64 and an exclusive `\\.\pipe\` name
+      # where there is no `bun:ffi` to call it with; the suite asks this
+      # runner both ways, forcing the pipe.
+      - name: lock
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bash .github/ci/matrix.sh suite lock
+      - name: cross diff
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 11
+        run: bash .github/ci/matrix.sh suite diff
+      - name: cross report
+        if: always()
+        continue-on-error: true
+        run: bash .github/ci/matrix.sh report
+      # A Winsock AF_UNIX socket is a reparse point that upload-artifact
+      # cannot stat: it refused the whole output directory over one. Stop
+      # what the smoke left running and remove the sockets before the copy.
+      - name: cross cleanup
+        if: always()
+        continue-on-error: true
+        run: bash .github/ci/matrix.sh cleanup
+
       - name: Collect
         if: always()
         timeout-minutes: 2
@@ -594,12 +968,16 @@ jobs:
           bun run .github/ci/windows-collect.ts
           mkdir -p suite-logs
           cp "$SUITE_DIR"/*.log suite-logs/ 2>/dev/null || true
+          cp -R "$MATRIX_OUT" cross || true
+          bun run .github/ci/lane-result.ts "ci-result-$MATRIX_LANE.json" \
+            poc=ci-result-windows.json \
+            "cross=$MATRIX_OUT/ci-result-$MATRIX_LANE.json"
           {
             echo
-            echo '<details><summary>ci-result-windows.json</summary>'
+            echo "<details><summary>ci-result-$MATRIX_LANE.json</summary>"
             echo
             echo '```json'
-            cat ci-result-windows.json
+            cat "ci-result-$MATRIX_LANE.json"
             echo '```'
             echo
             echo '</details>'
@@ -609,10 +987,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-result-windows
+          name: ci-result-win32-x64
           path: |
+            ci-result-win32-x64.json
             ci-result-windows.json
             suite-logs/
+            cross/
           if-no-files-found: warn
 
       # The job's own verdict, after the report is safely uploaded: green over
@@ -640,3 +1020,670 @@ jobs:
             echo "known   $id: $(cat "$SUITE_DIR/$id.status" 2>/dev/null || echo missing)"
           done
           exit $rc
+
+      # The cross-smoke's half of the verdict, over MATRIX_EXPECTED_PASS.
+      - name: gate
+        if: always()
+        run: bash .github/ci/matrix.sh gate
+
+  # ---------------------------------------------------------------------
+  # glibc Linux arm64. The x64 lane is `linux-x64-glibc` above, where the
+  # smoke and the PoC suites share a job.
+  # ---------------------------------------------------------------------
+  linux-arm64-glibc:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.label.name == 'ci:poc')
+      || (github.event_name == 'workflow_dispatch'
+          && (inputs.lanes == 'all' || inputs.lanes == 'extra'))
+    needs: build-all
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: linux-arm64-glibc
+            runner: ubuntu-24.04-arm
+            target: bun-linux-arm64
+    name: ${{ matrix.lane }} (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      MATRIX_LANE: ${{ matrix.lane }}
+      MATRIX_OS: linux
+      MATRIX_TARGET: ${{ matrix.target }}
+      MATRIX_M0: full
+    steps:
+      - uses: actions/checkout@v5
+      - name: paths
+        run: |
+          echo "MATRIX_OUT=$RUNNER_TEMP/matrix-out" >>"$GITHUB_ENV"
+          echo "MATRIX_XBIN=$RUNNER_TEMP/xbin" >>"$GITHUB_ENV"
+          echo "MATRIX_REF=$RUNNER_TEMP/ref" >>"$GITHUB_ENV"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: tools the suites spawn
+        run: |
+          for t in vim top jq script; do printf '%-6s %s\n' "$t" "$(command -v "$t" || echo absent)"; done
+          command -v vim >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq vim; }
+          chmod +x .github/ci/matrix.sh
+      - uses: actions/download-artifact@v4
+        with:
+          name: wp-${{ matrix.target }}
+          path: ${{ runner.temp }}/xbin
+      - uses: actions/download-artifact@v4
+        with:
+          name: diff-summary-linux-x64
+          path: ${{ runner.temp }}/ref
+      - name: machine
+        run: .github/ci/matrix.sh machine
+
+      - name: x-help
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-help
+      - name: x-caps
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-caps
+      - name: x-ls
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-ls
+      - name: install
+        continue-on-error: true
+        timeout-minutes: 6
+        run: .github/ci/matrix.sh suite install
+      - name: test-pure
+        continue-on-error: true
+        timeout-minutes: 6
+        run: .github/ci/matrix.sh suite test-pure
+      - name: build
+        continue-on-error: true
+        timeout-minutes: 11
+        run: .github/ci/matrix.sh suite build
+      - name: diff
+        continue-on-error: true
+        timeout-minutes: 11
+        run: .github/ci/matrix.sh suite diff
+      - name: m0
+        continue-on-error: true
+        timeout-minutes: 16
+        run: .github/ci/matrix.sh suite m0
+      - name: m3
+        continue-on-error: true
+        timeout-minutes: 11
+        run: .github/ci/matrix.sh suite m3
+      - name: ops
+        continue-on-error: true
+        timeout-minutes: 6
+        run: .github/ci/matrix.sh suite ops
+      - name: test-full
+        continue-on-error: true
+        timeout-minutes: 12
+        run: .github/ci/matrix.sh suite test-full
+
+      - name: report
+        if: always()
+        run: .github/ci/matrix.sh report
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-result-${{ matrix.lane }}
+          path: ${{ runner.temp }}/matrix-out
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------
+  # musl Linux x64, in an Alpine job container.
+  # ---------------------------------------------------------------------
+  linux-x64-musl:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.label.name == 'ci:poc')
+      || (github.event_name == 'workflow_dispatch'
+          && (inputs.lanes == 'all' || inputs.lanes == 'extra'))
+    needs: build-all
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: linux-x64-musl
+            runner: ubuntu-24.04
+            target: bun-linux-x64-musl
+            bun_zip: bun-linux-x64-musl
+    name: ${{ matrix.lane }} (${{ matrix.runner }}, alpine:3.22)
+    runs-on: ${{ matrix.runner }}
+    container: alpine:3.22
+    timeout-minutes: 45
+    env:
+      MATRIX_LANE: ${{ matrix.lane }}
+      MATRIX_OS: alpine
+      MATRIX_TARGET: ${{ matrix.target }}
+      MATRIX_M0: full
+    steps:
+      # The container starts with busybox only; bash for the harness, git for
+      # checkout, and what the suites spawn (vim, top, ps with keywords,
+      # script, sh). `libstdc++` and `libgcc` are not a convenience: the musl
+      # Bun and every binary compiled from it are linked against
+      # `libstdc++.so.6` and `libgcc_s.so.1`, so without them the binary does
+      # not start at all. The x-ldd suite records the pair and its size.
+      - name: apk add
+        shell: sh
+        run: |
+          apk add --no-cache bash git coreutils procps vim jq curl unzip tar diffutils file \
+            libstdc++ libgcc musl-utils util-linux-misc ncurses ncurses-terminfo-base perl python3
+          cat /etc/alpine-release
+      - uses: actions/checkout@v5
+      - name: paths
+        shell: bash
+        run: |
+          echo "MATRIX_OUT=$RUNNER_TEMP/matrix-out" >>"$GITHUB_ENV"
+          echo "MATRIX_XBIN=$RUNNER_TEMP/xbin" >>"$GITHUB_ENV"
+          echo "MATRIX_REF=$RUNNER_TEMP/ref" >>"$GITHUB_ENV"
+
+      # setup-bun picks the glibc build; recorded, then replaced by the musl zip.
+      - uses: oven-sh/setup-bun@v2
+        id: setup-bun
+        continue-on-error: true
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: bun (musl)
+        shell: bash
+        run: |
+          if bun --version 2>/dev/null | grep -qx "$BUN_VERSION" && bun -e 'process.exit(0)' 2>/dev/null; then
+            echo "BUN_SOURCE=setup-bun (outcome ${{ steps.setup-bun.outcome }}) ran on musl" >>"$GITHUB_ENV"
+          else
+            echo "setup-bun outcome: ${{ steps.setup-bun.outcome }}; bun --version says: $(bun --version 2>&1 | head -1)"
+            curl -fsSL -o /tmp/bun.zip "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/${{ matrix.bun_zip }}.zip"
+            unzip -q -o /tmp/bun.zip -d /tmp/bun
+            install -m 0755 /tmp/bun/*/bun /usr/local/bin/bun
+            echo "/usr/local/bin" >>"$GITHUB_PATH"
+            echo "BUN_SOURCE=${{ matrix.bun_zip }}.zip, downloaded by hand (setup-bun outcome: ${{ steps.setup-bun.outcome }})" >>"$GITHUB_ENV"
+          fi
+          /usr/local/bin/bun --version 2>/dev/null || true
+      - name: bun works
+        shell: bash
+        run: |
+          echo "BUN_SOURCE=$BUN_SOURCE"
+          command -v bun; bun --version
+          bun -e 'console.log(process.platform, process.arch, process.execPath)'
+          chmod +x .github/ci/matrix.sh
+      - uses: actions/download-artifact@v4
+        with:
+          name: wp-${{ matrix.target }}
+          path: ${{ runner.temp }}/xbin
+      - uses: actions/download-artifact@v4
+        with:
+          name: diff-summary-linux-x64
+          path: ${{ runner.temp }}/ref
+      - name: machine
+        shell: bash
+        run: .github/ci/matrix.sh machine
+
+      - name: x-help
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-help
+      - name: x-caps
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-caps
+      - name: x-ls
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-ls
+      - name: x-ldd
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-ldd
+      - name: install
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 6
+        run: .github/ci/matrix.sh suite install
+      - name: test-pure
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 6
+        run: .github/ci/matrix.sh suite test-pure
+      - name: build
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 11
+        run: .github/ci/matrix.sh suite build
+      - name: diff
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 11
+        run: .github/ci/matrix.sh suite diff
+      - name: m0
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 16
+        run: .github/ci/matrix.sh suite m0
+      - name: m3
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 11
+        run: .github/ci/matrix.sh suite m3
+      - name: ops
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 6
+        run: .github/ci/matrix.sh suite ops
+      - name: test-full
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 12
+        run: .github/ci/matrix.sh suite test-full
+
+      - name: report
+        if: always()
+        shell: bash
+        run: .github/ci/matrix.sh report
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-result-${{ matrix.lane }}
+          path: ${{ runner.temp }}/matrix-out
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------
+  # musl Linux arm64. A job `container:` cannot be Alpine on an arm64 runner
+  # ("JavaScript Actions in Alpine containers are only supported on x64
+  # Linux runners"), so the actions run on the host and every suite is a
+  # `docker exec` into an alpine:3.22 container that shares the workspace.
+  # ---------------------------------------------------------------------
+  linux-arm64-musl:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.label.name == 'ci:poc')
+      || (github.event_name == 'workflow_dispatch'
+          && (inputs.lanes == 'all' || inputs.lanes == 'extra'))
+    needs: build-all
+    name: linux-arm64-musl (ubuntu-24.04-arm, docker alpine:3.22)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    env:
+      MATRIX_LANE: linux-arm64-musl
+      MATRIX_OS: alpine
+      MATRIX_TARGET: bun-linux-arm64-musl
+      MATRIX_M0: full
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: wp-bun-linux-arm64-musl
+          path: ${{ runner.temp }}/xbin
+      - uses: actions/download-artifact@v4
+        with:
+          name: diff-summary-linux-x64
+          path: ${{ runner.temp }}/ref
+      # `libstdc++` and `libgcc` are what the musl binary is linked against —
+      # without them it does not start; see the x64 lane's note.
+      - name: start alpine
+        run: |
+          docker run -d --name alpine \
+            -v "$GITHUB_WORKSPACE:/__w/repo" -v "$RUNNER_TEMP:/__w/_temp" -w /__w/repo \
+            alpine:3.22 sleep infinity
+          docker exec alpine sh -c 'apk add --no-cache bash git coreutils procps vim jq curl unzip tar diffutils file \
+            libstdc++ libgcc musl-utils util-linux-misc ncurses ncurses-terminfo-base perl python3 && cat /etc/alpine-release'
+          docker exec alpine sh -c "curl -fsSL -o /tmp/bun.zip https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-aarch64-musl.zip \
+            && unzip -q /tmp/bun.zip -d /tmp/bun && install -m 0755 /tmp/bun/*/bun /usr/local/bin/bun && bun --version \
+            && bun -e 'console.log(process.platform, process.arch, process.execPath)'"
+          docker exec alpine sh -c 'chmod +x .github/ci/matrix.sh; git config --global --add safe.directory /__w/repo'
+          {
+            echo "MATRIX_LANE=$MATRIX_LANE"
+            echo "MATRIX_OS=$MATRIX_OS"
+            echo "MATRIX_TARGET=$MATRIX_TARGET"
+            echo "MATRIX_M0=$MATRIX_M0"
+            echo "MATRIX_OUT=/__w/_temp/matrix-out"
+            echo "MATRIX_XBIN=/__w/_temp/xbin"
+            echo "MATRIX_REF=/__w/_temp/ref"
+            echo "GITHUB_STEP_SUMMARY=/__w/_temp/summary.md"
+            echo "GITHUB_SHA=$GITHUB_SHA"
+            echo "RUNNER_OS=$RUNNER_OS"
+            echo "RUNNER_ARCH=$RUNNER_ARCH"
+            echo "RUNNER_NAME=$RUNNER_NAME"
+            echo "ImageOS=${ImageOS:-}"
+            echo "ImageVersion=${ImageVersion:-}"
+            echo "BUN_SOURCE=bun-linux-aarch64-musl.zip by hand, in docker exec (JS actions do not run in an Alpine job container on arm64)"
+            echo "HOME=/root"
+            echo "CI=true"
+          } >"$RUNNER_TEMP/alpine.env"
+          : >"$RUNNER_TEMP/summary.md"
+          echo "ALPINE=docker exec --env-file $RUNNER_TEMP/alpine.env alpine" >>"$GITHUB_ENV"
+      - name: machine
+        run: $ALPINE bash .github/ci/matrix.sh machine
+
+      - name: x-help
+        continue-on-error: true
+        timeout-minutes: 3
+        run: $ALPINE bash .github/ci/matrix.sh suite x-help
+      - name: x-caps
+        continue-on-error: true
+        timeout-minutes: 3
+        run: $ALPINE bash .github/ci/matrix.sh suite x-caps
+      - name: x-ls
+        continue-on-error: true
+        timeout-minutes: 3
+        run: $ALPINE bash .github/ci/matrix.sh suite x-ls
+      - name: x-ldd
+        continue-on-error: true
+        timeout-minutes: 3
+        run: $ALPINE bash .github/ci/matrix.sh suite x-ldd
+      - name: install
+        continue-on-error: true
+        timeout-minutes: 6
+        run: $ALPINE bash .github/ci/matrix.sh suite install
+      - name: test-pure
+        continue-on-error: true
+        timeout-minutes: 6
+        run: $ALPINE bash .github/ci/matrix.sh suite test-pure
+      - name: build
+        continue-on-error: true
+        timeout-minutes: 11
+        run: $ALPINE bash .github/ci/matrix.sh suite build
+      - name: diff
+        continue-on-error: true
+        timeout-minutes: 11
+        run: $ALPINE bash .github/ci/matrix.sh suite diff
+      - name: m0
+        continue-on-error: true
+        timeout-minutes: 16
+        run: $ALPINE bash .github/ci/matrix.sh suite m0
+      - name: m3
+        continue-on-error: true
+        timeout-minutes: 11
+        run: $ALPINE bash .github/ci/matrix.sh suite m3
+      - name: ops
+        continue-on-error: true
+        timeout-minutes: 6
+        run: $ALPINE bash .github/ci/matrix.sh suite ops
+      - name: test-full
+        continue-on-error: true
+        timeout-minutes: 12
+        run: $ALPINE bash .github/ci/matrix.sh suite test-full
+
+      - name: report
+        if: always()
+        run: |
+          $ALPINE bash .github/ci/matrix.sh report
+          cat "$RUNNER_TEMP/summary.md" >>"$GITHUB_STEP_SUMMARY"
+          # The container wrote as root, and the daemon's runtime dir is 0700;
+          # hand it all back to the runner user so upload-artifact can read it.
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/matrix-out"
+          chmod -R u+rwX "$RUNNER_TEMP/matrix-out"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-result-linux-arm64-musl
+          path: ${{ runner.temp }}/matrix-out
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------
+  # macOS Intel. Apple silicon is `darwin-arm64` above, where the smoke and
+  # the PoC suites share a job.
+  # ---------------------------------------------------------------------
+  darwin-x64:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.label.name == 'ci:poc')
+      || (github.event_name == 'workflow_dispatch'
+          && (inputs.lanes == 'all' || inputs.lanes == 'extra'))
+    needs: build-all
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: darwin-x64
+            runner: macos-15-intel
+            target: bun-darwin-x64
+    name: ${{ matrix.lane }} (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      # sun_path is 104 bytes on macOS; /tmp keeps the daemon socket well clear.
+      TMPDIR: /tmp
+      MATRIX_LANE: ${{ matrix.lane }}
+      MATRIX_OS: darwin
+      MATRIX_TARGET: ${{ matrix.target }}
+      MATRIX_M0: full
+    steps:
+      - uses: actions/checkout@v5
+      - name: paths
+        run: |
+          echo "MATRIX_OUT=$RUNNER_TEMP/matrix-out" >>"$GITHUB_ENV"
+          echo "MATRIX_XBIN=$RUNNER_TEMP/xbin" >>"$GITHUB_ENV"
+          echo "MATRIX_REF=$RUNNER_TEMP/ref" >>"$GITHUB_ENV"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: tools
+        run: |
+          for t in vim top script python3 perl gtimeout jq codesign; do printf '%-9s %s\n' "$t" "$(command -v "$t" || echo absent)"; done
+          chmod +x .github/ci/matrix.sh
+      - uses: actions/download-artifact@v4
+        with:
+          name: wp-${{ matrix.target }}
+          path: ${{ runner.temp }}/xbin
+      - uses: actions/download-artifact@v4
+        with:
+          name: diff-summary-linux-x64
+          path: ${{ runner.temp }}/ref
+      - name: machine
+        run: .github/ci/matrix.sh machine
+
+      - name: x-help
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-help
+      - name: x-caps
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-caps
+      - name: x-ls
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-ls
+      - name: x-codesign
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite x-codesign
+      - name: install
+        continue-on-error: true
+        timeout-minutes: 6
+        run: .github/ci/matrix.sh suite install
+      - name: test-pure
+        continue-on-error: true
+        timeout-minutes: 6
+        run: .github/ci/matrix.sh suite test-pure
+      - name: build
+        continue-on-error: true
+        timeout-minutes: 11
+        run: .github/ci/matrix.sh suite build
+      - name: native-codesign
+        continue-on-error: true
+        timeout-minutes: 3
+        run: .github/ci/matrix.sh suite native-codesign
+      - name: diff
+        continue-on-error: true
+        timeout-minutes: 11
+        run: .github/ci/matrix.sh suite diff
+      - name: m0
+        continue-on-error: true
+        timeout-minutes: 16
+        run: .github/ci/matrix.sh suite m0
+      - name: m3
+        continue-on-error: true
+        timeout-minutes: 11
+        run: .github/ci/matrix.sh suite m3
+      - name: ops
+        continue-on-error: true
+        timeout-minutes: 6
+        run: .github/ci/matrix.sh suite ops
+      - name: test-full
+        continue-on-error: true
+        timeout-minutes: 12
+        run: .github/ci/matrix.sh suite test-full
+
+      - name: report
+        if: always()
+        run: .github/ci/matrix.sh report
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-result-${{ matrix.lane }}
+          path: ${{ runner.temp }}/matrix-out
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------
+  # Windows arm64. x64 is `win32-x64` above, where the smoke and the PoC
+  # suites share a job. The m0 probes run one file at a time there as here.
+  #
+  # `expected` is what the lane is held to, and everything else it runs is
+  # recorded: red means one of those regressed rather than "Windows still
+  # does not run test-full".
+  #
+  # arm64's list is x64's minus every suite that needs the ffi engine.
+  # `bun:ffi` imports on `win32-arm64` but every `dlopen` through it throws
+  # "TinyCC is disabled" in Bun 1.3.14, and libghostty-vt ships no prebuild
+  # for that target either -- `x-caps`, `test-pure`, `build` and `diff` fail
+  # there for a reason the run records rather than a regression to catch.
+  # Three more are on neither Windows list. `m0`: three of seven PTY
+  # probes pass on both runners and which three moves between runs. `m3`:
+  # every snapshot it encodes decodes identically, but the process prints
+  # all of its tables and then does not exit, on some runs on either runner.
+  # `test-full`: the ConPTY costs the proposal's section 3 records.
+  # ---------------------------------------------------------------------
+  win32-arm64:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.label.name == 'ci:poc')
+      || (github.event_name == 'workflow_dispatch'
+          && (inputs.lanes == 'all' || inputs.lanes == 'extra'))
+    needs: build-all
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: win32-arm64
+            runner: windows-11-arm
+            target: bun-windows-arm64
+            expected: x-help x-ls install lock ops
+    name: ${{ matrix.lane }} (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      MATRIX_LANE: ${{ matrix.lane }}
+      MATRIX_OS: win32
+      MATRIX_TARGET: ${{ matrix.target }}
+      MATRIX_M0: probes
+      MATRIX_EXPECTED_PASS: ${{ matrix.expected }}
+    steps:
+      # Git for Windows checks out with CRLF by default, which would rewrite
+      # the .cast corpus fixtures and every source file before anything ran.
+      - name: Keep line endings as committed
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@v5
+      - name: paths
+        run: |
+          echo "MATRIX_OUT=$RUNNER_TEMP/matrix-out" >>"$GITHUB_ENV"
+          echo "MATRIX_XBIN=$RUNNER_TEMP/xbin" >>"$GITHUB_ENV"
+          echo "MATRIX_REF=$RUNNER_TEMP/ref" >>"$GITHUB_ENV"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: tools
+        run: |
+          for t in timeout perl jq cygpath; do printf '%-8s %s\n' "$t" "$(command -v "$t" || echo absent)"; done
+          bun -e 'console.log(process.platform, process.arch, process.execPath)'
+      - uses: actions/download-artifact@v4
+        with:
+          name: wp-${{ matrix.target }}
+          path: ${{ runner.temp }}/xbin
+      - uses: actions/download-artifact@v4
+        with:
+          name: diff-summary-linux-x64
+          path: ${{ runner.temp }}/ref
+      - name: machine
+        run: bash .github/ci/matrix.sh machine
+
+      - name: x-help
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/matrix.sh suite x-help
+      - name: x-caps
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/matrix.sh suite x-caps
+      - name: x-ls
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bash .github/ci/matrix.sh suite x-ls
+      - name: install
+        continue-on-error: true
+        timeout-minutes: 6
+        run: bash .github/ci/matrix.sh suite install
+      # A second `wp __daemon` against a live one, refused. The lock that
+      # refuses it is `LockFileEx` on x64 and an exclusive `\\.\pipe\` name
+      # on arm64, where there is no `bun:ffi` to call it with; the suite asks
+      # both runners, and on x64 the pipe as well, forced.
+      - name: lock
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bash .github/ci/matrix.sh suite lock
+      - name: test-pure
+        continue-on-error: true
+        timeout-minutes: 6
+        run: bash .github/ci/matrix.sh suite test-pure
+      - name: build
+        continue-on-error: true
+        timeout-minutes: 11
+        run: bash .github/ci/matrix.sh suite build
+      - name: diff
+        continue-on-error: true
+        timeout-minutes: 11
+        run: bash .github/ci/matrix.sh suite diff
+      - name: m0
+        continue-on-error: true
+        timeout-minutes: 12
+        run: bash .github/ci/matrix.sh suite m0
+      - name: m3
+        continue-on-error: true
+        timeout-minutes: 11
+        run: bash .github/ci/matrix.sh suite m3
+      - name: ops
+        continue-on-error: true
+        timeout-minutes: 6
+        run: bash .github/ci/matrix.sh suite ops
+      - name: test-full
+        continue-on-error: true
+        timeout-minutes: 12
+        run: bash .github/ci/matrix.sh suite test-full
+
+      - name: report
+        if: always()
+        run: bash .github/ci/matrix.sh report
+      # The daemon `x-ls` autostarts listens under matrix-out, and a Winsock
+      # AF_UNIX socket is a reparse point that upload-artifact cannot stat:
+      # it refused the whole directory over one. Stop what is left and remove
+      # the sockets before the upload.
+      - name: cleanup
+        if: always()
+        run: bash .github/ci/matrix.sh cleanup
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-result-${{ matrix.lane }}
+          path: ${{ runner.temp }}/matrix-out
+          if-no-files-found: error
+
+      # The job's own verdict, after the report is safely uploaded.
+      - name: gate
+        if: always()
+        run: bash .github/ci/matrix.sh gate
