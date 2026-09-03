@@ -1,0 +1,119 @@
+# §8 step 5's stop condition, asked on both Windows runners before the
+# `win32-arm64` lane is gated on anything: a second `wp __daemon` against a
+# live one has to be refused. On `win32-arm64` there is no `bun:ffi` in Bun
+# 1.3.14, so the lock is an exclusive `\\.\pipe\` name and nothing has ever
+# contended it there; on `win32-x64` the same question is asked of
+# `LockFileEx` and then of the pipe, forced through `WP_WIN32_LOCK=pipe`, so
+# the two runners' verdicts sit side by side.
+#
+# The second step is the other half of the same step: whether `ops` reaches a
+# daemon on arm64 now that `bench/ops.ts` names its runtime directories in one
+# or two characters (§8 step 4).
+#
+# Runs on every push to the step branch. `workflow_dispatch` only works for a
+# workflow file that is on the default branch, and this one is not meant to
+# reach it.
+name: step5-probes
+
+on:
+  push:
+    branches: [step/05-win-arm64]
+
+concurrency:
+  group: step5-probes
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  probes:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: win32-x64
+            runs-on: windows-latest
+          - lane: win32-arm64
+            runs-on: windows-11-arm
+    name: ${{ matrix.lane }}
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep line endings as committed
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Runner
+        run: |
+          bun --version
+          bun -e 'console.log(process.platform, process.arch, require("node:os").release())'
+          echo "ImageOS=${ImageOS:-} ImageVersion=${ImageVersion:-}"
+
+      - name: install
+        timeout-minutes: 3
+        run: bun install --frozen-lockfile
+
+      # The lock probes ask the compiled binary as well as the source, since
+      # the binary is what a lane's `x-ls` starts. A build that fails is a
+      # skipped probe rather than a failed job.
+      - name: build
+        continue-on-error: true
+        timeout-minutes: 8
+        working-directory: packages/werk-poc
+        run: bun run build
+
+      - name: Lock probes
+        timeout-minutes: 12
+        run: |
+          set -o pipefail
+          bun run .github/ci/win32-lock-probes.ts 2>&1 | tee probes.log
+          {
+            echo "## step5 lock probes — ${{ matrix.lane }}"
+            echo
+            echo "commit \`${GITHUB_SHA:0:8}\`, bun \`$(bun --version)\`"
+            echo
+            echo '```'
+            tr -d '\r' <probes.log
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # Whether step 4's shorter runtime directories are enough for `ops` to
+      # reach a daemon here, or whether arm64 stops somewhere else.
+      - name: ops
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 8
+        working-directory: packages/werk-poc
+        run: |
+          set -o pipefail
+          bun run bench/ops.ts --quick --no-compile 2>&1 | tee "$GITHUB_WORKSPACE/ops.log"
+          {
+            echo
+            echo '## ops on ${{ matrix.lane }}'
+            echo
+            echo '```'
+            tr -d '\r' <"$GITHUB_WORKSPACE/ops.log" | tail -40
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload probes.log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step5-probes-${{ matrix.lane }}
+          path: |
+            probes.log
+            ops.log
+          if-no-files-found: warn
+          retention-days: 14
