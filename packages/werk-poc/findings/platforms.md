@@ -123,10 +123,18 @@ below by number:
 | `m2`        | fail   | 0.9 s   | error: build failed: $ bun run build:web && bun build --compile ./src/cli/main.ts --outfile ./dist/wp                |
 | `m3`        | pass   | 5.2 s   | \| 3c1ef5b3 \| 3c1ef5b3 (same bytes) \| **identical** \| 1092 \| 0.58 ms \| 0.02 ms, 0 pages \| \|                   |
 
-The `daemon` row is a step that succeeds by not returning: with the `win32`
-branches the daemon starts and keeps running, the step's timeout ends it, and
-the collector records the suite as `skip`. The `wp-cli` row is the same
-daemon started the way `wp` starts it, answering `ls`.
+In that run the `daemon` step ran `wp __daemon` in the foreground and, since
+the daemon now keeps running, hit its timeout and was recorded as `skip`. The
+step has since become a real suite (`.github/ci/windows-daemon.ts`): it
+starts the daemon into a private runtime directory, completes `hello`, `ls`
+and `stats`, sends `shutdown`, and waits for the process to go. On
+[run 33697939359](https://github.com/omnilogic-labs/werk/actions/runs/33697939359)
+it passes in 443 ms — `hello` at 82 ms, `ls` at 83 ms, exited 212 ms after
+`shutdown` — and the Windows lane gates on it. The `wp-cli` row is the same
+daemon started the way `wp` starts it, answering `ls`. Two stop steps before
+`test-full` and `m2` shut down any daemon an earlier suite left, so the
+running daemon no longer pins `wp.exe`; `m2` then fails on
+`terminal is disposed` rather than `EPERM`.
 
 `m3` sometimes does not exit on Windows — it printed its tables and then hung
 to the 180 s step timeout on run 33684207403 and to 600 s on the `win32-arm64`
