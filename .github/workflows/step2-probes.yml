@@ -53,6 +53,12 @@ jobs:
           bun -e 'console.log(process.platform, process.arch, require("node:os").release())'
           echo "ImageOS=${ImageOS:-} ImageVersion=${ImageVersion:-}"
 
+      # The last probe drives the real daemon through the client, which needs
+      # the workspace's dependencies present.
+      - name: install
+        timeout-minutes: 3
+        run: bun install --frozen-lockfile
+
       - name: Probes
         timeout-minutes: 10
         run: |

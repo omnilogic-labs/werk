@@ -419,5 +419,64 @@ for (const how of ["SIGTERM", "SIGKILL", "job"] as const) {
   }
 }
 
+// (g) The same kill through the daemon, step by step with a clock on each
+// one: `src/daemon/daemon.test.ts` gives the whole thing 5 s and the failure
+// there says only that it ran out. Generous timeouts, so what is slow shows
+// up as a number rather than as a timeout.
+{
+  const name = "daemon-kill";
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wp-dk-"));
+  const state = fs.mkdtempSync(path.join(os.tmpdir(), "wp-dk-state-"));
+  process.env.WP_STATE_DIR = state;
+  const steps: string[] = [];
+  const step = async <T>(label: string, f: () => Promise<T>): Promise<T> => {
+    const t0 = performance.now();
+    try {
+      return await f();
+    } finally {
+      steps.push(`${label} ${(performance.now() - t0).toFixed(0)} ms`);
+    }
+  };
+  try {
+    const { connect } =
+      await import("../../packages/werk-poc/src/client/index.ts");
+    const client = await step("connect", () => connect({ dir }));
+    const { id } = await step("run", () =>
+      client.run({ argv: ["sleep", "30"] }),
+    );
+    let exited: { exitCode: number | null; signalCode: string | null } | null =
+      null;
+    let painted = false;
+    await step("attach", () =>
+      client.attach(id, {
+        cols: 80,
+        rows: 24,
+        onRender: () => (painted = true),
+        onExited: (i) => (exited = i),
+      }),
+    );
+    const killed = await step("kill", () => client.kill(id));
+    const heard = await step("exited notice", async () =>
+      waitFor(() => exited !== null, 15_000),
+    );
+    const info = await step("ls", async () =>
+      (await client.ls()).find((s) => s.id === id),
+    );
+    say(
+      name,
+      `${steps.join(", ")}; painted=${painted}; kill=${JSON.stringify(killed)}; ` +
+        `heard exited=${heard} ${JSON.stringify(exited)}; ls status=${info?.status} ` +
+        `exitCode=${info?.exitCode} signalCode=${info?.signalCode} kill=${JSON.stringify(info?.kill)}`,
+    );
+    await client.shutdown().catch(() => {});
+  } catch (e) {
+    say(name, `fail after ${steps.join(", ")} — ${firstLine(e)}`);
+  } finally {
+    await sleep(500);
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(state, { recursive: true, force: true });
+  }
+}
+
 say("done", "all probes finished");
 process.exit(0);

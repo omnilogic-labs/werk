@@ -83,23 +83,26 @@ and `/proc` reads returned `false` for every live process on any other OS.
 The surface, from what the PoC and the spikes actually needed. The rows with
 no implementation yet are marked; they are what §8's later steps fill in:
 
-| Concern              | POSIX                                                                                      | Windows                                                                                            |
-| -------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| `lock(dir)`          | `flock(LOCK_EX\|LOCK_NB)` via `bun:ffi`                                                    | `CreateFileW` + `LockFileEx` via `bun:ffi`; where `bun:ffi` is absent, an exclusive named pipe     |
-| `runtimeDir()`       | `$XDG_RUNTIME_DIR` → `$TMPDIR/werk-$UID`, mode checked                                     | `%LOCALAPPDATA%\werk`; mode and uid checks skipped (Bun reports `40666` and no uid)                |
-| `stateDir()`         | `$XDG_STATE_HOME` → `~/.local/state/werk`                                                  | `%LOCALAPPDATA%\werk\state`                                                                        |
-| `listen()`           | `AF_UNIX` under `runtimeDir()`, bind-and-rename, `chmod 0600`                              | `AF_UNIX` works for a Bun client; a stale socket has to be unlinked first, and has no mode (§3)    |
-| `spawnDaemon()`      | `detached: true` (`setsid`), `cwd: /`                                                      | `detached: true, windowsHide: true`, stdio ignored, `cwd` the home directory                       |
-| readiness            | connect and complete `hello` within a deadline                                             | the same; the failure reason comes from the daemon's log file                                      |
-| `compiled`           | `import.meta.path` starts `/$bunfs/`                                                       | the virtual drive `B:\~BUN\`, and the path arrives with backslashes                                |
-| `isAlive(pid)`       | `kill(pid, 0)`, then `/proc/<pid>/stat` — `ps -o state=` on macOS — so a zombie reads dead | `kill(pid, 0)` (works in Bun on Windows); there are no zombies to exclude                          |
-| `rss(pid)`           | `/proc/<pid>/status`, or `ps -o rss=` on macOS                                             | `process.memoryUsage()`, so only for this process                                                  |
-| `cpuModel()`         | `machdep.cpu.brand_string` on macOS, `/proc/cpuinfo` on Linux                              | libuv's own `os.cpus()`                                                                            |
-| `shutdown()`         | `SIGTERM`/`SIGINT`/`SIGHUP` → grace → `SIGKILL`                                            | no signal reaches a detached daemon at all; a protocol message → grace → `TerminateProcess`        |
-| `interrupt(session)` | _not implemented:_ `SIGINT` to the foreground group                                        | _not implemented:_ write `0x03` to the ConPTY; what dies of it is up to the child's runtime        |
-| `killTree(session)`  | _not implemented:_ the process group                                                       | _not implemented:_ a Job Object with `KILL_ON_JOB_CLOSE`, via `bun:ffi` where present              |
-| socket buffers       | Linux default 208 KiB; macOS 8 KiB, raised via `setsockopt` on the listener's `fd`         | unmeasured, so the kernel's own figure stands                                                      |
-| `defaultShell()`     | _not implemented:_ `$SHELL` → `/bin/sh`                                                    | _not implemented:_ probably config → `pwsh` → Windows PowerShell → `%COMSPEC%`; nobody has decided |
+| Concern              | POSIX                                                                                      | Windows                                                                                             |
+| -------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `lock(dir)`          | `flock(LOCK_EX\|LOCK_NB)` via `bun:ffi`                                                    | `CreateFileW` + `LockFileEx` via `bun:ffi`; where `bun:ffi` is absent, an exclusive named pipe      |
+| `runtimeDir()`       | `$XDG_RUNTIME_DIR` → `$TMPDIR/werk-$UID`, mode checked                                     | `%LOCALAPPDATA%\werk`; mode and uid checks skipped (Bun reports `40666` and no uid)                 |
+| `stateDir()`         | `$XDG_STATE_HOME` → `~/.local/state/werk`                                                  | `%LOCALAPPDATA%\werk\state`                                                                         |
+| `listen()`           | `AF_UNIX` under `runtimeDir()`, bind-and-rename, `chmod 0600`                              | `AF_UNIX` works for a Bun client; a stale socket has to be unlinked first, and has no mode (§3)     |
+| `spawnDaemon()`      | `detached: true` (`setsid`), `cwd: /`                                                      | `detached: true, windowsHide: true`, stdio ignored, `cwd` the home directory                        |
+| readiness            | connect and complete `hello` within a deadline                                             | the same; the failure reason comes from the daemon's log file                                       |
+| `compiled`           | `import.meta.path` starts `/$bunfs/`                                                       | the virtual drive `B:\~BUN\`, and the path arrives with backslashes                                 |
+| `isAlive(pid)`       | `kill(pid, 0)`, then `/proc/<pid>/stat` — `ps -o state=` on macOS — so a zombie reads dead | `kill(pid, 0)` (works in Bun on Windows); there are no zombies to exclude                           |
+| `rss(pid)`           | `/proc/<pid>/status`, or `ps -o rss=` on macOS                                             | `process.memoryUsage()`, so only for this process                                                   |
+| `cpuModel()`         | `machdep.cpu.brand_string` on macOS, `/proc/cpuinfo` on Linux                              | libuv's own `os.cpus()`                                                                             |
+| `onShutdownSignal()` | `SIGTERM`/`SIGINT`/`SIGHUP`, each ending in the same graceful shutdown                     | nothing to register: no console-control event reaches a detached daemon                             |
+| `terminate(pid)`     | `SIGKILL`, when the `shutdown` message's grace has run out                                 | `TerminateProcess`, for the same reason                                                             |
+| `signalsExits`       | true: an exit status names the signal that ended a process                                 | false: Bun echoes back the name `proc.kill` was passed, and reports it for a `TerminateProcess`     |
+| `adoptTree(child)`   | the child's process group, which the inline `terminal` makes it the leader of              | a Job Object with `KILL_ON_JOB_CLOSE`, joined by inheritance; the child alone where there is no ffi |
+| tree `interrupt()`   | `SIGINT` to that group                                                                     | `0x03` into the ConPTY; what dies of it is up to the child's runtime                                |
+| tree `kill()`        | `SIGTERM` or `SIGKILL` to that group                                                       | `TerminateJobObject`, which takes the descendants with it                                           |
+| socket buffers       | Linux default 208 KiB; macOS 8 KiB, raised via `setsockopt` on the listener's `fd`         | unmeasured, so the kernel's own figure stands                                                       |
+| `defaultShell()`     | _not implemented:_ `$SHELL` → `/bin/sh`                                                    | _not implemented:_ probably config → `pwsh` → Windows PowerShell → `%COMSPEC%`; nobody has decided  |
 
 Two things the table does not say. The environment overrides that name a
 directory outright — `XDG_RUNTIME_DIR`, `XDG_STATE_HOME`, `WP_STATE_DIR`,
@@ -123,12 +126,17 @@ three OSes identical and costs nothing measurable. The spike used a ready
 file instead of the pipe, which also works; either is fine, and one of them
 should be the same on all three.
 
-**Shutdown is a protocol message on all three.** A detached Windows daemon
+**Teardown is a protocol message on all three.** A detached Windows daemon
 has no console, so no console-control event can reach it and every
 `proc.kill(signal)` is `TerminateProcess` regardless of the name passed —
-Bun still reports the requested `signalCode`, which is misleading. Making
-graceful shutdown a message is the only portable design and is probably the
-better one anyway.
+Bun still reports the requested `signalCode` (run 33704743713), which is
+misleading. So the `shutdown` message is the way in on every platform, and a
+`kill` carries a mode — interrupt, terminate or force — rather than a signal
+name. Signals stay a second route into the daemon's shutdown on POSIX,
+because `kill` typed at a shell is a real thing and the snapshot suite sends
+one; nothing on Windows registers a handler, since nothing could fire it. A
+POSIX signal name on a `kill` still says what it always said and is still
+the signal that gets sent; on Windows it names a mode and nothing else.
 
 ## 3. Windows, specifically
 
@@ -144,9 +152,10 @@ far enough to hit questions rather than blockers:
   equivalent, not byte-identical — which was known from
   [`../research/07-packaging.md`](../research/07-packaging.md) §4 and is now
   measured. Reattach fidelity on a Windows host would need its own oracle.
-- **Kill semantics.** `kill` through the protocol is `TerminateProcess`, exit
-  code 1, no signal name; a test that waits for a signal to be reported times
-  out. This is the `shutdown()`/`interrupt()` row of §2 as a design item.
+- **Kill semantics.** Nothing is delivered as a signal, so the daemon reports
+  none: a `kill` is a mode, a session records how the platform carried it out,
+  and a Windows exit says `exitCode` 1 with no `signalCode`. The tree comes
+  from a Job Object — see below.
 - Two harness problems that are not platform facts: a running daemon pins
   `wp.exe` so the M2 harness cannot rebuild it, and `bench/ops.ts` has its own
   POSIX-shaped launcher.
