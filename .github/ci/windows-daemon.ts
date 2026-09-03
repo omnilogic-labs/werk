@@ -56,8 +56,10 @@ function daemonProcesses(): { pid: number; name: string; cmd: string }[] {
   for (const line of ps.out.split("\n")) {
     const [pid, name, ...rest] = line.split("\t");
     const n = Number(pid);
-    if (Number.isFinite(n) && n > 0)
-      found.push({ pid: n, name: name ?? "?", cmd: rest.join("\t") });
+    const cmd = rest.join("\t");
+    // The query itself names `__daemon` on its own command line.
+    if (Number.isFinite(n) && n > 0 && !cmd.includes("Get-CimInstance"))
+      found.push({ pid: n, name: name ?? "?", cmd });
   }
   return found;
 }
@@ -207,8 +209,10 @@ async function stop(): Promise<number> {
   for (const p of before)
     console.log(`found  pid ${p.pid}  ${p.name}  ${p.cmd}`);
 
-  // Polite first: the shutdown message snapshots and exits.
-  if (fs.existsSync(paths.socket)) {
+  // Polite first: the shutdown message snapshots and exits. The socket's
+  // path is not a file on disk on Windows, so ask rather than look; nothing
+  // listening fails the connect at once.
+  {
     try {
       const client = await connect({ dir, autostart: false, timeoutMs: 3000 });
       const pid = client.daemon.pid;
@@ -227,8 +231,6 @@ async function stop(): Promise<number> {
         `socket ${paths.socket}: ${String((e as Error).message ?? e).split("\n")[0]}`,
       );
     }
-  } else {
-    console.log(`no socket at ${paths.socket}`);
   }
 
   // Then by pid, for whatever is left: a daemon in another runtime dir, or
