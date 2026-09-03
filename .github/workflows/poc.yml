@@ -906,10 +906,16 @@ jobs:
         timeout-minutes: 3
         run: bash .github/ci/windows.sh m2 packages/werk-poc 'bun run m2'
 
+      # `m3` runs the wasm engine and exits the way `test-full`'s files do,
+      # and about one run in four it printed every table and then did not
+      # exit; the same JSC option `windows-test-full.sh` sets, for the same
+      # reason it gives.
       - name: m3
         id: m3
         continue-on-error: true
         timeout-minutes: 3
+        env:
+          BUN_JSC_useConcurrentJIT: "false"
         run: bash .github/ci/windows.sh m3 packages/werk-poc 'bun run m3'
 
       # ---------------------------------------------------------------------

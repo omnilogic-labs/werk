@@ -8,9 +8,11 @@
 #
 # The phases: the three engine files under the harness's sink; a bisection
 # over what a file does with the engine (`.github/ci/exit-hang/*.test.ts`,
-# from no engine at all to a terminal created and disposed); and the same
-# files again with one JSC thread pool at a time turned off through
-# `BUN_JSC_*`, which is how the runner says which thread the exit races.
+# from no engine at all to a terminal created and disposed); `bun run m3`,
+# which exits the same way; the engine files and `m3` again with JSC's
+# concurrent JIT off through `BUN_JSC_*`, the mitigation the lane's harness
+# carries; and the harness itself, many times over the two files that hang
+# most.
 #
 # Stdout goes to a file in every phase. A process that hangs this way cannot
 # be ended by `timeout`'s kill either, so behind a pipe the reader waits
@@ -113,21 +115,6 @@ jobs:
           cp "$GITHUB_WORKSPACE"/.github/ci/exit-hang/*.test.ts .exit-hang/
           $PROBE file 30 $ENGINE_FILES 2>&1 | tee "$OUT/phase-engine.log"
 
-      - name: bisect
-        if: always()
-        timeout-minutes: 15
-        run: $PROBE file 100 $BISECT_FILES 2>&1 | tee "$OUT/phase-bisect.log"
-
-      # The lane's harness over the two files that hang most, many times:
-      # what a process that passed and did not exit costs once the harness
-      # watches for the tally, and what its roll-up says.
-      - name: harness
-        if: always()
-        timeout-minutes: 15
-        env:
-          EXIT_GRACE: "10"
-        run: bash ../../.github/ci/step10-exit-hang-harness.sh 40 $VARIANT_FILES 2>&1 | tee "$OUT/phase-harness.log"
-
       # `m3` is `bun run` rather than `bun test`, two scripts that use the
       # engine and start no daemon, and about one lane run in four prints
       # every table and then does not exit. Each run is about five seconds.
@@ -138,33 +125,36 @@ jobs:
           PER_RUN: "120"
         run: $PROBE file 10 run:m3 2>&1 | tee "$OUT/phase-m3.log"
 
-      # JSC's concurrent collector suspends the JS thread to scan its stack;
-      # the Wasm and JIT worklists compile on their own threads. Each off in
-      # turn.
-      - name: no concurrent GC
+      # The mitigation the harness carries, measured on its own: JSC's
+      # concurrent JIT off, so compiles run on the JS thread and there is no
+      # compiler thread for the exit to lose. The collector off instead was
+      # not it (36 hangs in 1,200 runs, run 33745611845).
+      - name: no concurrent JIT
         if: always()
-        timeout-minutes: 15
+        timeout-minutes: 20
         env:
-          BUN_JSC_useConcurrentGC: "false"
-          TAG: useConcurrentGC=false
-        run: $PROBE file 100 $VARIANT_FILES 2>&1 | tee "$OUT/phase-nogc.log"
+          BUN_JSC_useConcurrentJIT: "false"
+          TAG: useConcurrentJIT=false
+        run: $PROBE file 100 $ENGINE_FILES ./.exit-hang/03-create-dispose.test.ts 2>&1 | tee "$OUT/phase-nojit.log"
 
-      - name: m3, no concurrent GC
+      - name: m3, no concurrent JIT
         if: always()
         timeout-minutes: 25
         env:
           PER_RUN: "120"
-          BUN_JSC_useConcurrentGC: "false"
-          TAG: useConcurrentGC=false
-        run: $PROBE file 10 run:m3 2>&1 | tee "$OUT/phase-m3-nogc.log"
+          BUN_JSC_useConcurrentJIT: "false"
+          TAG: useConcurrentJIT=false
+        run: $PROBE file 10 run:m3 2>&1 | tee "$OUT/phase-m3-nojit.log"
 
-      - name: no concurrent JIT
+      # The lane's harness itself, which carries the option and watches for
+      # the tally, over the two files that hang most, many times: what its
+      # roll-up says and what a run costs.
+      - name: harness
         if: always()
         timeout-minutes: 15
         env:
-          BUN_JSC_useConcurrentJIT: "false"
-          TAG: useConcurrentJIT=false
-        run: $PROBE file 100 $VARIANT_FILES 2>&1 | tee "$OUT/phase-nojit.log"
+          EXIT_GRACE: "10"
+        run: bash ../../.github/ci/step10-exit-hang-harness.sh 40 $VARIANT_FILES 2>&1 | tee "$OUT/phase-harness.log"
 
       - name: Summary
         if: always()

@@ -9,17 +9,27 @@
 # at all. A process per file means one file's crash costs that file's
 # verdict and no other's.
 #
-# The tests' verdict and the process's exit are recorded separately. About
-# one `bun test` process in a hundred on `windows-latest` prints its whole
-# tally and then never exits: Bun 1.3.14's `ExitProcess` terminates JSC's
-# helper threads, and one of them can be holding the JS thread suspended at
-# that moment, which leaves the process stuck inside its own termination
-# (oven-sh/bun#40513, fixed after 1.3.14). Such a process is past its last
-# test, so its tally is complete, and `taskkill` may not end it either. This
-# script watches each file's output for Bun's closing `Ran N tests` line and
-# gives the process EXIT_GRACE seconds after it to be gone; one that is not
-# is killed, listed under `did not exit`, and counted as what its tally
-# says. A file with no tally at all, or a failing one, is red as before.
+# The tests' verdict and the process's exit are recorded separately. On
+# `windows-latest` a `bun test` process that has run the wasm engine prints
+# its whole tally and then, about one time in a hundred, never exits — 11
+# of 2,340 such processes in run 33745611845, none of 1,200 that compiled
+# the module without running it. Bun 1.3.14's `ExitProcess` terminates
+# JSC's helper threads, and the exit can then wait on one of them forever
+# (oven-sh/bun#40513 is the same shape on arm64, fixed after 1.3.14). With
+# JSC's concurrent JIT off the compiles run on the JS thread, there is no
+# such thread to lose, and the same files did not hang once in 1,200 runs;
+# with the concurrent collector off they hung 36 times. So the `bun test`
+# below runs with `BUN_JSC_useConcurrentJIT=false`, which costs an engine
+# file about half a second of synchronous compilation. Bun refuses a
+# `BUN_JSC_*` name its JSC does not know, so a Bun that drops the option
+# fails every file here rather than quietly running without it.
+#
+# In case a process still does not exit, the script watches each file's
+# output for Bun's closing `Ran N tests` line and gives the process
+# EXIT_GRACE seconds after it to be gone; one that is not is killed, listed
+# under `did not exit`, and counted as what its tally says, since it is past
+# its last test. A file with no tally at all, or a failing one, is red as
+# before.
 #
 # Run from packages/werk-poc. The roll-up at the end is the suite's verdict:
 # the files that failed, the files whose process died without a tally, and
@@ -31,6 +41,7 @@ set -uo pipefail
 : "${FILE_TIMEOUT:=180}"
 : "${EXIT_GRACE:=15}"
 : "${GITHUB_WORKSPACE:=$(git rev-parse --show-toplevel)}"
+export BUN_JSC_useConcurrentJIT=false
 
 log="${1:-full.log}"
 : >"$log"
