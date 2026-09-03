@@ -1,8 +1,9 @@
-// M3: snapshots to disk on a timer, on exit, on `shutdown` and on a real
-// SIGTERM; corpses restored on the next start with the two-stage decode;
-// the mismatch rule; `kill --rm` removing the file; the `snapshot`
-// request. Real daemons in temporary runtime and state directories, one
-// second between timer ticks.
+// M3: snapshots to disk on a timer, on exit, on `shutdown` and on a stop
+// from outside the protocol — a real SIGTERM where there are signals, the
+// stop pipe where there are none; corpses restored on the next start with
+// the two-stage decode; the mismatch rule; `kill --rm` removing the file;
+// the `snapshot` request. Real daemons in temporary runtime and state
+// directories, one second between timer ticks.
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import fs from "node:fs";
@@ -11,6 +12,7 @@ import { connect, type Client } from "../client/index.ts";
 import { GHOSTTY_COMMIT } from "../engine/ghostty-wasm/bytes.ts";
 import { loadGhosttyWasmEngine } from "../engine/ghostty-wasm/bun.ts";
 import { isUnsupported } from "../engine/types.ts";
+import { platform } from "../platform/index.ts";
 import { WP_VERSION } from "../protocol/index.ts";
 import {
   alive,
@@ -20,6 +22,7 @@ import {
   tempDir,
   waitFor,
 } from "./_testlib.ts";
+import { daemonPaths } from "./paths.ts";
 import {
   listSnapshotFiles,
   readSnapshot,
@@ -368,7 +371,14 @@ test("a torn file is left in place and skipped", async () => {
   fs.unlinkSync(file);
 }, 30_000);
 
-test("a real SIGTERM to the detached daemon snapshots every session before it exits", async () => {
+// The stop that reaches a detached daemon from outside the protocol is a
+// row of the seam: a real SIGTERM to the pid where signals exist, and on
+// Windows — where a detached daemon has no console for a control event and
+// `process.kill()` is `TerminateProcess`, which runs none of its code — the
+// word `stop` on the pipe the daemon keeps open beside its socket. The
+// question is the same on all three: does every session reach disk before
+// the process goes, and is it listed as a corpse when the next one starts?
+test("a stop from outside the protocol (SIGTERM, or the stop pipe) snapshots every session before the daemon exits", async () => {
   const dir2 = tempDir();
   const state2 = path.join(dir2, "state");
   process.env.WP_STATE_DIR = state2;
@@ -382,7 +392,7 @@ test("a real SIGTERM to the detached daemon snapshots every session before it ex
     await sleep(50);
   }
   expect(listSnapshotFiles(state2)).toEqual([]);
-  process.kill(p, "SIGTERM");
+  const reason = await platform.requestStop(p, daemonPaths(dir2).lock);
   expect(await waitFor(() => !alive(p), 5000)).toBe(true);
   c.close();
   const files = listSnapshotFiles(state2);
@@ -393,7 +403,7 @@ test("a real SIGTERM to the detached daemon snapshots every session before it ex
     SNAPSHOT_MAGIC,
   );
   const log = fs.readFileSync(path.join(dir2, "wp.log"), "utf8");
-  expect(log).toContain("shutting down: SIGTERM");
+  expect(log).toContain(`shutting down: ${reason}`);
   expect(log).toMatch(/shutdown snapshots: 1 of 1/);
   // and it comes back
   const c2 = await connect({ dir: dir2 });

@@ -365,6 +365,17 @@ export const posix: Platform = {
     }
   },
 
+  /** The signals above are the out-of-protocol stop; nothing else to keep open. */
+  listenForStop(): null {
+    return null;
+  },
+
+  /** `kill(pid, SIGTERM)`, which the handler above turns into the graceful shutdown. */
+  async requestStop(pid: number): Promise<string> {
+    process.kill(pid, "SIGTERM");
+    return "SIGTERM";
+  },
+
   /**
    * The tree is the child's process group, which it leads. `kill(-pgid, sig)`
    * reaches everything in it, so a shell's children go with the shell; a

@@ -23,6 +23,16 @@ export interface FileLock {
   release(): void;
 }
 
+/**
+ * What a daemon keeps open so a stop can reach it from outside the protocol
+ * where no signal can: a named pipe on Windows. `name` is what a requester
+ * opens, and what the daemon's log names.
+ */
+export interface StopListener {
+  name: string;
+  close(): void;
+}
+
 /** What a spawned daemon reported before the launcher stopped waiting for it. */
 export interface DaemonStart {
   pid: number;
@@ -135,6 +145,29 @@ export interface Platform {
    * route, for a `kill` typed at a shell.
    */
   onShutdownSignal(handler: (reason: string) => void): void;
+
+  /**
+   * The stop that reaches a detached daemon from outside the protocol where
+   * there are no signals to carry one. A Windows daemon has no console, so
+   * no console control event reaches it and Bun's `process.kill()` is
+   * `TerminateProcess`, which runs none of its code; what it has instead is
+   * a `\\.\pipe\` name derived from its lock path, kept open for as long as
+   * it runs, on which the word `stop` is the request. Null where
+   * `onShutdownSignal` already covers it. Throws when the name cannot be
+   * taken, which the daemon logs and carries on without.
+   */
+  listenForStop(
+    lockPath: string,
+    handler: (reason: string) => void,
+  ): StopListener | null;
+
+  /**
+   * Asks the daemon holding `lockPath`, whose pid is `pid`, to stop from
+   * outside the protocol: a real SIGTERM where signals exist, the stop pipe
+   * where they do not. Resolves to the reason the daemon logs as
+   * `shutting down: <reason>`, so a test can hold the log to it.
+   */
+  requestStop(pid: number, lockPath: string): Promise<string>;
 
   /** Takes hold of a just-spawned session child, so a later kill can take its tree. */
   adoptTree(child: SessionChild): ProcessTree;
