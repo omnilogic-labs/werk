@@ -7,6 +7,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ffiPlatform } from "../../src/engine/ghostty-ffi/bun.ts";
 
 const pkg = join(import.meta.dir, "..", "..");
 const outDir = join(pkg, "dist", "m6");
@@ -23,11 +24,23 @@ const mb = (p: string) => (Bun.file(p).size / 1048576).toFixed(1);
 
 // The adapter extracts the prebuild pair for the host platform under names
 // the shim was linked against: a versioned soname next to a shim on Linux,
-// plain .dylib files on macOS.
+// plain .dylib files on macOS, one DLL under both names on Windows. The
+// platform id is the binding's own — `linux-<arch>-<libc>`, so it differs
+// per architecture and between glibc and musl — and the expectation reads
+// it from the host rather than naming one target.
 const DARWIN = process.platform === "darwin";
-const PLATFORM = DARWIN ? `darwin-${process.arch}` : "linux-x64-glibc";
-const LIB_NAME = DARWIN ? "libghostty-vt.dylib" : "libghostty-vt.so.0";
-const SHIM_NAME = DARWIN ? "libghostty-vt-shim.dylib" : "libghostty-vt-shim.so";
+const WIN32 = process.platform === "win32";
+const PLATFORM = ffiPlatform();
+const LIB_NAME = DARWIN
+  ? "libghostty-vt.dylib"
+  : WIN32
+    ? "ghostty-vt.dll"
+    : "libghostty-vt.so.0";
+const SHIM_NAME = DARWIN
+  ? "libghostty-vt-shim.dylib"
+  : WIN32
+    ? "ghostty-vt.dll"
+    : "libghostty-vt-shim.so";
 
 test("all three engines load inside a --compile binary run from an empty directory", async () => {
   const out = join(outDir, "compiled");
@@ -63,7 +76,7 @@ test("all three engines load inside a --compile binary run from an empty directo
   const extracted = await readdir(
     join(cwd, "werk-poc-libghostty-vt-0.6.3", PLATFORM),
   );
-  expect(extracted.sort()).toEqual([SHIM_NAME, LIB_NAME].sort());
+  expect(extracted.sort()).toEqual([...new Set([SHIM_NAME, LIB_NAME])].sort());
 
   // Size: an empty script, the wasm alone, and all three.
   const empty = join(outDir, "empty.ts");
