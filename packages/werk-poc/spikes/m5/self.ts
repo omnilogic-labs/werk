@@ -139,6 +139,7 @@ export class SelfRemote implements M5Remote {
         : "(no log)";
       throw new Error(`the private sshd never answered: ${tail}`);
     }
+    this.shaper = have("dnctl") ? "dummynet" : have("tc") ? "tc" : "none";
     this.sshdPid = Number(
       fs.existsSync(pidFile) ? fs.readFileSync(pidFile, "utf8").trim() : 0,
     );
@@ -245,8 +246,6 @@ export class SelfRemote implements M5Remote {
    * RTT 0 row, and says so.
    */
   netem(rtt: number) {
-    if (this.shaper === "none")
-      this.shaper = have("dnctl") ? "dummynet" : have("tc") ? "tc" : "none";
     const half = Math.floor(rtt / 2);
     if (this.shaper === "dummynet") {
       const rules = path.join(this.tmp, "pf.conf");

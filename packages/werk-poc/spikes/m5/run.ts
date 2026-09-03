@@ -347,7 +347,7 @@ async function main() {
     );
     const c = await far.ctl();
     say(
-      `- hello through the forward: protocol ${c.daemon.protocol}, wp ${c.daemon.wp}, engine ${c.daemon.engine.slice(0, 8)}, daemon pid ${c.daemon.pid} (in the container)`,
+      `- hello through the forward: protocol ${c.daemon.protocol}, wp ${c.daemon.wp}, engine ${c.daemon.engine.slice(0, 8)}, daemon pid ${c.daemon.pid} (at the far end)`,
     );
     c.close();
     const rttRows: string[] = [],
