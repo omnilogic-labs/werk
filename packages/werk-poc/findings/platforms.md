@@ -146,7 +146,10 @@ running daemon no longer pins `wp.exe`; `m2` then fails on
 `m3` sometimes does not exit on Windows — it printed its tables and then hung
 to the 180 s step timeout on run 33684207403 and to 600 s on the `win32-arm64`
 lane of run 33689751325, and exited normally on all three Windows jobs of the
-merged runs — so the Windows lane keeps it out of the gate.
+merged runs — so the Windows lane keeps it out of the gate. It is Bun's exit
+racing one of JSC's compiler threads, the same thing the engine test files
+hit ("A process that ran the wasm engine does not always exit" below), and
+the `win32-x64` step runs it without that thread.
 
 ## macOS
 
@@ -627,6 +630,78 @@ Windows lane runs the files one process at a time
 (`.github/ci/windows-test-full.sh`), which costs the panic one file's verdict
 instead of seventeen.
 
+### A process that ran the wasm engine does not always exit
+
+On `windows-latest` a `bun test` process whose file ran the ghostty-wasm
+engine prints its whole tally — `15 pass`, `0 fail`, `Ran 15 tests across 1
+file. [170.00ms]` — and then, about one time in a hundred, never exits;
+`bun run m3` prints every table and does the same about one run in ten.
+The probe workflow on the step branch
+(`.github/workflows/step10-exit-hang-probes.yml`) ran one file per process
+under the lane's own `timeout`, six jobs at a time:
+
+| What the process did before its tally                                          | Runs  | Did not exit |
+| ------------------------------------------------------------------------------ | ----- | ------------ |
+| nothing of the engine                                                          | 1,200 | 0            |
+| compiled and instantiated the module                                           | 1,200 | 0            |
+| created one terminal, wrote 12 bytes, disposed it                              | 1,200 | 11           |
+| `reattach.test.ts`                                                             | 360   | 8            |
+| `encoders.test.ts`                                                             | 360   | 1            |
+| `terminal.test.ts`                                                             | 360   | 0            |
+| `bun run m3`                                                                   | 60    | 6            |
+| the one-terminal file and `reattach.test.ts`, `BUN_JSC_useConcurrentGC=false`  | 2,400 | 75           |
+| `bun run m3`, `BUN_JSC_useConcurrentGC=false`                                  | 60    | 5            |
+| the one-terminal file and `reattach.test.ts`, `BUN_JSC_useConcurrentJIT=false` | 2,400 | 0            |
+
+Runs 33745611845 and 33746161808, six jobs each, on `windows-latest`. The
+files start nothing and spawn nothing, and the engine holds no handle:
+`src/engine/ghostty-wasm/` has no timer, worker, registry or file open
+after `Bun.file().arrayBuffer()` returns. What separates the rows is
+whether wasm has run, and with it whether JSC has compiler threads
+tiering it up when the process exits. Bun 1.3.14's `Global::exit` calls
+`ExitProcess`, which terminates every other thread and then finishes the
+exit on the main one; kill a JSC thread at the wrong moment and the exit
+waits on it forever. oven-sh/bun#40513 (merged 26 August 2026, after
+1.3.14) is that on arm64, where the wasm compiler suspends the JS thread
+to flush its instruction cache and a thread killed between the suspend and
+the resume leaves the main thread suspended inside `NtTerminateProcess`;
+on x64 that barrier is a no-op, so which lock or wait it is here is not
+separated. What is: with the concurrent JIT off — every compile on the JS
+thread, no compiler thread to lose — 2,400 runs of the two files that hang
+most did not hang once, and with the concurrent collector off they hung
+two to three times as often as with nothing changed, `m3` as often as
+before.
+
+So `windows-test-full.sh` exports `BUN_JSC_useConcurrentJIT=false` for the
+`bun test` it runs, and the `win32-x64` `m3` step sets the same. It costs
+synchronous compilation: `reattach.test.ts` takes about 800 ms a run
+instead of 260, the one-terminal file 200 ms instead of 130. Bun parses
+`BUN_JSC_*` before anything else and refuses a name its JSC does not have,
+so a Bun that drops the option fails every file rather than running
+without it.
+
+A process stuck this way is not ended from outside either. `timeout -k 5
+60` reported 137 and returned, and with the process's stdout on a pipe the
+`cat` reading it never saw the end (run 33744140485, two jobs of six sat in
+that until their step's own deadline). Listing `bun.exe` after each hang
+(run 33746161808) shows every one of them still there, each with a single
+thread — the main one, the rest already terminated — and `taskkill /F /T`
+does not remove them either; they last until the job ends. The harness
+keeps stdout on a file, watches it for Bun's closing `Ran N tests` line,
+gives the process `EXIT_GRACE` seconds (15) after it to be gone, then kills
+what it can by Windows pid without waiting on it and moves on. Over the
+two files that hang most, 240 runs of the harness without the JSC option
+(run 33746161808), 14 had a file that passed and did not exit, and a run
+with one costs about 13.6 s against 3.6 s without, at a grace of 10 s.
+The tests' verdict and the process's exit are recorded separately: such a
+file counts as what its tally says and is listed in the `DETAIL` line as
+`passed but did not exit:` without turning the suite red, because its
+tally is complete and the cause is Bun's exit. A file with no tally at
+all, or a failing one, is red as before. The verdict for a hung file is
+therefore Bun's own tally, read from the log, and anyone reading
+`ci-result-win32-x64.json` should know that a `pass` there can carry that
+list.
+
 ### A session's tree goes in a Job Object
 
 A ConPTY child can be put in a Job Object from Bun, and ending the job takes
@@ -803,11 +878,14 @@ against the last run without either:
 Six of those rows are gated, and a red gate means a regression: `daemon`,
 `wp-cli`, `kill`, `ops`, `test-full` and `m2`, along with `install`,
 `typecheck`, `test-pure`, `build-web`, `build`, `diff` and `probes`.
-`m0-probes` and `m3` are recorded. One thing turns the gated `test-full` red
-without a test failing: in about three lane runs in fourteen a pure engine
-test file prints its tally and the process does not exit until the harness
-kills it (`reattach.test.ts` in runs 33740949544 and 33738651937,
-`encoders.test.ts` in 33738278048; none of the four merged-tree runs).
+`m0-probes` and `m3` are recorded. One thing in `test-full` is recorded
+rather than red: a pure engine test file whose process prints its tally
+and does not exit, which about three lane runs in fourteen hit
+(`reattach.test.ts` in runs 33740949544 and 33738651937, `encoders.test.ts`
+in 33738278048). It is Bun's exit racing a JSC compiler thread; the harness
+runs without the thread, and lists a process that still stays separately
+from its tally ("A process that ran the wasm engine does not always exit"
+above).
 
 `m2`'s reattach fidelity holds through a ConPTY — the scenarios compare cell
 grids, not bytes — and the suite passes eighteen runs in eighteen on

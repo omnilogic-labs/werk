@@ -1,0 +1,178 @@
+# How often a pure engine test file on the Windows runner prints its tally
+# and then does not exit. The lane's `test-full` runs one `bun test` per file
+# under `timeout -k 15 180`, and on roughly three runs in fourteen one of
+# `src/engine/ghostty-wasm/{reattach,encoders}.test.ts` reported every test
+# passing and then sat until the deadline. Six jobs of the same phases is
+# the sample; `.github/ci/step10-exit-hang.sh` runs one file many times under
+# the lane's own `timeout` and prints a rate.
+#
+# The phases: the three engine files under the harness's sink; a bisection
+# over what a file does with the engine (`.github/ci/exit-hang/*.test.ts`,
+# from no engine at all to a terminal created and disposed); `bun run m3`,
+# which exits the same way; the engine files and `m3` again with JSC's
+# concurrent JIT off through `BUN_JSC_*`, the mitigation the lane's harness
+# carries; and the harness itself, many times over the two files that hang
+# most.
+#
+# Stdout goes to a file in every phase. A process that hangs this way cannot
+# be ended by `timeout`'s kill either, so behind a pipe the reader waits
+# for a write end that never closes and the step sits until its own
+# deadline.
+#
+# Runs on every push to the step branch; `workflow_dispatch` only works for a
+# workflow file on the default branch, and this one is not meant to reach it.
+name: step10-exit-hang-probes
+
+on:
+  push:
+    branches: [step/10-exit-hang]
+
+concurrency:
+  group: step10-exit-hang-probes
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PROBE: bash ../../.github/ci/step10-exit-hang.sh
+  ENGINE_FILES: >-
+    src/engine/ghostty-wasm/reattach.test.ts
+    src/engine/ghostty-wasm/encoders.test.ts
+    src/engine/ghostty-wasm/terminal.test.ts
+  BISECT_FILES: >-
+    ./.exit-hang/00-no-engine.test.ts
+    ./.exit-hang/02-load.test.ts
+    ./.exit-hang/03-create-dispose.test.ts
+  VARIANT_FILES: >-
+    ./.exit-hang/03-create-dispose.test.ts
+    src/engine/ghostty-wasm/reattach.test.ts
+
+jobs:
+  probes:
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [1, 2, 3, 4, 5, 6]
+    name: sample ${{ matrix.job }}
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: packages/werk-poc
+    steps:
+      - name: Keep line endings as committed
+        working-directory: .
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      # Bun parses `BUN_JSC_*` before anything else and refuses a name JSC
+      # does not know, so the first line says the variants' names are taken
+      # and the second that a wrong one would have been refused.
+      - name: Runner
+        run: |
+          bun --version
+          bun -e 'console.log(process.platform, process.arch, require("node:os").release())'
+          echo "ImageOS=${ImageOS:-} ImageVersion=${ImageVersion:-}"
+          echo "PROBE jsc-options-accepted: $(BUN_JSC_useConcurrentGC=false BUN_JSC_useConcurrentJIT=false bun -e 'console.log("yes")' 2>&1 | head -1)"
+          echo "PROBE jsc-options-refused: $(BUN_JSC_noSuchOption=1 bun -e 'console.log("no")' 2>&1 | head -1)"
+          mkdir -p "$RUNNER_TEMP/exit-hang"
+          echo "OUT=$RUNNER_TEMP/exit-hang" >>"$GITHUB_ENV"
+
+      - name: install
+        timeout-minutes: 3
+        working-directory: .
+        run: bun install --frozen-lockfile
+
+      # The lane has `dist/wp.exe` present and a daemon-stop behind it when
+      # the engine files run; both are here so the conditions match.
+      - name: build
+        continue-on-error: true
+        timeout-minutes: 8
+        run: bun run build
+
+      - name: stop daemons
+        continue-on-error: true
+        timeout-minutes: 2
+        run: bun run "$GITHUB_WORKSPACE/.github/ci/windows-daemon.ts" stop
+
+      # The bisection files live outside packages/werk-poc so the lane's
+      # `git ls-files '*.test.ts'` never picks them up; they are copied in so
+      # their relative imports resolve, under `./` so `bun test` takes the
+      # path as a file rather than a filter that skips dot-directories.
+      - name: engine files
+        timeout-minutes: 15
+        run: |
+          rm -rf .exit-hang && mkdir .exit-hang
+          cp "$GITHUB_WORKSPACE"/.github/ci/exit-hang/*.test.ts .exit-hang/
+          $PROBE file 30 $ENGINE_FILES 2>&1 | tee "$OUT/phase-engine.log"
+
+      # `m3` is `bun run` rather than `bun test`, two scripts that use the
+      # engine and start no daemon, and about one lane run in four prints
+      # every table and then does not exit. Each run is about five seconds.
+      - name: m3
+        if: always()
+        timeout-minutes: 25
+        env:
+          PER_RUN: "120"
+        run: $PROBE file 10 run:m3 2>&1 | tee "$OUT/phase-m3.log"
+
+      # The mitigation the harness carries, measured on its own: JSC's
+      # concurrent JIT off, so compiles run on the JS thread and there is no
+      # compiler thread for the exit to lose. The collector off instead was
+      # not it (36 hangs in 1,200 runs, run 33745611845).
+      - name: no concurrent JIT
+        if: always()
+        timeout-minutes: 20
+        env:
+          BUN_JSC_useConcurrentJIT: "false"
+          TAG: useConcurrentJIT=false
+        run: $PROBE file 100 $ENGINE_FILES ./.exit-hang/03-create-dispose.test.ts 2>&1 | tee "$OUT/phase-nojit.log"
+
+      - name: m3, no concurrent JIT
+        if: always()
+        timeout-minutes: 25
+        env:
+          PER_RUN: "120"
+          BUN_JSC_useConcurrentJIT: "false"
+          TAG: useConcurrentJIT=false
+        run: $PROBE file 10 run:m3 2>&1 | tee "$OUT/phase-m3-nojit.log"
+
+      # The lane's harness itself, which carries the option and watches for
+      # the tally, over the two files that hang most, many times: what its
+      # roll-up says and what a run costs.
+      - name: harness
+        if: always()
+        timeout-minutes: 15
+        env:
+          EXIT_GRACE: "10"
+        run: bash ../../.github/ci/step10-exit-hang-harness.sh 40 $VARIANT_FILES 2>&1 | tee "$OUT/phase-harness.log"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## exit-hang sample ${{ matrix.job }} — commit \`${GITHUB_SHA:0:8}\`, bun \`$(bun --version)\`"
+            echo
+            echo '```'
+            cat "$OUT"/phase-*.log 2>/dev/null | tr -d '\r' | grep -aE '^RATE|HUNG'
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          cat "$OUT"/phase-*.log | tr -d '\r' | grep -aE '^RATE'
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exit-hang-${{ matrix.job }}
+          path: ${{ env.OUT }}
+          if-no-files-found: warn
+          retention-days: 14
