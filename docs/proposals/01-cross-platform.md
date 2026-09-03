@@ -300,8 +300,9 @@ Linux lane, for the reason
 [`platforms.md`](../../packages/werk-poc/findings/platforms.md) records —
 the fast client's own queue crosses the drop bound on shared CPUs — and the
 lanes forgive exactly that one failure. It is nondeterministic: roughly two
-attempts in seven pass, so a green lane is not evidence that it is fixed. Whether it should be
-a gate at all, be scaled to the machine, or be split into a deterministic
+attempts in seven pass, so a green lane is not evidence that it is fixed.
+Whether it should be a gate at all, be scaled to the machine, or be split
+into a deterministic
 fidelity check and a recorded headroom number, is open; "measured, not
 gated" is what the lanes do today and probably the right default.
 
