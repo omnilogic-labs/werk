@@ -462,11 +462,25 @@ for (const how of ["SIGTERM", "SIGKILL", "job"] as const) {
     const info = await step("ls", async () =>
       (await client.ls()).find((s) => s.id === id),
     );
+    // The rest of the same test: the session stays for `ls` and `logs` until
+    // a second kill removes it, and a third finds nothing.
+    const removed = await step("kill again", () => client.kill(id));
+    const gone = await step(
+      "ls again",
+      async () => (await client.ls()).find((s) => s.id === id) === undefined,
+    );
+    const third = await step("kill a third time", () =>
+      client.kill(id).then(
+        (r) => `resolved ${JSON.stringify(r)}`,
+        (e) => `rejected ${firstLine(e)}`,
+      ),
+    );
     say(
       name,
       `${steps.join(", ")}; painted=${painted}; kill=${JSON.stringify(killed)}; ` +
         `heard exited=${heard} ${JSON.stringify(exited)}; ls status=${info?.status} ` +
-        `exitCode=${info?.exitCode} signalCode=${info?.signalCode} kill=${JSON.stringify(info?.kill)}`,
+        `exitCode=${info?.exitCode} signalCode=${info?.signalCode} kill=${JSON.stringify(info?.kill)}; ` +
+        `removed=${removed.action}, gone=${gone}, third: ${third}`,
     );
     await client.shutdown().catch(() => {});
   } catch (e) {
