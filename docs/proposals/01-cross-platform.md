@@ -877,8 +877,10 @@ nondeterministic, and `m3` printed every table and then did not exit on
 about one run of the merged tree in six (run 33744965310), which is Bun's
 exit racing a JSC compiler thread, the same as the engine test files' (§3),
 and the lane runs `m3` without that thread. `test-full` and `m2` hold on
-`win32-x64`: three runs of the merged tree (33742714239, 33742717583 and 33742721321) and three more with the gate in place (33744959953,
-33744962470 and 33744965310) each pass 171 tests across 23 files, one
+`win32-x64`: three runs of the merged tree (33742714239, 33742717583 and
+33742721321), three more with the gate in place (33744959953, 33744962470
+and 33744965310) and three after the two races below (33772214127,
+33772217156 and 33772220740) each pass 171 tests across 23 files, one
 process per file, and nine `m2` scenarios of nine, after the unit runs that
 closed each file one by one (§3, §11) and `m2`'s own eighteen runs in
 eighteen plus sixty of the resize scenario alone (run 33738702935). Every
@@ -889,9 +891,14 @@ because it is the runtime between an MSYS vim and the console that drops
 it, not the daemon (§11); the resize itself is asserted through a child that
 asks the pty. So the Windows lane's `test-full` is held to the same one
 forgiven scenario as the others hold theirs to, and one thing on it is
-known to go red without a test failing: in about three lane runs in
-fourteen a pure engine test file prints its tally and the process does not
-exit until the harness kills it (§11).
+known to go red without a test failing: a pure engine test file printing
+its tally and then not exiting, which §3 accounts for and the harness now
+records apart from a failure. Gating the suite is what found the last two
+races in it, each on one run of three (33771219990 and 33771222845): a web
+tab asked for its output bytes a fixed 200 ms after the daemon had the
+output, and the resize test waited on an MSYS bash's `WINCH` trap, which is
+the runtime the vim row in §11 describes. Both now wait for what they
+assert.
 
 So the gates say what each lane holds today, and the set each forgives is the
 list of what a Windows host would still cost. Whether the slow-client
@@ -941,6 +948,8 @@ to re-introduce.
 | `timeout` said it killed a Windows process, and a pipe still waits | It did not end it. A process stuck in its own exit outlives `timeout`'s kill, and a reader on its pipe never sees the end. Send such a process's output to a file and stop waiting on it.                                                                                                                                              |
 | vim not redrawing after a resize on Windows                        | Not the daemon's resize: the ConPTY answers the new size at once to a child that asks. The MSYS runtime between vim and the console drops about one resize in five until vim next reads input, and then sizes it one row too tall. `m2` records that and asserts the resize through the child.                                         |
 | `wp` has exited but its last line is not in the pty                | A ConPTY delivers for up to 40 ms after the process it fed is gone. Wait for the line, not the exit.                                                                                                                                                                                                                                   |
+| A `trap ... WINCH` in an MSYS bash that does not fire              | The same runtime as the vim row: a resize can wait until the process next reads input. Have the child poll `stty size` as well as trap the signal (§8).                                                                                                                                                                                |
+| A client asserted a fixed sleep after the daemon had the output    | The daemon having it on its screen is not the socket having carried it. Wait for the thing being asserted; two gated files failed a run each on that (§8).                                                                                                                                                                             |
 | The slow-client scenario red on a hosted lane                      | CPU headroom on a shared runner — roughly two attempts in seven pass. A green lane is not evidence it is fixed (§5).                                                                                                                                                                                                                   |
 | macOS losing about 6 MB in the fast-client scenario                | Not the client's sink: a pipe and a plain file lose as much as a PTY. An unexplained delivery rate; §4 says what is ruled out.                                                                                                                                                                                                         |
 | A stale binary answering a `hello`                                 | `PROTOCOL_VERSION` catches a changed wire shape only if it is bumped when the wire changes. `dist/bench-ops/` caches a binary across runs.                                                                                                                                                                                             |
