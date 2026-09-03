@@ -93,7 +93,8 @@ async function yesTest(t: Target) {
   const id = await session(
     t,
     ctl,
-    "read x; yes | head -c 20M; echo; echo DONE; read y",
+    // 20 MiB as a byte count: BSD `head` refuses `20M`.
+    "read x; yes | head -c 20971520; echo; echo DONE; read y",
   );
   const lib = await t.ctl();
   let frames = 0,

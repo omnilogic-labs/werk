@@ -197,8 +197,9 @@ export class SelfRemote implements M5Remote {
 
   execBulkMiBs() {
     const t0 = performance.now();
-    const n = sh([...this.sshArgs(), "head", "-c", "16M", "/dev/zero"]).stdout
-      .length;
+    // A byte count, not `16M`: BSD `head` refuses the suffix.
+    const n = sh([...this.sshArgs(), "head", "-c", "16777216", "/dev/zero"])
+      .stdout.length;
     return n / 1048576 / ((performance.now() - t0) / 1000);
   }
 
