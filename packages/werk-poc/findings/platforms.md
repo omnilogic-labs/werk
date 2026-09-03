@@ -730,11 +730,11 @@ not been enough.
 
 What `test-full` fails, by cause, is below. `daemon.test.ts` is in the
 failing set rather than the no-verdict set: teardown through the protocol
-closed the file that used to panic, so nothing is hidden behind it. Three
+closed the file that used to panic, so nothing is hidden behind it. The
 files that ask about the socket, the token file or the compiled binary's
-root ask the seam and pass on the lane — `launch.test.ts`, `tcp.test.ts`,
-and the M1 and M6 spikes (runs 33737702073 and 33737833426); what each had
-been asking `fs` is in "Where each layer stands" above.
+root — `launch.test.ts`, `tcp.test.ts`, and the M1 and M6 spikes — ask the
+seam and pass on the lane (runs 33737702073 and 33737833426); the rows they
+ask are in "Where each layer stands" above.
 
 The `m2` and `ops` rows were harness shape, and both suites reach the daemon
 with it changed (runs 33705813223 and 33706143058):
