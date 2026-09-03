@@ -592,9 +592,10 @@ suites stop; 6 and 7 the platforms that already pass; 8 and 9 shape.
    against 20 KiB/s of ConPTY and takes an output frame before its snapshot,
    `m1`/`m6` name `/$bunfs/` where Windows has `B:/~BUN/`, and M2's
    vim-resize scenario counts the file rows vim redraws into a taller window,
-   which is 28 through a pty that passes bytes on and 23 through a ConPTY —
-   a number both screens agree on. None of them is a fidelity failure, and
-   each is a row for whoever takes it.
+   which an MSYS vim on a ConPTY does not always do (§11): there the count is
+   recorded and the resize is asserted through a child that asks the pty.
+   None of them is a fidelity failure, and each is a row for whoever takes
+   it.
 
 4. **The harness items — done.** The M2 harness compiles to
    `dist/m2/wp-<pid>` rather than over `dist/wp`, so no daemon running an
@@ -782,8 +783,17 @@ slow-client scenario is CPU headroom on a shared runner (§5) and unexplained
 throughput on macOS (§4); `darwin-x64` and `win32-arm64`'s ffi failures are a
 missing prebuild and a `bun:ffi` that cannot `dlopen`; `m3` and `m0` are
 nondeterministic. What remains as work rather than circumstance is
-`test-full`'s ten on Windows, which §3 accounts for one by one, and `m2`'s
-vim scenarios racing ConPTY's delivery.
+`test-full`'s ten on Windows, which §3 accounts for one by one. `m2` is on
+the forgiven list for want of evidence rather than for a failure: every wait
+in its vim scenarios is a statement about the screen — the rows and the
+cursor the next step needs, held still, agreed with the daemon — and the
+suite passes eighteen runs in eighteen on `windows-latest` (run 33738702935,
+six jobs of three runs each, plus sixty of the resize scenario alone). What
+vim does with a resize on a ConPTY is recorded there rather than asserted,
+because it is the runtime between an MSYS vim and the console that drops it,
+not the daemon (§11); the resize itself is asserted through a child that
+asks the pty. §11's rule for gating is repeated passes of the merged tree,
+and that is what putting `m2` on the gate waits for.
 
 So the gates say what each lane holds today, and the set each forgives is the
 list of what a Windows host would still cost. Whether the slow-client
@@ -821,18 +831,20 @@ find, and what the runs leave undone.
 Each of these was diagnosed as something else first, and each would be easy
 to re-introduce.
 
-| What you see                                           | What it is                                                                                                                                          |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Bun reports `signalCode: "SIGTERM"` on Windows         | The name you passed to `proc.kill()`, echoed back. `TerminateProcess` ran and no signal was delivered (§3).                                         |
-| `bun:ffi` "missing" on Windows arm64                   | The module imports; every `dlopen` through it throws "TinyCC is disabled". Detect by what `dlopen` does, not by whether the import works (§3).      |
-| A whole `bun test` file dying with "connection closed" | A test timed out, Bun killed the daemon the file had started, and then panicked. One process per file bounds the damage to that file (§3).          |
-| A test that burns five seconds and then fails          | `expect(promise).rejects` hangs on Windows where catching the same rejection returns at once. Other `expect().rejects` in the same file are fine.   |
-| "daemon did not answer within 10 s", with no reason    | Often an `AF_UNIX` path too long — Winsock refused 116 characters where 75 bound (§3). Have the launcher report the last connect error.             |
-| A reattach test failing on the render prologue         | It was not the prologue; that assertion passed. ConPTY re-encodes the stream, so compare cell grids, never bytes (§3).                              |
-| `m2` or `m3` red on Windows                            | Probably the run, not the tree: `m2`'s vim scenarios race ConPTY's delivery, `m3` prints every table and then does not exit. Neither is gated (§8). |
-| The slow-client scenario red on a hosted lane          | CPU headroom on a shared runner — roughly two attempts in seven pass. A green lane is not evidence it is fixed (§5).                                |
-| macOS losing about 6 MB in the fast-client scenario    | Not the client's sink: a pipe and a plain file lose as much as a PTY. An unexplained delivery rate; §4 says what is ruled out.                      |
-| A stale binary answering a `hello`                     | `PROTOCOL_VERSION` catches a changed wire shape only if it is bumped when the wire changes. `dist/bench-ops/` caches a binary across runs.          |
+| What you see                                           | What it is                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bun reports `signalCode: "SIGTERM"` on Windows         | The name you passed to `proc.kill()`, echoed back. `TerminateProcess` ran and no signal was delivered (§3).                                                                                                                                                                                    |
+| `bun:ffi` "missing" on Windows arm64                   | The module imports; every `dlopen` through it throws "TinyCC is disabled". Detect by what `dlopen` does, not by whether the import works (§3).                                                                                                                                                 |
+| A whole `bun test` file dying with "connection closed" | A test timed out, Bun killed the daemon the file had started, and then panicked. One process per file bounds the damage to that file (§3).                                                                                                                                                     |
+| A test that burns five seconds and then fails          | `expect(promise).rejects` hangs on Windows where catching the same rejection returns at once. Other `expect().rejects` in the same file are fine.                                                                                                                                              |
+| "daemon did not answer within 10 s", with no reason    | Often an `AF_UNIX` path too long — Winsock refused 116 characters where 75 bound (§3). Have the launcher report the last connect error.                                                                                                                                                        |
+| A reattach test failing on the render prologue         | It was not the prologue; that assertion passed. ConPTY re-encodes the stream, so compare cell grids, never bytes (§3).                                                                                                                                                                         |
+| `m3` red on Windows                                    | Probably the run, not the tree: it prints every table and then does not exit. It is not gated (§8).                                                                                                                                                                                            |
+| vim not redrawing after a resize on Windows            | Not the daemon's resize: the ConPTY answers the new size at once to a child that asks. The MSYS runtime between vim and the console drops about one resize in five until vim next reads input, and then sizes it one row too tall. `m2` records that and asserts the resize through the child. |
+| `wp` has exited but its last line is not in the pty    | A ConPTY delivers for up to 40 ms after the process it fed is gone. Wait for the line, not the exit.                                                                                                                                                                                           |
+| The slow-client scenario red on a hosted lane          | CPU headroom on a shared runner — roughly two attempts in seven pass. A green lane is not evidence it is fixed (§5).                                                                                                                                                                           |
+| macOS losing about 6 MB in the fast-client scenario    | Not the client's sink: a pipe and a plain file lose as much as a PTY. An unexplained delivery rate; §4 says what is ruled out.                                                                                                                                                                 |
+| A stale binary answering a `hello`                     | `PROTOCOL_VERSION` catches a changed wire shape only if it is bumped when the wire changes. `dist/bench-ops/` caches a binary across runs.                                                                                                                                                     |
 
 Two rules follow from that list. **Detect a platform capability by trying it
 rather than by asking what platform this is** — the arm64 `bun:ffi` row is
@@ -869,9 +881,13 @@ stopped short of.
   a reparse point, two name `/$bunfs/` where the path is `B:/~BUN/`, one
   wants a real SIGTERM to reach a detached daemon, and two are ConPTY
   throughput against a 4 MiB flood.
-- **`m2`'s vim scenarios**, racing ConPTY's delivery. One `waitFor` has
-  already not been enough, so the next attempt probably wants the grid oracle
-  rather than another timeout.
+- **What an MSYS vim does with a resize on a ConPTY.** The console has the
+  new size within about 300 ms and says so to a child that asks; vim learns
+  of it four times in five, and otherwise not until it next reads input, and
+  then lays out one row too many (§11's table). Whether that is Cygwin's
+  console layer, conhost, or the two disagreeing about a window rectangle is
+  not separated, and a native Windows vim has not been tried. `m2` records
+  it on every Windows run, which is where a rate to compare against lives.
 - **Where a macOS client's delivery rate goes.** §4 rules out the sink and
   the kernel buffer and names four candidates it does not separate; a probe
   streaming the same 4 MiB through each layer in isolation would say.
