@@ -254,6 +254,17 @@ function lockPipe(file: string): FileLock | null {
 }
 
 /**
+ * Every daemon this process has spawned, kept alive for as long as the
+ * process is. Under `bun test` on Windows the runner reports "killed 1
+ * dangling process" partway through a file and the daemon is gone from
+ * there on — every later request hangs, because a client's socket does not
+ * notice the peer's death — which is what turns one failing test into the
+ * whole file's "connection closed". Whether holding the handle prevents it
+ * is what run 33707065352 asks.
+ */
+const spawned: unknown[] = [];
+
+/**
  * Polls for the daemon's ready file until it appears, the daemon exits
  * without writing one, or `timeoutMs` passes. The file is removed once read.
  */
@@ -375,6 +386,7 @@ export const win32: Platform = {
     );
     const report = await readReadyFile(readyFile, proc, opts.readyTimeoutMs);
     proc.unref();
+    spawned.push(proc);
     return { pid: proc.pid, report, exitCode: () => proc.exitCode };
   },
 
