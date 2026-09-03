@@ -968,7 +968,9 @@ jobs:
           bun run .github/ci/windows-collect.ts
           mkdir -p suite-logs
           cp "$SUITE_DIR"/*.log suite-logs/ 2>/dev/null || true
-          cp -R "$MATRIX_OUT" cross || true
+          # Git Bash is handed `D:\a\_temp/...`; cygpath makes it a path the
+          # MSYS tools can take.
+          cp -R "$(cygpath -u "$MATRIX_OUT")" cross || true
           bun run .github/ci/lane-result.ts "ci-result-$MATRIX_LANE.json" \
             poc=ci-result-windows.json \
             "cross=$MATRIX_OUT/ci-result-$MATRIX_LANE.json"
