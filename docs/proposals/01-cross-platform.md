@@ -761,9 +761,30 @@ ls` against a live daemon at 79–82 ms (runs 33712817886, 33712812822).
    against the real daemon. What separates them is §3's list, and §10 still
    holds the choice.
 
-**Done** is every lane in `poc.yml` green with no forgiven suites except the
+**Done** was every lane in `poc.yml` green with no forgiven suites except the
 slow-client scenario, on a pinned Bun, with a `ci-result-<lane>.json` per
-lane that says so.
+lane that says so. Eight lanes are green on a pinned Bun and each writes its
+record, but the second half of that is not reached and the gap is the
+honest summary of where the port stands:
+
+| Lane                                 | Forgiven                                                                         |
+| ------------------------------------ | -------------------------------------------------------------------------------- |
+| the four Linux lanes, `darwin-arm64` | the slow-client scenario                                                         |
+| `darwin-x64`                         | the same, plus the ffi tests, since no prebuild for that target exists           |
+| `win32-x64`                          | `m0-probes`, `test-full`, `m2`, `m3`                                             |
+| `win32-arm64`                        | those, plus `x-caps`, `test-pure`, `build` and `diff`, which need the ffi engine |
+
+Four of those have a cause outside the PoC and no obvious cost to fix: the
+slow-client scenario is CPU headroom on a shared runner (§5) and unexplained
+throughput on macOS (§4); `darwin-x64` and `win32-arm64`'s ffi failures are a
+missing prebuild and a `bun:ffi` that cannot `dlopen`; `m3` and `m0` are
+nondeterministic. What remains as work rather than circumstance is
+`test-full`'s ten on Windows, which §3 accounts for one by one, and `m2`'s
+vim scenarios racing ConPTY's delivery.
+
+So the gates say what each lane holds today, and the set each forgives is the
+list of what a Windows host would still cost. Whether the slow-client
+scenario should gate at all is §10's, and unanswered.
 
 ## 9. What would change the answer
 
