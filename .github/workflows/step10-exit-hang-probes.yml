@@ -2,10 +2,20 @@
 # and then does not exit. The lane's `test-full` runs one `bun test` per file
 # under `timeout -k 15 180`, and on roughly three runs in fourteen one of
 # `src/engine/ghostty-wasm/{reattach,encoders}.test.ts` reported every test
-# passing and then sat until the deadline. Six jobs of ten runs each is
-# sixty samples a file, under each of the sinks the process's stdout can have
-# (`.github/ci/step10-exit-hang.sh`), plus a bisection over what the file
-# does with the engine (`.github/ci/exit-hang/*.test.ts`).
+# passing and then sat until the deadline. Six jobs of the same phases is
+# the sample; `.github/ci/step10-exit-hang.sh` runs one file many times under
+# the lane's own `timeout` and prints a rate.
+#
+# The phases: the three engine files under the harness's sink; a bisection
+# over what a file does with the engine (`.github/ci/exit-hang/*.test.ts`,
+# from no engine at all to a terminal created and disposed); and the same
+# files again with one JSC thread pool at a time turned off through
+# `BUN_JSC_*`, which is how the runner says which thread the exit races.
+#
+# Stdout goes to a file in every phase. A process that hangs this way cannot
+# be ended by `timeout`'s kill either, so behind a pipe the reader waits
+# for a write end that never closes and the step sits until its own
+# deadline.
 #
 # Runs on every push to the step branch; `workflow_dispatch` only works for a
 # workflow file on the default branch, and this one is not meant to reach it.
@@ -17,16 +27,24 @@ on:
 
 concurrency:
   group: step10-exit-hang-probes
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 env:
-  FILES: >-
+  PROBE: bash ../../.github/ci/step10-exit-hang.sh
+  ENGINE_FILES: >-
     src/engine/ghostty-wasm/reattach.test.ts
     src/engine/ghostty-wasm/encoders.test.ts
     src/engine/ghostty-wasm/terminal.test.ts
+  BISECT_FILES: >-
+    ./.exit-hang/00-no-engine.test.ts
+    ./.exit-hang/02-load.test.ts
+    ./.exit-hang/03-create-dispose.test.ts
+  VARIANT_FILES: >-
+    ./.exit-hang/03-create-dispose.test.ts
+    src/engine/ghostty-wasm/reattach.test.ts
 
 jobs:
   probes:
@@ -36,12 +54,14 @@ jobs:
         job: [1, 2, 3, 4, 5, 6]
     name: sample ${{ matrix.job }}
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
+        working-directory: packages/werk-poc
     steps:
       - name: Keep line endings as committed
+        working-directory: .
         run: |
           git config --global core.autocrlf false
           git config --global core.eol lf
@@ -52,16 +72,19 @@ jobs:
         with:
           bun-version: 1.3.14
 
+      # `BUN_JSC_*` reaches JSC's options only if this prints `undefined`.
       - name: Runner
         run: |
           bun --version
           bun -e 'console.log(process.platform, process.arch, require("node:os").release())'
           echo "ImageOS=${ImageOS:-} ImageVersion=${ImageVersion:-}"
+          echo "PROBE jsc-options-from-env: $(BUN_JSC_useWebAssembly=false bun -e 'console.log(typeof WebAssembly)')"
           mkdir -p "$RUNNER_TEMP/exit-hang"
           echo "OUT=$RUNNER_TEMP/exit-hang" >>"$GITHUB_ENV"
 
       - name: install
         timeout-minutes: 3
+        working-directory: .
         run: bun install --frozen-lockfile
 
       # The lane has `dist/wp.exe` present and a daemon-stop behind it when
@@ -69,46 +92,47 @@ jobs:
       - name: build
         continue-on-error: true
         timeout-minutes: 8
-        working-directory: packages/werk-poc
         run: bun run build
 
       - name: stop daemons
         continue-on-error: true
         timeout-minutes: 2
-        working-directory: packages/werk-poc
         run: bun run "$GITHUB_WORKSPACE/.github/ci/windows-daemon.ts" stop
 
-      - name: stdout to a file (the harness's sink)
-        timeout-minutes: 12
-        working-directory: packages/werk-poc
-        run: bash "$GITHUB_WORKSPACE/.github/ci/step10-exit-hang.sh" file 10 $FILES 2>&1 | tee "$OUT/phase-file.log"
-
-      - name: stdout to a pipe
-        if: always()
-        timeout-minutes: 12
-        working-directory: packages/werk-poc
-        run: bash "$GITHUB_WORKSPACE/.github/ci/step10-exit-hang.sh" pipe 10 $FILES 2>&1 | tee "$OUT/phase-pipe.log"
-
-      - name: stdout inherited from the step
-        if: always()
-        timeout-minutes: 8
-        working-directory: packages/werk-poc
-        run: |
-          bash "$GITHUB_WORKSPACE/.github/ci/step10-exit-hang.sh" inherit 5 \
-            src/engine/ghostty-wasm/reattach.test.ts src/engine/ghostty-wasm/encoders.test.ts 2>&1 | tee "$OUT/phase-inherit.log"
-
-      # What the file does with the engine, from nothing up to a snapshot
-      # round trip. The files live outside packages/werk-poc so the lane's
+      # The bisection files live outside packages/werk-poc so the lane's
       # `git ls-files '*.test.ts'` never picks them up; they are copied in so
-      # their relative imports resolve.
-      - name: bisect
-        if: always()
-        timeout-minutes: 12
-        working-directory: packages/werk-poc
+      # their relative imports resolve, under `./` so `bun test` takes the
+      # path as a file rather than a filter that skips dot-directories.
+      - name: engine files
+        timeout-minutes: 15
         run: |
           rm -rf .exit-hang && mkdir .exit-hang
           cp "$GITHUB_WORKSPACE"/.github/ci/exit-hang/*.test.ts .exit-hang/
-          bash "$GITHUB_WORKSPACE/.github/ci/step10-exit-hang.sh" file 10 ./.exit-hang/*.test.ts 2>&1 | tee "$OUT/phase-bisect.log"
+          $PROBE file 30 $ENGINE_FILES 2>&1 | tee "$OUT/phase-engine.log"
+
+      - name: bisect
+        if: always()
+        timeout-minutes: 15
+        run: $PROBE file 100 $BISECT_FILES 2>&1 | tee "$OUT/phase-bisect.log"
+
+      # JSC's concurrent collector suspends the JS thread to scan its stack;
+      # the Wasm and JIT worklists compile on their own threads. Each off in
+      # turn.
+      - name: no concurrent GC
+        if: always()
+        timeout-minutes: 15
+        env:
+          BUN_JSC_useConcurrentGC: "false"
+          TAG: useConcurrentGC=false
+        run: $PROBE file 100 $VARIANT_FILES 2>&1 | tee "$OUT/phase-nogc.log"
+
+      - name: no concurrent JIT
+        if: always()
+        timeout-minutes: 15
+        env:
+          BUN_JSC_useConcurrentJIT: "false"
+          TAG: useConcurrentJIT=false
+        run: $PROBE file 100 $VARIANT_FILES 2>&1 | tee "$OUT/phase-nojit.log"
 
       - name: Summary
         if: always()

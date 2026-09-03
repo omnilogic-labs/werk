@@ -13,9 +13,11 @@
 #   inherit  no redirect at all: the step's own stdout
 #
 # One `PROBE <file>-<n>: exit=<code> <ms>ms pass=<p> fail=<q> sink=<phase>`
-# line per run. A run that printed a tally with no failures and was then
-# killed by `timeout` (124, or 137 after the -k) is the hang this measures;
-# its output is kept as `$OUT/hang-<phase>-<file>-<n>.log`.
+# line per run, with `$TAG` appended when the caller set one (the name of
+# whatever else the environment carries, such as a `BUN_JSC_*` option). A
+# run that printed a tally with no failures and was then killed by
+# `timeout` (124, or 137 after the -k) is the hang this measures; its output
+# is kept as `$OUT/hang-<phase>-<file>-<n>.log`.
 
 set -uo pipefail
 
@@ -58,10 +60,10 @@ for f in "$@"; do
       fhung=$((fhung + 1))
       cp "$one" "$OUT/hang-$phase-$base-$n.log" 2>/dev/null || true
     fi
-    echo "PROBE $base-$n: exit=$code ${ms}ms pass=${p:-?} fail=${q:-?} sink=$phase$verdict"
+    echo "PROBE $base-$n: exit=$code ${ms}ms pass=${p:-?} fail=${q:-?} sink=$phase${TAG:+ $TAG}$verdict"
     total=$((total + 1))
   done
   hung=$((hung + fhung))
-  echo "RATE $base sink=$phase: $fhung/$runs did not exit"
+  echo "RATE $base sink=$phase${TAG:+ $TAG}: $fhung/$runs did not exit"
 done
-echo "RATE all sink=$phase: $hung/$total did not exit"
+echo "RATE all sink=$phase${TAG:+ $TAG}: $hung/$total did not exit"
