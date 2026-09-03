@@ -65,6 +65,74 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  m5:
+    if: contains(github.event.head_commit.message, '[m5]')
+    name: M5 on ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-latest]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      TMPDIR: /tmp
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Machine
+        run: |
+          echo "runner: $(uname -sm) macOS $(sw_vers -productVersion)"
+          echo "bun: $(bun --version), ssh: $(ssh -V 2>&1)"
+          echo "sudo -n: $(sudo -n true 2>&1 && echo ok || echo refused)"
+          sysctl net.local.stream.sendspace net.local.stream.recvspace
+
+      - name: install
+        run: bun install --frozen-lockfile
+
+      # `[smoke]` in the commit message asks for the short form: one RTT and
+      # a handful of keystrokes, to see the arrangement work before the full
+      # table costs an hour of a macOS runner.
+      - name: M5, with this machine as the remote
+        timeout-minutes: 75
+        working-directory: packages/werk-poc
+        run: |
+          set -o pipefail
+          if [ "${{ contains(github.event.head_commit.message, '[smoke]') }}" = "true" ]; then
+            args="--rtt 0 --keys 6 --idle 5"
+          else
+            args="--rtt 0,50,200 --keys 50 --idle 60"
+          fi
+          echo "m5 $args"
+          bun run m5 -- --remote self $args 2>run.err | tee m5-macos.md
+          tail -40 run.err || true
+
+      - name: Summary
+        if: always()
+        working-directory: packages/werk-poc
+        run: |
+          {
+            echo "## M5 on ${{ matrix.runner }}"
+            echo
+            echo "\`$(uname -sm)\` macOS $(sw_vers -productVersion), bun $(bun --version), commit \`${GITHUB_SHA:0:8}\`"
+            echo
+            cat m5-macos.md
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the tables
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step9-m5-${{ matrix.runner }}
+          path: |
+            packages/werk-poc/m5-macos.md
+            packages/werk-poc/run.err
+          if-no-files-found: warn
+          retention-days: 14
+
   windows:
     if: contains(github.event.head_commit.message, '[win]')
     name: transport probes on windows-latest

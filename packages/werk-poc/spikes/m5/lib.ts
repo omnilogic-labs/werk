@@ -187,6 +187,40 @@ export function sh(cmd: string[], ok = true) {
   return out;
 }
 
+/**
+ * The far end of the forward, whichever it is: the container below, or the
+ * machine itself over an sshd of its own (`self.ts`), which is what a
+ * hosted macOS runner has to use because it has no Docker.
+ */
+export interface M5Remote {
+  readonly kind: "docker" | "self";
+  readonly tmp: string;
+  /** The host end of the `-N` forward. */
+  readonly localSock: string;
+  /** Where a session started at the far end runs, and with what. */
+  readonly cwd: string;
+  readonly sessionEnv: Record<string, string>;
+  /** The `-N` forward on `localSock`, once `start()` has run. */
+  ssh: Subprocess | null;
+  start(): Promise<void>;
+  forward(mode?: "N" | "tty", sock?: string): Promise<Subprocess>;
+  /** What one exec channel carries at this RTT, handshake included. */
+  execBulkMiBs(): number;
+  restartDaemon(ctl: Client, env: string[]): Promise<void>;
+  exec(
+    cmd: string[],
+    ok?: boolean,
+    env?: string[],
+  ): { code: number | null; stdout: string; stderr: string };
+  /** Applies a symmetric RTT to the path, or clears it at 0. */
+  netem(rtt: number): void;
+  /** Time to sshd's banner: a TCP round trip over whatever is in the way. */
+  bannerMs(): Promise<number>;
+  /** One line naming what the far end is, for the report's setup section. */
+  describe(): string;
+  stop(): Promise<void>;
+}
+
 export const IMAGE = "werk-poc-m5";
 export const REMOTE_SOCK = "/run/user/1000/werk-poc/wp.sock";
 export const REMOTE_ENV = [
@@ -198,8 +232,17 @@ export const REMOTE_ENV = [
 ];
 
 /** The container, the throwaway key, and the `ssh -N -L` forward. */
-export class Remote {
+export class Remote implements M5Remote {
+  readonly kind = "docker";
   readonly name = `werk-poc-m5-${process.pid}`;
+  readonly cwd = "/home/werk";
+  readonly sessionEnv = {
+    HOME: "/home/werk",
+    USER: "werk",
+    PATH: "/usr/local/bin:/usr/bin:/bin",
+    TERM: "xterm-256color",
+    LANG: "C.UTF-8",
+  };
   readonly localSock: string;
   readonly key: string;
   port = 0;
@@ -367,6 +410,30 @@ export class Remote {
         },
       }).catch(reject);
     });
+  }
+
+  describe(): string {
+    const version = this.exec([
+      "dpkg-query",
+      "-W",
+      "-f",
+      "${Version}",
+      "openssh-server",
+    ]).stdout.trim();
+    const os = this.exec([
+      "sh",
+      "-c",
+      ". /etc/os-release; echo $PRETTY_NAME",
+    ]).stdout.trim();
+    const daemon = this.exec(
+      [
+        "sh",
+        "-c",
+        "ps -o pid,sid,tty,args -p $(pgrep -f __daemon | head -1) | tail -1",
+      ],
+      false,
+    ).stdout.trim();
+    return `container: openssh-server ${version} on ${os}; far daemon ${daemon}`;
   }
 
   async stop() {
