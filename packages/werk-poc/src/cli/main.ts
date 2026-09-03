@@ -45,8 +45,11 @@ usage:
 
 Every command but __daemon takes --socket <path> (or WP_SOCKET in the
 environment): talk to the daemon behind that socket — one forwarded with
-ssh -L from another machine, say — and never start one. The benches run
-their daemons on temporary directories and never touch that one.`;
+ssh -L from another machine, say — and never start one. --socket
+tcp:<host>:<port> names a daemon's loopback landing instead of a path,
+which is where an ssh -L from Windows has to end up; it needs the token
+from that daemon's wp.tcp file in WP_TOKEN. The benches run their daemons
+on temporary directories and never touch that one.`;
 
 interface Parsed {
   flags: Map<string, string | true>;
