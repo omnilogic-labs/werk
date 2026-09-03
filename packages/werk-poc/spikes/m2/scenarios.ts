@@ -437,9 +437,20 @@ export const slowClient: Scenario = {
     const id = await wpRun(env, ["bash", "--norc", "--noprofile"]);
     const c = await daemonClient(env);
     // The fast client runs under pty-cat.ts in a process of its own, so
-    // that nothing this harness does can slow its terminal down.
+    // that nothing this harness does can slow its sink down. `WP_M2_SINK`
+    // picks that sink: a PTY, which is what a terminal gives a client; a
+    // pipe, which takes the line discipline out of the path; or a file,
+    // which cannot apply back-pressure at all. What the daemon still drops
+    // under the last of those is not the harness's doing.
+    const sink = ["pipe", "file"].includes(process.env.WP_M2_SINK ?? "")
+      ? process.env.WP_M2_SINK!
+      : "pty";
     const outFile = path.join(env.root, "fast.bin");
-    const progress = (): { bytes: number; sawMarker: boolean } => {
+    const progress = (): {
+      bytes: number;
+      sawMarker: boolean;
+      sink?: string;
+    } => {
       try {
         return JSON.parse(fs.readFileSync(`${outFile}.json`, "utf8"));
       } catch {
@@ -455,6 +466,7 @@ export const slowClient: Scenario = {
         "--rows=24",
         `--out=${outFile}`,
         "--marker=FLOOD-2-DONE",
+        `--sink=${sink}`,
         "--",
         env.wp,
         "attach",
@@ -511,6 +523,13 @@ export const slowClient: Scenario = {
         attached.length === 2 && !!slowStats && !!fastStats,
         "daemon: two attached connections, exactly one lagging while stopped",
         `daemon stats: ${JSON.stringify(attached)}`,
+      );
+      // The figure step 6 of docs/proposals/01-cross-platform.md asks for,
+      // recorded whether the client lagged or not, and against the sink that
+      // actually carried the bytes: pty-cat falls back to a PTY where it
+      // cannot open a pair for the pipe sink.
+      r.note(
+        `fast client, ${progress().sink ?? sink} sink: ${fastStats?.lagCount} lag episode(s), ${fastStats?.droppedBytes.toLocaleString()} B lost, ${fastStats?.bytesSent.toLocaleString()} B sent, max queue ${fastStats?.maxQueuedBytes.toLocaleString()} B, ${fastStats?.shortWrites} short writes / ${fastStats?.drains} drains`,
       );
       r.check(
         fastStats?.lagCount === 0,

@@ -16,7 +16,7 @@ RESULTS="${WP_CI_RESULTS:-$ROOT/ci-results}"
 LOGS="$RESULTS/logs"
 mkdir -p "$LOGS"
 
-SUITE_ORDER="install typecheck test-pure build-web build test-full m0 m2 m3 ops diff"
+SUITE_ORDER="install typecheck test-pure build-web build codesign test-full m0 m2 m3 ops diff"
 
 # --- helpers ---------------------------------------------------------------
 
@@ -93,6 +93,12 @@ summary_for() {
         sed -E 's/^\| *([^ |]+) *\|/\1=/; s/ *\|//g; s/  +/ /g' |
         tr '\n' ' ' | cut -c1-300
       ;;
+    codesign)
+      # The signature the binary now carries, and what --verify made of it.
+      printf '%s; %s' \
+        "$(grep -am1 -E '^(Signature|CodeDirectory)' "$log" | cut -c1-160)" \
+        "$(grep -am1 -E 'valid on disk|satisfies its Designated|invalid|not signed|modified' "$log" | cut -c1-160)"
+      ;;
     m2)
       grep -a -E '^\| .* \| (pass|FAIL) \|' "$log" |
         sed -E 's/^\| (.*) \| (pass|FAIL) \| .*/\2/' | sort | uniq -c |
@@ -121,11 +127,25 @@ s_install() { cd "$ROOT" && bun install --frozen-lockfile; }
 s_typecheck() { cd "$POC" && bun run typecheck; }
 s_test_pure() { cd "$POC" && bun test src/engine src/protocol; }
 s_build_web() { cd "$POC" && bun run build:web; }
+# Appending the JavaScript bundle invalidates whatever signature the Bun
+# executable arrived with, so a fresh `bun build --compile` output never
+# verifies (findings/platforms.md). An ad-hoc signature repairs it in one
+# step, and is what a macOS release would do on the way out of the build.
 s_build() {
   cd "$POC" || return 1
   bun run build || return 1
+  codesign --force --sign - ./dist/wp || return 1
   ./dist/wp --help || return 1
   ./dist/wp caps || return 1
+}
+s_codesign() {
+  cd "$POC" || return 1
+  test -f dist/wp || {
+    echo "no dist/wp (did the build step run?)"
+    return 1
+  }
+  codesign -dvv ./dist/wp 2>&1
+  codesign --verify --strict --verbose=2 ./dist/wp 2>&1
 }
 s_test_full() { cd "$POC" && bun test; }
 # `run-all.ts` prints a table and exits 0 whatever the probes said, so the

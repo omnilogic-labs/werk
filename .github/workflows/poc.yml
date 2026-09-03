@@ -235,6 +235,11 @@ jobs:
         continue-on-error: true
         run: .github/ci/macos.sh suite build
 
+      - name: codesign
+        id: codesign
+        continue-on-error: true
+        run: .github/ci/macos.sh suite codesign
+
       - name: test-full
         id: test-full
         continue-on-error: true
@@ -271,19 +276,25 @@ jobs:
         timeout-minutes: 15
         run: .github/ci/macos.sh suite diff
 
-      # Diagnostic, not a gate and not part of ci-result-macos.json: macOS
-      # gives a unix stream socket an 8 KiB buffer where Linux gives 208 KiB,
-      # which is the suspect for the m2 slow-client scenario. Re-run it with
-      # Linux-sized buffers and see whether the failure goes away.
-      - name: m2 with Linux-sized socket buffers (diagnostic)
-        id: m2-bigbuf
+      # Diagnostic, not a gate and not part of ci-result-macos.json: the
+      # slow-client scenario's *fast* client loses bytes on macOS and not on
+      # Linux, and the daemon already raises its listener's SO_SNDBUF to
+      # Linux's figure (src/platform/posix.ts), so what is left to separate is
+      # the sink. The scenario runs once per sink — a PTY as a terminal gives
+      # a client, a pipe with no line discipline, a file that cannot apply
+      # back-pressure at all — and the three bytes-lost figures say how much
+      # of the loss the sink accounts for.
+      - name: the slow-client scenario under each sink (diagnostic)
+        id: m2-sinks
         continue-on-error: true
         timeout-minutes: 20
         working-directory: packages/werk-poc
         run: |
-          sudo sysctl -w net.local.stream.sendspace=212992 net.local.stream.recvspace=212992
-          sysctl net.local.stream.sendspace net.local.stream.recvspace
-          bun run m2
+          for s in pty pipe file; do
+            echo "::group::WP_M2_SINK=$s"
+            WP_M2_SINK=$s bun run ./spikes/m2/run-all.ts "slow client" || true
+            echo "::endgroup::"
+          done
 
       - name: Result
         id: result
