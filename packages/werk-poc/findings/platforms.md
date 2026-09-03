@@ -228,13 +228,52 @@ switch it off. The macOS lane ran with it on (run 33688537937) and off (run
 | daemon RSS                               | —                  | 88–92 MiB         |
 | `m2` / `test-full`                       | fail / 167 + 1     | fail / 167 + 1    |
 
-The kernel buffer accounts for most of the lag episodes and none of the
-bytes lost: the remaining loss is downstream of the socket, most likely in
-the fast client's own PTY path in the harness (`pty-cat.ts`). The scenario
-still fails either way. Whether werk should set `SO_SNDBUF` on its listener,
-accept that a macOS client lags sooner and leans harder on the re-render
-path, or both, is not settled here; the raise is cheap and does what it
-claims, and that is all this says.
+The kernel buffer accounts for most of the lag episodes and none of the bytes
+lost. The sink accounts for neither. The fast client's `wp attach` runs under
+[`pty-cat.ts`](../spikes/m2/pty-cat.ts), which offers three of them —
+`WP_M2_SINK` picks one — and each takes one more thing out of the path
+between the client and the bytes on disk: a PTY, as a terminal gives a
+client; a pipe, with no line discipline; and a regular file the client writes
+itself, which applies no back-pressure and asks nothing of the harness. Run
+33702443671 ran the scenario once per sink on the one runner:
+
+| fast client                 | pty sink  | pipe sink | file sink |
+| --------------------------- | --------- | --------- | --------- |
+| lag episodes                | 6         | 5         | 5         |
+| bytes lost                  | 6,449,613 | 5,815,124 | 6,533,636 |
+| bytes delivered             | 1,395,388 | 1,848,875 | 1,330,672 |
+| lines received of 2,097,152 | 386,229   | 515,034   | 367,600   |
+| flood typed to marker seen  | 2,856 ms  | 3,995 ms  | 3,080 ms  |
+| short writes / drains       | 6 / 6     | 8 / 8     | 5 / 5     |
+
+So the loss is upstream of the client's own fd 1, and the harness is not what
+was losing it. What the three sinks have in common is the rate: the daemon
+delivers 1.3–1.8 MB to a client that cannot be blocking, and its queue for
+that client sits at the 262,144 B bound with five to eight short writes on a
+socket whose send buffer is 212,992 B.
+
+Put beside the same scenario on Linux, that rate looks like the whole story.
+The hosted `ubuntu-latest` lane, four vCPUs, loses 393,427 B in one episode
+and delivers 5,903,896 B in 1,649 ms (run 33702651201); the eight-core
+machine [m2](./m2.md) was measured on loses nothing under any of the three
+sinks and reaches the marker in about 700 ms. Three machines, one scenario, a
+loss that tracks how fast the bytes move rather than anything a client did.
+
+Where the macOS difference goes — Bun's socket write on XNU, the client's
+read loop, the daemon's own event loop with the wasm engine on it, or how
+much CPU a three-process scenario gets on a shared runner — is not something
+these numbers separate, and nobody has measured it. What they do say is that
+the scenario's bound is a time budget rather than a size, which is what
+[m2](./m2.md#a-slow-client-does-not-stall-a-fast-one-end-to-end) already
+found from the other end: a client that pauses for ~50 ms is a lagging
+client, and here nothing is pausing and the budget is still spent. Whether
+the bound wants to be larger, expressed in time, or split into a
+deterministic fidelity check and a recorded headroom figure is open, as is
+whether this scenario should gate macOS at all while it measures the
+machine's throughput as much as the drop policy. Whether werk should set
+`SO_SNDBUF` on its listener, accept that a macOS client lags sooner and leans
+harder on the re-render path, or both, is not settled here either; the raise
+is cheap and does what it claims, and that is all this says.
 
 `TMPDIR` was expected to matter, because `sun_path` is 104 bytes on macOS
 against 108 on Linux and the runner's own `$TMPDIR` is a 49-character
@@ -254,6 +293,16 @@ appended bundle invalidates whatever signature the Bun executable arrived
 with. The binary runs anyway on the runner, because nothing has set a
 quarantine attribute on it. `codesign --force --sign -` repairs it in one
 step; the result passes `--verify --strict` and runs.
+
+So both darwin lanes re-sign and then verify. The `poc` macOS lane signs
+`dist/wp` inside its `build` suite and gates a `codesign` suite on
+`codesign --verify --strict` (run 33702025134: `flags=0x2(adhoc)`, "valid on
+disk"). The matrix lanes verify the natively built binary the same way, and
+re-sign the cross-compiled one first, since it arrives from a Linux job that
+can sign nothing (run 33702043320, both `darwin-arm64` and `darwin-x64`:
+`x-codesign` and `native-codesign` pass, where on run 33696944598 all four
+failed). A Bun bump that changes what `--compile` leaves behind is then a red
+lane rather than a discovery at release time.
 
 The extracted `darwin-arm64` ffi dylibs are ad hoc linker-signed, verify
 clean and carry no quarantine attribute. There is no `darwin-x64` prebuild to

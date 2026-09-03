@@ -77,11 +77,16 @@ eight `bun build --compile` targets. As plain findings:
 - macOS gives a unix stream socket 8 KiB against Linux's 208 KiB.
   `setsockopt(SO_SNDBUF)` on the listener's fd is inherited by every accepted
   socket and cuts fast-client lag episodes from 20–22 to 3–4 without moving
-  the bytes lost (6.3–6.9 MB either way), so the slow-client scenario fails
-  regardless
+  the bytes lost (about 6 MB either way), and neither does taking the fast
+  client's sink out of the path: a pipe and a plain file lose as much as a
+  PTY. The daemon delivers 1.3–1.8 MB there to a client that cannot be
+  blocking, against 5.9 MB on a four-vCPU hosted Linux lane and all 6.29 MB
+  on the eight-core machine M2 was measured on — a loss that tracks the
+  machine rather than anything the client did
   ([back-pressure](./platforms.md#back-pressure-an-8-kib-socket-buffer-against-linuxs-208-kib)).
 - Every fresh `bun build --compile` binary fails `codesign --verify` on both
-  macOS architectures until `codesign --force --sign -`
+  macOS architectures until `codesign --force --sign -`, which the macOS
+  build steps now do and both darwin lanes verify
   ([codesign](./platforms.md#every-fresh-compiled-binary-fails-codesign---verify)).
 - The musl Bun is not static: both Alpine lanes need `libstdc++.so.6` and
   `libgcc_s.so.1` — 2.9 MB of them — before the binary runs at all, and a

@@ -212,15 +212,32 @@ compiled daemon on the real macOS lane:
 | slow-client scenario                     | fail               | fail              |
 
 So the kernel buffer accounts for most of the lag episodes and none of the
-loss, and the remaining loss is downstream of the socket, most likely in the
-fast client's own PTY path in the test harness. The buffer raise is cheap and
-best-effort and probably worth keeping; whether the slow-client scenario
-should gate anything on macOS is a separate question that this does not
-answer. Every peer that streams terminal output over a local socket — tmux,
-wezterm, mosh — ignores the kernel buffer and puts the drop-and-redraw policy
-in user space, which is what the daemon's bounded queue plus snapshot
-re-render already is. A small upstream change exposing the buffer size on
-`Bun.listen` would remove the ffi call.
+loss. Neither does the fast client's sink. `spikes/m2/pty-cat.ts` will put
+that client behind a PTY, a pipe, or a plain file it writes itself, and run
+33702443671 measured all three on the one runner: 6.4 M, 5.8 M and 6.5 M
+bytes lost, 5–6 lag episodes each. A file sink cannot apply back-pressure and
+asks nothing of the harness, so what is left is upstream of the client's
+fd 1: the daemon delivers 1.3–1.8 MB in three to four seconds to a client
+that cannot be blocking, and the queue for that client sits at its 262,144 B
+bound throughout. The same scenario delivers 5.9 MB in 1.6 s on the
+four-vCPU `ubuntu-latest` lane, losing 0.4 MB (run 33702651201), and all
+6.29 MB in about 700 ms on the eight-core machine M2 was measured on, losing
+none. Where the macOS difference goes is unmeasured — Bun's socket write on
+XNU, the client's read loop, the daemon's event loop with the wasm engine on
+it, or CPU share on a hosted runner are all still open — but it is not the
+harness, and across three machines the loss tracks how fast the bytes move
+rather than anything a client did.
+
+The buffer raise is cheap and best-effort and probably worth keeping;
+whether the slow-client scenario should gate anything on macOS is a separate
+question that this does not answer, and §5's reading of it — measured, not
+gated, until the bound is either larger or expressed in time — probably wants
+to cover macOS as well as the hosted Linux lanes. Every peer that streams
+terminal output over a local socket — tmux, wezterm, mosh — ignores the
+kernel buffer and puts the drop-and-redraw policy in user space, which is
+what the daemon's bounded queue plus snapshot re-render already is. A small
+upstream change exposing the buffer size on `Bun.listen` would remove the ffi
+call.
 
 **Signing: every fresh binary is invalid.** A `bun build --compile` output
 fails `codesign --verify` on both architectures with "code or signature have
@@ -229,8 +246,11 @@ the cross-compiled binary carries Bun's own Developer ID signature, and in
 both cases the appended bundle invalidates it. It still runs locally because
 nothing has quarantined it. `codesign --force --sign -` repairs it in one
 step and the result passes `--strict`. So the first macOS release step is a
-re-sign, and `codesign -v` on every Bun bump is the first CI step this
-proposes. Beyond that, the path is Developer ID with Bun's JIT entitlement
+re-sign: the macOS build steps do it, and both darwin lanes verify what comes
+out — the `poc` lane gates a `codesign` suite on it (run 33702025134), and the
+matrix lanes check the natively built binary and the cross-compiled one, which
+arrives from a Linux job that can sign nothing (run 33702043320). That is also
+what would catch a Bun signer regression on a version bump. Beyond that, the path is Developer ID with Bun's JIT entitlement
 set, and notarising the zipped binary (a bare executable cannot be stapled,
 so first run does an online check, or ship a `.pkg`). The wasm-only engine
 makes this one signature: no extracted dylib, no library-validation
@@ -332,18 +352,20 @@ Every "measured" in §1 points at one of these; each run uploads a
 `ci-result-<lane>.json` that is the record, and artefacts are kept 14 days
 so re-running is the way to check anything older.
 
-| What                                                    | Where                                                                      | Run                                                                            |
-| ------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| The three lanes on `main` with every spike merged       | [`poc.yml`](../../.github/workflows/poc.yml)                               | [33696942295](https://github.com/omnilogic-labs/werk/actions/runs/33696942295) |
-| The eight-target matrix on that same `main`             | [`matrix.yml`](../../.github/workflows/matrix.yml)                         | [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598) |
-| The Windows lane before the daemon had `win32` branches | `poc.yml`                                                                  | [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407) |
-| Lane gates made fail-closed                             | [PR #4](https://github.com/omnilogic-labs/werk/pull/4)                     | [33688264859](https://github.com/omnilogic-labs/werk/actions/runs/33688264859) |
-| Eight targets built on Linux, smoked on native runners  | [PR #5](https://github.com/omnilogic-labs/werk/pull/5), `matrix.yml`       | [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325) |
-| The Linux lanes with the musl and AVX records           | `step/07-linux-musl`, `matrix.yml`                                         | [33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138) |
-| macOS socket buffers, signing, process lifecycle probes | [PR #2](https://github.com/omnilogic-labs/werk/pull/2), `macos-probes.yml` | [33688130745](https://github.com/omnilogic-labs/werk/actions/runs/33688130745) |
-| The daemon with buffers raised, on the macOS lane       | PR #2, `poc.yml`                                                           | [33688537937](https://github.com/omnilogic-labs/werk/actions/runs/33688537937) |
-| Windows primitives probed directly                      | [PR #3](https://github.com/omnilogic-labs/werk/pull/3), `win32-spike.yml`  | [33691536664](https://github.com/omnilogic-labs/werk/actions/runs/33691536664) |
-| The Windows lane with the three blockers stepped over   | PR #3, `poc.yml`                                                           | [33690884893](https://github.com/omnilogic-labs/werk/actions/runs/33690884893) |
+| What                                                    | Where                                                                      | Run                                                                                                                                                            |
+| ------------------------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The three lanes on `main` with every spike merged       | [`poc.yml`](../../.github/workflows/poc.yml)                               | [33696942295](https://github.com/omnilogic-labs/werk/actions/runs/33696942295)                                                                                 |
+| The eight-target matrix on that same `main`             | [`matrix.yml`](../../.github/workflows/matrix.yml)                         | [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598)                                                                                 |
+| The Windows lane before the daemon had `win32` branches | `poc.yml`                                                                  | [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407)                                                                                 |
+| Lane gates made fail-closed                             | [PR #4](https://github.com/omnilogic-labs/werk/pull/4)                     | [33688264859](https://github.com/omnilogic-labs/werk/actions/runs/33688264859)                                                                                 |
+| Eight targets built on Linux, smoked on native runners  | [PR #5](https://github.com/omnilogic-labs/werk/pull/5), `matrix.yml`       | [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325)                                                                                 |
+| The Linux lanes with the musl and AVX records           | `step/07-linux-musl`, `matrix.yml`                                         | [33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138)                                                                                 |
+| macOS socket buffers, signing, process lifecycle probes | [PR #2](https://github.com/omnilogic-labs/werk/pull/2), `macos-probes.yml` | [33688130745](https://github.com/omnilogic-labs/werk/actions/runs/33688130745)                                                                                 |
+| The daemon with buffers raised, on the macOS lane       | PR #2, `poc.yml`                                                           | [33688537937](https://github.com/omnilogic-labs/werk/actions/runs/33688537937)                                                                                 |
+| Both darwin lanes signing and verifying the binary      | `step/06-macos`, `poc.yml` and `matrix.yml`                                | [33702025134](https://github.com/omnilogic-labs/werk/actions/runs/33702025134), [33702043320](https://github.com/omnilogic-labs/werk/actions/runs/33702043320) |
+| The slow-client scenario under a PTY, a pipe and a file | `step/06-macos`, `poc.yml`                                                 | [33702443671](https://github.com/omnilogic-labs/werk/actions/runs/33702443671)                                                                                 |
+| Windows primitives probed directly                      | [PR #3](https://github.com/omnilogic-labs/werk/pull/3), `win32-spike.yml`  | [33691536664](https://github.com/omnilogic-labs/werk/actions/runs/33691536664)                                                                                 |
+| The Windows lane with the three blockers stepped over   | PR #3, `poc.yml`                                                           | [33690884893](https://github.com/omnilogic-labs/werk/actions/runs/33690884893)                                                                                 |
 
 The cheap way to ask any further question is the same: a branch, a workflow
 with a `push` trigger scoped to it (or `gh workflow run poc.yml --ref
@@ -408,17 +430,20 @@ hear exited` in `src/daemon/daemon.test.ts` passes on the `windows` lane
    daemon can take the pipe name while the first holds it — then Windows
    arm64 needs a lock primitive that is neither ffi nor a pipe.
 
-6. **macOS.** Keep the listener buffer raise in `sockopt.ts`. Replace the
-   fast client's PTY sink in M2 (`spikes/m2/pty-cat.ts`) with a pipe sink,
-   so the run says whether the remaining loss is the harness's or the
-   daemon's. Add `codesign --force --sign -` to the build step and
-   `codesign -v` to both darwin lanes. _Done when_
-   `codesign -v` is green on both darwin lanes and the fast-client bytes-lost
-   figure in `m2` is either zero with the pipe sink or a number the daemon's
-   queue accounts for. _Wrong if_ the
-   loss persists with a pipe sink and the buffers raised — then the drop
-   policy itself behaves differently on XNU, and the slow-client scenario
-   cannot gate macOS until that is understood.
+6. **macOS.** The listener buffer raise stays in `sockopt.ts`, the macOS
+   build steps re-sign the binary and both darwin lanes verify it, and the
+   fast client in M2 (`spikes/m2/pty-cat.ts`) can be sunk into a PTY, a pipe
+   or a plain file. Signing is settled: `codesign -v` is green on both lanes
+   (§4). The sinks answered the question they were asked and opened a larger
+   one — §4 has the figures — so what is left here is to find where a macOS
+   client's delivery rate goes, which none of these runs separates: the
+   daemon's write path, the client's read path, the wasm engine sharing the
+   daemon's event loop, or CPU share on a hosted runner. A probe that streams
+   the same 4 MB through each of those in isolation would say. Until it does,
+   the slow-client scenario is measuring throughput as much as the drop
+   policy on macOS, which is the same doubt §5 records for the hosted Linux
+   lanes, and §10's question about whether it gates or only records is the
+   one to answer first.
 
 7. **Linux and musl.** `test-full` on `linux-arm64-glibc` and both musl
    lanes fails only on the slow-client scenario (run 33701438138, where the
