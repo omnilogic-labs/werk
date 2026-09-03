@@ -64,6 +64,7 @@ below by number:
 | [33690884893](https://github.com/omnilogic-labs/werk/actions/runs/33690884893) | PR #3                                                  | the Windows lane with `win32` branches in the daemon's lock, launcher and paths                                                                                                    |
 | [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325) | [PR #5](https://github.com/omnilogic-labs/werk/pull/5) | eight targets cross-compiled on one Ubuntu job and run on eight native lanes, before the `win32` branches                                                                          |
 | [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598) | `main` at `0265837`                                    | the same eight lanes on the merged tree                                                                                                                                            |
+| [33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138) | `step/07-linux-musl` at `789b481`                      | the same eight lanes with the compiled-binary test host-derived, and the Linux lanes recording what a musl host carries and what AVX the CPU offers                                |
 
 ### ubuntu-latest
 
@@ -556,8 +557,12 @@ targets on one `ubuntu-24.04` job and hands each binary to a native lane,
 which smokes it (`--help`, `caps`, `ls` against an autostarted daemon) and
 then runs the PoC suites from source. On `main` it ran as
 [run 33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598)
-(commit `0265837`);
-[run 33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325)
+(commit `0265837`), which the four non-Linux rows below are read from;
+[run 33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138)
+(commit `789b481`) is the same workflow once the compiled-binary test asked
+the host for its platform id and the lanes recorded what a musl host carries
+and what AVX the CPU offers, and the four Linux rows are read from that.
+[Run 33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325)
 is the same workflow from [PR #5](https://github.com/omnilogic-labs/werk/pull/5),
 before the daemon's `win32` branches. All eight targets compile in about a
 minute each. `--help` passes on all eight; `caps` on six, because
@@ -576,10 +581,10 @@ are read from there. The other six lanes' JSON uploaded as usual.
 
 | Lane                | Runner                                    | Cross-compiled smoke                                                                     | `test-pure`          | `diff` vs linux-x64    | `m0`  | `m3`                                                                      | `ops` | `test-full`                                                                                                                    |
 | ------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------- | ---------------------- | ----- | ------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `linux-x64-glibc`   | `ubuntu-24.04`                            | pass                                                                                     | pass                 | identical              | 14/14 | pass                                                                      | pass  | pass on 33696944598; fail on 33689751325: reattach fidelity only                                                               |
-| `linux-arm64-glibc` | `ubuntu-24.04-arm`                        | pass                                                                                     | pass                 | identical              | 14/14 | pass                                                                      | pass  | fail: reattach fidelity, `compiled.test.ts`                                                                                    |
-| `linux-x64-musl`    | `alpine:3.22` container on `ubuntu-24.04` | pass; `ldd`: `ld-musl`, `libstdc++.so.6`, `libgcc_s.so.1`                                | pass                 | identical              | 14/14 | pass                                                                      | pass  | fail: the same two                                                                                                             |
-| `linux-arm64-musl`  | `alpine:3.22` via `docker exec` on arm    | pass; same `ldd`                                                                         | pass                 | identical              | 14/14 | pass                                                                      | pass  | fail: the same two                                                                                                             |
+| `linux-x64-glibc`   | `ubuntu-24.04`                            | pass                                                                                     | pass                 | identical              | 14/14 | pass                                                                      | pass  | fail: reattach fidelity only, and only sometimes — it passes on 33696944598 and fails on the other two runs                    |
+| `linux-arm64-glibc` | `ubuntu-24.04-arm`                        | pass                                                                                     | pass                 | identical              | 14/14 | pass                                                                      | pass  | pass: all 168 tests, reattach fidelity included                                                                                |
+| `linux-x64-musl`    | `alpine:3.22` container on `ubuntu-24.04` | pass; `ldd`: `ld-musl`, `libstdc++.so.6`, `libgcc_s.so.1` (below)                        | pass                 | identical              | 14/14 | pass                                                                      | pass  | fail: reattach fidelity only                                                                                                   |
+| `linux-arm64-musl`  | `alpine:3.22` via `docker exec` on arm    | pass; same `ldd`                                                                         | pass                 | identical              | 14/14 | pass                                                                      | pass  | fail: reattach fidelity only                                                                                                   |
 | `darwin-x64`        | `macos-15-intel` (15.7.9, avx2)           | `--help`, `ls` pass; `caps` no `darwin-x64` prebuild                                     | fail: 106, ffi tests | differs: no ffi column | 14/14 | pass                                                                      | pass  | fail: ffi tests, reattach fidelity                                                                                             |
 | `darwin-arm64`      | `macos-latest` (26.5.2)                   | pass                                                                                     | pass                 | identical              | 14/14 | pass                                                                      | pass  | fail: reattach fidelity only                                                                                                   |
 | `win32-x64`         | `windows-latest` (26100)                  | pass; `ls` autostarts the daemon                                                         | pass                 | identical              | 4/7   | pass, 4.6 s                                                               | fail  | fail: six tests (bench `ops` and `soak`, lag-resume, exited-session snapshot, render prologue, kill), then "connection closed" |
@@ -595,15 +600,15 @@ on the others. The differential summary is byte-identical on every lane
 where all three engines load. Findings that are not platform facts, recorded
 so they do not read as one:
 
-- `spikes/m6/compiled.test.ts` hard-codes `linux-x64-glibc` as the expected
-  extracted prebuild for every non-darwin host, so it fails on `linux-arm64`
-  and both musl targets whatever the binary does.
 - The libghostty-vt binding's own loader does not find its prebuild inside a
   compiled binary on `linux-arm64` or either musl target
   (`Bundled libghostty-vt missing at /$bunfs/prebuilds/linux-arm64-glibc/libghostty-vt.so`);
-  the PoC's shim finds it, which is why `caps` passes on those lanes.
-- The musl Bun is not static: both Alpine lanes need `apk add libstdc++ libgcc`
-  before the binary runs.
+  the PoC's shim finds it, which is why `caps` passes on those lanes. The
+  shim is checked directly by `spikes/m6/compiled.test.ts`, which asks the
+  adapter for the host's platform id and then looks for the pair the
+  compiled binary extracted: on the four Linux lanes it finds
+  `…/werk-poc-libghostty-vt-0.6.3/linux-<arch>-<libc>/libghostty-vt.so.0`
+  next to its shim, and the ffi engine loads from it.
 - `container: alpine` is refused on arm64 runners (container jobs are x64
   Linux only), hence `docker exec`; `setup-bun` does not detect musl, so the
   lane fetches the musl zip by hand.
@@ -611,6 +616,78 @@ so they do not read as one:
   signature (runtime flag) invalidated by the appended bundle; `darwin-arm64`:
   ad hoc, linker-signed; both fail `--verify --strict` with "invalid
   signature".
+
+### What a musl host has to carry
+
+The musl Bun is not static, and neither is a binary compiled from it. Both
+Alpine lanes' `ldd` reports the same two libraries beyond the musl loader
+itself, and the `x-ldd` suite records each one's size (run 33701438138):
+
+| Lane               | Library                   | Size        |
+| ------------------ | ------------------------- | ----------- |
+| `linux-x64-musl`   | `/usr/lib/libstdc++.so.6` | 2,771,336 B |
+| `linux-x64-musl`   | `/usr/lib/libgcc_s.so.1`  | 173,920 B   |
+| `linux-arm64-musl` | `/usr/lib/libstdc++.so.6` | 2,754,992 B |
+| `linux-arm64-musl` | `/usr/lib/libgcc_s.so.1`  | 133,008 B   |
+
+Both lanes `apk add libstdc++ libgcc` before anything else runs (`libgcc`
+14.2.0-r6, 169 KiB installed; `libstdc++` 14.2.0-r6, 2706 KiB), which is a
+requirement of the binary rather than a convenience of CI: on a bare
+`alpine:3.22` a `bun-linux-x64-musl` binary compiled from this tree prints
+`Error loading shared library libstdc++.so.6: No such file or directory`,
+and the same for `libgcc_s.so.1`, before reaching any of its own code.
+
+Carrying the pair instead of requiring it was measured on x64 only, and off
+the runners: `docker run alpine:3.22` on the WSL2 development machine, with
+neither package installed, against a `bun-linux-x64-musl` binary compiled
+there from this tree.
+
+| What                                                                        | Result                                                                   |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| the two files copied beside the binary, `LD_LIBRARY_PATH` at that directory | `wp --help`, `wp caps` and `wp ls` (which autostarts the daemon) all run |
+| `patchelf --set-rpath '$ORIGIN/muslibs'` on the binary, same two files      | the same, with no wrapper and no environment; the binary grows 8,192 B   |
+
+```console
+$ bun build --compile --target=bun-linux-x64-musl ./src/cli/main.ts --outfile wp
+$ docker run --rm -v "$PWD:/x" alpine:3.22 /x/wp --help
+Error loading shared library libstdc++.so.6: No such file or directory (needed by /x/wp)
+Error loading shared library libgcc_s.so.1: No such file or directory (needed by /x/wp)
+$ docker run --rm -v "$PWD:/x" alpine:3.22 sh -c 'apk add -q libstdc++ libgcc patchelf &&
+    mkdir -p /x/muslibs && cp -L /usr/lib/libstdc++.so.6 /usr/lib/libgcc_s.so.1 /x/muslibs/ &&
+    patchelf --set-rpath "\$ORIGIN/muslibs" /x/wp'
+$ docker run --rm -v "$PWD:/x" alpine:3.22 /x/wp ls
+ID  COMMAND  ENGINE  STATUS  TITLE  AGE  SNAPSHOT  CLIENTS
+```
+
+So carrying them costs 2,945,256 B on x64 next to a 101 MB binary, plus one
+of those two mechanisms, and the appended Bun bundle survives `patchelf` —
+`caps` extracts an ffi prebuild out of the same file afterwards. Nothing
+here chooses between requiring the pair on a musl host and carrying it. The
+arm64 half of that probe, and whether redistributing libstdc++ under the GCC
+runtime library exception is something werk wants to do, are both untouched.
+Upstream has the underlying issue open
+([oven-sh/bun#29681](https://github.com/oven-sh/bun/issues/29681), and a
+`FROM scratch` build requested in
+[#23910](https://github.com/oven-sh/bun/issues/23910)).
+
+### What AVX the lanes run on
+
+Bun's x64 build after 1.3.8 is reported to die with "illegal instruction" on
+CPUs without AVX2, in the `-baseline` binary too
+([oven-sh/bun#26353](https://github.com/oven-sh/bun/issues/26353),
+[#27090](https://github.com/oven-sh/bun/issues/27090)); one of the traces in
+those reports is inside JSC's assembler. Each Linux and Alpine lane records
+what its own CPU offers, from `/proc/cpuinfo` (run 33701438138):
+
+| Lane                                    | avx, avx2, avx512f      |
+| --------------------------------------- | ----------------------- |
+| `linux-x64-glibc`, `linux-x64-musl`     | `avx`, `avx2`           |
+| `linux-arm64-glibc`, `linux-arm64-musl` | none of the three named |
+
+`macos-15-intel` reports `hw.optional.avx2_0: 1` in its own `machine.json`;
+the two Windows lanes record no CPU features either way. So no lane whose
+CPU is on record has run Bun's x64 build without AVX2, and the arm64 lanes
+do not have the extension at all. Nothing here says what to do about that.
 
 ## What changed in the proof of concept
 

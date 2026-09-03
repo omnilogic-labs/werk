@@ -84,8 +84,10 @@ eight `bun build --compile` targets. As plain findings:
   macOS architectures until `codesign --force --sign -`
   ([codesign](./platforms.md#every-fresh-compiled-binary-fails-codesign---verify)).
 - The musl Bun is not static: both Alpine lanes need `libstdc++.so.6` and
-  `libgcc_s.so.1` before the binary runs
-  ([the other five targets](./platforms.md#the-other-five-targets)).
+  `libgcc_s.so.1` — 2.9 MB of them — before the binary runs at all, and a
+  probe off the runners shows the release could carry the pair beside the
+  binary instead
+  ([what a musl host has to carry](./platforms.md#what-a-musl-host-has-to-carry)).
 - Bun 1.3.14 on Windows arm64 has no `bun:ffi`, so the daemon there locks
   through an exclusive named pipe
   ([where each layer stands](./platforms.md#where-each-layer-stands)).
