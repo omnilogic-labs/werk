@@ -55,16 +55,17 @@ already carries vim, top, tmux and jq.
 Further runs, on the branches that have since merged into `main`, are cited
 below by number:
 
-| Run                                                                            | Branch                                                 | What                                                                                                                                                                               |
-| ------------------------------------------------------------------------------ | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407) | `main` at `55cee97`                                    | the Windows lane before the daemon had `win32` branches; the "before" column of the Windows table below                                                                            |
-| [33688130745](https://github.com/omnilogic-labs/werk/actions/runs/33688130745) | [PR #2](https://github.com/omnilogic-labs/werk/pull/2) | macOS probes: socket buffers, `codesign`, process lifecycle, on `macos-latest` and `macos-15-intel`                                                                                |
-| [33688537937](https://github.com/omnilogic-labs/werk/actions/runs/33688537937) | PR #2                                                  | the macOS lane with the daemon's socket buffers raised; [33688881377](https://github.com/omnilogic-labs/werk/actions/runs/33688881377) is the same image with them left at default |
-| [33691536664](https://github.com/omnilogic-labs/werk/actions/runs/33691536664) | [PR #3](https://github.com/omnilogic-labs/werk/pull/3) | Windows primitives probed directly, `windows-latest`                                                                                                                               |
-| [33690884893](https://github.com/omnilogic-labs/werk/actions/runs/33690884893) | PR #3                                                  | the Windows lane with `win32` branches in the daemon's lock, launcher and paths                                                                                                    |
-| [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325) | [PR #5](https://github.com/omnilogic-labs/werk/pull/5) | eight targets cross-compiled on one Ubuntu job and run on eight native lanes, before the `win32` branches                                                                          |
-| [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598) | `main` at `0265837`                                    | the same eight lanes on the merged tree                                                                                                                                            |
-| [33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138) | `step/07-linux-musl` at `789b481`                      | the same eight lanes with the compiled-binary test host-derived, and the Linux lanes recording what a musl host carries and what AVX the CPU offers                                |
+| Run                                                                            | Branch                                                 | What                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407) | `main` at `55cee97`                                    | the Windows lane before the daemon had `win32` branches; the "before" column of the Windows table below                                                                                                                    |
+| [33688130745](https://github.com/omnilogic-labs/werk/actions/runs/33688130745) | [PR #2](https://github.com/omnilogic-labs/werk/pull/2) | macOS probes: socket buffers, `codesign`, process lifecycle, on `macos-latest` and `macos-15-intel`                                                                                                                        |
+| [33688537937](https://github.com/omnilogic-labs/werk/actions/runs/33688537937) | PR #2                                                  | the macOS lane with the daemon's socket buffers raised; [33688881377](https://github.com/omnilogic-labs/werk/actions/runs/33688881377) is the same image with them left at default                                         |
+| [33691536664](https://github.com/omnilogic-labs/werk/actions/runs/33691536664) | [PR #3](https://github.com/omnilogic-labs/werk/pull/3) | Windows primitives probed directly, `windows-latest`                                                                                                                                                                       |
+| [33690884893](https://github.com/omnilogic-labs/werk/actions/runs/33690884893) | PR #3                                                  | the Windows lane with `win32` branches in the daemon's lock, launcher and paths                                                                                                                                            |
+| [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325) | [PR #5](https://github.com/omnilogic-labs/werk/pull/5) | eight targets cross-compiled on one Ubuntu job and run on eight native lanes, before the `win32` branches                                                                                                                  |
+| [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598) | `main` at `0265837`                                    | the same eight lanes on the merged tree                                                                                                                                                                                    |
+| [33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138) | `step/07-linux-musl` at `789b481`                      | the same eight lanes with the compiled-binary test host-derived, and the Linux lanes recording what a musl host carries and what AVX the CPU offers                                                                        |
+| [33705813223](https://github.com/omnilogic-labs/werk/actions/runs/33705813223) | `step/04-harness` at `9918e71`                         | the Windows lane with the M2 harness building to a path of its own and `ops` spawning through the seam; [33706143058](https://github.com/omnilogic-labs/werk/actions/runs/33706143058) is all three lanes on the same tree |
 
 ### ubuntu-latest
 
@@ -517,9 +518,36 @@ them:
 
 The first two `test-full` items are platform facts — ConPTY re-encodes the
 stream rather than passing bytes through, and a kill is `TerminateProcess`
-with no signal name — and the last two are harness shape. Where the PTY relay
-semantics and the kill path go from here is a design question, not a
-measurement, and it is left to the proposal.
+with no signal name. Where the PTY relay semantics and the kill path go from
+here is a design question, not a measurement, and it is left to the proposal.
+
+The `m2` and `ops` rows were harness shape, and both suites reach the daemon
+with it changed (runs 33705813223 and 33706143058):
+
+- **The M2 harness builds to a path of its own run**, `dist/m2/wp-<pid>`,
+  rather than over `dist/wp`. Windows holds an executable's file open while a
+  process is running it, so a rebuild over a binary an earlier suite's daemon
+  is still running fails with `EPERM`. The lane works around that by stopping
+  every daemon it can find before the suites that build, and with it the
+  suite reports its verdicts on the merged tree too (run 33704300228); a path
+  named after the building process cannot be one anything else is running, so
+  the harness no longer depends on that housekeeping, and neither does a
+  developer running `bun run m2` beside a daemon of their own. Of the eight
+  scenarios, six passed on run 33705365214 and five on 33705813223 and 33706143058. The alternate-screen scenario and the `SIGSTOP` slow client
+  fail on every run; the third failure moves — `unknown id` on one run, the
+  vim resize on the next — where the assertion read the PTY's buffer before
+  ConPTY had finished delivering into it.
+- **`bench/ops.ts` spawns its daemon through the seam** rather than through a
+  launcher of its own, and names its runtime directories in one or two
+  characters. The seam's readiness detail is what said why the daemon was
+  exiting 1: `failed to listen` at a 116-character socket path under
+  `%TEMP%`, which the old label-shaped directory names reached on their own.
+  With the path at 75 characters the daemon binds, and the suite passes in
+  about 1.3 s, cold start included: `wp --help` at 60–74 ms, `wp __daemon` to
+  a first `hello` at 115–137 ms, `wp ls` against a live daemon at 76–89 ms.
+  An AF_UNIX path is bounded at 108 bytes on Linux and 104 on macOS; what
+  Winsock's bound is has not been measured, only that 116 refuses and 75
+  binds. The Windows lane gates on `ops` now.
 
 ## A win32 `libghostty-vt`, built rather than installed
 
@@ -794,8 +822,7 @@ clean, `prettier --check .` clean).
   daemon; both unverified either way.
 - **The rest of the Windows port.** The `win32` branches stop where the
   measurements above say they stop: the ConPTY render prologue, kill through
-  the protocol, the pinned executable, `bench/ops.ts`'s own launcher, a
-  `darwin-x64` ffi build.
+  the protocol, a `darwin-x64` ffi build.
 
 ## Auditing this
 
