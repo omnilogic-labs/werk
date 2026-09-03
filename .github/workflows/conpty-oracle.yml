@@ -1,0 +1,81 @@
+# Step 3 of docs/proposals/01-cross-platform.md, measured while it is built:
+# what ConPTY emits for the same input twice, and which `bun test` file takes
+# the Windows run down before the rest of them get to a verdict.
+#
+# Runs on every push to the step branch. Minutes rather than the poc lane's
+# quarter of an hour, because it skips everything that already passes.
+name: conpty-oracle
+
+on:
+  push:
+    branches: [step/03-conpty-oracle]
+
+concurrency:
+  group: conpty-oracle
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  probes:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep line endings as committed
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Runner
+        run: |
+          bun --version
+          bun -e 'console.log(process.platform, process.arch, require("node:os").release())'
+          bun install --frozen-lockfile
+
+      - name: ConPTY probes
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          bun run .github/ci/windows-probes.ts conpty 2>&1 | tee conpty.log
+          {
+            echo "## conpty probes"
+            echo
+            echo '```'
+            tr -d '\r' <conpty.log
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # `bun test` on the windows lane dies partway through and loses every
+      # file after it. One process per file says which file, and gives the
+      # rest of them a verdict in the meantime.
+      - name: test-full, one file at a time
+        if: always()
+        timeout-minutes: 15
+        working-directory: packages/werk-poc
+        run: |
+          set -uo pipefail
+          files=$(git ls-files '*.test.ts' | grep -v '^vendor/' | sort)
+          echo "$files"
+          echo "| file | exit | verdict |" >>"$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- | --- |" >>"$GITHUB_STEP_SUMMARY"
+          for f in $files; do
+            echo "::group::$f"
+            timeout 180 bun test "$f" >"one.log" 2>&1
+            rc=$?
+            tr -d '\r' <one.log
+            echo "::endgroup::"
+            v=$(grep -aoE '[0-9]+ pass|[0-9]+ fail|Segmentation fault|panic\(' one.log | tr '\n' ' ')
+            echo "| \`$f\` | $rc | $v |" >>"$GITHUB_STEP_SUMMARY"
+            echo "FILE $f exit=$rc $v"
+            bun run "$GITHUB_WORKSPACE/.github/ci/windows-daemon.ts" stop || true
+          done
