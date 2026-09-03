@@ -463,6 +463,45 @@ Three smaller facts from the same probes: `mkdir` reports mode `40666`,
 `getuid` is undefined, and `LOCALAPPDATA` is set where `XDG_RUNTIME_DIR` is
 not.
 
+### A session's tree goes in a Job Object
+
+A ConPTY child can be put in a Job Object from Bun, and ending the job takes
+everything the child started. Measured on both Windows runners by
+`.github/ci/win32-job-probes.ts`, which spawns a child exactly as `Session`
+does, assigns it before it starts a grandchild of its own, and then ends the
+job each of the ways there are (runs 33704743713, 33706263111):
+
+| Question                                                    | `win32-x64`                                          | `win32-arm64`       |
+| ----------------------------------------------------------- | ---------------------------------------------------- | ------------------- |
+| `CreateJobObjectW` + `SetInformationJobObject`              | ok, with `KILL_ON_JOB_CLOSE`                         | no `bun:ffi` at all |
+| The daemon is itself already in a job                       | yes, and the nested assign still succeeds            | —                   |
+| `AssignProcessToJobObject` on a ConPTY child                | assigned                                             | —                   |
+| `TerminateJobObject`                                        | child and grandchild gone in 2–3 ms                  | —                   |
+| `CloseHandle` on the last job handle                        | the same, in under a millisecond                     | —                   |
+| What Bun reports for a child ended by the job               | `exitCode` 1, `signalCode` null                      | —                   |
+| What Bun reports for `proc.kill("SIGTERM")` / `("SIGKILL")` | `exitCode` null, `signalCode` the name it was passed | the same            |
+
+So the signal name Bun reports on Windows is the name the caller asked for,
+not something the platform said: a `TerminateProcess` reports `SIGTERM`
+because `SIGTERM` was passed. That is why the daemon reports no `signalCode`
+on Windows at all and carries what it asked for in the session's kill record
+instead.
+
+The one place the tree matters and cannot be measured here: the probe's
+control case, a plain `proc.kill()` with no job, also took the grandchild
+with it — a process inherits its parent's console, and the ConPTY going takes
+everything attached to it. A grandchild that detaches itself from the console
+would survive, and that is what the job covers; nothing on the runner
+produces one. On `win32-arm64` there is no job, so the kill is
+`TerminateProcess` on the child alone and whatever survives the console is
+left running.
+
+Through the daemon, the whole sequence — connect, run, attach, kill, the
+`exited` notice, `ls`, remove — takes about 250 ms on x64 and 450 ms on
+arm64 (run 33706263111). x64 reports `exitCode` 1 with the kill delivered as
+`job`; arm64 reports `exitCode` null delivered as `terminate`, which is all a
+Windows exit can say when the signal name is dropped and no job set the code.
+
 ### The differential corpus agrees with Linux exactly
 
 All 23 `ghostty-wasm` ↔ `xterm-oracle` case verdicts and all 10 reattach rows
@@ -500,7 +539,9 @@ of the seam's interface, from [PR #3](https://github.com/omnilogic-labs/werk/pul
 | `runtimeDir()`             | `%LOCALAPPDATA%\werk-poc`; skips the uid and `0o077` checks                                                                                                                                                      |
 | `listen()`                 | unlinks a stale socket before bind-and-rename; no `chmod`                                                                                                                                                        |
 | `rss()`                    | `process.memoryUsage()`                                                                                                                                                                                          |
-| `shutdown()`               | installs no signal handlers; the `shutdown` message over the socket is the only way in                                                                                                                           |
+| `onShutdownSignal()`       | installs no signal handlers; the `shutdown` message over the socket is the only way in                                                                                                                           |
+| `adoptTree()`              | a Job Object with `KILL_ON_JOB_CLOSE` per session, via `bun:ffi`; the child alone where there is none. An interrupt is `0x03` into the ConPTY                                                                    |
+| `signalsExits`             | false: nothing is delivered as a signal, so no `signalCode` is reported                                                                                                                                          |
 | `isAlive()`                | `kill(pid, 0)` alone — there are no zombies to exclude; `05-daemon-survives` judges by that and a tick file                                                                                                      |
 
 What the lane records with those in place, against the last run without

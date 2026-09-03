@@ -74,6 +74,20 @@ jobs:
             echo '```'
           } >>"$GITHUB_STEP_SUMMARY"
 
+      # The same tail of the kill test, under the runner that fails it.
+      - name: Kill test, narrowed
+        if: always()
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          bun test .github/ci/win32-kill.test.ts 2>&1 | tee -a probes.log || true
+          {
+            echo
+            echo '```'
+            tr -d '\r' <probes.log | tail -40
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
       - name: Upload probes.log
         if: always()
         uses: actions/upload-artifact@v4
