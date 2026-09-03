@@ -560,14 +560,39 @@ export const slowClient: Scenario = {
         `fast client at the end: ${diff.length} rows differ: ${diff.slice(0, 4).join(" ; ")}; cursor (${fc.x},${fc.y}) vs (${daemonScreen.cursor.x},${daemonScreen.cursor.y})`,
       );
       process.kill(slow.pid, "SIGCONT");
-      const rendered = await waitFor(() => {
-        for (let i = chunksBefore; i < slow.chunks.length; i++) {
-          if (Buffer.from(slow.chunks[i]!).includes("\x1b[H\x1b[2J"))
-            return true;
+      // A render is a full repaint, so everything the slow client received
+      // after it was resumed redraws the session's whole screen on its own —
+      // which a replay of ordinary output could not, since the client missed
+      // most of the flood. That is the property worth checking, rather than
+      // the clear sequence that carries it: on a ConPTY the bytes `wp attach`
+      // writes are re-encoded on their way to the terminal, so a render
+      // arrives as different bytes and the same cells.
+      const resumeVt = (await freshEngine()).create({
+        cols: 80,
+        rows: 24,
+        scrollback: 1000,
+      });
+      let fed = chunksBefore;
+      let rendered = false;
+      const renderBy = Date.now() + 5000;
+      while (Date.now() < renderBy) {
+        for (; fed < slow.chunks.length; fed++)
+          resumeVt.write(slow.chunks[fed]!);
+        if (
+          diffScreens((await c.screen(id)).text, resumeVt.plainText())
+            .length === 0
+        ) {
+          rendered = true;
+          break;
         }
-        return false;
-      }, 5000);
-      r.check(rendered, "slow client received a render after SIGCONT");
+        await sleep(50);
+      }
+      resumeVt.dispose();
+      r.check(
+        rendered,
+        "slow client was re-rendered: what reached it after SIGCONT redraws the screen on its own",
+        "slow client got no render after SIGCONT: what reached it does not redraw the screen",
+      );
       await sleep(300);
       const after = await c.stats();
       r.check(

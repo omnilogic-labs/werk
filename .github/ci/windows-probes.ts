@@ -435,11 +435,22 @@ if (want("conpty")) {
       const bytes = group.map((r) => sha(r.bytes));
       const cells = group.map((r) => sha(r.cells));
       const cursors = group.map((r) => r.cursor);
+      const odd = group.find((r) => r.text !== group[0]!.text);
+      let where = "";
+      if (odd) {
+        const a = group[0]!.text;
+        const b = odd.text;
+        let i = 0;
+        while (i < a.length && i < b.length && a[i] === b[i]) i++;
+        where =
+          ` — from byte ${i}: ${JSON.stringify(a.slice(i, i + 60))}` +
+          ` against ${JSON.stringify(b.slice(i, i + 60))}`;
+      }
       say(
         `conpty-${name}-bytes-repeatable`,
         same(bytes)
           ? `identical — 4 sessions, the same ${group[0]!.bytes.length} bytes (sha ${bytes[0]})`
-          : `differ — 4 sessions: ${group.map((r, i) => `${r.bytes.length}B/${bytes[i]}`).join(" ")}`,
+          : `differ — 4 sessions: ${group.map((r, i) => `${r.bytes.length}B/${bytes[i]}`).join(" ")}${where}`,
       );
       say(
         `conpty-${name}-grid-repeatable`,
