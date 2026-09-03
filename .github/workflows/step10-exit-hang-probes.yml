@@ -1,0 +1,132 @@
+# How often a pure engine test file on the Windows runner prints its tally
+# and then does not exit. The lane's `test-full` runs one `bun test` per file
+# under `timeout -k 15 180`, and on roughly three runs in fourteen one of
+# `src/engine/ghostty-wasm/{reattach,encoders}.test.ts` reported every test
+# passing and then sat until the deadline. Six jobs of ten runs each is
+# sixty samples a file, under each of the sinks the process's stdout can have
+# (`.github/ci/step10-exit-hang.sh`), plus a bisection over what the file
+# does with the engine (`.github/ci/exit-hang/*.test.ts`).
+#
+# Runs on every push to the step branch; `workflow_dispatch` only works for a
+# workflow file on the default branch, and this one is not meant to reach it.
+name: step10-exit-hang-probes
+
+on:
+  push:
+    branches: [step/10-exit-hang]
+
+concurrency:
+  group: step10-exit-hang-probes
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FILES: >-
+    src/engine/ghostty-wasm/reattach.test.ts
+    src/engine/ghostty-wasm/encoders.test.ts
+    src/engine/ghostty-wasm/terminal.test.ts
+
+jobs:
+  probes:
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [1, 2, 3, 4, 5, 6]
+    name: sample ${{ matrix.job }}
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep line endings as committed
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Runner
+        run: |
+          bun --version
+          bun -e 'console.log(process.platform, process.arch, require("node:os").release())'
+          echo "ImageOS=${ImageOS:-} ImageVersion=${ImageVersion:-}"
+          mkdir -p "$RUNNER_TEMP/exit-hang"
+          echo "OUT=$RUNNER_TEMP/exit-hang" >>"$GITHUB_ENV"
+
+      - name: install
+        timeout-minutes: 3
+        run: bun install --frozen-lockfile
+
+      # The lane has `dist/wp.exe` present and a daemon-stop behind it when
+      # the engine files run; both are here so the conditions match.
+      - name: build
+        continue-on-error: true
+        timeout-minutes: 8
+        working-directory: packages/werk-poc
+        run: bun run build
+
+      - name: stop daemons
+        continue-on-error: true
+        timeout-minutes: 2
+        working-directory: packages/werk-poc
+        run: bun run "$GITHUB_WORKSPACE/.github/ci/windows-daemon.ts" stop
+
+      - name: stdout to a file (the harness's sink)
+        timeout-minutes: 12
+        working-directory: packages/werk-poc
+        run: bash "$GITHUB_WORKSPACE/.github/ci/step10-exit-hang.sh" file 10 $FILES 2>&1 | tee "$OUT/phase-file.log"
+
+      - name: stdout to a pipe
+        if: always()
+        timeout-minutes: 12
+        working-directory: packages/werk-poc
+        run: bash "$GITHUB_WORKSPACE/.github/ci/step10-exit-hang.sh" pipe 10 $FILES 2>&1 | tee "$OUT/phase-pipe.log"
+
+      - name: stdout inherited from the step
+        if: always()
+        timeout-minutes: 8
+        working-directory: packages/werk-poc
+        run: |
+          bash "$GITHUB_WORKSPACE/.github/ci/step10-exit-hang.sh" inherit 5 \
+            src/engine/ghostty-wasm/reattach.test.ts src/engine/ghostty-wasm/encoders.test.ts 2>&1 | tee "$OUT/phase-inherit.log"
+
+      # What the file does with the engine, from nothing up to a snapshot
+      # round trip. The files live outside packages/werk-poc so the lane's
+      # `git ls-files '*.test.ts'` never picks them up; they are copied in so
+      # their relative imports resolve.
+      - name: bisect
+        if: always()
+        timeout-minutes: 12
+        working-directory: packages/werk-poc
+        run: |
+          rm -rf .exit-hang && mkdir .exit-hang
+          cp "$GITHUB_WORKSPACE"/.github/ci/exit-hang/*.test.ts .exit-hang/
+          bash "$GITHUB_WORKSPACE/.github/ci/step10-exit-hang.sh" file 10 ./.exit-hang/*.test.ts 2>&1 | tee "$OUT/phase-bisect.log"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## exit-hang sample ${{ matrix.job }} — commit \`${GITHUB_SHA:0:8}\`, bun \`$(bun --version)\`"
+            echo
+            echo '```'
+            cat "$OUT"/phase-*.log 2>/dev/null | tr -d '\r' | grep -aE '^RATE|HUNG'
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          cat "$OUT"/phase-*.log | tr -d '\r' | grep -aE '^RATE'
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exit-hang-${{ matrix.job }}
+          path: ${{ env.OUT }}
+          if-no-files-found: warn
+          retention-days: 14
