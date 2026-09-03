@@ -1,10 +1,15 @@
 import { expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { mkdtemp, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { bunfsRelative } from "../../src/platform/index.ts";
 
 const pkg = join(import.meta.dir, "..", "..");
 const out = join(pkg, "dist", "m1", "embedded");
+
+/** The binary `--outfile <p>` wrote: `<p>.exe` where the platform adds one. */
+const built = (p: string) => (existsSync(`${p}.exe`) ? `${p}.exe` : p);
 
 test("the pinned wasm is embedded in a --compile binary", async () => {
   const build = Bun.spawnSync(
@@ -23,7 +28,7 @@ test("the pinned wasm is embedded in a --compile binary", async () => {
   // Run it from an empty directory so nothing on disk can be found by accident.
   const cwd = await mkdtemp(join(tmpdir(), "werk-poc-m1-"));
   expect(await readdir(cwd)).toEqual([]);
-  const run = Bun.spawnSync([out], {
+  const run = Bun.spawnSync([built(out)], {
     cwd,
     stdout: "pipe",
     stderr: "pipe",
@@ -31,11 +36,14 @@ test("the pinned wasm is embedded in a --compile binary", async () => {
   });
   const stdout = run.stdout.toString();
   expect(run.exitCode).toBe(0);
-  expect(stdout).toContain("wasm: /$bunfs/root/");
+  // From inside the binary, under its root: `/$bunfs/root/` on POSIX and
+  // `B:/~BUN/root/` on Windows, which is one question of the seam.
+  const wasm = /^wasm: (.*)$/m.exec(stdout)?.[1] ?? "";
+  expect(bunfsRelative(wasm)).toMatch(/^root\//);
   expect(stdout).toContain("exports: 189");
   expect(stdout).toContain("bold: true");
   expect(stdout).toContain("compiled ok\n日本 😀\n");
   console.log(
-    `compiled binary: ${(Bun.file(out).size / 1048576).toFixed(1)} MB, ${stdout.split("\n")[0]}`,
+    `compiled binary: ${(Bun.file(built(out)).size / 1048576).toFixed(1)} MB, ${stdout.split("\n")[0]}`,
   );
 }, 60_000);

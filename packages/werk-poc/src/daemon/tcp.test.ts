@@ -7,6 +7,7 @@ import { afterEach, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
 import { connect, DaemonError } from "../client/index.ts";
+import { platform } from "../platform/index.ts";
 import { stopDaemon, tempDir } from "./_testlib.ts";
 import { daemonPaths } from "./paths.ts";
 import { parseSocketTarget, readToken, TOKEN_FILE } from "./tcp.ts";
@@ -60,7 +61,9 @@ test("with WP_TCP_LISTEN the daemon also answers on 127.0.0.1, but only with the
   const { port, token } = readToken(tokenFile);
   expect(port).toBeGreaterThan(0);
   expect(token.length).toBe(48);
-  expect(fs.statSync(tokenFile).mode & 0o777).toBe(0o600);
+  // This user's alone, however the platform says so: 0600 on POSIX, and on
+  // Windows an ACL inherited from the profile directory (../platform/).
+  expect(platform.privateToUser(tokenFile)).toMatchObject({ private: true });
 
   const overTcp = await connect({ socket: `tcp:127.0.0.1:${port}`, token });
   expect(overTcp.daemon.pid).toBe(overSocket.daemon.pid);
@@ -82,6 +85,7 @@ test("with WP_TCP_LISTEN the daemon also answers on 127.0.0.1, but only with the
 
   // The socket is unchanged: still there, still this user's alone.
   const paths = daemonPaths(dir);
-  expect(fs.statSync(paths.socket).mode & 0o777).toBe(0o600);
+  expect(platform.socketExists(paths.socket)).toBe(true);
+  expect(platform.privateToUser(paths.socket)).toMatchObject({ private: true });
   overSocket.close();
 });

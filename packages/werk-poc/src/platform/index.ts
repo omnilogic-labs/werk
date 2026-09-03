@@ -23,6 +23,12 @@ export interface FileLock {
   release(): void;
 }
 
+/** Whether a path is this user's alone, and what the platform read to say so. */
+export interface Privacy {
+  private: boolean;
+  detail: string;
+}
+
 /** What a spawned daemon reported before the launcher stopped waiting for it. */
 export interface DaemonStart {
   pid: number;
@@ -116,6 +122,18 @@ export interface Platform {
   clearStaleSocket(path: string): void;
   /** Restricts the just-bound socket to this user, where the filesystem can say so. */
   restrictSocket(path: string): void;
+  /**
+   * Whether a daemon's socket — live or stale — sits at `path`. A socket
+   * inode on POSIX; on Windows the reparse point Winsock leaves, which
+   * `existsSync` reports as absent and `stat` refuses (`EACCES`).
+   */
+  socketExists(path: string): boolean;
+  /**
+   * Whether `path` is this user's alone, as far as this platform can say:
+   * mode bits and owner on POSIX, the ACL on Windows. `detail` is what was
+   * read, for a failed assertion to show.
+   */
+  privateToUser(path: string): Privacy;
 
   /** The listener's socket buffer size this platform wants, or null for the kernel's. */
   defaultSocketBufferBytes(): number | null;
@@ -154,15 +172,28 @@ export function modeForSignal(signal: string): KillMode {
 export const platform: Platform = process.platform === "win32" ? win32 : posix;
 
 /**
- * True when running from a `bun build --compile` binary. Bun's bunfs is
- * `/$bunfs/` on a POSIX system and the virtual drive `B:\~BUN\` on Windows,
- * where the path arrives with backslashes — a check for one spelling alone
- * makes `wp.exe` believe it is interpreted and relaunch its daemon the wrong
- * way (spike/win32-daemon).
+ * Where a `bun build --compile` binary keeps its embedded files: `/$bunfs/`
+ * on a POSIX system and the virtual drive `B:\~BUN\` on Windows, where a
+ * path arrives with backslashes from `import.meta.path` and with forward
+ * slashes from an `import ... with { type: "file" }`. Matches the prefix
+ * wherever it sits in a string, so an error message naming such a path
+ * can be asked too. A check for one spelling alone makes `wp.exe` believe
+ * it is interpreted and relaunch its daemon the wrong way
+ * (spike/win32-daemon).
  */
-export const compiled =
-  import.meta.path.startsWith("/$bunfs/") ||
-  /^B:[\\/]~BUN[\\/]/.test(import.meta.path);
+export const BUNFS_PATH = /(?:\/\$bunfs|B:[\\/]~BUN)[\\/]/;
+
+/**
+ * The path inside the binary, forward slashes, or null when `p` is not one:
+ * `/$bunfs/root/a.wasm` and `B:\~BUN\root\a.wasm` both give `root/a.wasm`.
+ */
+export function bunfsRelative(p: string): string | null {
+  const m = BUNFS_PATH.exec(p);
+  return m && m.index === 0 ? p.slice(m[0].length).replace(/\\/g, "/") : null;
+}
+
+/** True when running from a `bun build --compile` binary. */
+export const compiled = bunfsRelative(import.meta.path) !== null;
 
 /**
  * How many bytes to ask for on the listening socket, or null to leave the

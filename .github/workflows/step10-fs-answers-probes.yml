@@ -69,6 +69,7 @@ jobs:
         timeout-minutes: 12
         working-directory: packages/werk-poc
         run: |
+          set +e
           rc=0
           for f in src/daemon/launch.test.ts src/daemon/tcp.test.ts spikes/m1/embedded.test.ts spikes/m6/compiled.test.ts; do
             echo "::group::$f"

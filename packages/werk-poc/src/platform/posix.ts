@@ -39,6 +39,7 @@ import type {
   FileLock,
   Platform,
   KillOutcome,
+  Privacy,
   ProcessTree,
   SessionChild,
   SpawnDaemonOptions,
@@ -284,6 +285,25 @@ export const posix: Platform = {
 
   restrictSocket(file: string): void {
     fs.chmodSync(file, 0o600);
+  },
+
+  socketExists(file: string): boolean {
+    try {
+      return fs.statSync(file).isSocket();
+    } catch {
+      return false;
+    }
+  },
+
+  /** Nothing for group or other, and owned by this uid where there is one. */
+  privateToUser(file: string): Privacy {
+    const st = fs.statSync(file);
+    const mode = st.mode & 0o777;
+    const uid = process.getuid?.();
+    return {
+      private: (mode & 0o077) === 0 && (uid === undefined || st.uid === uid),
+      detail: `mode ${mode.toString(8).padStart(4, "0")}, uid ${st.uid}`,
+    };
   },
 
   defaultSocketBufferBytes(): number | null {
