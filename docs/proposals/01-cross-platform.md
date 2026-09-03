@@ -188,14 +188,27 @@ far enough to hit questions rather than blockers:
   108 bytes on Linux and 104 on macOS; nobody has measured where Winsock's
   bound falls.
 
-Three verdicts the Windows lane's suites report are artefacts of how the
-suites measure, not platform facts; the spike measured each directly:
+Three answers Windows gives to a POSIX-shaped question are not what they
+look like; the spike measured each directly, and where a suite has to ask,
+it asks the seam rather than the filesystem:
 
 - The socket file **does** exist. `Bun.listen({ unix })` on Windows is a
-  Winsock `AF_UNIX` socket whose path is a reparse point; Bun's `existsSync`,
-  `lstat` and `stat` all fail on it (`EACCES`), while a directory listing
-  shows it as a symlink. A stale one refuses rebinding until unlinked, and
-  the lock is probably what should prove it stale.
+  Winsock `AF_UNIX` socket whose path is a reparse point: Bun's `existsSync`
+  says no and `lstat` and `stat` fail on it with `EACCES`, live or stale
+  alike, while a directory listing shows it as a symlink and `icacls` reads
+  its ACL (run 33737161625). So the seam's `socketExists()` is a listing
+  entry that says symlink plus an `lstat` that says `EACCES`, and
+  `privateToUser()` is the ACL rather than a mode. NTFS has no mode bits
+  Bun can read — `stat` reports 0o666 on every file and a 0o600 asked of
+  `writeFileSync` changes nothing — so the socket and the `wp.tcp` token
+  file are this user's alone by inheritance from the profile directory,
+  which under `%LOCALAPPDATA%` and `%TEMP%` names `SYSTEM`,
+  `Administrators` and the user and nobody else. A stale socket refuses
+  rebinding until unlinked; the daemon takes the lock before it binds and
+  then unlinks whatever sits at the path (`clearStaleSocket()`), so the
+  lock is what says it is stale. Winsock does not follow a file symlink to
+  the socket (`Failed to connect`), where a junction to the socket's
+  directory is resolved on the way and reaches it.
 - The detached daemon **does** survive its parent's ConPTY closing. The old
   scenario judged liveness by MSYS `ps` reporting `sid == pid`, which it
   never does for a native process. Judged by a tick file and `kill(pid, 0)`,
@@ -216,8 +229,14 @@ finds them again:
   process with exit 9 and no message; Bun's CRT is not `ucrtbase`. Open files
   with `CreateFileW` directly when a HANDLE is needed.
 - `import.meta.path` inside a compiled Windows binary is `B:\~BUN\root\…`
-  with backslashes. A check for `B:/~BUN/` makes `wp.exe` believe it is
-  interpreted and relaunch its daemon the wrong way.
+  with backslashes, and the path an `import … with { type: "file" }` gives
+  is `B:/~BUN/root/…` with forward slashes; neither is `/$bunfs/root/`. A
+  check for one spelling makes `wp.exe` believe it is interpreted and
+  relaunch its daemon the wrong way, so the seam holds the one pattern,
+  `BUNFS_PATH`, that `compiled` and the M1 and M6 spike tests all ask.
+  `bun build --compile --outfile x` writes `x.exe` there, which
+  `CreateProcess` finds from `x` and `Bun.file("x").size` does not, and
+  `os.tmpdir()` reads `TEMP` rather than `TMPDIR`.
 - On `windows-11-arm` in Bun 1.3.14 the `bun:ffi` module imports and every
   `dlopen` through it throws "bun:ffi dlopen() is not available in this
   build (TinyCC is disabled)"; it is fixed upstream after 1.3.14. Anything
@@ -781,9 +800,9 @@ Four of those have a cause outside the PoC and no obvious cost to fix: the
 slow-client scenario is CPU headroom on a shared runner (§5) and unexplained
 throughput on macOS (§4); `darwin-x64` and `win32-arm64`'s ffi failures are a
 missing prebuild and a `bun:ffi` that cannot `dlopen`; `m3` and `m0` are
-nondeterministic. What remains as work rather than circumstance is
-`test-full`'s ten on Windows, which §3 accounts for one by one, and `m2`'s
-vim scenarios racing ConPTY's delivery.
+nondeterministic. What remains as work rather than circumstance is what
+`test-full` still fails on Windows, which §3 accounts for one by one, and
+`m2`'s vim scenarios racing ConPTY's delivery.
 
 So the gates say what each lane holds today, and the set each forgives is the
 list of what a Windows host would still cost. Whether the slow-client
@@ -821,18 +840,22 @@ find, and what the runs leave undone.
 Each of these was diagnosed as something else first, and each would be easy
 to re-introduce.
 
-| What you see                                           | What it is                                                                                                                                          |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Bun reports `signalCode: "SIGTERM"` on Windows         | The name you passed to `proc.kill()`, echoed back. `TerminateProcess` ran and no signal was delivered (§3).                                         |
-| `bun:ffi` "missing" on Windows arm64                   | The module imports; every `dlopen` through it throws "TinyCC is disabled". Detect by what `dlopen` does, not by whether the import works (§3).      |
-| A whole `bun test` file dying with "connection closed" | A test timed out, Bun killed the daemon the file had started, and then panicked. One process per file bounds the damage to that file (§3).          |
-| A test that burns five seconds and then fails          | `expect(promise).rejects` hangs on Windows where catching the same rejection returns at once. Other `expect().rejects` in the same file are fine.   |
-| "daemon did not answer within 10 s", with no reason    | Often an `AF_UNIX` path too long — Winsock refused 116 characters where 75 bound (§3). Have the launcher report the last connect error.             |
-| A reattach test failing on the render prologue         | It was not the prologue; that assertion passed. ConPTY re-encodes the stream, so compare cell grids, never bytes (§3).                              |
-| `m2` or `m3` red on Windows                            | Probably the run, not the tree: `m2`'s vim scenarios race ConPTY's delivery, `m3` prints every table and then does not exit. Neither is gated (§8). |
-| The slow-client scenario red on a hosted lane          | CPU headroom on a shared runner — roughly two attempts in seven pass. A green lane is not evidence it is fixed (§5).                                |
-| macOS losing about 6 MB in the fast-client scenario    | Not the client's sink: a pipe and a plain file lose as much as a PTY. An unexplained delivery rate; §4 says what is ruled out.                      |
-| A stale binary answering a `hello`                     | `PROTOCOL_VERSION` catches a changed wire shape only if it is bumped when the wire changes. `dist/bench-ops/` caches a binary across runs.          |
+| What you see                                                 | What it is                                                                                                                                                                                     |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bun reports `signalCode: "SIGTERM"` on Windows               | The name you passed to `proc.kill()`, echoed back. `TerminateProcess` ran and no signal was delivered (§3).                                                                                    |
+| `bun:ffi` "missing" on Windows arm64                         | The module imports; every `dlopen` through it throws "TinyCC is disabled". Detect by what `dlopen` does, not by whether the import works (§3).                                                 |
+| A whole `bun test` file dying with "connection closed"       | A test timed out, Bun killed the daemon the file had started, and then panicked. One process per file bounds the damage to that file (§3).                                                     |
+| A test that burns five seconds and then fails                | `expect(promise).rejects` hangs on Windows where catching the same rejection returns at once. Other `expect().rejects` in the same file are fine.                                              |
+| "daemon did not answer within 10 s", with no reason          | Often an `AF_UNIX` path too long — Winsock refused 116 characters where 75 bound (§3). Have the launcher report the last connect error.                                                        |
+| A reattach test failing on the render prologue               | It was not the prologue; that assertion passed. ConPTY re-encodes the stream, so compare cell grids, never bytes (§3).                                                                         |
+| `m2` or `m3` red on Windows                                  | Probably the run, not the tree: `m2`'s vim scenarios race ConPTY's delivery, `m3` prints every table and then does not exit. Neither is gated (§8).                                            |
+| The slow-client scenario red on a hosted lane                | CPU headroom on a shared runner — roughly two attempts in seven pass. A green lane is not evidence it is fixed (§5).                                                                           |
+| macOS losing about 6 MB in the fast-client scenario          | Not the client's sink: a pipe and a plain file lose as much as a PTY. An unexplained delivery rate; §4 says what is ruled out.                                                                 |
+| A stale binary answering a `hello`                           | `PROTOCOL_VERSION` catches a changed wire shape only if it is bumped when the wire changes. `dist/bench-ops/` caches a binary across runs.                                                     |
+| `existsSync` saying the Windows daemon's socket is not there | It is. A Winsock `AF_UNIX` path is a reparse point that `existsSync`, `stat` and `lstat` cannot open (`EACCES`); the directory listing can. Ask `platform.socketExists()` (§3).                |
+| A 0600 token file reading as 0666 on Windows                 | NTFS has no mode bits Bun can read and `writeFileSync`'s mode changes nothing. Who can read a file is its ACL, inherited from the profile directory; `platform.privateToUser()` reads it (§3). |
+| `Bun.connect` failing on a symlink to a Windows socket       | Winsock does not follow a file symlink to the reparse point. A junction to the socket's directory is resolved on the way and reaches it (§3).                                                  |
+| A compiled spike's binary reading as 0 MB on Windows         | `bun build --compile --outfile x` wrote `x.exe`; `CreateProcess` appends the suffix and `Bun.file` does not. `os.tmpdir()` there reads `TEMP`, not `TMPDIR` (§3).                              |
 
 Two rules follow from that list. **Detect a platform capability by trying it
 rather than by asking what platform this is** — the arm64 `bun:ffi` row is
@@ -864,11 +887,11 @@ bytes**, because one of the three platforms rewrites the bytes.
 Nobody has decided any of this is worth doing; it is what the measurements
 stopped short of.
 
-- **`test-full`'s ten failures on Windows**, which §3 accounts for one by
-  one: four are `launch.test.ts` asking the filesystem about a socket that is
-  a reparse point, two name `/$bunfs/` where the path is `B:/~BUN/`, one
-  wants a real SIGTERM to reach a detached daemon, and two are ConPTY
-  throughput against a 4 MiB flood.
+- **What `test-full` still fails on Windows**, which §3 accounts for one by
+  one: one wants a real SIGTERM to reach a detached daemon, and two are
+  ConPTY throughput against a 4 MiB flood. The launcher, TCP-landing and
+  compiled-binary files ask the seam and pass (runs 33737702073 and
+  33737833426).
 - **`m2`'s vim scenarios**, racing ConPTY's delivery. One `waitFor` has
   already not been enough, so the next attempt probably wants the grid oracle
   rather than another timeout.
