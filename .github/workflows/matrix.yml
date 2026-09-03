@@ -274,8 +274,11 @@ jobs:
       MATRIX_M0: full
     steps:
       # The container starts with busybox only; bash for the harness, git for
-      # checkout, libstdc++/libgcc for the prebuilt musl Bun, and what the
-      # suites spawn (vim, top, ps with keywords, script, sh).
+      # checkout, and what the suites spawn (vim, top, ps with keywords,
+      # script, sh). `libstdc++` and `libgcc` are not a convenience: the musl
+      # Bun and every binary compiled from it are linked against
+      # `libstdc++.so.6` and `libgcc_s.so.1`, so without them the binary does
+      # not start at all. The x-ldd suite records the pair and its size.
       - name: apk add
         shell: sh
         run: |
@@ -427,6 +430,8 @@ jobs:
         with:
           name: diff-summary-linux-x64
           path: ${{ runner.temp }}/ref
+      # `libstdc++` and `libgcc` are what the musl binary is linked against —
+      # without them it does not start; see the x64 lane's note.
       - name: start alpine
         run: |
           docker run -d --name alpine \

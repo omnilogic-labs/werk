@@ -173,6 +173,21 @@ remove_socket() {
   if socket_present "$s"; then echo "could not remove $s"; else echo "removed $s"; fi
 }
 
+# What a musl host has to have before the binary starts: the shared
+# libraries it is linked against that are not musl itself, each with its
+# size, plus the Alpine packages they come in. The musl loader prints
+# "name => path (0xaddr)", so the paths come out of the arrow.
+musl_extras() {
+  local bin="$1" lib
+  ldd "$bin" 2>/dev/null | sed -nE 's/.*=> (\/[^ ]+).*/\1/p' | sort -u |
+    while read -r lib; do
+      case "$lib" in *musl*) continue ;; esac
+      printf 'needs %s (%s bytes)\n' "$lib" "$(wc -c <"$lib" | tr -d ' ')"
+    done
+  apk info -s libstdc++ libgcc 2>/dev/null | tr '\n' ' '
+  echo
+}
+
 # codesign, twice: describe, then verify. The verdict is the verify.
 codesign_check() {
   local bin="$1"
@@ -214,6 +229,14 @@ if [ "$CMD" = "machine" ]; then
     extra="avx2: ${avx2:-none reported}; $send; TMPDIR=${TMPDIR:-unset}"
   fi
   if [ "$OS" = alpine ]; then extra="bun from ${BUN_SOURCE:-?}"; fi
+  if [ "$OS" = linux ] || [ "$OS" = alpine ]; then
+    # Bun's x64 build after 1.3.8 is reported to die with "illegal
+    # instruction" on CPUs without AVX2, in the `-baseline` binary too
+    # (oven-sh/bun#26353, #27090). Record what this lane's CPU offers, so
+    # what the fleet has actually run on is on the record.
+    simd="$(grep -m1 -aE '^(flags|Features)[[:space:]]*:' /proc/cpuinfo 2>/dev/null | tr ' ' '\n' | grep -axE 'avx|avx2|avx512f' | paste -sd, -)"
+    extra="${extra:+$extra; }cpu simd: ${simd:-no avx, avx2 or avx512f in /proc/cpuinfo}"
+  fi
   {
     printf '{"lane":"%s","os":"%s","target":"%s","runner":"%s","image":"%s","cpus":"%s","uname":"%s","libc":"%s","bun":"%s","bunProcess":"%s","extra":"%s"}' \
       "$(printf '%s' "$LANE" | json_str)" "$OS" "$(printf '%s' "${MATRIX_TARGET:-}" | json_str)" \
@@ -347,11 +370,11 @@ x-ls)
   SCRIPT="test -n '$BIN' || exit 1; $(declare -f with_timeout); '$BIN' ls; rc=\$?; echo '--- wp.log'; if ! cat '$OUT/xrt/werk-poc/wp.log' 2>/dev/null; then echo '(no wp.log; starting the daemon directly)'; mkdir -p '$OUT/xrt/werk-poc'; with_timeout 20 '$BIN' __daemon --dir='$(native_path "$OUT/xrt/werk-poc")'; echo \"__daemon exit \$?\"; fi; exit \$rc"
   ;;
 x-ldd)
-  NAME="ldd on the cross-compiled wp"
+  NAME="ldd on the cross-compiled wp, and what it needs beyond musl"
   SECS=60
   DIR="$OUT"
   BIN="$(xbin)" || true
-  SCRIPT="test -n '$BIN' || exit 1; file '$BIN' 2>/dev/null; ldd '$BIN'"
+  SCRIPT="test -n '$BIN' || exit 1; file '$BIN' 2>/dev/null; ldd '$BIN'; echo '--- beyond musl'; $(declare -f musl_extras); musl_extras '$BIN'"
   ;;
 x-codesign)
   NAME="codesign on the cross-compiled wp"
@@ -459,7 +482,7 @@ x-ls)
   ;;
 x-ldd)
   if [ "$CODE" -eq 0 ]; then
-    DETAIL="ldd: $(grep -a -E '=>|statically|not a dynamic|ld-musl|Not a valid' "$CLEAN" | grep -av '^/' | sed -E 's/ \(0x[0-9a-f]+\)//' | tr -s ' \t' ' ' | paste -sd';' - | cut -c1-220); file: $(grep -am1 'ELF' "$CLEAN" | sed -E 's/^[^:]*: //; s/, BuildID.*//' | cut -c1-120)"
+    DETAIL="ldd: $(grep -a -E '=>|statically|not a dynamic|ld-musl|Not a valid' "$CLEAN" | grep -av '^/' | sed -E 's/ \(0x[0-9a-f]+\)//' | tr -s ' \t' ' ' | paste -sd';' - | cut -c1-220); beyond musl: $(grep -a '^needs ' "$CLEAN" | sed 's/^needs //' | paste -sd';' - | cut -c1-160); file: $(grep -am1 'ELF' "$CLEAN" | sed -E 's/^[^:]*: //; s/, BuildID.*//' | cut -c1-120)"
   else
     DETAIL="ldd exit $CODE: $(grep -av '^[[:space:]]*$' "$CLEAN" | tail -2 | paste -sd';' - | cut -c1-300)"
   fi
