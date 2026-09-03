@@ -262,11 +262,16 @@ test("logs returns scrollback beyond the viewport, as text or as VT", async () =
 });
 
 test("resize from the attacher reaches the child", async () => {
+  // The child prints its size on WINCH and, because a runtime is free not to
+  // deliver that promptly — an MSYS one lets a resize wait until the process
+  // next reads input (§11 of docs/proposals/01-cross-platform.md) — polls it
+  // as well. Either way what is asserted is the same: the new size reached
+  // the child's terminal.
   const { id } = await client.run({
     argv: [
       "bash",
       "-c",
-      "trap 'stty size' WINCH; echo ready; while :; do sleep 0.05; done",
+      "trap 'stty size' WINCH; echo ready; while :; do sleep 0.1; stty size; done",
     ],
     cols: 80,
     rows: 24,
@@ -275,11 +280,11 @@ test("resize from the attacher reaches the child", async () => {
   await cap.attach(id, { cols: 80, rows: 24 });
   expect(await waitFor(() => cap.all.includes("ready"), 3000)).toBe(true);
   await cap.att.resize(120, 40);
-  expect(await waitFor(() => cap.all.includes("40 120"), 3000)).toBe(true);
+  expect(await waitFor(() => cap.all.includes("40 120"), 5000)).toBe(true);
   // a second attacher's size wins
   const other = new Capture(await another());
   await other.attach(id, { cols: 100, rows: 30 });
-  expect(await waitFor(() => cap.all.includes("30 100"), 3000)).toBe(true);
+  expect(await waitFor(() => cap.all.includes("30 100"), 5000)).toBe(true);
   const info = (await client.ls()).find((s) => s.id === id)!;
   expect([info.cols, info.rows]).toEqual([100, 30]);
   await other.att.detach();

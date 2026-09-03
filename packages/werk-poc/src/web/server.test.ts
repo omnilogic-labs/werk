@@ -191,23 +191,31 @@ test("a socket delivers hello, a snapshot, then only the output after it; the re
   expect(t.pages).toBeGreaterThanOrEqual(1);
   expect(tab.text()).toBe((await client.screen(id)).text);
 
-  // Live output after the snapshot point.
+  // Live output after the snapshot point. The daemon having it on its screen
+  // does not mean the socket has carried it to the page yet, so wait for the
+  // page rather than sleeping a guess at it.
   expect(await screenHas(id, "TWO")).toBe(true);
-  await sleep(200);
-  expect(tab.outputBytes).toBeGreaterThan(0);
+  expect(await waitFor(() => tab.outputBytes > 0, 5000)).toBe(true);
+  expect(await waitFor(() => tab.text().includes("TWO"), 5000)).toBe(true);
   expect(tab.text()).toBe((await client.screen(id)).text);
-  expect(tab.text()).toContain("TWO");
 
   // Input: bytes the page sends are written to the PTY and echoed back.
   tab.ws.send(new TextEncoder().encode("typed by the page\r"));
   expect(await screenHas(id, "typed by the page")).toBe(true);
-  await sleep(200);
+  expect(
+    await waitFor(() => tab.text().includes("typed by the page"), 5000),
+  ).toBe(true);
   expect(tab.text()).toBe((await client.screen(id)).text);
 
   // Resize: the daemon and the replica reflow the same way.
   tab.ws.send(JSON.stringify({ t: "resize", cols: 60, rows: 20 }));
   tab.replica.resize(60, 20);
-  await sleep(300);
+  expect(
+    await waitFor(async () => {
+      const now = await client.screen(id);
+      return now.cols === 60 && now.rows === 20 && tab.text() === now.text;
+    }, 5000),
+  ).toBe(true);
   const s = await client.screen(id);
   expect([s.cols, s.rows]).toEqual([60, 20]);
   expect(tab.text()).toBe(s.text);

@@ -23,16 +23,16 @@ export const sleep = (ms: number) =>
   new Promise<void>((r) => setTimeout(r, ms));
 
 export async function waitFor(
-  pred: () => boolean,
+  pred: () => boolean | Promise<boolean>,
   ms: number,
   step = 10,
 ): Promise<boolean> {
   const end = Date.now() + ms;
   while (Date.now() < end) {
-    if (pred()) return true;
+    if (await pred()) return true;
     await sleep(step);
   }
-  return pred();
+  return await pred();
 }
 
 /** Whether `pid` is a live process; a zombie waiting to be reaped counts as dead. */
