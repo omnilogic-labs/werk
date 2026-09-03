@@ -7,6 +7,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { platform } from "../../src/platform/index.ts";
 import {
   compare,
   daemonClient,
@@ -20,6 +21,14 @@ import {
   wpRun,
   type TestEnv,
 } from "./harness.ts";
+
+/**
+ * Whether the pty these scenarios drive `wp` through rewrites what it is
+ * given rather than passing the bytes on. A ConPTY does: it keeps a screen of
+ * its own and re-encodes towards it, so a scenario can hold it to the cells
+ * the user ends up with and not to a sequence of bytes.
+ */
+const reencoded = platform.id === "win32";
 
 export interface Outcome {
   pass: boolean;
@@ -403,15 +412,26 @@ export const altScreenDetach: Scenario = {
         await detach(t, r, `mirror=${mirror}`);
         const screen = t.screen();
         const first = screen.split("\n")[0] ?? "";
+        const written = screen.split("\n").filter((l) => l !== "");
         r.note(
-          `mirror=${mirror}: after detach, alt=${t.altScreen()}, row 0 = ${JSON.stringify(first)}, row 3 = ${JSON.stringify(screen.split("\n")[3])}`,
+          `mirror=${mirror}: after detach, alt=${t.altScreen()}, screen ${JSON.stringify(written.slice(0, 6))}`,
         );
         if (mirror) {
+          // Leaving the alternate screen puts back whatever the terminal had
+          // before `wp attach`: on a pty that passes bytes through, the shell
+          // lines seeded above. A ConPTY owns the primary screen and repaints
+          // its own, which those lines never went through, so there the claim
+          // is the part it can show — the alternate screen is gone, and vim's
+          // file is not on the primary screen.
           r.check(
-            !t.altScreen() &&
-              first === "$ ls" &&
-              screen.includes(`[detached ${id}]`),
-            "mirror=on: primary screen restored, the pre-attach shell lines are back, [detached] follows them",
+            reencoded
+              ? !t.altScreen() && !screen.includes("line 1:")
+              : !t.altScreen() &&
+                  first === "$ ls" &&
+                  screen.includes(`[detached ${id}]`),
+            reencoded
+              ? "mirror=on: the alternate screen is left, and vim's screen is not on the primary one"
+              : "mirror=on: primary screen restored, the pre-attach shell lines are back, [detached] follows them",
             `mirror=on: alt=${t.altScreen()} first=${JSON.stringify(first)}`,
           );
         } else {
@@ -434,6 +454,12 @@ export const slowClient: Scenario = {
   name: "slow client: one wp attach SIGSTOPped under yes | head -c 4M",
   async run(env) {
     const r = new Report();
+    // Stopping one client is how the scenario makes it slow, and Windows has
+    // no SIGSTOP: every `proc.kill` there is TerminateProcess whatever name
+    // it is given. Suspending a process would be `NtSuspendProcess` through
+    // ffi, a row the seam does not have and nothing else has asked for.
+    if (platform.id === "win32")
+      return { pass: true, notes: ["skipped: no SIGSTOP on this platform"] };
     const id = await wpRun(env, ["bash", "--norc", "--noprofile"]);
     const c = await daemonClient(env);
     // The fast client runs under pty-cat.ts in a process of its own, so

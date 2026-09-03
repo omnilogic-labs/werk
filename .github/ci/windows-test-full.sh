@@ -22,6 +22,7 @@ log="${1:-full.log}"
 rc=0
 failed=()
 crashed=()
+hung=()
 total_pass=0
 total_fail=0
 
@@ -39,14 +40,19 @@ for f in $files; do
   tr -d '\r' <"$one" | tee -a "$log"
   echo "::endgroup::"
 
-  # `N pass` / `N fail` is Bun's own tally; a file whose process died before
-  # printing one is a crash rather than a failure, and says so separately.
+  # `N pass` / `N fail` is Bun's own tally. A file whose process died before
+  # printing one has no verdict at all; one that printed a clean tally and
+  # then sat until the deadline passed its tests and did not exit. Both are
+  # red, and neither is the same thing as a test failing.
   p=$(grep -aoE '^[[:space:]]*[0-9]+ pass' "$one" | tail -1 | tr -dc '0-9')
   q=$(grep -aoE '^[[:space:]]*[0-9]+ fail' "$one" | tail -1 | tr -dc '0-9')
   total_pass=$((total_pass + ${p:-0}))
   total_fail=$((total_fail + ${q:-0}))
   if [ -z "$p" ] && [ -z "$q" ]; then
     crashed+=("$f($code)")
+    rc=1
+  elif [ "${q:-0}" -eq 0 ] && { [ "$code" -eq 124 ] || [ "$code" -eq 137 ]; }; then
+    hung+=("$f")
     rc=1
   elif [ "$code" -ne 0 ]; then
     failed+=("$f")
@@ -67,6 +73,7 @@ grep -aE '^FILE |^\(fail\)' "$log"
 n=$(printf '%s\n' $files | wc -l | tr -d ' ')
 echo "DETAIL: ${total_pass} pass ${total_fail} fail across $n files;" \
   "failing: ${failed[*]:-none};" \
+  "passed but did not exit: ${hung[*]:-none};" \
   "no verdict: ${crashed[*]:-none}"
 
 exit "$rc"
