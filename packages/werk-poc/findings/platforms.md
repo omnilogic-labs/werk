@@ -212,8 +212,8 @@ moves the threshold to 212992, Linux's figure, and setting it on an accepted
 socket after the fact has the same effect. The bound is the sender's
 `SO_SNDBUF` on the accepted socket.
 
-`src/daemon/sockopt.ts` makes that call in the daemon behind a darwin branch,
-best-effort, with `WP_SNDBUF` in the daemon's environment to size it or (`0`)
+The daemon makes that call through `src/platform/posix.ts`, best-effort and
+darwin only, with `WP_SNDBUF` in the daemon's environment to size it or (`0`)
 switch it off. The macOS lane ran with it on (run 33688537937) and off (run
 33688881377), the same image both times:
 
@@ -290,9 +290,10 @@ and the `probes` suite of the Windows lane re-runs them on every run.
 **1. `bun:ffi` works.** `dlopen("kernel32.dll", { GetCurrentProcessId })` loads
 and the call returns the process id.
 
-**2. The lock is `LockFileEx`.** `flock.ts` names POSIX libraries on Linux
-and macOS; on Windows the same file opens the lock file with `CreateFileW`
-and takes one byte at offset 0 with `LockFileEx` out of `kernel32.dll`. A
+**2. The lock is `LockFileEx`.** `src/platform/posix.ts` names POSIX
+libraries on Linux and macOS; `src/platform/win32.ts` opens the lock file
+with `CreateFileW` and takes one byte at offset 0 with `LockFileEx` out of
+`kernel32.dll`. A
 second taker gets `ERROR_LOCK_VIOLATION` (33); the lock is released on
 `CloseHandle` and on process death, about 7 ms after it. Opening the lock
 file with share mode 0 is exclusive too (`ERROR_SHARING_VIOLATION`, 32).
@@ -436,17 +437,19 @@ obstacle before the branches below existed.
 
 ### Where the Windows lane stands on `main`
 
-The package carries `win32` branches in the daemon, from
-[PR #3](https://github.com/omnilogic-labs/werk/pull/3):
+What Windows does differently is `src/platform/win32.ts`, one implementation
+of the seam's interface, from [PR #3](https://github.com/omnilogic-labs/werk/pull/3):
 
-| File                            | `win32` branch                                                                                                                                                                                                   |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `daemon/flock.ts`               | `CreateFileW` + `LockFileEx` via `bun:ffi`; falls back to an exclusive `\\.\pipe\werk-poc-lock-<hash>` listener where `bun:ffi` is absent (forced on x64 via `WP_WIN32_LOCK=pipe`; the lock `win32-arm64` holds) |
-| `daemon/launch.ts`              | no fourth stdio pipe; a `--ready-file` polled instead; `detached: true, windowsHide: true`; `cwd` the home directory; compiled detection accepts `B:\~BUN\`                                                      |
-| `daemon/main.ts`                | writes the ready file atomically; installs no signal handlers                                                                                                                                                    |
-| `daemon/paths.ts`               | `%LOCALAPPDATA%\werk-poc`; skips the uid and `0o077` checks                                                                                                                                                      |
-| `daemon/server.ts`              | unlinks a stale socket before bind-and-rename; skips `chmod`; `readRss` via `process.memoryUsage()`                                                                                                              |
-| `alive()`, `05-daemon-survives` | liveness by `kill(pid, 0)` and tick files                                                                                                                                                                        |
+| Row                        | What it does on Windows                                                                                                                                                                                          |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lock()`                   | `CreateFileW` + `LockFileEx` via `bun:ffi`; falls back to an exclusive `\\.\pipe\werk-poc-lock-<hash>` listener where `bun:ffi` is absent (forced on x64 via `WP_WIN32_LOCK=pipe`; the lock `win32-arm64` holds) |
+| `spawnDaemon()`, readiness | no fourth stdio pipe; a `--ready-file` polled instead, which the daemon writes atomically; `detached: true, windowsHide: true`; `cwd` the home directory                                                         |
+| `compiled`                 | accepts the virtual drive `B:\~BUN\`, backslashes and all                                                                                                                                                        |
+| `runtimeDir()`             | `%LOCALAPPDATA%\werk-poc`; skips the uid and `0o077` checks                                                                                                                                                      |
+| `listen()`                 | unlinks a stale socket before bind-and-rename; no `chmod`                                                                                                                                                        |
+| `rss()`                    | `process.memoryUsage()`                                                                                                                                                                                          |
+| `shutdown()`               | installs no signal handlers; the `shutdown` message over the socket is the only way in                                                                                                                           |
+| `isAlive()`                | `kill(pid, 0)` alone — there are no zombies to exclude; `05-daemon-survives` judges by that and a tick file                                                                                                      |
 
 What the lane records with those in place, against the last run without
 them:

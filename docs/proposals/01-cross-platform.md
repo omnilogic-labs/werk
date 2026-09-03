@@ -67,31 +67,47 @@ Three things the table says that the research did not expect:
 
 ## 2. The seam: a platform layer the daemon goes through
 
-The proof of concept reached each platform difference with an inline
-`process.platform === "darwin" ? … : …` at the call site. A review of those
-commits found the same `alive()` copied three times with the same darwin
-branch, two different definitions of "am I running compiled" (one of which is
-wrong on Windows, where the embedded path uses backslashes), and `/proc`
-reads that return `false` for every live process on any other OS. Fine for a
-PoC; the product probably wants one module — call it `platform/` — with one
-implementation per OS behind a common interface, and nothing else touching
-`process.platform`. The surface, from what the PoC and the spikes actually
-needed:
+Every platform difference the daemon reaches for goes through one module,
+[`src/platform/`](../../packages/werk-poc/src/platform), with one
+implementation per OS — `posix.ts` and `win32.ts` — behind a common
+interface. Nothing outside that directory reads `process.platform`; a call
+site that needs a difference asks for a method, and a difference with no
+method is a missing row rather than a branch to write inline. That is what
+the module buys: before it, the same `alive()` was copied three times with
+the same darwin branch, there were two different definitions of "am I running
+compiled" (one wrong on Windows, where the embedded path uses backslashes),
+and `/proc` reads returned `false` for every live process on any other OS.
 
-| Concern              | POSIX                                                                              | Windows                                                                                        |
-| -------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `lock(dir)`          | `flock(LOCK_EX\|LOCK_NB)` via `bun:ffi`                                            | `CreateFileW` + `LockFileEx` via `bun:ffi`; where `bun:ffi` is absent, an exclusive named pipe |
-| `runtimeDir()`       | `$XDG_RUNTIME_DIR` → `$TMPDIR/werk-$UID`, mode checked                             | `%LOCALAPPDATA%\werk`; mode and uid checks skipped (Bun reports `40666` and no uid)            |
-| `listen()`           | `AF_UNIX` under `runtimeDir()`, bind-and-rename                                    | `AF_UNIX` works for a Bun client; probably loopback TCP plus a token file for anyone else (§3) |
-| `spawnDaemon()`      | `detached: true` (`setsid`), `cwd: /`                                              | `detached: true, windowsHide: true`, stdio ignored, `cwd` the home directory                   |
-| readiness            | connect and complete `hello` within a deadline                                     | the same; the failure reason comes from the daemon's log file                                  |
-| `isAlive(pid)`       | `kill(pid, 0)`                                                                     | `kill(pid, 0)` (works in Bun on Windows)                                                       |
-| `rss()`              | `/proc/self/status`, or `ps` on macOS                                              | `process.memoryUsage()`                                                                        |
-| `shutdown()`         | `SIGTERM` → grace → `SIGKILL`                                                      | a protocol message → grace → `TerminateProcess`; signals never reach a detached daemon         |
-| `interrupt(session)` | `SIGINT` to the foreground group                                                   | write `0x03` to the ConPTY; what dies of it is up to the child's runtime                       |
-| `killTree(session)`  | the process group                                                                  | a Job Object with `KILL_ON_JOB_CLOSE`, via `bun:ffi` where present                             |
-| socket buffers       | Linux default 208 KiB; macOS 8 KiB, raised via `setsockopt` on the listener's `fd` | unmeasured                                                                                     |
-| `defaultShell()`     | `$SHELL` → `/bin/sh`                                                               | probably config → `pwsh` → Windows PowerShell → `%COMSPEC%`; nobody has decided                |
+The surface, from what the PoC and the spikes actually needed. The rows with
+no implementation yet are marked; they are what §8's later steps fill in:
+
+| Concern              | POSIX                                                                                      | Windows                                                                                            |
+| -------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `lock(dir)`          | `flock(LOCK_EX\|LOCK_NB)` via `bun:ffi`                                                    | `CreateFileW` + `LockFileEx` via `bun:ffi`; where `bun:ffi` is absent, an exclusive named pipe     |
+| `runtimeDir()`       | `$XDG_RUNTIME_DIR` → `$TMPDIR/werk-$UID`, mode checked                                     | `%LOCALAPPDATA%\werk`; mode and uid checks skipped (Bun reports `40666` and no uid)                |
+| `stateDir()`         | `$XDG_STATE_HOME` → `~/.local/state/werk`                                                  | `%LOCALAPPDATA%\werk\state`                                                                        |
+| `listen()`           | `AF_UNIX` under `runtimeDir()`, bind-and-rename, `chmod 0600`                              | `AF_UNIX` works for a Bun client; a stale socket has to be unlinked first, and has no mode (§3)    |
+| `spawnDaemon()`      | `detached: true` (`setsid`), `cwd: /`                                                      | `detached: true, windowsHide: true`, stdio ignored, `cwd` the home directory                       |
+| readiness            | connect and complete `hello` within a deadline                                             | the same; the failure reason comes from the daemon's log file                                      |
+| `compiled`           | `import.meta.path` starts `/$bunfs/`                                                       | the virtual drive `B:\~BUN\`, and the path arrives with backslashes                                |
+| `isAlive(pid)`       | `kill(pid, 0)`, then `/proc/<pid>/stat` — `ps -o state=` on macOS — so a zombie reads dead | `kill(pid, 0)` (works in Bun on Windows); there are no zombies to exclude                          |
+| `rss(pid)`           | `/proc/<pid>/status`, or `ps -o rss=` on macOS                                             | `process.memoryUsage()`, so only for this process                                                  |
+| `cpuModel()`         | `machdep.cpu.brand_string` on macOS, `/proc/cpuinfo` on Linux                              | libuv's own `os.cpus()`                                                                            |
+| `shutdown()`         | `SIGTERM`/`SIGINT`/`SIGHUP` → grace → `SIGKILL`                                            | no signal reaches a detached daemon at all; a protocol message → grace → `TerminateProcess`        |
+| `interrupt(session)` | _not implemented:_ `SIGINT` to the foreground group                                        | _not implemented:_ write `0x03` to the ConPTY; what dies of it is up to the child's runtime        |
+| `killTree(session)`  | _not implemented:_ the process group                                                       | _not implemented:_ a Job Object with `KILL_ON_JOB_CLOSE`, via `bun:ffi` where present              |
+| socket buffers       | Linux default 208 KiB; macOS 8 KiB, raised via `setsockopt` on the listener's `fd`         | unmeasured, so the kernel's own figure stands                                                      |
+| `defaultShell()`     | _not implemented:_ `$SHELL` → `/bin/sh`                                                    | _not implemented:_ probably config → `pwsh` → Windows PowerShell → `%COMSPEC%`; nobody has decided |
+
+Two things the table does not say. The environment overrides that name a
+directory outright — `XDG_RUNTIME_DIR`, `XDG_STATE_HOME`, `WP_STATE_DIR`,
+`WP_SNDBUF` — are read once, portably, above the seam, so a directory named
+in the environment is honoured wherever werk runs and only the fallback is a
+row. And the two implementations are POSIX and Windows, so a difference
+_within_ POSIX has no column: BSD against GNU `ps` keywords, `script(1)`'s
+flags, `/dev/pts/N` against `/dev/ttysNNN`. Those live inside whichever
+method needs them, and in the M0 probes, which exist to measure exactly those
+primitives and so cannot go through an abstraction of them.
 
 Two rows are worth a sentence each.
 
@@ -319,6 +335,10 @@ so re-running is the way to check anything older.
 | ------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | The three lanes on `main` with every spike merged       | [`poc.yml`](../../.github/workflows/poc.yml)                               | [33696942295](https://github.com/omnilogic-labs/werk/actions/runs/33696942295) |
 | The eight-target matrix on that same `main`             | [`matrix.yml`](../../.github/workflows/matrix.yml)                         | [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598) |
+| The Windows lane once its daemon suite is gated         | `poc.yml`                                                                  | [33697939359](https://github.com/omnilogic-labs/werk/actions/runs/33697939359) |
+| The eight-target matrix once Windows uploads its result | `matrix.yml`                                                               | [33698568476](https://github.com/omnilogic-labs/werk/actions/runs/33698568476) |
+| The three lanes with §2's seam in place                 | `poc.yml`                                                                  | [33702171963](https://github.com/omnilogic-labs/werk/actions/runs/33702171963) |
+| The eight targets with §2's seam in place               | `matrix.yml`                                                               | [33702173764](https://github.com/omnilogic-labs/werk/actions/runs/33702173764) |
 | The Windows lane before the daemon had `win32` branches | `poc.yml`                                                                  | [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407) |
 | Lane gates made fail-closed                             | [PR #4](https://github.com/omnilogic-labs/werk/pull/4)                     | [33688264859](https://github.com/omnilogic-labs/werk/actions/runs/33688264859) |
 | Eight targets built on Linux, smoked on native runners  | [PR #5](https://github.com/omnilogic-labs/werk/pull/5), `matrix.yml`       | [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325) |
@@ -342,15 +362,23 @@ green result proves, the measurement that says it is done, and the result
 that would mean the approach is wrong. Steps 1–5 are Windows, where the
 suites stop; 6 and 7 the platforms that already pass; 8 and 9 shape.
 
-1. **The platform seam.** Move the inline `process.platform` branches in
-   `src/daemon/flock.ts`, `launch.ts`, `main.ts`, `paths.ts`, `server.ts`,
-   `sockopt.ts`, `_testlib.ts` and `spikes/m2/harness.ts` into one
-   `src/platform/` module with `posix.ts` and `win32.ts` behind the §2
-   interface. No behaviour change. _Proves_ §2's surface is complete: nothing
-   outside `platform/` reads `process.platform`. _Done when_ every lane in
-   `poc.yml` and `matrix.yml` records the same suite verdicts as the runs in
-   §7. _Wrong if_ a branch has no row to live in — then §2's table is short,
-   and the fix is a row, not a call-site branch.
+1. **The platform seam — done.** The inline `process.platform` branches that
+   were in `src/daemon/flock.ts`, `launch.ts`, `main.ts`, `paths.ts`,
+   `server.ts`, `sockopt.ts`, `_testlib.ts`, `spikes/m2/harness.ts` and
+   `bench/_lib.ts` are now `src/platform/`, with `posix.ts` and `win32.ts`
+   behind the §2 interface, and no behaviour changed with them: runs
+   33702171963 and 33702173764 record the same suite verdicts on all eleven
+   lanes as the runs above, the one difference being the matrix's
+   `linux-x64-glibc` `test-full`, which fails on the slow-client scenario
+   that lane has also failed without the seam (run 33689751325). Four
+   branches had no row and are now rows: `stateDir()`, `compiled`,
+   `cpuModel()`, and the zombie check inside `isAlive(pid)`. What still reads
+   `process.platform` outside `platform/` is the ffi engine's target-triple
+   lookup — an engine concern, not the daemon's — the M0 probes, which
+   measure the primitives the seam abstracts and so cannot go through it, and
+   two within-POSIX differences with no column in §2's table: BSD against GNU
+   `ps` keywords in `launch.test.ts` and `script(1)`/`head` flags in
+   `spikes/m2/scenarios.ts`.
 
 2. **Shutdown and kill through the protocol.** Replace the daemon's
    signal-based shutdown and the session kill path's `proc.kill(signal)` with
@@ -390,7 +418,7 @@ hear exited` in `src/daemon/daemon.test.ts` passes on the `windows` lane
    daemon can take the pipe name while the first holds it — then Windows
    arm64 needs a lock primitive that is neither ffi nor a pipe.
 
-6. **macOS.** Keep the listener buffer raise in `sockopt.ts`. Replace the
+6. **macOS.** Keep the listener buffer raise in `src/platform/posix.ts`. Replace the
    fast client's PTY sink in M2 (`spikes/m2/pty-cat.ts`) with a pipe sink,
    so the run says whether the remaining loss is the harness's or the
    daemon's. Add `codesign --force --sign -` to the build step and
