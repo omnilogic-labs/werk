@@ -484,8 +484,11 @@ hear exited` in `src/daemon/daemon.test.ts` passes on the `windows` lane
    and `pgrep`, `snapshot.test.ts` waits for a SIGTERM a detached Windows
    daemon never sees, `attach-snapshot.test.ts` waits out a 4 MiB flood
    against 20 KiB/s of ConPTY and takes an output frame before its snapshot,
-   and `m1`/`m6` name `/$bunfs/` where Windows has `B:/~BUN/`. None of them
-   is a fidelity failure, and each is a row for whoever takes it.
+   `m1`/`m6` name `/$bunfs/` where Windows has `B:/~BUN/`, and M2's
+   vim-resize scenario counts the file rows vim redraws into a taller window,
+   which is 28 through a pty that passes bytes on and 23 through a ConPTY —
+   a number both screens agree on. None of them is a fidelity failure, and
+   each is a row for whoever takes it.
 
 4. **The harness items.** The running daemon pins `wp.exe`, so the M2
    harness cannot rebuild it (`EPERM`): build to a per-run path or stop the

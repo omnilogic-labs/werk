@@ -512,10 +512,13 @@ that reached a resumed client redraw the whole screen on their own — which is
 what a render is and what ordinary output, with most of the flood missed,
 could not be — rather than looking for the clear sequence inside them.
 
-M2 says the same thing at the level the spike exists to test: on the Windows
-lane, `vim` reattached at three sizes, a 200 ms-redraw TUI reattached mid-
-count, and a coloured shell after typing all agree with the daemon's screen
-and cursor, through a ConPTY, cell for cell.
+M2 says the same thing at the level the spike exists to test. On the Windows
+lane, `vim` reattached at three sizes, a TUI redrawing every 200 ms and
+reattached while it counted, and a coloured shell after typing into it all
+agree with the daemon's screen and cursor, through a ConPTY, cell for cell.
+The suite passes there: seven scenarios run, and the eighth, which makes one
+client slow by stopping it, is skipped for want of a SIGSTOP Windows does not
+have.
 
 **Throughput is the other half of the ConPTY cost.** `yes | head -c 4M`
 through a pseudoconsole does not finish inside a minute: 1.05 MiB and
@@ -601,15 +604,15 @@ against the last run without either:
 
 The eleven failing tests, by cause:
 
-| Test                                                       | Why                                                                                              |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `bench.test.ts`: `ops`                                     | `bench/ops.ts`'s own launcher, as the `ops` suite                                                |
-| `attach-snapshot.test.ts`: lag-resume                      | a 4 MiB flood against 20 KiB/s of ConPTY; the watcher never sees the end of it                   |
-| `attach-snapshot.test.ts`: exited session in snapshot mode | an output frame reaches the client before the snapshot, where on Linux the snapshot is first     |
-| `launch.test.ts`: four                                     | `stat` on the socket's reparse point (`EACCES`), a stale socket `existsSync` cannot see, `pgrep` |
-| `snapshot.test.ts`: a real SIGTERM snapshots every session | signals do not reach a detached Windows daemon                                                   |
-| `m1/embedded.test.ts`, `m6/compiled.test.ts`               | both name `/$bunfs/`, which is `B:/~BUN/` here                                                   |
-| `m2/fidelity.test.ts`                                      | the same scenarios `m2` passes, run again inside `bun test`; two of eight flaked on this run     |
+| Test                                                       | Why                                                                                                                                                                                                                                                                              |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bench.test.ts`: `ops`                                     | `bench/ops.ts`'s own launcher, as the `ops` suite                                                                                                                                                                                                                                |
+| `attach-snapshot.test.ts`: lag-resume                      | a 4 MiB flood against 20 KiB/s of ConPTY; the watcher never sees the end of it                                                                                                                                                                                                   |
+| `attach-snapshot.test.ts`: exited session in snapshot mode | an output frame reaches the client before the snapshot, where on Linux the snapshot is first                                                                                                                                                                                     |
+| `launch.test.ts`: four                                     | `stat` on the socket's reparse point (`EACCES`), a stale socket `existsSync` cannot see, `pgrep`                                                                                                                                                                                 |
+| `snapshot.test.ts`: a real SIGTERM snapshots every session | signals do not reach a detached Windows daemon                                                                                                                                                                                                                                   |
+| `m1/embedded.test.ts`, `m6/compiled.test.ts`               | both name `/$bunfs/`, which is `B:/~BUN/` here                                                                                                                                                                                                                                   |
+| `m2/fidelity.test.ts`                                      | the vim-resize scenario, which `m2` passes on its own: it asks for the 28 file rows vim redraws into a 30-row window through a pty that passes bytes on, and gets the 23 vim draws through a ConPTY — a number both screens agree on, so vim's redraw rather than a fidelity gap |
 
 None of the eleven is a fidelity failure. Where the kill path, the snapshot
 ordering and the two harness launchers go from here is a design question
