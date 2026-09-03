@@ -672,7 +672,7 @@ suites stop; 6 and 7 the platforms that already pass; 8 and 9 shape.
    reads, one frame per read. Asked with 20,000 stamped frames back to back,
    all 20,000 arrived complete and in order through both, and the reads they
    arrived in matched what the same server gives with no ssh in the path on
-   macOS (7.8 KB either way) and exceeded it on Windows (448 KiB through the
+   macOS (7.8–8.2 KB either way) and exceeded it on Windows (448 KiB through the
    forward against 128 KiB direct) — aggregation of a saturated stream, with
    nothing lost or reordered (run 33714217277).
 
