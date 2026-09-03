@@ -441,6 +441,80 @@ if (true) {
   say("tcp-direct-frames", parts.join("; "));
 }
 
+// ------------------------------------- one frame per event, through the -L
+// The bulk test saturates the sender, and a saturated stream arrives in
+// whatever size the kernel has accumulated on both platforms. What
+// findings/m5.md actually measured over the Linux forward was the
+// interactive regime — one redraw, one read — so this sends 200 frames
+// 20 ms apart and counts the reads they arrive in. More frames than reads
+// is the forward batching events that were separate.
+if (sshdUp) {
+  const parts: string[] = [];
+  const N = 200;
+  const GAP = 20;
+  const PAY = 512;
+  let fwd: ReturnType<typeof forward> | null = null;
+  let sender: ReturnType<typeof Bun.listen<undefined>> | null = null;
+  try {
+    sender = Bun.listen<undefined>({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        async data(socket) {
+          for (let i = 0; i < N; i++) {
+            const f = Buffer.alloc(8 + PAY, i % 251);
+            f.writeUInt32LE(i, 0);
+            f.writeUInt32LE(PAY, 4);
+            socket.write(f);
+            await sleep(GAP);
+          }
+        },
+      },
+    });
+    const local = await freePort();
+    fwd = forward(`127.0.0.1:${local}:127.0.0.1:${sender.port}`);
+    if (!(await waitFor(() => portAccepts(local), 20_000, 250)))
+      throw new Error("the forwarded port never accepted");
+    const seen = await new Promise<{
+      reads: number;
+      frames: number;
+      sizes: number[];
+    }>((resolve, reject) => {
+      const sizes: number[] = [];
+      let frames = 0;
+      let pending = 0;
+      const s = net.connect(local, "127.0.0.1");
+      s.setNoDelay(true);
+      s.on("connect", () => s.write("go\n"));
+      s.on("data", (b: Buffer) => {
+        sizes.push(b.length);
+        pending += b.length;
+        while (pending >= 8 + PAY) {
+          pending -= 8 + PAY;
+          frames++;
+        }
+        if (frames >= N) {
+          s.destroy();
+          resolve({ reads: sizes.length, frames, sizes });
+        }
+      });
+      s.on("error", reject);
+      setTimeout(() => reject(new Error("paced frames timed out")), 60_000);
+    });
+    parts.push(
+      `${seen.frames} frames ${GAP} ms apart arrived in ${seen.reads} reads, max ${Math.max(...seen.sizes)} B against a ${8 + PAY} B frame`,
+    );
+  } catch (e) {
+    parts.push(`fail — ${firstLine(e)}`);
+  } finally {
+    try {
+      fwd?.kill();
+    } catch {}
+    sender?.stop(true);
+  }
+  say("tcp-forward-paced", parts.join("; "));
+}
+
 // ------------------------------------------------- unix socket as a -L end
 // Recorded because §8 step 9 leaves the far end of the forward open: "a
 // remote unix socket or port". What Win32-OpenSSH says to each spelling.
@@ -640,10 +714,22 @@ async function transport(
       `${process.env.USERDOMAIN ?? "."}\\${user}:F`,
     ]);
     const after = sh(["icacls", f]).out.split("\n").slice(0, 4).join(" | ");
+    const strip = sh([
+      "icacls",
+      f,
+      "/remove",
+      "NT AUTHORITY\\SYSTEM",
+      "/remove",
+      "BUILTIN\\Administrators",
+    ]);
+    const stripped = sh(["icacls", f]).out.split("\n").slice(0, 4).join(" | ");
     const readable = fs.readFileSync(f, "utf8").trim().length > 0;
     parts.push(`inherited ACL: ${before}`);
     parts.push(`after /inheritance:r (exit ${cut.code}): ${afterCut}`);
     parts.push(`after /grant:r this user (exit ${set.code}): ${after}`);
+    parts.push(
+      `after removing SYSTEM and Administrators (exit ${strip.code}): ${stripped}`,
+    );
     parts.push(`owner can still read: ${readable}`);
     parts.push(
       `node stat mode: ${(fs.statSync(f).mode & 0o777).toString(8)} (what Bun reports on NTFS, not an ACL)`,

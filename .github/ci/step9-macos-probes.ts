@@ -570,6 +570,83 @@ if (sshdUp) {
   }
 }
 
+// ------------------------------------- one frame per event, through the -L
+// The interactive regime findings/m5.md measured on Linux: 200 frames
+// 20 ms apart, counted as reads at the far end of the forward.
+if (sshdUp) {
+  const parts: string[] = [];
+  const N = 200;
+  const GAP = 20;
+  const target = path.join(tmp, "paced.sock");
+  let sender: { stop(force?: boolean): void } | null = null;
+  let fwdProc: { kill(sig?: string): void } | null = null;
+  try {
+    sender = Bun.listen<undefined>({
+      unix: target,
+      socket: {
+        async data(socket) {
+          for (let i = 0; i < N; i++) {
+            const f = Buffer.alloc(8 + PAYLOAD, i % 251);
+            f.writeUInt32LE(i, 0);
+            f.writeUInt32LE(PAYLOAD, 4);
+            socket.write(f);
+            await sleep(GAP);
+          }
+        },
+      },
+    });
+    const sock = path.join(tmp, "paced-fwd.sock");
+    const f = await forward(sock, target, "N", () => fs.existsSync(sock));
+    fwdProc = f.proc;
+    if (!f.up) throw new Error("the forwarded socket never appeared");
+    const seen = await new Promise<{
+      reads: number;
+      frames: number;
+      max: number;
+    }>((resolve, reject) => {
+      const sizes: number[] = [];
+      let frames = 0;
+      let pending = 0;
+      Bun.connect({
+        unix: sock,
+        socket: {
+          open(s) {
+            s.write("go\n");
+          },
+          data(s, chunk) {
+            sizes.push(chunk.length);
+            pending += chunk.length;
+            while (pending >= 8 + PAYLOAD) {
+              pending -= 8 + PAYLOAD;
+              frames++;
+            }
+            if (frames >= N) {
+              s.end();
+              resolve({
+                reads: sizes.length,
+                frames,
+                max: Math.max(...sizes),
+              });
+            }
+          },
+        },
+      }).catch(reject);
+      setTimeout(() => reject(new Error("paced frames timed out")), 60_000);
+    });
+    parts.push(
+      `${seen.frames} frames ${GAP} ms apart arrived in ${seen.reads} reads, max ${seen.max} B against a ${8 + PAYLOAD} B frame`,
+    );
+  } catch (e) {
+    parts.push(`fail — ${firstLine(e)}`);
+  } finally {
+    try {
+      fwdProc?.kill("SIGKILL");
+    } catch {}
+    sender?.stop(true);
+  }
+  say("frames-paced", parts.join("; "));
+}
+
 sh(["sudo", "-n", "pkill", "-f", `sshd.*-p ${port}`]);
 try {
   fs.rmSync(tmp, { recursive: true, force: true });
