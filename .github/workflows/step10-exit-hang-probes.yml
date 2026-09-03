@@ -72,13 +72,16 @@ jobs:
         with:
           bun-version: 1.3.14
 
-      # `BUN_JSC_*` reaches JSC's options only if this prints `undefined`.
+      # Bun parses `BUN_JSC_*` before anything else and refuses a name JSC
+      # does not know, so the first line says the variants' names are taken
+      # and the second that a wrong one would have been refused.
       - name: Runner
         run: |
           bun --version
           bun -e 'console.log(process.platform, process.arch, require("node:os").release())'
           echo "ImageOS=${ImageOS:-} ImageVersion=${ImageVersion:-}"
-          echo "PROBE jsc-options-from-env: $(BUN_JSC_useWebAssembly=false bun -e 'console.log(typeof WebAssembly)')"
+          echo "PROBE jsc-options-accepted: $(BUN_JSC_useConcurrentGC=false BUN_JSC_useConcurrentJIT=false bun -e 'console.log("yes")' 2>&1 | head -1)"
+          echo "PROBE jsc-options-refused: $(BUN_JSC_noSuchOption=1 bun -e 'console.log("no")' 2>&1 | head -1)"
           mkdir -p "$RUNNER_TEMP/exit-hang"
           echo "OUT=$RUNNER_TEMP/exit-hang" >>"$GITHUB_ENV"
 
@@ -115,6 +118,26 @@ jobs:
         timeout-minutes: 15
         run: $PROBE file 100 $BISECT_FILES 2>&1 | tee "$OUT/phase-bisect.log"
 
+      # The lane's harness over the two files that hang most, many times:
+      # what a process that passed and did not exit costs once the harness
+      # watches for the tally, and what its roll-up says.
+      - name: harness
+        if: always()
+        timeout-minutes: 15
+        env:
+          EXIT_GRACE: "10"
+        run: bash ../../.github/ci/step10-exit-hang-harness.sh 40 $VARIANT_FILES 2>&1 | tee "$OUT/phase-harness.log"
+
+      # `m3` is `bun run` rather than `bun test`, two scripts that use the
+      # engine and start no daemon, and about one lane run in four prints
+      # every table and then does not exit. Each run is about five seconds.
+      - name: m3
+        if: always()
+        timeout-minutes: 25
+        env:
+          PER_RUN: "120"
+        run: $PROBE file 10 run:m3 2>&1 | tee "$OUT/phase-m3.log"
+
       # JSC's concurrent collector suspends the JS thread to scan its stack;
       # the Wasm and JIT worklists compile on their own threads. Each off in
       # turn.
@@ -125,6 +148,15 @@ jobs:
           BUN_JSC_useConcurrentGC: "false"
           TAG: useConcurrentGC=false
         run: $PROBE file 100 $VARIANT_FILES 2>&1 | tee "$OUT/phase-nogc.log"
+
+      - name: m3, no concurrent GC
+        if: always()
+        timeout-minutes: 25
+        env:
+          PER_RUN: "120"
+          BUN_JSC_useConcurrentGC: "false"
+          TAG: useConcurrentGC=false
+        run: $PROBE file 10 run:m3 2>&1 | tee "$OUT/phase-m3-nogc.log"
 
       - name: no concurrent JIT
         if: always()

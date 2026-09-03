@@ -4,7 +4,10 @@
 #
 #   .github/ci/step10-exit-hang.sh <phase> <runs> <file>...
 #
-# Run from packages/werk-poc. `<phase>` names where the process's stdout
+# Run from packages/werk-poc. A `<file>` is a test file for `bun test`, or
+# `run:<script>` for `bun run <script>` — `run:m3` is the lane's `m3` suite,
+# two scripts that use the engine and start no daemon, and which show the
+# same shape of failure. `<phase>` names where the process's stdout
 # goes, which is the one thing the lane's harness does that a developer's
 # terminal does not:
 #
@@ -33,15 +36,19 @@ hung=0
 total=0
 for f in "$@"; do
   base=$(basename "$f" .test.ts)
+  case "$f" in
+    run:*) cmd=(bun run "${f#run:}") ;;
+    *) cmd=(bun test "$f") ;;
+  esac
   fhung=0
   for n in $(seq 1 "$runs"); do
     one="$OUT/one.log"
     start=$(date +%s%N)
     case "$phase" in
-      file) timeout -k 5 "$PER_RUN" bun test "$f" >"$one" 2>&1 ;;
-      pipe) timeout -k 5 "$PER_RUN" bun test "$f" 2>&1 | cat >"$one" ;;
+      file) timeout -k 5 "$PER_RUN" "${cmd[@]}" >"$one" 2>&1 ;;
+      pipe) timeout -k 5 "$PER_RUN" "${cmd[@]}" 2>&1 | cat >"$one" ;;
       inherit)
-        timeout -k 5 "$PER_RUN" bun test "$f"
+        timeout -k 5 "$PER_RUN" "${cmd[@]}"
         : >"$one"
         ;;
       *)
@@ -59,6 +66,9 @@ for f in "$@"; do
       verdict=" HUNG"
       fhung=$((fhung + 1))
       cp "$one" "$OUT/hang-$phase-$base-$n.log" 2>/dev/null || true
+      # Whether the process is still there after timeout's kill, and whether
+      # there is more than one bun under this job.
+      powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='bun.exe'\" | Select-Object ProcessId,ParentProcessId,ThreadCount,CommandLine | Format-Table -AutoSize -Wrap | Out-String -Width 300" 2>/dev/null | tr -d '\r' | sed 's/^/  LEFT /' | grep -av '^  LEFT *$'
     fi
     echo "PROBE $base-$n: exit=$code ${ms}ms pass=${p:-?} fail=${q:-?} sink=$phase${TAG:+ $TAG}$verdict"
     total=$((total + 1))
