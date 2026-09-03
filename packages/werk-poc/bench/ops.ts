@@ -393,10 +393,15 @@ async function coldStart(
     path.join(PKG, "src", "cli", "main.ts"),
   ];
   try {
-    const targets: [string, string[]][] = [];
-    if (wp) targets.push(["compiled wp", [wp]]);
-    targets.push(["interpreted (bun run src/cli/main.ts)", interpreted]);
-    for (const [label, argv] of targets) {
+    // Each target's runtime directories are one or two characters, not the
+    // label: the daemon binds `<dir>/.wp.sock.<pid>.tmp`, and an AF_UNIX
+    // path is bounded — 108 bytes on Linux, 104 on macOS, and a Windows
+    // runner refused to bind at 116 characters under `%TEMP%` (run
+    // 33704932420), which a label-shaped directory name reached on its own.
+    const targets: [string, string[], string][] = [];
+    if (wp) targets.push(["compiled wp", [wp], "c"]);
+    targets.push(["interpreted (bun run src/cli/main.ts)", interpreted, "i"]);
+    for (const [label, argv, key] of targets) {
       // Process start alone: --help touches no daemon and no engine.
       const help = timeRuns(nLs, () => {
         Bun.spawnSync([...argv, "--help"], { stdout: "pipe", stderr: "pipe" });
@@ -410,7 +415,7 @@ async function coldStart(
       // `wp __daemon` to readiness, fresh runtime dir each time.
       const readyMs: number[] = [];
       for (let i = 0; i < nDaemon; i++) {
-        const dir = path.join(root, `run-${label.replace(/\W+/g, "-")}-${i}`);
+        const dir = path.join(root, `${key}${i}`);
         readyMs.push(await daemonToReady(argv, dir, stateDir));
       }
       out.push({
@@ -422,7 +427,7 @@ async function coldStart(
       });
 
       // `wp ls` with a daemon already up.
-      const dir = path.join(root, `run-${label.replace(/\W+/g, "-")}-ls`);
+      const dir = path.join(root, `${key}ls`);
       process.env.WP_STATE_DIR = stateDir;
       const client = await connect({ dir, autostart: true });
       const pid = client.daemon.pid;
