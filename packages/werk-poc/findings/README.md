@@ -93,6 +93,8 @@ eight `bun build --compile` targets. As plain findings:
   probe off the runners shows the release could carry the pair beside the
   binary instead
   ([what a musl host has to carry](./platforms.md#what-a-musl-host-has-to-carry)).
-- Bun 1.3.14 on Windows arm64 has no `bun:ffi`, so the daemon there locks
-  through an exclusive named pipe
-  ([where each layer stands](./platforms.md#where-each-layer-stands)).
+- `bun:ffi` imports on Windows arm64 but every `dlopen` through it throws
+  "TinyCC is disabled" in Bun 1.3.14, so the daemon there locks through an
+  exclusive named pipe instead — and a second daemon is refused while the
+  first holds the name, on the compiled binary as well as the interpreted one
+  ([the pipe lock, contended](./platforms.md#the-pipe-lock-contended)).

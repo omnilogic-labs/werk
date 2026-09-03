@@ -5,10 +5,13 @@
 > TypeScript on Bun, one `bun build --compile` binary, libghostty-vt embedded
 > as upstream's WebAssembly build — gets to run on macOS, Windows and Linux.
 > It is prescriptive about the mechanisms in §2 and about what to measure
-> before believing anything in §1. It does not settle whether Windows is a
-> host; that is [`../product/04-open-questions.md`](../product/04-open-questions.md)
-> §4, and §6 here only says what the measurements do to it. Where a
-> statement is a measurement it names the run; where it is a lean it says so.
+> before believing anything in §1. §8's order of work has been carried out and
+> every lane records a verdict, though not every suite passes — §8's closing
+> table says what each lane forgives, and §11 is where to start if you are
+> picking this up. It does not settle whether Windows is a host; that is
+> [`../product/04-open-questions.md`](../product/04-open-questions.md) §4, and
+> §6 here only says what the measurements do to it. Where a statement is a
+> measurement it names the run; where it is a lean it says so.
 
 ## What this exists to decide
 
@@ -806,3 +809,74 @@ launchd or a Windows service. Which Windows shell is the default. Whether
 the ffi engine ships at all. Whether `darwin-x64` ships at all. Whether the
 slow-client scenario gates CI or only records. Whether the Windows socket is
 `AF_UNIX` or loopback TCP. Each is named where it comes up and left open.
+
+## 11. Picking this up
+
+§8 is finished, so the useful thing to hand on is not the order it was done
+in but the traps that cost the most time, the method that made them cheap to
+find, and what the runs leave undone.
+
+### Things that are not what they look like
+
+Each of these was diagnosed as something else first, and each would be easy
+to re-introduce.
+
+| What you see                                           | What it is                                                                                                                                          |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bun reports `signalCode: "SIGTERM"` on Windows         | The name you passed to `proc.kill()`, echoed back. `TerminateProcess` ran and no signal was delivered (§3).                                         |
+| `bun:ffi` "missing" on Windows arm64                   | The module imports; every `dlopen` through it throws "TinyCC is disabled". Detect by what `dlopen` does, not by whether the import works (§3).      |
+| A whole `bun test` file dying with "connection closed" | A test timed out, Bun killed the daemon the file had started, and then panicked. One process per file bounds the damage to that file (§3).          |
+| A test that burns five seconds and then fails          | `expect(promise).rejects` hangs on Windows where catching the same rejection returns at once. Other `expect().rejects` in the same file are fine.   |
+| "daemon did not answer within 10 s", with no reason    | Often an `AF_UNIX` path too long — Winsock refused 116 characters where 75 bound (§3). Have the launcher report the last connect error.             |
+| A reattach test failing on the render prologue         | It was not the prologue; that assertion passed. ConPTY re-encodes the stream, so compare cell grids, never bytes (§3).                              |
+| `m2` or `m3` red on Windows                            | Probably the run, not the tree: `m2`'s vim scenarios race ConPTY's delivery, `m3` prints every table and then does not exit. Neither is gated (§8). |
+| The slow-client scenario red on a hosted lane          | CPU headroom on a shared runner — roughly two attempts in seven pass. A green lane is not evidence it is fixed (§5).                                |
+| macOS losing about 6 MB in the fast-client scenario    | Not the client's sink: a pipe and a plain file lose as much as a PTY. An unexplained delivery rate; §4 says what is ruled out.                      |
+| A stale binary answering a `hello`                     | `PROTOCOL_VERSION` catches a changed wire shape only if it is bumped when the wire changes. `dist/bench-ops/` caches a binary across runs.          |
+
+Two rules follow from that list. **Detect a platform capability by trying it
+rather than by asking what platform this is** — the arm64 `bun:ffi` row is
+the whole argument, and it is why the seam catches on `loadKernel32()`. And
+**an assertion about a terminal should be about the screen rather than the
+bytes**, because one of the three platforms rewrites the bytes.
+
+### How to find the next one cheaply
+
+1. **A probe lane before a suite.** A workflow with a `push:` trigger scoped
+   to a branch, running a script that prints one `PROBE name: verdict` line
+   per question, answers in about a minute where a full lane costs ten.
+   `.github/ci/win32-lock-probes.ts` and `macos-probes.ts` are the shape.
+2. **Ad-hoc dispatch on a branch** rather than a push to `main` and a wait:
+   `gh workflow run poc.yml --ref <branch> -f lanes=windows`. The repo is
+   public, so every hosted runner — `windows-11-arm` and `macos-15-intel`
+   included — is free.
+3. **Read `ci-result-<lane>.json`, not the log.**
+   `gh run download <id> -n ci-result-<lane>`, then
+   `jq -S '.suites|map({id,status})'` gives something diffable.
+4. **Control for the flaky lanes.** Dispatch the same workflow against `main`
+   in the same hour and diff the two, rather than arguing about whether a red
+   lane is yours.
+5. **Two consecutive passes are not enough to gate a suite.** `m2` was gated
+   on two and came off the gate on the third run.
+
+### What the runs leave undone
+
+Nobody has decided any of this is worth doing; it is what the measurements
+stopped short of.
+
+- **`test-full`'s ten failures on Windows**, which §3 accounts for one by
+  one: four are `launch.test.ts` asking the filesystem about a socket that is
+  a reparse point, two name `/$bunfs/` where the path is `B:/~BUN/`, one
+  wants a real SIGTERM to reach a detached daemon, and two are ConPTY
+  throughput against a 4 MiB flood.
+- **`m2`'s vim scenarios**, racing ConPTY's delivery. One `waitFor` has
+  already not been enough, so the next attempt probably wants the grid oracle
+  rather than another timeout.
+- **Where a macOS client's delivery rate goes.** §4 rules out the sink and
+  the kernel buffer and names four candidates it does not separate; a probe
+  streaming the same 4 MiB through each layer in isolation would say.
+- **The two choices this work measured both sides of without taking**:
+  whether the slow-client scenario gates or only records, and whether the
+  Windows daemon's socket is `AF_UNIX` or loopback TCP. Both are §10.
+- **Whether a musl host is required to carry `libstdc++.so.6` and
+  `libgcc_s.so.1` or the release ships them.** Both work; §5 has the 2.9 MB.
