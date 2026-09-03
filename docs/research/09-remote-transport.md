@@ -40,21 +40,32 @@ This is not exotic. It is the standard trick for `DOCKER_HOST` over ssh, and
 DevPod reaches the same destination by a longer road (it runs an SSH _server_
 over whatever tunnel the provider gives it).
 
-**Adopt this as the default remote transport.** Two caveats, both real:
+**Adopt this as the default remote transport.** Two caveats. The first has
+been measured since; the second is a platform fact that shapes the Windows
+client:
 
-- **Unverified under our traffic pattern.** Every documented use is a
-  request/response socket proxy (the Docker socket). A live PTY stream is many
-  small frames with a low latency requirement. The syntax certainly works; the
-  latency and buffering behaviour under our load is an experiment we have not
-  run. **Do this experiment before committing the architecture.**
+- **Measured under our traffic pattern, on two of the three platforms.**
+  Every documented use is a request/response socket proxy (the Docker
+  socket), and a live PTY stream is many small frames with a low latency
+  requirement, so the experiment was run:
+  [`../../packages/werk-poc/findings/m5.md`](../../packages/werk-poc/findings/m5.md)
+  puts `wp attach` through the forward under `yes`, `vim` and a 5 fps TUI at
+  0, 50 and 200 ms RTT, on Linux against a container and on macOS against a
+  private sshd on the same machine. Nothing coalesced at interactive rates
+  and nothing was dropped or reordered. What no run has exercised is a real
+  network: loss, reordering and a NAT with an idle timer.
 - **Windows-side socket forwarding is absent.** Forwarding a _remote Linux_
   socket to a macOS/Linux client is well-trodden. Win32-OpenSSH forwards Unix
   sockets in neither direction
   ([#435](https://github.com/PowerShell/Win32-OpenSSH/issues/435),
   [#1564](https://github.com/PowerShell/Win32-OpenSSH/issues/1564),
   [#2321](https://github.com/PowerShell/Win32-OpenSSH/issues/2321)); TCP `-L`
-  and `-W` work. Windows probably needs the forward to land on a loopback TCP
-  port instead.
+  and `-W` work. Measured on `windows-latest` with OpenSSH 10.5p1, the client
+  refuses the spelling before it connects — `Bad local forwarding
+specification` for a Unix path on either end — so a Windows client's
+  forward lands on a loopback TCP port, and a daemon it talks to has to be
+  listening on one. `m5.md` records a `wp.exe` completing `hello` that way,
+  and what a port costs that a socket does not.
 
 ---
 
@@ -286,13 +297,13 @@ belongs in the docs, loudly.
 
 ## 3. Windows as a client
 
-| Capability                          | Windows in-box OpenSSH                                                                                     | Source                                                                                                                                                                                             |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Ships built in                      | Yes, since Win10 1809                                                                                      | [MS overview](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh-overview)                                                                                            |
-| Version                             | Materially behind upstream — reports of 7.7p1–8.1p1 on current builds; Windows Update does not refresh it  | [MS troubleshooting](https://learn.microsoft.com/en-us/troubleshoot/windows-server/system-management-components/upgrade-in-box-openssh-to-latest-openssh-release)                                  |
-| `ControlMaster`                     | **Unsupported.** `getsockname failed: Not a socket`                                                        | [vscode-remote-release#96](https://github.com/microsoft/vscode-remote-release/issues/96)                                                                                                           |
-| `ssh-agent`                         | Ships as a Windows service, **disabled by default** — needs `Set-Service ssh-agent -StartupType Automatic` | [MS key management](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_keymanagement)                                                                                 |
-| Unix socket forwarding, either side | **Absent.** TCP `-L` and `-W` work                                                                         | [#435](https://github.com/PowerShell/Win32-OpenSSH/issues/435), [#1564](https://github.com/PowerShell/Win32-OpenSSH/issues/1564), [#2321](https://github.com/PowerShell/Win32-OpenSSH/issues/2321) |
+| Capability                          | Windows in-box OpenSSH                                                                                                                                                             | Source                                                                                                                                                                                                              |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ships built in                      | Yes, since Win10 1809                                                                                                                                                              | [MS overview](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh-overview)                                                                                                             |
+| Version                             | Was materially behind upstream — 7.7p1–8.1p1 on builds of the era; `windows-latest` (Server 2025 26100) reports **10.5p1**, so a modern image is current and an old one may not be | [MS troubleshooting](https://learn.microsoft.com/en-us/troubleshoot/windows-server/system-management-components/upgrade-in-box-openssh-to-latest-openssh-release), run 33713970573                                  |
+| `ControlMaster`                     | **Unsupported.** `getsockname failed: Not a socket`                                                                                                                                | [vscode-remote-release#96](https://github.com/microsoft/vscode-remote-release/issues/96)                                                                                                                            |
+| `ssh-agent`                         | Ships as a Windows service, **disabled by default** — needs `Set-Service ssh-agent -StartupType Automatic`                                                                         | [MS key management](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_keymanagement)                                                                                                  |
+| Unix socket forwarding, either side | **Absent**, and refused by the client before it connects: `Bad local forwarding specification`. TCP `-L` works, and a `wp.exe` completed `hello` with a daemon through one         | [#435](https://github.com/PowerShell/Win32-OpenSSH/issues/435), [#1564](https://github.com/PowerShell/Win32-OpenSSH/issues/1564), [#2321](https://github.com/PowerShell/Win32-OpenSSH/issues/2321), run 33713970573 |
 
 What everyone else does: **stop depending on OS-level multiplexing**. Either
 multiplex logical streams in your own protocol over one long-lived connection
@@ -393,6 +404,14 @@ Two latency notes worth designing around:
    host") is more portable and much more work.
 3. Windows: our own multiplexer process, require WSL2, or eat the per-command
    latency initially? Needs a decision, not a deferral — it shapes the client.
+   What is measured so far narrows it rather than settling it: a Windows
+   client reaches a remote daemon through `ssh -L` onto a loopback TCP port,
+   the forward carries the daemon's frames whole, and `ControlMaster` is
+   still absent — so the multiplexing question is the one that is left, and
+   whether the daemon at the far end listens on a port at all times, on
+   demand, or never is
+   [`../proposals/01-cross-platform.md`](../proposals/01-cross-platform.md)
+   §10's open choice.
 4. Do we pin container host keys at creation, or accept `accept-new`? Cheap to do
    properly; do it properly.
 5. Detect-then-fetch (VS Code, Mutagen) or push-and-see-if-it-runs (DevPod)? The
