@@ -31,10 +31,10 @@ import {
   type SnapshotResult,
   type SnapshotStats,
 } from "../protocol/index.ts";
+import { platform, socketBufferBytes } from "../platform/index.ts";
 import { Connection, QUEUE_BOUND } from "./connection.ts";
 import type { DaemonPaths } from "./paths.ts";
 import { Session } from "./session.ts";
-import { configuredSocketBuffer, setSocketBuffers } from "./sockopt.ts";
 import {
   deleteSnapshot,
   listSnapshotFiles,
@@ -443,16 +443,10 @@ export async function startServer(
   try {
     fs.unlinkSync(tmp);
   } catch {}
-  if (process.platform === "win32") {
-    // A Winsock AF_UNIX socket is a reparse-point file that `stat` and
-    // `existsSync` cannot see (EACCES) and that a killed daemon leaves
-    // behind, refusing the next bind. The lock says this daemon is the only
-    // one, so whatever sits at the final path is stale: unlink it here and
-    // let the rename below put the new one in place. (spike/win32-daemon)
-    try {
-      fs.unlinkSync(paths.socket);
-    } catch {}
-  }
+  // The lock says this daemon is the only one, so whatever sits at the final
+  // path is stale; some platforms have to say so before the rename below can
+  // put the new socket in place (../platform/).
+  platform.clearStaleSocket(paths.socket);
   const listener = Bun.listen<Connection>({
     unix: tmp,
     socket: {
@@ -493,8 +487,8 @@ export async function startServer(
   });
   // macOS gives the listener 8 KiB socket buffers and accepted sockets
   // inherit them, so raise both before the first client can connect.
-  // Linux is left on the kernel's own figure; see sockopt.ts.
-  const socketBuffer = configuredSocketBuffer();
+  // Linux is left on the kernel's own figure; see ../platform/posix.ts.
+  const socketBuffer = socketBufferBytes();
   if (socketBuffer !== null) {
     const fd = (listener as { fd?: unknown }).fd;
     if (typeof fd !== "number") {
@@ -502,15 +496,15 @@ export async function startServer(
     } else {
       try {
         log(
-          `socket buffers set to ${socketBuffer}: ${setSocketBuffers(fd, socketBuffer)}`,
+          `socket buffers set to ${socketBuffer}: ${platform.setSocketBuffers(fd, socketBuffer)}`,
         );
       } catch (e) {
         log(`socket buffers left at default: ${String(e)}`);
       }
     }
   }
-  // No mode bits on the reparse point; %LOCALAPPDATA% is per user already.
-  if (process.platform !== "win32") fs.chmodSync(tmp, 0o600);
+  // The socket is this user's, where the filesystem has a way of saying so.
+  platform.restrictSocket(tmp);
   // rename(2) is atomic and replaces a stale socket left by a dead daemon
   // without a separate unlink step, which is what closes the unlink/bind race.
   fs.renameSync(tmp, paths.socket);
@@ -621,23 +615,5 @@ class LagSampler {
 }
 
 function readRss(): number | null {
-  // No /proc and no ps worth asking; libuv's own figure is the working set.
-  if (process.platform === "win32") return process.memoryUsage().rss;
-  if (process.platform === "darwin") {
-    // No /proc; `ps -o rss=` reports the same figure in KiB.
-    const kb = Number(
-      Bun.spawnSync(["ps", "-o", "rss=", "-p", String(process.pid)])
-        .stdout.toString()
-        .trim(),
-    );
-    return Number.isFinite(kb) && kb > 0 ? kb * 1024 : null;
-  }
-  try {
-    const m = /VmRSS:\s+(\d+) kB/.exec(
-      fs.readFileSync("/proc/self/status", "utf8"),
-    );
-    return m ? Number(m[1]) * 1024 : null;
-  } catch {
-    return null;
-  }
+  return platform.rss(process.pid);
 }

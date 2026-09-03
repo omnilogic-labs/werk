@@ -3,15 +3,15 @@
 // signals for control. `--dir=<path>` overrides the runtime directory;
 // `--ready-fd=<n>` names the pipe the launcher is waiting on, and
 // `--ready-file=<path>` the file the win32 launcher polls instead (it cannot
-// read the pipe; see launch.ts). All are passed by the launcher and absent
-// when a human runs it by hand.
+// read the pipe; see ../platform/win32.ts). All are passed by the launcher
+// and absent when a human runs it by hand.
 // `--state-dir=<path>` and `--snapshot-interval=<ms>` override the snapshot
 // directory and timer; the launcher passes neither, so a test sets
 // `WP_STATE_DIR` and `WP_SNAPSHOT_INTERVAL_MS` in the environment the
 // daemon inherits instead.
 
 import fs from "node:fs";
-import { tryLock } from "./flock.ts";
+import { platform } from "../platform/index.ts";
 import {
   daemonPaths,
   defaultRuntimeDir,
@@ -51,8 +51,8 @@ export async function daemonMain(args: string[]): Promise<number> {
 
   const report = (text: string) => {
     if (readyFile !== null) {
-      // The win32 launcher's channel (launch.ts): a whole file, renamed into
-      // place so the poller never reads half a line.
+      // The win32 launcher's channel (../platform/win32.ts): a whole file,
+      // renamed into place so the poller never reads half a line.
       try {
         fs.writeFileSync(`${readyFile}.tmp`, text);
         fs.renameSync(`${readyFile}.tmp`, readyFile);
@@ -77,7 +77,7 @@ export async function daemonMain(args: string[]): Promise<number> {
   }
   const paths = daemonPaths(dir, stateDir);
 
-  const lock = tryLock(paths.lock);
+  const lock = platform.lock(paths.lock);
   if (!lock) {
     report("error: a daemon already holds the lock\n");
     console.error(`wp __daemon: another daemon holds ${paths.lock}`);
@@ -101,20 +101,10 @@ export async function daemonMain(args: string[]): Promise<number> {
     return 1;
   }
 
-  // Each of these ends in the same graceful shutdown, snapshots included.
-  // They are delivered to the detached daemon (setsid, no tty) as to any
-  // process; the M3 tests send a real SIGTERM to the pid and check the files.
-  //
-  // Not on Windows (spike/win32-daemon): Bun's signal handlers there ride on
-  // console control events, and a daemon spawned detached has no console, so
-  // none of them could ever fire. `proc.kill()` from a launcher or a test is
-  // `TerminateProcess`, which no handler sees either. Shutdown on Windows is
-  // the `shutdown` message over the socket, and only that.
-  if (process.platform !== "win32") {
-    for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
-      process.on(sig, () => server.shutdown(sig));
-    }
-  }
+  // Whatever signals reach a detached daemon on this platform end in the same
+  // graceful shutdown, snapshots included; on Windows there are none, and the
+  // `shutdown` message over the socket is the only way in (../platform/).
+  platform.onShutdownSignal((reason) => server.shutdown(reason));
   process.on("uncaughtException", (e) => log(`uncaught: ${e?.stack ?? e}`));
   process.on("unhandledRejection", (e) =>
     log(`unhandled rejection: ${(e as Error)?.stack ?? e}`),
