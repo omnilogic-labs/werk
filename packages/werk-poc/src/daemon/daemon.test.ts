@@ -4,6 +4,12 @@
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { connect, type Client } from "../client/index.ts";
+import {
+  agreesWithDaemon,
+  gridEngine,
+  gridOfCapture,
+  rowIndex,
+} from "./_grid.ts";
 import { Capture, sleep, stopDaemon, tempDir, waitFor } from "./_testlib.ts";
 import { QUEUE_BOUND } from "./connection.ts";
 
@@ -15,6 +21,7 @@ const extra: Client[] = [];
 beforeAll(async () => {
   client = await connect({ dir });
   pid = client.daemon.pid;
+  await gridEngine();
 });
 
 afterAll(async () => {
@@ -44,9 +51,24 @@ test("run, attach, see output; input is echoed back", async () => {
   expect(cap.render.startsWith("\x1b[H\x1b[2J")).toBe(true);
   await waitFor(() => cap.all.includes("$ "), 3000);
   att.input("echo hi\r");
+  // The echo is a property of the screen rather than of the stream: a ConPTY
+  // re-encodes the same input rather than passing the bytes through, so the
+  // command and its output are read where a user would read them — on the
+  // client's own grid, rebuilt from everything the client received.
   expect(
-    await waitFor(() => /echo hi\r\n(.*\r\n)?hi\r\n/.test(cap.output), 3000),
+    await waitFor(
+      () => {
+        const g = gridOfCapture(cap);
+        const i = rowIndex(g, /(^|\s)echo hi$/);
+        return i >= 0 && g.rows[i + 1] === "hi";
+      },
+      3000,
+      50,
+    ),
   ).toBe(true);
+  // And that grid is the daemon's own screen, cell for cell: reattach
+  // fidelity, with nothing claimed about the bytes in between.
+  expect((await agreesWithDaemon(client, id, cap)).detail).toBe("");
   await att.detach();
   await client.kill(id, "SIGKILL");
 });

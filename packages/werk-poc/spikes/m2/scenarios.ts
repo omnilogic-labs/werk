@@ -7,6 +7,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { platform } from "../../src/platform/index.ts";
 import {
   compare,
   daemonClient,
@@ -20,6 +21,14 @@ import {
   wpRun,
   type TestEnv,
 } from "./harness.ts";
+
+/**
+ * Whether the pty these scenarios drive `wp` through rewrites what it is
+ * given rather than passing the bytes on. A ConPTY does: it keeps a screen of
+ * its own and re-encodes towards it, so a scenario can hold it to the cells
+ * the user ends up with and not to a sequence of bytes.
+ */
+const reencoded = platform.id === "win32";
 
 export interface Outcome {
   pass: boolean;
@@ -249,6 +258,16 @@ export const vimResize: Scenario = {
         `daemon says ${s.daemon.cols}×${s.daemon.rows}`,
       );
       r.screensAgree("reattach at 100×30", s);
+      // vim redraws the new rows in its own time, and on a ConPTY every
+      // round trip through the pty costs about 15 ms, so wait for the redraw
+      // rather than sampling once and calling a slow one wrong.
+      const fileRows = () => {
+        const l = t2.screen().split("\n");
+        return (
+          l.length === 30 && l.slice(0, 28).every((x) => /^line \d+:/.test(x))
+        );
+      };
+      await waitFor(fileRows, 3000);
       const lines = t2.screen().split("\n");
       r.check(
         lines.length === 30 &&
@@ -403,15 +422,26 @@ export const altScreenDetach: Scenario = {
         await detach(t, r, `mirror=${mirror}`);
         const screen = t.screen();
         const first = screen.split("\n")[0] ?? "";
+        const written = screen.split("\n").filter((l) => l !== "");
         r.note(
-          `mirror=${mirror}: after detach, alt=${t.altScreen()}, row 0 = ${JSON.stringify(first)}, row 3 = ${JSON.stringify(screen.split("\n")[3])}`,
+          `mirror=${mirror}: after detach, alt=${t.altScreen()}, screen ${JSON.stringify(written.slice(0, 6))}`,
         );
         if (mirror) {
+          // Leaving the alternate screen puts back whatever the terminal had
+          // before `wp attach`: on a pty that passes bytes through, the shell
+          // lines seeded above. A ConPTY owns the primary screen and repaints
+          // its own, which those lines never went through, so there the claim
+          // is the part it can show — the alternate screen is gone, and vim's
+          // file is not on the primary screen.
           r.check(
-            !t.altScreen() &&
-              first === "$ ls" &&
-              screen.includes(`[detached ${id}]`),
-            "mirror=on: primary screen restored, the pre-attach shell lines are back, [detached] follows them",
+            reencoded
+              ? !t.altScreen() && !screen.includes("line 1:")
+              : !t.altScreen() &&
+                  first === "$ ls" &&
+                  screen.includes(`[detached ${id}]`),
+            reencoded
+              ? "mirror=on: the alternate screen is left, and vim's screen is not on the primary one"
+              : "mirror=on: primary screen restored, the pre-attach shell lines are back, [detached] follows them",
             `mirror=on: alt=${t.altScreen()} first=${JSON.stringify(first)}`,
           );
         } else {
@@ -434,6 +464,12 @@ export const slowClient: Scenario = {
   name: "slow client: one wp attach SIGSTOPped under yes | head -c 4M",
   async run(env) {
     const r = new Report();
+    // Stopping one client is how the scenario makes it slow, and Windows has
+    // no SIGSTOP: every `proc.kill` there is TerminateProcess whatever name
+    // it is given. Suspending a process would be `NtSuspendProcess` through
+    // ffi, a row the seam does not have and nothing else has asked for.
+    if (platform.id === "win32")
+      return { pass: true, notes: ["skipped: no SIGSTOP on this platform"] };
     const id = await wpRun(env, ["bash", "--norc", "--noprofile"]);
     const c = await daemonClient(env);
     // The fast client runs under pty-cat.ts in a process of its own, so
@@ -560,14 +596,39 @@ export const slowClient: Scenario = {
         `fast client at the end: ${diff.length} rows differ: ${diff.slice(0, 4).join(" ; ")}; cursor (${fc.x},${fc.y}) vs (${daemonScreen.cursor.x},${daemonScreen.cursor.y})`,
       );
       process.kill(slow.pid, "SIGCONT");
-      const rendered = await waitFor(() => {
-        for (let i = chunksBefore; i < slow.chunks.length; i++) {
-          if (Buffer.from(slow.chunks[i]!).includes("\x1b[H\x1b[2J"))
-            return true;
+      // A render is a full repaint, so everything the slow client received
+      // after it was resumed redraws the session's whole screen on its own —
+      // which a replay of ordinary output could not, since the client missed
+      // most of the flood. That is the property worth checking, rather than
+      // the clear sequence that carries it: on a ConPTY the bytes `wp attach`
+      // writes are re-encoded on their way to the terminal, so a render
+      // arrives as different bytes and the same cells.
+      const resumeVt = (await freshEngine()).create({
+        cols: 80,
+        rows: 24,
+        scrollback: 1000,
+      });
+      let fed = chunksBefore;
+      let rendered = false;
+      const renderBy = Date.now() + 5000;
+      while (Date.now() < renderBy) {
+        for (; fed < slow.chunks.length; fed++)
+          resumeVt.write(slow.chunks[fed]!);
+        if (
+          diffScreens((await c.screen(id)).text, resumeVt.plainText())
+            .length === 0
+        ) {
+          rendered = true;
+          break;
         }
-        return false;
-      }, 5000);
-      r.check(rendered, "slow client received a render after SIGCONT");
+        await sleep(50);
+      }
+      resumeVt.dispose();
+      r.check(
+        rendered,
+        "slow client was re-rendered: what reached it after SIGCONT redraws the screen on its own",
+        "slow client got no render after SIGCONT: what reached it does not redraw the screen",
+      );
       await sleep(300);
       const after = await c.stats();
       r.check(
@@ -618,6 +679,10 @@ export const unknownId: Scenario = {
     const t = await UserTerminal.spawn(env, ["attach", "nope"]);
     try {
       const exited = await t.waitExit(5000);
+      // The message goes through the pty, which does not have to be done
+      // with it when the process is: a ConPTY was still carrying it a moment
+      // after `wp` had exited 1.
+      await waitFor(() => t.text.includes("no session nope"), 2000);
       r.check(
         exited && t.exitCode === 1 && t.text.includes("no session nope"),
         "wp attach nope: exit 1, 'no session nope'",

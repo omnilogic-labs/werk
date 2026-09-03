@@ -287,6 +287,229 @@ if (want("paths")) {
   }
 }
 
+// ------------------------------------------------ ConPTY, bytes and cells
+// ConPTY re-encodes what a child writes rather than passing the bytes
+// through, so a proof-of-concept assertion naming an exact byte sequence
+// cannot hold here. What an oracle can rest on instead is the grid: the
+// cells the engine ends up with after consuming whatever ConPTY chose to
+// emit. These probes ask whether that grid is stable — the same input, four
+// sessions, compared as bytes and as cells — and print what one session
+// actually emitted, so the shape is on the record rather than inferred.
+//
+// `conpty-*-grid-repeatable` is the watchdog for step 3 of
+// docs/proposals/01-cross-platform.md: a grid that differs between runs of
+// the same input is the result that says a Windows host cannot carry the
+// fidelity guarantee the proof of concept measures.
+if (want("conpty")) {
+  const dec = new TextDecoder();
+
+  interface Session {
+    bytes: Uint8Array;
+    text: string;
+    rows: string[];
+    cells: string;
+    cursor: string;
+  }
+
+  type Drive = (
+    write: (s: string) => void,
+    text: () => string,
+  ) => Promise<void>;
+
+  const until = async (pred: () => boolean, ms: number): Promise<boolean> => {
+    const end = Date.now() + ms;
+    while (Date.now() < end && !pred()) await Bun.sleep(25);
+    return pred();
+  };
+
+  /** Everything one ConPTY emitted for one scripted session, and the grid it leaves. */
+  async function conptySession(
+    argv: string[],
+    drive: Drive | null,
+    engine: {
+      create: (o: { cols: number; rows: number; scrollback: number }) => {
+        write: (b: Uint8Array) => void;
+        plainText: () => string;
+        styledCells: () => unknown;
+        cursor: () => { x: number; y: number };
+        dispose: () => void;
+      };
+    },
+  ): Promise<Session> {
+    const chunks: Uint8Array[] = [];
+    let done = false;
+    const proc = Bun.spawn(argv, {
+      env: { ...process.env, PS1: "$ ", TERM: "xterm-256color" },
+      // @ts-expect-error the option is typed POSIX-only; it works here
+      terminal: {
+        cols: 80,
+        rows: 24,
+        data: (_t: unknown, d: Uint8Array) => chunks.push(new Uint8Array(d)),
+        exit: () => {
+          done = true;
+        },
+      },
+    });
+    const term = proc as unknown as {
+      terminal?: { write: (b: string) => void; close: () => void };
+    };
+    const text = () => chunks.map((c) => dec.decode(c)).join("");
+    if (drive) await drive((s) => term.terminal?.write(s), text);
+    else await until(() => done, 10_000);
+    await Bun.sleep(400);
+    try {
+      term.terminal?.close();
+    } catch {}
+    try {
+      proc.kill();
+    } catch {}
+    const bytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+    let off = 0;
+    for (const c of chunks) {
+      bytes.set(c, off);
+      off += c.length;
+    }
+    const vt = engine.create({ cols: 80, rows: 24, scrollback: 1000 });
+    vt.write(bytes);
+    const plain = vt.plainText();
+    const cells = JSON.stringify(vt.styledCells());
+    const cur = vt.cursor();
+    vt.dispose();
+    return {
+      bytes,
+      text: dec.decode(bytes),
+      rows: plain.split("\n").filter((r) => r.trim() !== ""),
+      cells,
+      cursor: `${cur.x},${cur.y}`,
+    };
+  }
+
+  const sha = (b: Uint8Array | string) =>
+    new Bun.CryptoHasher("sha256").update(b).digest("hex").slice(0, 12);
+
+  try {
+    const { loadGhosttyWasmEngine } =
+      await import("../../packages/werk-poc/src/engine/ghostty-wasm/bun.ts");
+    const engine = await loadGhosttyWasmEngine();
+
+    // A session that writes and exits on its own: no input from this side,
+    // so a difference between runs belongs to ConPTY rather than to timing
+    // the probe controls.
+    const runs: Record<string, Session[]> = { static: [], echo: [] };
+    for (let i = 0; i < 6; i++) {
+      runs.static!.push(
+        await conptySession(
+          [
+            "sh",
+            "-c",
+            "printf 'hello\\n'; printf '\\033[1;31mred\\033[0m plain\\n'; printf 'line3\\n'",
+          ],
+          null,
+          engine,
+        ),
+      );
+    }
+
+    // The session daemon.test.ts drives: a shell, a prompt, a typed line, and
+    // that line's output echoed back through the ConPTY.
+    for (let i = 0; i < 6; i++) {
+      runs.echo!.push(
+        await conptySession(
+          ["sh", "-c", "echo hello; exec sh"],
+          async (write, text) => {
+            await until(() => text().includes("hello"), 5000);
+            await until(() => /\$ $/.test(text()), 5000);
+            write("echo hi\r");
+            await until(() => /hi[\s\S]*\$ $/.test(text()), 5000);
+            await Bun.sleep(500);
+            write("exit\r");
+            await Bun.sleep(500);
+          },
+          engine,
+        ),
+      );
+    }
+
+    const same = (xs: string[]) => xs.every((x) => x === xs[0]);
+    for (const [name, group] of Object.entries(runs)) {
+      const bytes = group.map((r) => sha(r.bytes));
+      const cells = group.map((r) => sha(r.cells));
+      const cursors = group.map((r) => r.cursor);
+      const odd = group.find((r) => r.text !== group[0]!.text);
+      let where = "";
+      if (odd) {
+        const a = group[0]!.text;
+        const b = odd.text;
+        let i = 0;
+        while (i < a.length && i < b.length && a[i] === b[i]) i++;
+        where =
+          ` — from byte ${i}: ${JSON.stringify(a.slice(i, i + 60))}` +
+          ` against ${JSON.stringify(b.slice(i, i + 60))}`;
+      }
+      say(
+        `conpty-${name}-bytes-repeatable`,
+        same(bytes)
+          ? `identical — ${group.length} sessions, the same ${group[0]!.bytes.length} bytes (sha ${bytes[0]})`
+          : `differ — ${group.length} sessions: ${group.map((r, i) => `${r.bytes.length}B/${bytes[i]}`).join(" ")}${where}`,
+      );
+      say(
+        `conpty-${name}-grid-repeatable`,
+        same(cells) && same(cursors)
+          ? `ok — ${group.length} sessions, identical cells and cursor (${cursors[0]}, sha ${cells[0]})`
+          : `fail — ${group.length} sessions differ in cells ${cells.join(" ")} cursors ${cursors.join(" ")}`,
+      );
+    }
+
+    // What one echo session emitted, and whether the byte-shaped assertion
+    // daemon.test.ts used to make could ever match it.
+    const one = runs.echo![0]!;
+    say(
+      "conpty-echo-stream",
+      `${one.bytes.length} B: ${JSON.stringify(one.text.slice(0, 400))}`,
+    );
+    say(
+      "conpty-echo-byte-assertion",
+      /echo hi\r\n(.*\r\n)?hi\r\n/.test(one.text)
+        ? "matches — the stream carries the echo the POSIX assertion expects"
+        : "does not match — a byte-shaped assertion cannot hold on this stream",
+    );
+    say("conpty-echo-grid", `rows: ${JSON.stringify(one.rows)}`);
+    say("conpty-static-grid", `rows: ${JSON.stringify(runs.static![0]!.rows)}`);
+
+    // How fast a ConPTY carries a flood, because several suites size their
+    // deadlines against a POSIX pty's throughput. Bytes counted at this end,
+    // so what is measured is what a session's relay would have to move.
+    let carried = 0;
+    let ended = false;
+    const t0 = performance.now();
+    const flood = Bun.spawn(["sh", "-c", "yes | head -c 4194304"], {
+      env: { ...process.env, TERM: "xterm-256color" },
+      // @ts-expect-error the option is typed POSIX-only; it works here
+      terminal: {
+        cols: 80,
+        rows: 24,
+        data: (_t: unknown, d: Uint8Array) => (carried += d.length),
+        exit: () => (ended = true),
+      },
+    });
+    await until(() => ended, 60_000);
+    await Bun.sleep(300);
+    const ms = performance.now() - t0;
+    try {
+      (flood as { terminal?: { close: () => void } }).terminal?.close();
+      flood.kill();
+    } catch {}
+    say(
+      "conpty-throughput",
+      `${(carried / 1048576).toFixed(2)} MiB of 4 MiB in ${(ms / 1000).toFixed(1)} s` +
+        ` = ${(carried / 1048576 / (ms / 1000)).toFixed(2)} MiB/s` +
+        (ended ? "" : " (never exited)"),
+    );
+  } catch (e) {
+    say("conpty-grid-repeatable", `fail — ${firstLine(e)}`);
+  }
+}
+
 // --------------------------------------------------------------- sh -c
 if (want("sh")) {
   try {
