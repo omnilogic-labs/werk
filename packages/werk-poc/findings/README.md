@@ -2,7 +2,11 @@
 
 One file per milestone recording what was run and what happened, in the
 present tense. These are the PoC's output; the code is only how they were
-obtained.
+obtained. Two files cut across the milestones:
+[platforms.md](./platforms.md), the same suites on macOS, Windows and every
+other target Bun compiles for, and
+[where-the-poc-falls-short.md](./where-the-poc-falls-short.md), what the PoC
+does not yet do well, what is broken in it, and what nobody has measured.
 
 ## What the proof of concept found
 
