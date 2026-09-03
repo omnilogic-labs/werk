@@ -109,9 +109,10 @@ function sshArgs(extra: string[] = []): string[] {
 
 // ------------------------------------------------------------------ sshd
 // A private sshd on a high port, with its own host key and authorized_keys
-// file: the runner is the "remote". Remote Login (`systemsetup
-// -setremotelogin on`) needs Full Disk Access on recent macOS, so this asks
-// for nothing of the machine's own configuration.
+// file: the runner is the "remote". Nothing of the machine's own
+// configuration is asked for — not Remote Login, not the system
+// authorized_keys, not port 22 — so nothing here depends on what a hosted
+// runner will let a job turn on.
 let sshdUp = false;
 {
   const t0 = performance.now();
