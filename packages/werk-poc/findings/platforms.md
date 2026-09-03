@@ -458,16 +458,18 @@ Five Bun-on-Windows facts, recorded so nobody finds them again:
   interpreted.
 - On `windows-11-arm`, Bun 1.3.14 has no `bun:ffi` at all
   (`bun:ffi dlopen() is not available in this build (TinyCC is disabled)`).
-- `expect(promise).rejects` under `bun test` never resumes when the promise is
-  still pending as it is handed over. `.github/ci/win32-kill.test.ts` asks for
-  a session the daemon has already removed three ways on both Windows runners
-  (run 33707210922): caught with `catch`, the error comes back in under a
-  millisecond; through `expect().rejects`, the assertion hangs to the test's
-  timeout, and `bun test` then kills the daemon it started and every later
-  test in the file says `connection closed`. `expect().rejects` on a promise
-  that is already rejected is fine. That one line was the whole of the kill
-  test's five seconds on the Windows lane, and it is worth checking wherever
-  else a suite waits on a rejection.
+- One `expect(promise).rejects` hangs under `bun test`.
+  `.github/ci/win32-kill.test.ts` asks the daemon for a session it has already
+  removed, three ways, on both Windows runners (run 33707210922): caught with
+  `catch` the error comes back in under a millisecond, and through
+  `expect().rejects` the assertion hangs to the test's timeout — after which
+  `bun test` kills the daemon it started and every later test in the file
+  says `connection closed`. `expect().rejects` on an already-rejected promise
+  is fine in the same file, and so is the `expect().rejects` that
+  `daemon.test.ts` uses for an unknown engine, so this is not "`rejects` is
+  broken on Windows"; what separates the two is not known. That one line was
+  the whole of the kill test's five seconds, and catching the rejection
+  instead is what lets the file run to the end.
 
 Three smaller facts from the same probes: `mkdir` reports mode `40666`,
 `getuid` is undefined, and `LOCALAPPDATA` is set where `XDG_RUNTIME_DIR` is
@@ -557,20 +559,36 @@ of the seam's interface, from [PR #3](https://github.com/omnilogic-labs/werk/pul
 What the lane records with those in place, against the last run without
 them:
 
-| Suite       | before, run 33686941407              | `main`, run 33696942295                                                                                                                                                                                                                                                                                                                                                                            |
-| ----------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `daemon`    | fail, `flock`                        | runs until the step's 2-minute timeout; recorded as `skip`                                                                                                                                                                                                                                                                                                                                         |
-| `wp-cli`    | fail, `EBADF`                        | pass — `wp.exe ls` autostarts a daemon and prints its header                                                                                                                                                                                                                                                                                                                                       |
-| `m0-probes` | 01, 02, 05, 06 fail                  | 01, 02, 06 fail; `05-daemon-survives` passes                                                                                                                                                                                                                                                                                                                                                       |
-| `test-full` | fail, `EBADF` before any daemon test | reaches the daemon tests: `run, attach, see output` fails on the render prologue (ConPTY does not open with `ESC[H ESC[2J`); `kill signals the child` times out at 5 s (`TerminateProcess`, exit 1, no `signalCode`); the exited-session snapshot attach and the lag-resume assertions fail; `bench.test.ts`'s `ops` and `soak` cases fail as `ops` does; then "connection closed" aborts the file |
-| `m2`        | fail, `EBADF`                        | fail, `EPERM` moving `wp.exe`: the running daemon pins the executable, so the harness cannot rebuild it                                                                                                                                                                                                                                                                                            |
-| `ops`       | fail                                 | fail: `bench/ops.ts` spawns its own daemon with `cwd: "/"` and `--ready-fd=3`, a launcher of its own that the branches do not reach                                                                                                                                                                                                                                                                |
+| Suite       | before, run 33686941407              | `main`, run 33696942295                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `daemon`    | fail, `flock`                        | runs until the step's 2-minute timeout; recorded as `skip`                                                                                                                                                                                                                                                                                                                                                                                              |
+| `wp-cli`    | fail, `EBADF`                        | pass — `wp.exe ls` autostarts a daemon and prints its header                                                                                                                                                                                                                                                                                                                                                                                            |
+| `m0-probes` | 01, 02, 05, 06 fail                  | 01, 02, 06 fail; `05-daemon-survives` passes                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `test-full` | fail, `EBADF` before any daemon test | reaches the daemon tests: `run, attach, see output` fails on the render prologue (ConPTY does not open with `ESC[H ESC[2J`); the exited-session snapshot attach and the lag-resume assertions fail; `bench.test.ts`'s `ops` and `soak` cases fail as `ops` does; the kill test used to abort the file here, and no longer does — with teardown through the protocol the file runs past it and the whole suite outgrows its 180 s step (run 33707334391) |
+| `m2`        | fail, `EBADF`                        | fail, `EPERM` moving `wp.exe`: the running daemon pins the executable, so the harness cannot rebuild it                                                                                                                                                                                                                                                                                                                                                 |
+| `ops`       | fail                                 | fail: `bench/ops.ts` spawns its own daemon with `cwd: "/"` and `--ready-fd=3`, a launcher of its own that the branches do not reach                                                                                                                                                                                                                                                                                                                     |
 
-The first two `test-full` items are platform facts — ConPTY re-encodes the
-stream rather than passing bytes through, and a kill is `TerminateProcess`
-with no signal name — and the last two are harness shape. Where the PTY relay
-semantics and the kill path go from here is a design question, not a
-measurement, and it is left to the proposal.
+The `ops` and `m2` items are harness shape. The kill test is the one that has
+moved: it passes on the lane as a suite of its own (`kill`, run 33707334391,
+353 ms), because a kill is now a mode the seam carries out rather than a
+signal name, and because its last assertion no longer waits on a rejection
+through `expect().rejects`.
+
+Run on its own, `src/daemon/daemon.test.ts` now reaches a verdict on every
+test on both Windows runners (run 33707978762):
+
+| Runner        | Result                                                                                          |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| `win32-x64`   | 10 pass, 1 fail — the slow-client scenario, which fails on the hosted Linux and macOS lanes too |
+| `win32-arm64` | 9 pass, 2 fail — the same, plus `run, attach, see output`                                       |
+
+The render prologue is the surprise in that table: `run, attach, see output`
+asserts the `ESC[H ESC[2J` that a render frame opens with, and it passes on
+`win32-x64` here while failing in the same commit's `test-full`. A render
+frame is written by the daemon's own emulator rather than passed through from
+ConPTY, so what fails in the fuller run is something else — an ordering or a
+timing, not the prologue. Which it is belongs to the proposal's step 3, along
+with `spikes/m2/scenarios.ts`, which asserts the same bytes.
 
 ## A win32 `libghostty-vt`, built rather than installed
 

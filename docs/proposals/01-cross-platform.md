@@ -152,6 +152,11 @@ far enough to hit questions rather than blockers:
   equivalent, not byte-identical — which was known from
   [`../research/07-packaging.md`](../research/07-packaging.md) §4 and is now
   measured. Reattach fidelity on a Windows host would need its own oracle.
+  How much of the failure is the prologue is less clear than it looks: the
+  test that asserts it passes on `win32-x64` when `daemon.test.ts` is run on
+  its own and fails in the same commit's `test-full` (run 33707978762), and a
+  render frame is written by the daemon's emulator rather than passed through
+  from ConPTY.
 - **Kill semantics.** Nothing is delivered as a signal, so the daemon reports
   none: a `kill` is a mode, a session records how the platform carried it out,
   and a Windows exit says `exitCode` 1 with no `signalCode`. The tree comes
@@ -197,13 +202,13 @@ finds them again:
   daemon holds (run 33696944598), and the session tree falls back to the
   child alone. Its refusal of a second taker is verified on x64 by forcing
   the pipe lock, not yet on arm64.
-- `expect(promise).rejects` under `bun test` never resumes on Windows when
-  the promise is still pending as it is handed over; the assertion hangs to
-  the test's timeout and `bun test` then kills the daemon, so every later
-  test in the file says `connection closed`. Catching the rejection instead
-  answers in under a millisecond (run 33707210922). That one line was all of
-  the kill test's five seconds, and the same pattern appears elsewhere in the
-  suites.
+- One `expect(promise).rejects` hangs under `bun test` on Windows. The same
+  request answers in under a millisecond when its rejection is caught, and
+  hangs to the test's timeout when it is asserted that way; `bun test` then
+  kills the daemon, so every later test in the file says `connection closed`
+  (run 33707210922). Other `expect().rejects` in the same suites pass, so
+  this is not a blanket "`rejects` is broken"; what separates them is not
+  known. That one line was all of the kill test's five seconds.
 
 **A session's tree is a Job Object.** A ConPTY child can be assigned to one
 from Bun, and `TerminateJobObject` — or dropping the last handle to a job
@@ -397,24 +402,26 @@ Every "measured" in §1 points at one of these; each run uploads a
 `ci-result-<lane>.json` that is the record, and artefacts are kept 14 days
 so re-running is the way to check anything older.
 
-| What                                                               | Where                                                                      | Run                                                                                                                                                            |
-| ------------------------------------------------------------------ | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The three lanes on `main` with every spike merged                  | [`poc.yml`](../../.github/workflows/poc.yml)                               | [33696942295](https://github.com/omnilogic-labs/werk/actions/runs/33696942295)                                                                                 |
-| The eight-target matrix on that same `main`                        | [`matrix.yml`](../../.github/workflows/matrix.yml)                         | [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598)                                                                                 |
-| The Windows lane once its daemon suite is gated                    | `poc.yml`                                                                  | [33697939359](https://github.com/omnilogic-labs/werk/actions/runs/33697939359)                                                                                 |
-| The eight-target matrix once Windows uploads its result            | `matrix.yml`                                                               | [33698568476](https://github.com/omnilogic-labs/werk/actions/runs/33698568476)                                                                                 |
-| The three lanes with §2's seam in place                            | `poc.yml`                                                                  | [33702171963](https://github.com/omnilogic-labs/werk/actions/runs/33702171963)                                                                                 |
-| The eight targets with §2's seam in place                          | `matrix.yml`                                                               | [33702173764](https://github.com/omnilogic-labs/werk/actions/runs/33702173764), [33702588265](https://github.com/omnilogic-labs/werk/actions/runs/33702588265) |
-| The eight targets on `main`, run against those two                 | `matrix.yml`                                                               | [33702822069](https://github.com/omnilogic-labs/werk/actions/runs/33702822069)                                                                                 |
-| The Linux lanes with the musl and AVX records                      | `matrix.yml`                                                               | [33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138)                                                                                 |
-| The Windows lane before the daemon had `win32` branches            | `poc.yml`                                                                  | [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407)                                                                                 |
-| Lane gates made fail-closed                                        | [PR #4](https://github.com/omnilogic-labs/werk/pull/4)                     | [33688264859](https://github.com/omnilogic-labs/werk/actions/runs/33688264859)                                                                                 |
-| Eight targets built on Linux, smoked on native runners             | [PR #5](https://github.com/omnilogic-labs/werk/pull/5), `matrix.yml`       | [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325)                                                                                 |
-| macOS socket buffers, signing, process lifecycle probes            | [PR #2](https://github.com/omnilogic-labs/werk/pull/2), `macos-probes.yml` | [33688130745](https://github.com/omnilogic-labs/werk/actions/runs/33688130745)                                                                                 |
-| The daemon with buffers raised, on the macOS lane                  | PR #2, `poc.yml`                                                           | [33688537937](https://github.com/omnilogic-labs/werk/actions/runs/33688537937)                                                                                 |
-| Both darwin lanes verifying a signed binary, each M2 sink measured | `poc.yml` and `matrix.yml`                                                 | [33703344148](https://github.com/omnilogic-labs/werk/actions/runs/33703344148), [33703355321](https://github.com/omnilogic-labs/werk/actions/runs/33703355321) |
-| Windows primitives probed directly                                 | [PR #3](https://github.com/omnilogic-labs/werk/pull/3), `win32-spike.yml`  | [33691536664](https://github.com/omnilogic-labs/werk/actions/runs/33691536664)                                                                                 |
-| The Windows lane with the three blockers stepped over              | PR #3, `poc.yml`                                                           | [33690884893](https://github.com/omnilogic-labs/werk/actions/runs/33690884893)                                                                                 |
+| What                                                                      | Where                                                                      | Run                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The three lanes on `main` with every spike merged                         | [`poc.yml`](../../.github/workflows/poc.yml)                               | [33696942295](https://github.com/omnilogic-labs/werk/actions/runs/33696942295)                                                                                                                                                                 |
+| The eight-target matrix on that same `main`                               | [`matrix.yml`](../../.github/workflows/matrix.yml)                         | [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598)                                                                                                                                                                 |
+| The Windows lane once its daemon suite is gated                           | `poc.yml`                                                                  | [33697939359](https://github.com/omnilogic-labs/werk/actions/runs/33697939359)                                                                                                                                                                 |
+| The eight-target matrix once Windows uploads its result                   | `matrix.yml`                                                               | [33698568476](https://github.com/omnilogic-labs/werk/actions/runs/33698568476)                                                                                                                                                                 |
+| The three lanes with §2's seam in place                                   | `poc.yml`                                                                  | [33702171963](https://github.com/omnilogic-labs/werk/actions/runs/33702171963)                                                                                                                                                                 |
+| The three lanes with teardown through the protocol                        | `poc.yml`                                                                  | [33707334391](https://github.com/omnilogic-labs/werk/actions/runs/33707334391)                                                                                                                                                                 |
+| Job Objects, the kill path and `expect().rejects` on both Windows runners | `step2-probes.yml`                                                         | [33704743713](https://github.com/omnilogic-labs/werk/actions/runs/33704743713), [33706263111](https://github.com/omnilogic-labs/werk/actions/runs/33706263111), [33707210922](https://github.com/omnilogic-labs/werk/actions/runs/33707210922) |
+| The eight targets with §2's seam in place                                 | `matrix.yml`                                                               | [33702173764](https://github.com/omnilogic-labs/werk/actions/runs/33702173764), [33702588265](https://github.com/omnilogic-labs/werk/actions/runs/33702588265)                                                                                 |
+| The eight targets on `main`, run against those two                        | `matrix.yml`                                                               | [33702822069](https://github.com/omnilogic-labs/werk/actions/runs/33702822069)                                                                                                                                                                 |
+| The Linux lanes with the musl and AVX records                             | `matrix.yml`                                                               | [33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138)                                                                                                                                                                 |
+| The Windows lane before the daemon had `win32` branches                   | `poc.yml`                                                                  | [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407)                                                                                                                                                                 |
+| Lane gates made fail-closed                                               | [PR #4](https://github.com/omnilogic-labs/werk/pull/4)                     | [33688264859](https://github.com/omnilogic-labs/werk/actions/runs/33688264859)                                                                                                                                                                 |
+| Eight targets built on Linux, smoked on native runners                    | [PR #5](https://github.com/omnilogic-labs/werk/pull/5), `matrix.yml`       | [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325)                                                                                                                                                                 |
+| macOS socket buffers, signing, process lifecycle probes                   | [PR #2](https://github.com/omnilogic-labs/werk/pull/2), `macos-probes.yml` | [33688130745](https://github.com/omnilogic-labs/werk/actions/runs/33688130745)                                                                                                                                                                 |
+| The daemon with buffers raised, on the macOS lane                         | PR #2, `poc.yml`                                                           | [33688537937](https://github.com/omnilogic-labs/werk/actions/runs/33688537937)                                                                                                                                                                 |
+| Both darwin lanes verifying a signed binary, each M2 sink measured        | `poc.yml` and `matrix.yml`                                                 | [33703344148](https://github.com/omnilogic-labs/werk/actions/runs/33703344148), [33703355321](https://github.com/omnilogic-labs/werk/actions/runs/33703355321)                                                                                 |
+| Windows primitives probed directly                                        | [PR #3](https://github.com/omnilogic-labs/werk/pull/3), `win32-spike.yml`  | [33691536664](https://github.com/omnilogic-labs/werk/actions/runs/33691536664)                                                                                                                                                                 |
+| The Windows lane with the three blockers stepped over                     | PR #3, `poc.yml`                                                           | [33690884893](https://github.com/omnilogic-labs/werk/actions/runs/33690884893)                                                                                                                                                                 |
 
 The cheap way to ask any further question is the same: a branch, a workflow
 with a `push` trigger scoped to it (or `gh workflow run poc.yml --ref
@@ -448,16 +455,37 @@ suites stop; 6 and 7 the platforms that already pass; 8 and 9 shape.
    table: BSD against GNU `ps` keywords in `launch.test.ts` and
    `script(1)`/`head` flags in `spikes/m2/scenarios.ts`.
 
-2. **Shutdown and kill through the protocol.** Replace the daemon's
-   signal-based shutdown and the session kill path's `proc.kill(signal)` with
-   protocol messages; on Windows, put each session's child in a Job Object
-   with `KILL_ON_JOB_CLOSE` via `bun:ffi` so a kill takes the tree. _Proves_
-   teardown does not depend on a signal reaching a detached process. _Done
-   when_ `kill signals the child; ls reports the signal; attached clients
-hear exited` in `src/daemon/daemon.test.ts` passes on the `windows` lane
-   and stays green on `ubuntu-latest` and `macos-latest`. _Wrong if_ a
-   ConPTY child cannot be placed in a Job Object from Bun — then tree kill
-   needs a native helper, a cost for §10.
+2. **Shutdown and kill through the protocol — done.** The `shutdown` message
+   is the way in on all three; POSIX keeps its signal handlers as a second
+   route, since a `kill` typed at a shell is a real thing and
+   `snapshot.test.ts` sends one. A `kill` carries a mode — interrupt,
+   terminate or force — and the seam carries out what a mode means:
+   `adoptTree(child)` takes hold of a session's child as it is spawned, and
+   the tree it returns is the child's process group on POSIX and a Job Object
+   with `KILL_ON_JOB_CLOSE` on Windows. A POSIX signal name still names a
+   mode and is still the signal that gets sent where signals exist;
+   `signalCode` is reported only where an exit status has one, which is not
+   Windows. The named test passes on the `windows` lane as a suite of its
+   own (`kill`, on the `EXPECTED_PASS` list), and `ubuntu-latest` and
+   `macos-latest` record verdict for verdict what run 33702171963 did — the
+   slow-client scenario and nothing else (run 33707334391). Two Windows rows
+   moved with it: `m3` hit the non-exit it hits about one run in four, and
+   `test-full` now runs past the kill test rather than aborting there, which
+   takes it past its step's 180 s. Neither is gated; both are step 3's to
+   settle. A Job Object holds a ConPTY child on `win32-x64` and
+   `TerminateJobObject` takes the tree in 2–3 ms even though the daemon is
+   already inside a job; `win32-arm64` has no `bun:ffi` at all, so its kill
+   is `TerminateProcess` on the child alone and anything that has left the
+   ConPTY behind survives it (runs 33704743713, 33706263111). The five
+   seconds the kill test used to spend was one assertion — an
+   `expect(promise).rejects` that hangs on Windows where catching the same
+   rejection answers at once (run 33707210922) — and with it caught, the
+   whole of `daemon.test.ts` reaches a verdict on both Windows runners: 10
+   pass and the slow-client scenario on `win32-x64`, 9 pass and the render
+   prologue as well on `win32-arm64` (run 33707978762). That prologue test
+   passes on `win32-x64` run on its own and fails in the same commit's
+   `test-full`, so whatever fails it there is not simply ConPTY's opening
+   bytes; step 3 is where that goes.
 
 3. **A ConPTY-aware fidelity oracle.** The assertions that expect a
    byte-identical prologue — `daemon.test.ts` and `spikes/m2/scenarios.ts`
