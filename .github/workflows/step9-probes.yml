@@ -1,0 +1,204 @@
+# §8 step 9, the transport step, measured on the runners that have the
+# platforms: macOS for M5's RTT table, Windows for a client of a daemon it
+# did not start and for what the daemon's own socket costs as `AF_UNIX`
+# against loopback TCP.
+#
+# It runs on every push to the step branch, and each job asks the head
+# commit message whether it is wanted: `[mac]` for the macOS probes, `[win]`
+# for the Windows ones, `[m5]` for the M5 run itself, which is minutes
+# rather than seconds. A push with none of those runs nothing.
+name: step9-probes
+
+on:
+  push:
+    branches: [step/09-transport]
+
+concurrency:
+  group: step9-probes-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    if: contains(github.event.head_commit.message, '[mac]')
+    name: transport probes on macos-latest
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      TMPDIR: /tmp
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Machine
+        run: |
+          echo "runner: $(uname -sm) macOS $(sw_vers -productVersion)"
+          echo "bun: $(bun --version)"
+          echo "ssh: $(ssh -V 2>&1)"
+          echo "sudo -n: $(sudo -n true 2>&1 && echo ok || echo refused)"
+
+      - name: Probes
+        run: |
+          set -o pipefail
+          bun run .github/ci/step9-macos-probes.ts 2>&1 | tee probes.log
+          {
+            echo "## step9 macOS probes"
+            echo
+            echo "\`$(uname -sm)\` macOS $(sw_vers -productVersion), bun $(bun --version), commit \`${GITHUB_SHA:0:8}\`"
+            echo
+            echo '```'
+            cat probes.log
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload probes.log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step9-macos-probes
+          path: probes.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  m5:
+    if: contains(github.event.head_commit.message, '[m5]')
+    name: M5 on ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-latest]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      TMPDIR: /tmp
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Machine
+        run: |
+          echo "runner: $(uname -sm) macOS $(sw_vers -productVersion)"
+          echo "bun: $(bun --version), ssh: $(ssh -V 2>&1)"
+          echo "sudo -n: $(sudo -n true 2>&1 && echo ok || echo refused)"
+          sysctl net.local.stream.sendspace net.local.stream.recvspace
+
+      - name: install
+        run: bun install --frozen-lockfile
+
+      # `[smoke]` in the commit message asks for the short form: one RTT and
+      # a handful of keystrokes, to see the arrangement work before the full
+      # table costs an hour of a macOS runner.
+      - name: M5, with this machine as the remote
+        timeout-minutes: 75
+        working-directory: packages/werk-poc
+        run: |
+          set -o pipefail
+          if [ "${{ contains(github.event.head_commit.message, '[smoke]') }}" = "true" ]; then
+            args="--rtt 0 --keys 6 --idle 5"
+          else
+            args="--rtt 0,50,200 --keys 50 --idle 60"
+          fi
+          echo "m5 $args"
+          bun run m5 -- --remote self $args 2>run.err | tee m5-macos.md
+          tail -40 run.err || true
+
+      - name: Summary
+        if: always()
+        working-directory: packages/werk-poc
+        run: |
+          {
+            echo "## M5 on ${{ matrix.runner }}"
+            echo
+            echo "\`$(uname -sm)\` macOS $(sw_vers -productVersion), bun $(bun --version), commit \`${GITHUB_SHA:0:8}\`"
+            echo
+            cat m5-macos.md
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the tables
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step9-m5-${{ matrix.runner }}
+          path: |
+            packages/werk-poc/m5-macos.md
+            packages/werk-poc/run.err
+          if-no-files-found: warn
+          retention-days: 14
+
+  windows:
+    if: contains(github.event.head_commit.message, '[win]')
+    name: transport probes on windows-latest
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep line endings as committed
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Machine
+        run: |
+          bun --version
+          bun -e 'console.log(process.platform, process.arch, require("node:os").release())'
+          ssh -V 2>&1 || true
+          echo "ImageOS=${ImageOS:-} ImageVersion=${ImageVersion:-}"
+
+      - name: install
+        run: bun install --frozen-lockfile
+
+      - name: build wp
+        id: build
+        continue-on-error: true
+        working-directory: packages/werk-poc
+        run: bun run build
+
+      - name: Probes
+        timeout-minutes: 20
+        run: |
+          set -o pipefail
+          bun run .github/ci/step9-win32-probes.ts 2>&1 | tee probes.log
+
+      - name: A client of a daemon it did not start
+        timeout-minutes: 20
+        run: |
+          set -o pipefail
+          bun run .github/ci/step9-win32-forward.ts 2>&1 | tee -a probes.log
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## step9 Windows probes"
+            echo
+            echo "commit \`${GITHUB_SHA:0:8}\`, bun \`$(bun --version)\`"
+            echo
+            echo '```'
+            tr -d '\r' <probes.log
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload probes.log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step9-win32-probes
+          path: probes.log
+          if-no-files-found: warn
+          retention-days: 14

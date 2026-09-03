@@ -11,24 +11,24 @@ the product directly. What matters is what is written down in `findings/`.
 
 ## Layout
 
-| Path            | What it is                                                      |
-| --------------- | --------------------------------------------------------------- |
-| `src/engine/`   | The terminal-engine seam and its adapters (M1, M6)              |
-| `src/protocol/` | The framed wire protocol the daemon, client and web share (M2)  |
-| `src/daemon/`   | The daemon: PTYs, the socket, client queues, snapshots (M2, M3) |
-| `src/client/`   | The programmatic client library the CLI and web build on (M2)   |
-| `src/cli/`      | The `wp` entry point and its commands                           |
-| `src/web/`      | `wp serve`: the loopback web UI and the browser bundle (M4)     |
-| `spikes/m0/`    | M0's smoke probes, one file per question, plus a runner         |
-| `spikes/m1/`    | M1's compiled-binary check for the embedded WASM                |
-| `spikes/m2/`    | M2's reattach-fidelity harness: the compiled `wp` in a PTY      |
-| `spikes/m3/`    | M3's cross-commit decode, snapshot cost, and fd-reuse probes    |
-| `spikes/m5/`    | M5's transport spike: the daemon in a container behind `ssh -L` |
-| `spikes/m6/`    | M6's compiled-binary check for the ffi binding and the oracle   |
-| `bench/`        | `wp bench`: the differential corpus, perf, ops and soak runners |
-| `findings/m4/`  | Screenshots from M4's browser check                             |
-| `vendor/`       | Pinned upstream artifacts (libghostty WASM, `ghostty-web`)      |
-| `findings/`     | What each milestone found, one file per milestone               |
+| Path            | What it is                                                                        |
+| --------------- | --------------------------------------------------------------------------------- |
+| `src/engine/`   | The terminal-engine seam and its adapters (M1, M6)                                |
+| `src/protocol/` | The framed wire protocol the daemon, client and web share (M2)                    |
+| `src/daemon/`   | The daemon: PTYs, the socket, client queues, snapshots (M2, M3)                   |
+| `src/client/`   | The programmatic client library the CLI and web build on (M2)                     |
+| `src/cli/`      | The `wp` entry point and its commands                                             |
+| `src/web/`      | `wp serve`: the loopback web UI and the browser bundle (M4)                       |
+| `spikes/m0/`    | M0's smoke probes, one file per question, plus a runner                           |
+| `spikes/m1/`    | M1's compiled-binary check for the embedded WASM                                  |
+| `spikes/m2/`    | M2's reattach-fidelity harness: the compiled `wp` in a PTY                        |
+| `spikes/m3/`    | M3's cross-commit decode, snapshot cost, and fd-reuse probes                      |
+| `spikes/m5/`    | M5's transport spike: a daemon behind `ssh -L`, in a container or on this machine |
+| `spikes/m6/`    | M6's compiled-binary check for the ffi binding and the oracle                     |
+| `bench/`        | `wp bench`: the differential corpus, perf, ops and soak runners                   |
+| `findings/m4/`  | Screenshots from M4's browser check                                               |
+| `vendor/`       | Pinned upstream artifacts (libghostty WASM, `ghostty-web`)                        |
+| `findings/`     | What each milestone found, one file per milestone                                 |
 
 ## Running things on macOS and Windows
 
@@ -58,6 +58,7 @@ $ bun run m0 -- --bun /path/to/other/bun   # the same under another Bun
 $ bun run m2                 # the reattach-fidelity scenarios, as a table
 $ bun run m3                 # snapshot cost and cross-commit decode tables
 $ bun run m5 -- --rtt 0,50,200   # the transport spike; needs Docker, ~6 min
+$ bun run m5 -- --remote self --rtt 0,50,200   # …or a private sshd on this machine, no Docker
 $ bun run bench/differential.ts --fuzz 50   # the differential corpus, all three engines
 $ bun run bench/perf.ts                     # throughput, latency, snapshot, memory, slow client, trap
 $ bun run bench/ops.ts                      # toolchain, platforms, --compile survival, size, cold start

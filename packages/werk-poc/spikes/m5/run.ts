@@ -1,10 +1,18 @@
-// M5, the transport spike: the daemon in a container behind sshd, reached
-// through `ssh -N -L <unix socket>:<unix socket>`, with `tc netem` in the
-// container for RTT. Drives the compiled `wp attach` in a PTY of its own
-// (as spikes/m2 does) and reads what the stand-in terminal shows against
-// the daemon's `screen`. Needs Docker. Prints markdown tables.
+// M5, the transport spike: a daemon behind sshd, reached through
+// `ssh -N -L <unix socket>:<unix socket>`, with a symmetric delay on the
+// path for RTT. Drives the compiled `wp attach` in a PTY of its own (as
+// spikes/m2 does) and reads what the stand-in terminal shows against the
+// daemon's `screen`. Prints markdown tables.
 //
-//   bun run m5 [--rtt 0,50,200] [--keys 50] [--idle 120]
+// Two remote ends. `--remote docker` (the default) is the container M5 was
+// written against: its own kernel, `tc netem`, a second machine in every
+// way that matters except the wire. `--remote self` is this machine over a
+// private sshd, for a host with no Docker — a hosted macOS runner — where
+// the delay comes from pf's dummynet or `tc` on the loopback device. The
+// daemon, the forward, the client and the protocol are the same either
+// way; what the second one cannot show is a real network.
+//
+//   bun run m5 [--remote docker|self] [--rtt 0,50,200] [--keys 50] [--idle 120]
 
 import fs from "node:fs";
 import os from "node:os";
@@ -25,12 +33,15 @@ import {
   sleep,
   Term,
   waitFor,
+  type M5Remote,
 } from "./lib.ts";
+import { SelfRemote } from "./self.ts";
 
 const arg = (name: string, dflt: string) => {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 ? process.argv[i + 1]! : dflt;
 };
+const REMOTE = arg("remote", "docker");
 const RTTS = arg("rtt", "0,50,200").split(",").map(Number);
 const KEYS = Number(arg("keys", "50"));
 const IDLE_S = Number(arg("idle", "120"));
@@ -82,7 +93,8 @@ async function yesTest(t: Target) {
   const id = await session(
     t,
     ctl,
-    "read x; yes | head -c 20M; echo; echo DONE; read y",
+    // 20 MiB as a byte count: BSD `head` refuses `20M`.
+    "read x; yes | head -c 20971520; echo; echo DONE; read y",
   );
   const lib = await t.ctl();
   let frames = 0,
@@ -214,7 +226,7 @@ async function counterTest(t: Target) {
 }
 
 // --- load: SIGSTOP the client under `yes`, then kill the forward and come back.
-async function loadTest(t: Target, remote: Remote) {
+async function loadTest(t: Target, remote: M5Remote) {
   const notes: string[] = [];
   const ctl = await t.ctl();
   const id = await session(t, ctl, "read x; yes");
@@ -260,7 +272,7 @@ async function loadTest(t: Target, remote: Remote) {
 }
 
 // --- idle: an attached vim, nothing typed for a while, then a key.
-async function idleTest(t: Target, remote: Remote) {
+async function idleTest(t: Target, remote: M5Remote) {
   const ctl = await t.ctl();
   const id = await session(
     t,
@@ -286,7 +298,8 @@ async function idleTest(t: Target, remote: Remote) {
 async function main() {
   const wp = buildWp();
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wp-m5-")); // short: sun_path is 108 bytes
-  const remote = new Remote(tmp, wp);
+  const remote: M5Remote =
+    REMOTE === "self" ? new SelfRemote(tmp, wp) : new Remote(tmp, wp);
   const local = tempEnv(wp);
   const stop = async () => {
     await remote.stop();
@@ -304,14 +317,8 @@ async function main() {
       name: "container via ssh -L",
       wp,
       env: { ...CLIENT_ENV, WP_SOCKET: remote.localSock },
-      cwd: "/home/werk",
-      sessionEnv: {
-        HOME: "/home/werk",
-        USER: "werk",
-        PATH: "/usr/local/bin:/usr/bin:/bin",
-        TERM: "xterm-256color",
-        LANG: "C.UTF-8",
-      },
+      cwd: remote.cwd,
+      sessionEnv: remote.sessionEnv,
       ctl: () =>
         connect({ socket: remote.localSock, requestTimeoutMs: 30_000 }),
     };
@@ -333,17 +340,14 @@ async function main() {
     };
     say(`## Setup\n`);
     say(
-      `- host: ${sh(["ssh", "-V"], false).stderr.trim()}; container: openssh-server ${remote.exec(["dpkg-query", "-W", "-f", "${Version}", "openssh-server"]).stdout.trim()} on ${remote.exec(["sh", "-c", ". /etc/os-release; echo $PRETTY_NAME"]).stdout.trim()}; host kernel ${os.release()}`,
+      `- host: ${sh(["ssh", "-V"], false).stderr.trim()}, kernel ${os.release()}, ${process.arch}; ${remote.describe()}`,
     );
     say(
       `- \`wp --socket ${remote.localSock} ls\` from the host:\n\n\`\`\`\n${sh([wp, "--socket", remote.localSock, "ls"], false).stdout.trim() || "(no sessions)"}\n\`\`\``,
     );
     const c = await far.ctl();
     say(
-      `- hello through the forward: protocol ${c.daemon.protocol}, wp ${c.daemon.wp}, engine ${c.daemon.engine.slice(0, 8)}, daemon pid ${c.daemon.pid} (in the container)`,
-    );
-    say(
-      `- container daemon: ${remote.exec(["sh", "-c", "ps -o pid,sid,tty,args -p $(pgrep -f __daemon | head -1) | tail -1"], false).stdout.trim()}`,
+      `- hello through the forward: protocol ${c.daemon.protocol}, wp ${c.daemon.wp}, engine ${c.daemon.engine.slice(0, 8)}, daemon pid ${c.daemon.pid} (at the far end)`,
     );
     c.close();
     const rttRows: string[] = [],
@@ -395,7 +399,7 @@ async function main() {
     vimRows.push(`| local, no ssh | ${floor.line} | ${floor.resize} |`);
     chunkRows.push(`| local, no ssh | ${yFloor.chunks} | ${floor.chunks} |`);
     say(
-      `\n## RTT\n\n| netem RTT (ms) | TCP banner p50 (ms) | \`stats\` round trip via forward p50 / p90 (ms) | exec channel bulk (MiB/s) |\n| --- | --- | --- | --- |\n${rttRows.join("\n")}`,
+      `\n## RTT\n\n| applied RTT (ms) | TCP banner p50 (ms) | \`stats\` round trip via forward p50 / p90 (ms) | exec channel bulk (MiB/s) |\n| --- | --- | --- | --- |\n${rttRows.join("\n")}`,
     );
     say(
       `\n## \`yes | head -c 20M\`\n\n| RTT | \`wp attach\` in a PTY | library attacher on the same forward |\n| --- | --- | --- |\n${yesRows.join("\n")}`,

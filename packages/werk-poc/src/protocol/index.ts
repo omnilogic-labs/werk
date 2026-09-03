@@ -152,7 +152,13 @@ export interface HelloInfo {
 
 /** What a client sends. */
 export type ClientMessage =
-  | ({ t: "hello" } & HelloInfo)
+  /**
+   * `token` is presented only over the daemon's optional loopback TCP
+   * landing, where there is no filesystem permission to stand behind the
+   * connection; over the `AF_UNIX` socket it is absent and ignored
+   * (`../daemon/tcp.ts`).
+   */
+  | ({ t: "hello"; token?: string } & HelloInfo)
   | {
       t: "run";
       rid: number;

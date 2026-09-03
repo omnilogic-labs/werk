@@ -7,6 +7,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import type { Socket, TCPSocketListener } from "bun";
 import { heapStats } from "bun:jsc";
 import { GHOSTTY_COMMIT } from "../engine/ghostty-wasm/bytes.ts";
 import { getEngine, peekEngine } from "../engine/registry.ts";
@@ -39,6 +40,7 @@ import {
 import { Connection, QUEUE_BOUND } from "./connection.ts";
 import type { DaemonPaths } from "./paths.ts";
 import { Session } from "./session.ts";
+import { newToken, tcpListenPort, tokenPath, writeToken } from "./tcp.ts";
 import {
   deleteSnapshot,
   listSnapshotFiles,
@@ -86,6 +88,11 @@ export async function startServer(
   await import("../engine/all.ts");
   const sessions = new Map<string, Session>();
   const connections = new Set<Connection>();
+  // Off unless `WP_TCP_LISTEN` asks for it; the socket is the transport
+  // and this is the experiment beside it (./tcp.ts).
+  const tcpPort = tcpListenPort();
+  const tcpToken = tcpPort === null ? null : newToken();
+  const overTcp = new WeakSet<Connection>();
   const startedAt = Date.now();
   let seq = 0;
   let stopping = false;
@@ -433,6 +440,19 @@ export async function startServer(
         conn.end();
         return;
       }
+      // A connection that came in over the loopback landing has no
+      // filesystem permission behind it, so it names the token from the
+      // runtime directory or it is closed (./tcp.ts).
+      if (overTcp.has(conn) && msg.token !== tcpToken) {
+        log(`conn ${conn.seq}: tcp hello without the token; closing`);
+        conn.sendControl({
+          t: "error",
+          code: "unauthorised",
+          message: "this daemon's TCP listener needs the token from wp.tcp",
+        });
+        conn.end();
+        return;
+      }
       conn.helloDone = true;
       conn.sendControl({ t: "hello", pid: process.pid, ...mine });
       return;
@@ -466,43 +486,45 @@ export async function startServer(
   // path is stale; some platforms have to say so before the rename below can
   // put the new socket in place (../platform/).
   platform.clearStaleSocket(paths.socket);
+  const handlers = (tcp: boolean) => ({
+    open(socket: Socket<Connection>) {
+      const conn = new Connection(socket, host, ++seq);
+      socket.data = conn;
+      connections.add(conn);
+      if (tcp) overTcp.add(conn);
+    },
+    data(socket: Socket<Connection>, chunk: Uint8Array) {
+      const conn = socket.data;
+      try {
+        for (const frame of conn.parser.push(chunk)) onFrame(conn, frame);
+      } catch (e) {
+        const code = e instanceof ProtocolError ? e.code : "bad-frame";
+        log(`conn ${conn.seq}: ${String(e)}; closing`);
+        conn.sendControl({
+          t: "error",
+          code,
+          message: String((e as Error)?.message ?? e),
+        });
+        conn.end();
+      }
+    },
+    drain(socket: Socket<Connection>) {
+      socket.data.onDrain();
+    },
+    close(socket: Socket<Connection>) {
+      const conn = socket.data;
+      if (!conn) return;
+      conn.closed = true;
+      detach(conn);
+      connections.delete(conn);
+    },
+    error(socket: Socket<Connection>, err: Error) {
+      log(`conn ${socket.data?.seq}: socket error ${String(err)}`);
+    },
+  });
   const listener = Bun.listen<Connection>({
     unix: tmp,
-    socket: {
-      open(socket) {
-        const conn = new Connection(socket, host, ++seq);
-        socket.data = conn;
-        connections.add(conn);
-      },
-      data(socket, chunk) {
-        const conn = socket.data;
-        try {
-          for (const frame of conn.parser.push(chunk)) onFrame(conn, frame);
-        } catch (e) {
-          const code = e instanceof ProtocolError ? e.code : "bad-frame";
-          log(`conn ${conn.seq}: ${String(e)}; closing`);
-          conn.sendControl({
-            t: "error",
-            code,
-            message: String((e as Error)?.message ?? e),
-          });
-          conn.end();
-        }
-      },
-      drain(socket) {
-        socket.data.onDrain();
-      },
-      close(socket) {
-        const conn = socket.data;
-        if (!conn) return;
-        conn.closed = true;
-        detach(conn);
-        connections.delete(conn);
-      },
-      error(socket, err) {
-        log(`conn ${socket.data?.seq}: socket error ${String(err)}`);
-      },
-    },
+    socket: handlers(false),
   });
   // macOS gives the listener 8 KiB socket buffers and accepted sockets
   // inherit them, so raise both before the first client can connect.
@@ -529,6 +551,23 @@ export async function startServer(
   fs.renameSync(tmp, paths.socket);
   log(`listening on ${paths.socket} (pid ${process.pid}, bun ${Bun.version})`);
 
+  // The loopback landing, when it was asked for: the same handlers, plus a
+  // token the runtime directory keeps to this user, since a port has no
+  // permissions of its own.
+  let tcpListener: TCPSocketListener<Connection> | null = null;
+  if (tcpPort !== null && tcpToken !== null) {
+    const l = Bun.listen<Connection>({
+      hostname: "127.0.0.1",
+      port: tcpPort,
+      socket: handlers(true),
+    });
+    tcpListener = l;
+    writeToken(paths.dir, { port: l.port, token: tcpToken });
+    log(
+      `also listening on 127.0.0.1:${l.port} with a token in ${tokenPath(paths.dir)}`,
+    );
+  }
+
   const server: DaemonServer = {
     paths,
     sessions,
@@ -551,9 +590,14 @@ export async function startServer(
       for (const s of sessions.values()) s.dispose();
       sessions.clear();
       listener.stop(true);
+      tcpListener?.stop(true);
       try {
         fs.unlinkSync(paths.socket);
       } catch {}
+      if (tcpListener)
+        try {
+          fs.unlinkSync(tokenPath(paths.dir));
+        } catch {}
       setTimeout(() => process.exit(0), 50);
     },
   };

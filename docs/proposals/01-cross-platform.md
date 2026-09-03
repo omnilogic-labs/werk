@@ -83,26 +83,27 @@ and `/proc` reads returned `false` for every live process on any other OS.
 The surface, from what the PoC and the spikes actually needed. The rows with
 no implementation yet are marked; they are what §8's later steps fill in:
 
-| Concern              | POSIX                                                                                      | Windows                                                                                             |
-| -------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| `lock(dir)`          | `flock(LOCK_EX\|LOCK_NB)` via `bun:ffi`                                                    | `CreateFileW` + `LockFileEx` via `bun:ffi`; where `bun:ffi` is absent, an exclusive named pipe      |
-| `runtimeDir()`       | `$XDG_RUNTIME_DIR` → `$TMPDIR/werk-$UID`, mode checked                                     | `%LOCALAPPDATA%\werk`; mode and uid checks skipped (Bun reports `40666` and no uid)                 |
-| `stateDir()`         | `$XDG_STATE_HOME` → `~/.local/state/werk`                                                  | `%LOCALAPPDATA%\werk\state`                                                                         |
-| `listen()`           | `AF_UNIX` under `runtimeDir()`, bind-and-rename, `chmod 0600`                              | `AF_UNIX` works for a Bun client; a stale socket has to be unlinked first, and has no mode (§3)     |
-| `spawnDaemon()`      | `detached: true` (`setsid`), `cwd: /`                                                      | `detached: true, windowsHide: true`, stdio ignored, `cwd` the home directory                        |
-| readiness            | connect and complete `hello` within a deadline                                             | the same; the failure reason comes from the daemon's log file                                       |
-| `compiled`           | `import.meta.path` starts `/$bunfs/`                                                       | the virtual drive `B:\~BUN\`, and the path arrives with backslashes                                 |
-| `isAlive(pid)`       | `kill(pid, 0)`, then `/proc/<pid>/stat` — `ps -o state=` on macOS — so a zombie reads dead | `kill(pid, 0)` (works in Bun on Windows); there are no zombies to exclude                           |
-| `rss(pid)`           | `/proc/<pid>/status`, or `ps -o rss=` on macOS                                             | `process.memoryUsage()`, so only for this process                                                   |
-| `cpuModel()`         | `machdep.cpu.brand_string` on macOS, `/proc/cpuinfo` on Linux                              | libuv's own `os.cpus()`                                                                             |
-| `onShutdownSignal()` | `SIGTERM`/`SIGINT`/`SIGHUP`, each ending in the same graceful shutdown                     | nothing to register: no console-control event reaches a detached daemon                             |
-| `terminate(pid)`     | `SIGKILL`, when the `shutdown` message's grace has run out                                 | `TerminateProcess`, for the same reason                                                             |
-| `signalsExits`       | true: an exit status names the signal that ended a process                                 | false: Bun echoes back the name `proc.kill` was passed, and reports it for a `TerminateProcess`     |
-| `adoptTree(child)`   | the child's process group, which the inline `terminal` makes it the leader of              | a Job Object with `KILL_ON_JOB_CLOSE`, joined by inheritance; the child alone where there is no ffi |
-| tree `interrupt()`   | `SIGINT` to that group                                                                     | `0x03` into the ConPTY; what dies of it is up to the child's runtime                                |
-| tree `kill()`        | `SIGTERM` or `SIGKILL` to that group                                                       | `TerminateJobObject`, which takes the descendants with it                                           |
-| socket buffers       | Linux default 208 KiB; macOS 8 KiB, raised via `setsockopt` on the listener's `fd`         | unmeasured, so the kernel's own figure stands                                                       |
-| `defaultShell()`     | _not implemented:_ `$SHELL` → `/bin/sh`                                                    | _not implemented:_ probably config → `pwsh` → Windows PowerShell → `%COMSPEC%`; nobody has decided  |
+| Concern              | POSIX                                                                                      | Windows                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `lock(dir)`          | `flock(LOCK_EX\|LOCK_NB)` via `bun:ffi`                                                    | `CreateFileW` + `LockFileEx` via `bun:ffi`; where `bun:ffi` is absent, an exclusive named pipe       |
+| `runtimeDir()`       | `$XDG_RUNTIME_DIR` → `$TMPDIR/werk-$UID`, mode checked                                     | `%LOCALAPPDATA%\werk`; mode and uid checks skipped (Bun reports `40666` and no uid)                  |
+| `stateDir()`         | `$XDG_STATE_HOME` → `~/.local/state/werk`                                                  | `%LOCALAPPDATA%\werk\state`                                                                          |
+| `listen()`           | `AF_UNIX` under `runtimeDir()`, bind-and-rename, `chmod 0600`                              | `AF_UNIX` works for a Bun client; a stale socket has to be unlinked first, and has no mode (§3)      |
+| the socket's reach   | anything that can open the path                                                            | Bun only, unless the daemon also lands on `127.0.0.1:<port>` with a token file — measured, open (§3) |
+| `spawnDaemon()`      | `detached: true` (`setsid`), `cwd: /`                                                      | `detached: true, windowsHide: true`, stdio ignored, `cwd` the home directory                         |
+| readiness            | connect and complete `hello` within a deadline                                             | the same; the failure reason comes from the daemon's log file                                        |
+| `compiled`           | `import.meta.path` starts `/$bunfs/`                                                       | the virtual drive `B:\~BUN\`, and the path arrives with backslashes                                  |
+| `isAlive(pid)`       | `kill(pid, 0)`, then `/proc/<pid>/stat` — `ps -o state=` on macOS — so a zombie reads dead | `kill(pid, 0)` (works in Bun on Windows); there are no zombies to exclude                            |
+| `rss(pid)`           | `/proc/<pid>/status`, or `ps -o rss=` on macOS                                             | `process.memoryUsage()`, so only for this process                                                    |
+| `cpuModel()`         | `machdep.cpu.brand_string` on macOS, `/proc/cpuinfo` on Linux                              | libuv's own `os.cpus()`                                                                              |
+| `onShutdownSignal()` | `SIGTERM`/`SIGINT`/`SIGHUP`, each ending in the same graceful shutdown                     | nothing to register: no console-control event reaches a detached daemon                              |
+| `terminate(pid)`     | `SIGKILL`, when the `shutdown` message's grace has run out                                 | `TerminateProcess`, for the same reason                                                              |
+| `signalsExits`       | true: an exit status names the signal that ended a process                                 | false: Bun echoes back the name `proc.kill` was passed, and reports it for a `TerminateProcess`      |
+| `adoptTree(child)`   | the child's process group, which the inline `terminal` makes it the leader of              | a Job Object with `KILL_ON_JOB_CLOSE`, joined by inheritance; the child alone where there is no ffi  |
+| tree `interrupt()`   | `SIGINT` to that group                                                                     | `0x03` into the ConPTY; what dies of it is up to the child's runtime                                 |
+| tree `kill()`        | `SIGTERM` or `SIGKILL` to that group                                                       | `TerminateJobObject`, which takes the descendants with it                                            |
+| socket buffers       | Linux default 208 KiB; macOS 8 KiB, raised via `setsockopt` on the listener's `fd`         | unmeasured, so the kernel's own figure stands                                                        |
+| `defaultShell()`     | _not implemented:_ `$SHELL` → `/bin/sh`                                                    | _not implemented:_ probably config → `pwsh` → Windows PowerShell → `%COMSPEC%`; nobody has decided   |
 
 Two things the table does not say. The environment overrides that name a
 directory outright — `XDG_RUNTIME_DIR`, `XDG_STATE_HOME`, `WP_STATE_DIR`,
@@ -240,14 +241,25 @@ left the ConPTY behind. Both are run 33706263111.
 
 **The socket, beyond Bun.** A Windows `AF_UNIX` socket is reachable from Bun
 and from little else werk cares about: Node reaches only `\\.\pipe\` names,
-and Win32-OpenSSH forwards neither sockets nor pipes in either direction, and
-has no ControlMaster. So if a Windows client ever needs `ssh -L` to a Windows
-daemon, or a Node-based tool ever needs to talk to it, the daemon probably
-wants to listen on `127.0.0.1:<port>` with the port and a random token in a
-file only the user can read — which is what
-[`../research/09-remote-transport.md`](../research/09-remote-transport.md)
-already expected. That is a lean; the `AF_UNIX` socket works today for a
-Bun-only client, and nothing forces the choice yet.
+and Win32-OpenSSH forwards neither sockets nor pipes in either direction —
+its client refuses the spelling outright, `Bad local forwarding
+specification`, before it opens a connection — and has no ControlMaster. So a
+Windows client of a remote daemon, or a Node-based tool talking to a local
+one, needs the daemon to be listening on `127.0.0.1:<port>` as well, with the
+port and a random token in a file the runtime directory keeps to this user.
+
+Both now exist and both are measured
+([`../../packages/werk-poc/findings/m5.md`](../../packages/werk-poc/findings/m5.md),
+run 33713970573): the daemon carries the loopback landing behind
+`WP_TCP_LISTEN`, off by default, and the two transports are within noise of
+each other on the same machine — 0.01 against 0.02 ms per round trip, 2.1
+against 2.6 GiB/s one way, the same 128 KiB before the first short write. So
+the choice is not about speed. It is about who can reach the daemon (`ssh
+-L` and Node can reach a port and cannot reach the socket; anything else on
+the machine can reach the port too), what does the access control (the
+directory's permissions against a token in a file), and what a stale one
+leaves behind. §10 leaves it open, and neither the measurement nor this
+proposal picks.
 
 **What a Windows host would still cost** after the seam: ConPTY latency
 (p50 15.7 ms against 59–95 µs, which bounds how a Windows-hosted session
@@ -410,9 +422,16 @@ gated" is what the lanes do today and probably the right default.
   grounds — the seam is small but the ConPTY semantics behind it are real
   work — but nothing measured says the platform blocks native hosting.
 - **Windows transport** ([`../research/09-remote-transport.md`](../research/09-remote-transport.md)
-  open question 3) is narrowed: unix-socket forwarding is confirmed absent on
-  both sides of Win32-OpenSSH, so a Windows client of a remote daemon
-  probably forwards to a loopback TCP port, and that shapes the client.
+  open question 3) is narrowed to one question. Unix-socket forwarding is
+  absent on both sides of Win32-OpenSSH and its client refuses the spelling
+  before it connects, so a Windows client of a remote daemon forwards to a
+  loopback TCP port — and a `wp.exe` has now completed `hello` with a daemon
+  it did not start that way, with the daemon's frames arriving whole (§3, and
+  [`../../packages/werk-poc/findings/m5.md`](../../packages/werk-poc/findings/m5.md)).
+  What is left of the question is multiplexing, which the port does not
+  answer: `ControlMaster` is still absent on Windows, so a client that wants
+  one connection per host has to carry its own multiplexer or open an `ssh -L`
+  per host and live with that.
 - **The ffi prebuild matrix** ([`../research/07-packaging.md`](../research/07-packaging.md)
   open question 6) now has a measured hole on two of eight targets and a
   measured speed deficit on the one where both engines ran. Carrying it is a
@@ -448,6 +467,10 @@ so re-running is the way to check anything older.
 | The Windows lane with the fidelity oracle on the grid                     | `poc.yml`                                                                  | [33706788925](https://github.com/omnilogic-labs/werk/actions/runs/33706788925)                                                                                                                                                                 |
 | The three lanes with every Windows step of §8 merged                      | `poc.yml`                                                                  | [33710644108](https://github.com/omnilogic-labs/werk/actions/runs/33710644108)                                                                                                                                                                 |
 | The three lanes with teardown through the protocol                        | `poc.yml`                                                                  | [33707334391](https://github.com/omnilogic-labs/werk/actions/runs/33707334391)                                                                                                                                                                 |
+| A runner as its own ssh remote, on both platforms                         | [`step9-probes.yml`](../../.github/workflows/step9-probes.yml)             | [33712964081](https://github.com/omnilogic-labs/werk/actions/runs/33712964081), [33713528169](https://github.com/omnilogic-labs/werk/actions/runs/33713528169)                                                                                 |
+| A Windows `wp` through `ssh -L`, and its socket as `AF_UNIX` and as TCP   | `step9-probes.yml`                                                         | [33713970573](https://github.com/omnilogic-labs/werk/actions/runs/33713970573), [33714217277](https://github.com/omnilogic-labs/werk/actions/runs/33714217277)                                                                                 |
+| M5 on macOS, with the runner as its own remote                            | `step9-probes.yml`                                                         | [33714324454](https://github.com/omnilogic-labs/werk/actions/runs/33714324454), [33714139719](https://github.com/omnilogic-labs/werk/actions/runs/33714139719)                                                                                 |
+| The three lanes with the daemon's loopback landing in the tree            | `poc.yml`                                                                  | [33714561163](https://github.com/omnilogic-labs/werk/actions/runs/33714561163)                                                                                                                                                                 |
 | Job Objects, the kill path and `expect().rejects` on both Windows runners | `step2-probes.yml`                                                         | [33704743713](https://github.com/omnilogic-labs/werk/actions/runs/33704743713), [33706263111](https://github.com/omnilogic-labs/werk/actions/runs/33706263111), [33707210922](https://github.com/omnilogic-labs/werk/actions/runs/33707210922) |
 
 The cheap way to ask any further question is the same: a branch, a workflow
@@ -605,14 +628,60 @@ suites stop; 6 and 7 the platforms that already pass; 8 and 9 shape.
    _Done when_ one dispatch yields eight binaries and a `ci-result-<lane>.json`
    per lane. No stop condition beyond runner limits.
 
-9. **Transport.** Run the M5 spike on macOS. For a Windows client of a remote
-   daemon, forward to loopback TCP through `ssh -L`; for the Windows daemon's
-   own socket, measure both `AF_UNIX` and loopback TCP with a token file and
-   record both, since §10 leaves that choice open. _Done when_ M5's RTT table
-   exists for macOS and a Windows `wp` completes `hello` with a remote daemon
-   through the forward. _Wrong if_ the forwarded loopback port coalesces or
-   drops frames where the Linux forward in
-   [`m5.md`](../../packages/werk-poc/findings/m5.md) did not.
+9. **Transport — done.** M5 has an RTT table on macOS and a Windows `wp.exe`
+   completes `hello` with a daemon it did not start, through a forward.
+   Both halves needed an arrangement rather than a machine, and both
+   arrangements are what a hosted runner can be talked into.
+
+   **macOS.** A hosted macOS runner has no Docker, so M5's remote end cannot
+   be its container. `spikes/m5/self.ts` makes the runner its own remote — a
+   private `sshd` on a high port with a throwaway key, a second daemon in a
+   runtime directory of its own, `ssh -N -L` between them — with pf's
+   dummynet supplying the RTT that `tc netem` supplies in the container:
+   `sshd`'s banner goes from 5.5 ms to 112.5 ms with two 25 ms pipes and
+   back. The tables are in
+   [`m5.md`](../../packages/werk-poc/findings/m5.md) (run 33714324454). The
+   applied RTT lands (`stats` through the forward at 6.9, 58.2 and 213.4 ms
+   p50 for 0, 50 and 200 ms), a keystroke settles in one round trip at every
+   RTT, every frame of a 5 fps animation arrives one per read, a 30 MiB
+   flood is delivered through the forward with nothing dropped at any RTT,
+   and a killed forward costs the view alone. Two things differ from Linux
+   and neither is the forward: a keystroke over `-N` costs one round trip
+   here where it cost two there, so the Nagle penalty is a property of that
+   path rather than of `-N`; and the daemon reads a `yes` flood in tens of
+   bytes at a time on macOS, sending 750,000 frames where the Linux daemon
+   sent 2,200, which is what caps the flood at 1.7 MiB/s.
+
+   **Windows.** Win32-OpenSSH refuses a Unix path in a `-L` spelling before
+   it opens a connection, so the daemon carries a loopback landing behind
+   `WP_TCP_LISTEN` — off by default, the `AF_UNIX` socket and everything
+   about it unchanged — with the port and a random token in `wp.tcp` in the
+   runtime directory, and a client that arrives over the port names the
+   token in its `hello` or is closed. On `windows-latest`, with the runner
+   as its own ssh remote,
+   `wp.exe --socket tcp:127.0.0.1:<port> ls` completed `hello` through
+   `ssh -N -L` in 94 ms against a daemon started in another runtime
+   directory, and the same command without the token is refused (run
+   33713970573). That arrangement exercises the Windows ssh client's `-L`, a
+   Windows sshd's side of it and a client with only a port; it does not
+   exercise a real network, a non-Windows sshd, or any RTT.
+
+   **The stop condition did not fire.** Asked in the regime `m5.md` measured
+   on Linux — 200 frames sent 20 ms apart — both the macOS Unix-socket
+   forward and the Windows loopback-TCP forward delivered 200 frames in 200
+   reads, one frame per read. Asked with 20,000 stamped frames back to back,
+   all 20,000 arrived complete and in order through both, and the reads they
+   arrived in matched what the same server gives with no ssh in the path on
+   macOS (7.8–8.2 KB either way) and exceeded it on Windows (448 KiB through the
+   forward against 128 KiB direct) — aggregation of a saturated stream, with
+   nothing lost or reordered (run 33714217277).
+
+   **Both Windows transports are recorded and neither is chosen.** On the
+   same machine they are within noise of each other — 0.01 against 0.02 ms
+   per round trip, 2.1 against 2.6 GiB/s one way, the same 128 KiB before
+   the first short write, and 2.04 against 2.27 ms for a `stats` round trip
+   against the real daemon. What separates them is §3's list, and §10 still
+   holds the choice.
 
 **Done** is every lane in `poc.yml` and `matrix.yml` green with no forgiven
 suites except the slow-client scenario, on a pinned Bun, with a
