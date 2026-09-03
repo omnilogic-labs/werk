@@ -229,14 +229,27 @@ far enough to hit questions rather than blockers:
   108 bytes on Linux and 104 on macOS; nobody has measured where Winsock's
   bound falls.
 
-Three verdicts the Windows lane's suites report are artefacts of how the
-suites measure, not platform facts; the spike measured each directly:
+Three answers Windows gives to a POSIX-shaped question are not what they
+look like; the spike measured each directly, and where a suite has to ask,
+it asks the seam rather than the filesystem:
 
 - The socket file **does** exist. `Bun.listen({ unix })` on Windows is a
-  Winsock `AF_UNIX` socket whose path is a reparse point; Bun's `existsSync`,
-  `lstat` and `stat` all fail on it (`EACCES`), while a directory listing
-  shows it as a symlink. A stale one refuses rebinding until unlinked, and
-  the lock is probably what should prove it stale.
+  Winsock `AF_UNIX` socket whose path is a reparse point: Bun's `existsSync`
+  says no and `lstat` and `stat` fail on it with `EACCES`, live or stale
+  alike, while a directory listing shows it as a symlink and `icacls` reads
+  its ACL (run 33737161625). So the seam's `socketExists()` is a listing
+  entry that says symlink plus an `lstat` that says `EACCES`, and
+  `privateToUser()` is the ACL rather than a mode. NTFS has no mode bits
+  Bun can read — `stat` reports 0o666 on every file and a 0o600 asked of
+  `writeFileSync` changes nothing — so the socket and the `wp.tcp` token
+  file are this user's alone by inheritance from the profile directory,
+  which under `%LOCALAPPDATA%` and `%TEMP%` names `SYSTEM`,
+  `Administrators` and the user and nobody else. A stale socket refuses
+  rebinding until unlinked; the daemon takes the lock before it binds and
+  then unlinks whatever sits at the path (`clearStaleSocket()`), so the
+  lock is what says it is stale. Winsock does not follow a file symlink to
+  the socket (`Failed to connect`), where a junction to the socket's
+  directory is resolved on the way and reaches it.
 - The detached daemon **does** survive its parent's ConPTY closing. The old
   scenario judged liveness by MSYS `ps` reporting `sid == pid`, which it
   never does for a native process. Judged by a tick file and `kill(pid, 0)`,
@@ -257,8 +270,14 @@ finds them again:
   process with exit 9 and no message; Bun's CRT is not `ucrtbase`. Open files
   with `CreateFileW` directly when a HANDLE is needed.
 - `import.meta.path` inside a compiled Windows binary is `B:\~BUN\root\…`
-  with backslashes. A check for `B:/~BUN/` makes `wp.exe` believe it is
-  interpreted and relaunch its daemon the wrong way.
+  with backslashes, and the path an `import … with { type: "file" }` gives
+  is `B:/~BUN/root/…` with forward slashes; neither is `/$bunfs/root/`. A
+  check for one spelling makes `wp.exe` believe it is interpreted and
+  relaunch its daemon the wrong way, so the seam holds the one pattern,
+  `BUNFS_PATH`, that `compiled` and the M1 and M6 spike tests all ask.
+  `bun build --compile --outfile x` writes `x.exe` there, which
+  `CreateProcess` finds from `x` and `Bun.file("x").size` does not, and
+  `os.tmpdir()` reads `TEMP` rather than `TMPDIR`.
 - On `windows-11-arm` in Bun 1.3.14 the `bun:ffi` module imports and every
   `dlopen` through it throws "bun:ffi dlopen() is not available in this
   build (TinyCC is disabled)"; it is fixed upstream after 1.3.14. Anything
@@ -825,8 +844,8 @@ slow-client scenario is CPU headroom on a shared runner (§5) and unexplained
 throughput on macOS (§4); `darwin-x64` and `win32-arm64`'s ffi failures are a
 missing prebuild and a `bun:ffi` that cannot `dlopen`; `m3` and `m0` are
 nondeterministic. What remains as work rather than circumstance is
-`test-full`'s remaining failures on Windows, which §3 and §11 account for
-one by one. `m2` is on
+what `test-full` still fails on a run of the merged tree, which §11 lists
+against the unit runs that pass each file. `m2` is on
 the forgiven list for want of evidence rather than for a failure: every wait
 in its vim scenarios is a statement about the screen — the rows and the
 cursor the next step needs, held still, agreed with the daemon — and the
@@ -892,6 +911,10 @@ to re-introduce.
 | `GenerateConsoleCtrlEvent` returning success at the daemon        | It delivered nothing: a detached daemon has no console, and `AttachConsole` to it fails with error 5. Given a console, the event ends the process without Bun running a handler (§3).                                                                                                          |
 | `process.kill(pid, "SIGQUIT")` never returning on Windows x64     | libuv's `kill` writes a minidump of the target for that name; the caller sat in it until a 420 s step timeout (run 33737447986). arm64 terminates the child instead.                                                                                                                           |
 | An `output` frame ahead of the snapshot on a snapshot-mode attach | The connection was still attached to another session: the client installs the new handlers before the daemon has processed the attach, and that session's output lands in them. A flood an earlier test left running fills the window at ConPTY's pace.                                        |
+| `existsSync` saying the Windows daemon's socket is not there      | It is. A Winsock `AF_UNIX` path is a reparse point that `existsSync`, `stat` and `lstat` cannot open (`EACCES`); the directory listing can. Ask `platform.socketExists()` (§3).                                                                                                                |
+| A 0600 token file reading as 0666 on Windows                      | NTFS has no mode bits Bun can read and `writeFileSync`'s mode changes nothing. Who can read a file is its ACL, inherited from the profile directory; `platform.privateToUser()` reads it (§3).                                                                                                 |
+| `Bun.connect` failing on a symlink to a Windows socket            | Winsock does not follow a file symlink to the reparse point. A junction to the socket's directory is resolved on the way and reaches it (§3).                                                                                                                                                  |
+| A compiled spike's binary reading as 0 MB on Windows              | `bun build --compile --outfile x` wrote `x.exe`; `CreateProcess` appends the suffix and `Bun.file` does not. `os.tmpdir()` there reads `TEMP`, not `TMPDIR` (§3).                                                                                                                              |
 
 Two rules follow from that list. **Detect a platform capability by trying it
 rather than by asking what platform this is** — the arm64 `bun:ffi` row is
@@ -923,14 +946,13 @@ bytes**, because one of the three platforms rewrites the bytes.
 Nobody has decided any of this is worth doing; it is what the measurements
 stopped short of.
 
-- **`test-full`'s seven failures on Windows**, which §3 accounts for one by
-  one: four are `launch.test.ts` asking the filesystem about a socket that
-  is a reparse point, two name `/$bunfs/` where the path is `B:/~BUN/`, and
-  one reads the token file's POSIX mode bits where NTFS has an ACL. The two
-  about how a process ends — a stop from outside the protocol, and an exited
-  session's attach order — pass on both Windows runners (runs 33737447986,
-  33738268367); what the stop pipe's ACL allows another local user is the
-  part of that nobody has measured.
+- **`test-full` on Windows.** Every test that failed for a cause of its own
+  passes on the Windows runners in the unit runs — the launcher, TCP-landing
+  and compiled-binary files, which ask the seam (runs 33737702073 and
+  33737833426); the two about how a process ends (runs 33737447986 and
+  33738268367); the two floods (run 33737795804 in three attempts) — and
+  §8's table says what the merged tree holds. What the stop pipe's ACL
+  allows another local user is the part of that nobody has measured.
 - **What an MSYS vim does with a resize on a ConPTY.** The console has the
   new size within about 300 ms and says so to a child that asks; vim learns
   of it four times in five, and otherwise not until it next reads input, and

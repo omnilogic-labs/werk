@@ -55,6 +55,7 @@ import type {
   FileLock,
   Platform,
   KillOutcome,
+  Privacy,
   ProcessTree,
   SessionChild,
   SpawnDaemonOptions,
@@ -272,6 +273,29 @@ const stopReason = (name: string) => `stop request on ${name}`;
 const STOP_WORD = "stop";
 
 /**
+ * The principals `icacls` names as the platform's own: what root is on
+ * POSIX. A file under the user's profile inherits exactly these two and the
+ * user, and nothing Bun can ask changes that — `stat` reports 0o666 on
+ * every file and a 0o600 asked of `writeFileSync` leaves the ACL as it was
+ * (step10-fs-answers run 33737161625).
+ */
+const SYSTEM_PRINCIPALS = ["nt authority\\system", "builtin\\administrators"];
+
+/**
+ * One access-control entry as `icacls` prints it, `principal:(flags)(perms)`,
+ * with the file's own path stripped off the first line.
+ */
+function parseAce(
+  line: string,
+  file: string,
+): { principal: string; flags: string } | null {
+  let rest = line.replace(/\r$/, "");
+  if (rest.startsWith(file)) rest = rest.slice(file.length);
+  const m = /^\s*(.+?):((?:\([^)]*\))+)\s*$/.exec(rest);
+  return m ? { principal: m[1]!, flags: m[2]! } : null;
+}
+
+/**
  * Polls for the daemon's ready file until it appears, the daemon exits
  * without writing one, or `timeoutMs` passes. The file is removed once read.
  */
@@ -429,6 +453,72 @@ export const win32: Platform = {
 
   /** No mode bits on the reparse point; %LOCALAPPDATA% is per user already. */
   restrictSocket(): void {},
+
+  /**
+   * The reparse point Winsock leaves is invisible to `existsSync` and
+   * refuses `stat` and `lstat` with `EACCES`, live or stale alike, while a
+   * directory listing reports it as a symbolic link (run 33737161625). So
+   * the answer is a listing entry that says symlink and an `lstat` that
+   * says `EACCES`: a symlink proper lstats fine, and a file or directory
+   * is neither.
+   */
+  socketExists(file: string): boolean {
+    let entry: fs.Dirent | undefined;
+    try {
+      entry = fs
+        .readdirSync(path.dirname(file), { withFileTypes: true })
+        .find((d) => d.name === path.basename(file));
+    } catch {
+      return false;
+    }
+    if (!entry?.isSymbolicLink()) return false;
+    try {
+      fs.lstatSync(file);
+      return false;
+    } catch (e) {
+      return (e as NodeJS.ErrnoException).code === "EACCES";
+    }
+  },
+
+  /**
+   * The ACL, as `icacls` prints it, since NTFS has no mode bits Bun can
+   * read. Private means every entry that grants anything names this user,
+   * `NT AUTHORITY\SYSTEM` or `BUILTIN\Administrators`; the last two hold
+   * every file under a profile, the way root holds every file on POSIX,
+   * and are what a runtime directory under `%LOCALAPPDATA%` or `%TEMP%`
+   * inherits. `icacls` reads the socket's reparse point too, which `stat`
+   * cannot.
+   */
+  privateToUser(file: string): Privacy {
+    const r = Bun.spawnSync(["icacls", file], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const out = `${r.stdout.toString()}${r.stderr.toString()}`.replace(
+      /\r/g,
+      "",
+    );
+    if (r.exitCode !== 0)
+      return {
+        private: false,
+        detail: `icacls exited ${r.exitCode}: ${out.trim().split("\n")[0] ?? ""}`,
+      };
+    const user = os.userInfo().username.toLowerCase();
+    const aces = out
+      .split("\n")
+      .map((line) => parseAce(line, file))
+      .filter((a): a is NonNullable<typeof a> => a !== null);
+    const others = aces.filter((a) => {
+      if (/\((?:DENY|N)\)/.test(a.flags)) return false;
+      const principal = a.principal.toLowerCase();
+      const name = principal.slice(principal.lastIndexOf("\\") + 1);
+      return name !== user && !SYSTEM_PRINCIPALS.includes(principal);
+    });
+    return {
+      private: aces.length > 0 && others.length === 0,
+      detail: aces.map((a) => `${a.principal}:${a.flags}`).join("; "),
+    };
+  },
 
   /** Unmeasured; the kernel's own figure stands. */
   defaultSocketBufferBytes(): number | null {

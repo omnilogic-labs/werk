@@ -379,17 +379,39 @@ PROBE unix-socket-named-pipe: ok — listen and connect round-tripped "ping" (ad
 
 "Address on disk: no" is what Bun's `existsSync` says, and it is wrong. The
 path is a reparse point (`IO_REPARSE_TAG_AF_UNIX`): `existsSync` returns
-false, `lstat` and `stat` fail with `EACCES`, and a directory listing reports
-the entry as a symlink. Bun unlinks it on `stop()`. A killed daemon's file
-refuses a rebind until it is unlinked; renaming a fresh socket over a stale
-one works; a second listen on a live socket is refused. So the daemon's
-bind-and-rename holds on Windows provided the stale file is removed first,
-which `server.ts` does, and the lock is probably what should prove it stale.
-The `EACCES` is not Bun's alone: Node's `stat` fails on the same path, which
-is why `actions/upload-artifact` refuses a directory with a live socket in
-it (run 33696944598, below). The socket is reachable from Bun and from
-little else: Node and libuv reach only `\\.\pipe\` names, and Win32-OpenSSH
-forwards neither sockets nor pipes
+false, `lstat` and `stat` fail with `EACCES`, `accessSync` succeeds, and a
+directory listing reports the entry as a symlink — for a live socket and a
+stale one alike, so nothing in `fs` tells the two apart (run 33737161625).
+`icacls` reads the reparse point where `stat` cannot, and shows the ACL it
+inherits from its directory. So the seam answers both questions a test has:
+`socketExists()` is a listing entry that says symlink plus an `lstat` that
+says `EACCES` (a symlink proper lstats fine, and a file or directory is
+neither), and `privateToUser()` is the ACL, private when every entry that
+grants anything names this user, `NT AUTHORITY\SYSTEM` or
+`BUILTIN\Administrators` — what root is on POSIX, and what everything under
+the profile inherits. NTFS gives Bun nothing else to read: `stat` reports
+0o666 on every file and 0o40666 on every directory, and a 0o600 asked of
+`writeFileSync` leaves the ACL as it was, so `wp.tcp` and the socket are
+this user's alone by where the runtime directory sits, under
+`%LOCALAPPDATA%` or `%TEMP%`, both of which name those three principals
+and nobody else.
+
+Bun unlinks the socket on `stop()`. A killed daemon's file refuses a rebind
+until it is unlinked; renaming a fresh socket over a stale one works; a
+second listen on a live socket is refused. So the daemon's bind-and-rename
+holds on Windows provided the stale file is removed first, which
+`server.ts` does through the seam's `clearStaleSocket()` after `main.ts`
+has taken the lock — the lock is what says it is stale. A connect to the
+stale one fails at once (`no daemon at …`, 1 ms) and the next autostart
+replaces it in about 130 ms. Winsock does not follow a file symlink to the
+socket — `Bun.connect` on one says `Failed to connect` — where a junction to
+the socket's directory is resolved on the way and reaches it in 2 ms, which
+is how `launch.test.ts` reaches the socket from elsewhere. The `EACCES` is
+not Bun's alone: Node's `stat` fails on the same path, which is why
+`actions/upload-artifact` refuses a directory with a live socket in it (run
+33696944598, below). The socket is reachable from Bun and from little else:
+Node and libuv reach only `\\.\pipe\` names, and Win32-OpenSSH forwards
+neither sockets nor pipes
 ([`../../../docs/research/09-remote-transport.md`](../../../docs/research/09-remote-transport.md)
 §3).
 
@@ -753,9 +775,11 @@ of the seam's interface, from [PR #3](https://github.com/omnilogic-labs/werk/pul
 | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `lock()`                           | `CreateFileW` + `LockFileEx` via `bun:ffi`; falls back to an exclusive `\\.\pipe\werk-poc-lock-<hash>` listener where `bun:ffi` is absent (forced on x64 via `WP_WIN32_LOCK=pipe`; the lock `win32-arm64` holds) |
 | `spawnDaemon()`, readiness         | no fourth stdio pipe; a `--ready-file` polled instead, which the daemon writes atomically; `detached: true, windowsHide: true`; `cwd` the home directory                                                         |
-| `compiled`                         | accepts the virtual drive `B:\~BUN\`, backslashes and all                                                                                                                                                        |
+| `compiled`, `BUNFS_PATH`           | accepts the virtual drive `B:\~BUN\`, backslashes and all, and `B:/~BUN/` as an embedded file's path spells it; the M1 and M6 spike tests ask the same pattern                                                   |
 | `runtimeDir()`                     | `%LOCALAPPDATA%\werk-poc`; skips the uid and `0o077` checks                                                                                                                                                      |
 | `listen()`                         | unlinks a stale socket before bind-and-rename; no `chmod`                                                                                                                                                        |
+| `socketExists()`                   | a directory-listing entry that says symlink plus an `lstat` that says `EACCES`, since `existsSync` and `stat` cannot see the reparse point                                                                       |
+| `privateToUser()`                  | the `icacls` ACL: private when nothing but this user, `SYSTEM` and `Administrators` is granted anything, there being no mode bits to read                                                                        |
 | `rss()`                            | `process.memoryUsage()`                                                                                                                                                                                          |
 | `onShutdownSignal()`               | installs no signal handlers: nothing could fire one                                                                                                                                                              |
 | `listenForStop()`, `requestStop()` | a `\\.\pipe\werk-poc-stop-<hash of the lock path>` listener beside the socket, open for the daemon's lifetime; the word `stop` written to it is the request, from Bun or PowerShell alike (below)                |
@@ -819,9 +843,13 @@ take 1.3–1.9 s (reattach) and 1.4–4.3 s (resize, the top of the range being
 the 3 s the harness waits for a redraw that is not coming), the probe child
 1.2–1.4 s, the shell 0.8–5.7 s.
 
-`test-full`'s failures are below. `daemon.test.ts` is in the failing set rather
-than the no-verdict set now: teardown through the protocol closed the file
-that used to panic, so nothing is hidden behind it any more.
+What `test-full` makes of the merged tree is below. `daemon.test.ts` is in
+the verdict set rather than the no-verdict set: teardown through the protocol
+closed the file that used to panic, so nothing is hidden behind it. The
+files that ask about the socket, the token file or the compiled binary's
+root — `launch.test.ts`, `tcp.test.ts`, and the M1 and M6 spikes — ask the
+seam and pass on the lane (runs 33737702073 and 33737833426); the rows they
+ask are in "Where each layer stands" above.
 
 The `m2` and `ops` rows were harness shape, and both suites reach the daemon
 with it changed (runs 33705813223 and 33706143058):
@@ -852,20 +880,16 @@ with it changed (runs 33705813223 and 33706143058):
   Winsock's bound is has not been measured, only that 116 refuses and 75
   binds. The Windows lane gates on `ops` now.
 
-The failing tests, by cause:
-
-| Test                                         | Why                                                                                              |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `launch.test.ts`: four                       | `stat` on the socket's reparse point (`EACCES`), a stale socket `existsSync` cannot see, `pgrep` |
-| `m1/embedded.test.ts`, `m6/compiled.test.ts` | both name `/$bunfs/`, which is `B:/~BUN/` here                                                   |
-
-None of them is a fidelity failure. Where the two harness launchers go from
-here is a design question rather than a measurement, and it is left to the
-proposal. The two tests about how a process ends — a stop from outside the
-protocol snapshotting every session, and an exited session attaching in
+`test-full` on the Windows lane: no file in it fails for a cause of its own on the unit runs. The launcher,
+TCP-landing and compiled-binary files ask the seam (runs 33737702073 and
+33737833426); the two tests about how a process ends — a stop from outside
+the protocol snapshotting every session, and an exited session attaching in
 snapshot mode with its snapshot first — pass on both Windows runners, each
 in a `bun test` process of its own as the lane runs them (runs 33737447986
-and 33738268367); "A stop the daemon can hear" below has the measurements.
+and 33738268367), and "A stop the daemon can hear" below has the
+measurements; the two floods come from Bun and finish in about a second
+(run 33737795804). Where the two harness launchers go from here is a design
+question rather than a measurement, and it is left to the proposal.
 
 Teardown is the other thing that moved. The `kill` suite runs the one test
 that says a kill reaches the child and the session reports what happened to
@@ -1164,8 +1188,7 @@ clean, `prettier --check .` clean).
   daemon; both unverified either way.
 - **The rest of the Windows port.** The seam's `win32` side stops where the
   measurements above say it stops: kill through the protocol, the snapshot
-  frame's ordering against late ConPTY output, the socket's reparse point
-  where a test calls `stat` on it, a `darwin-x64` ffi build.
+  frame's ordering against late ConPTY output, a `darwin-x64` ffi build.
 
 ## Auditing this
 
