@@ -341,18 +341,27 @@ if (c) wps.push([c, "daemon compiled"]);
 
 for (const [wp, tag] of wps) await daemonContention(wp, tag, false);
 
-// On a runner that has `bun:ffi` the lock above was `LockFileEx`, so force
-// the fallback and ask the same question of the pipe. On `win32-arm64` there
-// is nothing to force: the run above already was the pipe.
+// On a runner whose `bun:ffi` works the lock above was `LockFileEx`, so
+// force the fallback and ask the same question of the pipe. What decides is
+// whether `dlopen` works, not whether the module imports: on `win32-arm64`
+// it imports and every call through it throws, so the seam already took the
+// pipe and there is nothing left to force.
 if (process.platform === "win32") {
-  let hasFfi = true;
+  let dlopenWorks = false;
   try {
-    await import("bun:ffi");
-  } catch {
-    hasFfi = false;
-  }
-  if (hasFfi) await daemonContention(interpreted, "daemon forced-pipe", true);
-  else say("daemon forced-pipe", "skipped — no bun:ffi, the run above is it");
+    const m = await import("bun:ffi");
+    m.dlopen("kernel32.dll", {
+      GetLastError: { args: [], returns: m.FFIType.u32 },
+    });
+    dlopenWorks = true;
+  } catch {}
+  if (dlopenWorks)
+    await daemonContention(interpreted, "daemon forced-pipe", true);
+  else
+    say(
+      "daemon forced-pipe",
+      "nothing to force — dlopen does not work here, so the runs above are the pipe",
+    );
 }
 
 try {
