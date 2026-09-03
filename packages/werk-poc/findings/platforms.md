@@ -531,7 +531,7 @@ M2 says the same thing at the level the spike exists to test. On the Windows
 lane, `vim` reattached at three sizes, a TUI redrawing every 200 ms and
 reattached while it counted, and a coloured shell after typing into it all
 agree with the daemon's screen and cursor, through a ConPTY, cell for cell.
-The suite passes there: seven scenarios run, and the eighth, which makes one
+The suite passes there: eight scenarios run, and the ninth, which makes one
 client slow by stopping it, is skipped for want of a SIGSTOP Windows does not
 have.
 
@@ -730,17 +730,43 @@ Four of those rows are gated, and a red gate means a regression rather than
 `ops`, along with `install`, `typecheck`, `test-pure`, `build-web`, `build`,
 `diff` and `probes`. `m0-probes`, `test-full`, `m2` and `m3` are recorded.
 
-`m2` is the one that moved and then moved back. Its reattach fidelity does
-hold through a ConPTY — the scenarios compare cell grids now, not bytes — but
-the two vim scenarios race the pty's delivery, and across three runs of this
-tree the suite passed once (33709340151, eight of eight) and failed twice
-(33708479479 on both vim scenarios, 33710644108 on the resize alone). Two
-consecutive passes on one branch are what put it on the gate; a third run is
-what took it off again. What the resize scenario asks for is the 28 file rows
-vim redraws into a 30-row window, and what a ConPTY gives it is the 23 vim
-drew — a number both screens agree on, so this is vim's redraw arriving late
-rather than a fidelity gap, and a `waitFor` on the redrawn rows has already
-not been enough.
+`m2`'s reattach fidelity holds through a ConPTY — the scenarios compare cell
+grids, not bytes — and the suite passes eighteen runs in eighteen on
+`windows-latest` (run 33738702935: six jobs of `bun run m2` three times each,
+with the lane's daemon stop between runs, and sixty runs of the resize
+scenario alone). One lane run is one sample of a race, so that matrix is the
+shape of the evidence: `.github/workflows/step10-m2-vim-probes.yml` prints
+one `PROBE` line per run. What the same matrix says about the tree without
+the harness's screen-based waits is four failures in eighteen (run
+33736946766), and every one of them is a wait on the wrong thing:
+
+- **A ConPTY delivers for a moment after the process it fed has exited.** The
+  `:q!` and `ctrl-\` checks wait for `wp` to exit and then look for the
+  `[exited]` or `[detached]` line; three runs in eighteen found the exit and
+  not the line, which arrived up to 40 ms later. The harness waits for the
+  line, not the exit — as the unknown-id scenario already did.
+- **vim's redraw after a resize is not slow; it is missing.** The resize
+  scenario reattaches at 100×30 and waits for the 28 file rows vim draws into
+  a 30-row window. In 55 of 78 samples they are there within about 300 ms of
+  the attach, agreeing with the daemon; in the other 23 vim still shows 23
+  rows eleven seconds on, and the next resize reaches it in about 190 ms. A
+  scenario with vim taken out — a child that parks the cursor in the far
+  corner and asks the terminal where it is — has the ConPTY answering the new
+  size within 400 ms in every one of 78 runs, and its runtime raising one
+  `resize` event per resize. So the resize reaches the pty every time, and
+  what is lost is between the console and the MSYS vim that Git for Windows
+  ships (`/usr/bin/vim`, 9.2): it learns of the size when it next reads
+  input, and a `ctrl-l` then repaints it at 29 rows in a 30-row window and 34
+  in 35 — one row too many, whichever the console said. The second resize
+  shows the same in 15 of 78. On a re-encoding pty the scenario records what
+  vim shows, and what a `ctrl-l` brings, and asserts what the pty answers
+  for: the session is resized and the screens agree. On a pty that passes
+  bytes through the row count is asserted, after the `SIGWINCH` as well.
+
+The remaining spread is the runner's: across the eighteen the vim scenarios
+take 1.3–1.9 s (reattach) and 1.4–4.3 s (resize, the top of the range being
+the 3 s the harness waits for a redraw that is not coming), the probe child
+1.2–1.4 s, the shell 0.8–5.7 s.
 
 `test-full`'s eight are below. `daemon.test.ts` is in the failing set rather
 than the no-verdict set now: teardown through the protocol closed the file
@@ -783,7 +809,6 @@ The eight failing tests, by cause:
 | `launch.test.ts`: four                                     | `stat` on the socket's reparse point (`EACCES`), a stale socket `existsSync` cannot see, `pgrep` |
 | `snapshot.test.ts`: a real SIGTERM snapshots every session | signals do not reach a detached Windows daemon                                                   |
 | `m1/embedded.test.ts`, `m6/compiled.test.ts`               | both name `/$bunfs/`, which is `B:/~BUN/` here                                                   |
-| `m2/fidelity.test.ts`                                      | the vim-resize scenario, the same race the `m2` suite fails on about two runs in three           |
 
 None of the eight is a fidelity failure. Where the kill path, the snapshot
 ordering and the two harness launchers go from here is a design question

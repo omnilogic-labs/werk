@@ -357,18 +357,66 @@ export async function compare(
   };
 }
 
-/** Polls until the screens agree or `ms` passes; returns the last comparison. */
+export interface SettleOptions {
+  /**
+   * What the stand-in terminal has to show before the screens are compared:
+   * the rows or the cursor the next step depends on. Without it, any screen
+   * the daemon agrees with will do.
+   */
+  until?: (screen: string, cursor: { x: number; y: number }) => boolean;
+  /**
+   * How long the stand-in terminal's screen and cursor have to stay as they
+   * are before they are compared. A pty delivers in pieces — a ConPTY in
+   * round trips of about 15 ms, re-encoded on the way — so a screen that
+   * matches for an instant in the middle of a redraw is not the one the
+   * user ends up with.
+   */
+  quietMs?: number;
+}
+
+/**
+ * Polls until the stand-in terminal shows what the next step depends on
+ * (`until`), has shown it unchanged for `quietMs`, and agrees with the
+ * daemon's own screen for `id` — or `ms` passes. Returns the last
+ * comparison either way, so a scenario reports what it saw rather than
+ * that it waited. With no options this is "the screens agree", the
+ * fidelity check every scenario ends on.
+ */
 export async function settle(
   client: Client,
   id: string,
   term: UserTerminal,
   ms: number,
+  opts: SettleOptions = {},
 ): Promise<Awaited<ReturnType<typeof compare>>> {
+  const { until, quietMs = 0 } = opts;
   const end = Date.now() + ms;
-  let last = await compare(client, id, term);
-  while ((last.diff.length > 0 || !last.cursorMatch) && Date.now() < end) {
-    await sleep(50);
-    last = await compare(client, id, term);
+  let last: Awaited<ReturnType<typeof compare>> | null = null;
+  let seen = "";
+  let since = Date.now();
+  for (;;) {
+    const now = Date.now();
+    const cursor = term.cursor();
+    const screen = term.screen();
+    const key = `${cursor.x},${cursor.y}\n${screen}`;
+    if (key !== seen) {
+      seen = key;
+      since = now;
+    }
+    if ((until?.(screen, cursor) ?? true) && now - since >= quietMs) {
+      last = await compare(client, id, term);
+      if (last.diff.length === 0 && last.cursorMatch) return last;
+    }
+    if (Date.now() >= end) break;
+    await sleep(20);
   }
-  return last;
+  return last ?? (await compare(client, id, term));
+}
+
+/** How many of `screen`'s rows, from the top, are lines of the hundred-line file the vim scenarios open. */
+export function fileRows(screen: string): number {
+  const rows = screen.split("\n");
+  let n = 0;
+  while (n < rows.length && /^line \d+:/.test(rows[n]!)) n++;
+  return n;
 }
