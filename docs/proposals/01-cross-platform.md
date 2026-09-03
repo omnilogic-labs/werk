@@ -470,6 +470,7 @@ so re-running is the way to check anything older.
 | A runner as its own ssh remote, on both platforms                         | [`step9-probes.yml`](../../.github/workflows/step9-probes.yml)             | [33712964081](https://github.com/omnilogic-labs/werk/actions/runs/33712964081), [33713528169](https://github.com/omnilogic-labs/werk/actions/runs/33713528169)                                                                                 |
 | A Windows `wp` through `ssh -L`, and its socket as `AF_UNIX` and as TCP   | `step9-probes.yml`                                                         | [33713970573](https://github.com/omnilogic-labs/werk/actions/runs/33713970573), [33714217277](https://github.com/omnilogic-labs/werk/actions/runs/33714217277)                                                                                 |
 | M5 on macOS, with the runner as its own remote                            | `step9-probes.yml`                                                         | [33714324454](https://github.com/omnilogic-labs/werk/actions/runs/33714324454), [33714139719](https://github.com/omnilogic-labs/werk/actions/runs/33714139719)                                                                                 |
+| The three lanes with the daemon's loopback landing in the tree            | `poc.yml`                                                                  | [33714561163](https://github.com/omnilogic-labs/werk/actions/runs/33714561163)                                                                                                                                                                 |
 | Job Objects, the kill path and `expect().rejects` on both Windows runners | `step2-probes.yml`                                                         | [33704743713](https://github.com/omnilogic-labs/werk/actions/runs/33704743713), [33706263111](https://github.com/omnilogic-labs/werk/actions/runs/33706263111), [33707210922](https://github.com/omnilogic-labs/werk/actions/runs/33707210922) |
 
 The cheap way to ask any further question is the same: a branch, a workflow
@@ -627,14 +628,60 @@ suites stop; 6 and 7 the platforms that already pass; 8 and 9 shape.
    _Done when_ one dispatch yields eight binaries and a `ci-result-<lane>.json`
    per lane. No stop condition beyond runner limits.
 
-9. **Transport.** Run the M5 spike on macOS. For a Windows client of a remote
-   daemon, forward to loopback TCP through `ssh -L`; for the Windows daemon's
-   own socket, measure both `AF_UNIX` and loopback TCP with a token file and
-   record both, since §10 leaves that choice open. _Done when_ M5's RTT table
-   exists for macOS and a Windows `wp` completes `hello` with a remote daemon
-   through the forward. _Wrong if_ the forwarded loopback port coalesces or
-   drops frames where the Linux forward in
-   [`m5.md`](../../packages/werk-poc/findings/m5.md) did not.
+9. **Transport — done.** M5 has an RTT table on macOS and a Windows `wp.exe`
+   completes `hello` with a daemon it did not start, through a forward.
+   Both halves needed an arrangement rather than a machine, and both
+   arrangements are what a hosted runner can be talked into.
+
+   **macOS.** A hosted macOS runner has no Docker, so M5's remote end cannot
+   be its container. `spikes/m5/self.ts` makes the runner its own remote — a
+   private `sshd` on a high port with a throwaway key, a second daemon in a
+   runtime directory of its own, `ssh -N -L` between them — with pf's
+   dummynet supplying the RTT that `tc netem` supplies in the container:
+   `sshd`'s banner goes from 5.5 ms to 112.5 ms with two 25 ms pipes and
+   back. The tables are in
+   [`m5.md`](../../packages/werk-poc/findings/m5.md) (run 33714324454). The
+   applied RTT lands (`stats` through the forward at 6.9, 58.2 and 213.4 ms
+   p50 for 0, 50 and 200 ms), a keystroke settles in one round trip at every
+   RTT, every frame of a 5 fps animation arrives one per read, a 30 MiB
+   flood is delivered through the forward with nothing dropped at any RTT,
+   and a killed forward costs the view alone. Two things differ from Linux
+   and neither is the forward: a keystroke over `-N` costs one round trip
+   here where it cost two there, so the Nagle penalty is a property of that
+   path rather than of `-N`; and the daemon reads a `yes` flood in tens of
+   bytes at a time on macOS, sending 750,000 frames where the Linux daemon
+   sent 2,200, which is what caps the flood at 1.7 MiB/s.
+
+   **Windows.** Win32-OpenSSH refuses a Unix path in a `-L` spelling before
+   it opens a connection, so the daemon carries a loopback landing behind
+   `WP_TCP_LISTEN` — off by default, the `AF_UNIX` socket and everything
+   about it unchanged — with the port and a random token in `wp.tcp` in the
+   runtime directory, and a client that arrives over the port names the
+   token in its `hello` or is closed. On `windows-latest`, with the runner
+   as its own ssh remote,
+   `wp.exe --socket tcp:127.0.0.1:<port> ls` completed `hello` through
+   `ssh -N -L` in 94 ms against a daemon started in another runtime
+   directory, and the same command without the token is refused (run
+   33713970573). That arrangement exercises the Windows ssh client's `-L`, a
+   Windows sshd's side of it and a client with only a port; it does not
+   exercise a real network, a non-Windows sshd, or any RTT.
+
+   **The stop condition did not fire.** Asked in the regime `m5.md` measured
+   on Linux — 200 frames sent 20 ms apart — both the macOS Unix-socket
+   forward and the Windows loopback-TCP forward delivered 200 frames in 200
+   reads, one frame per read. Asked with 20,000 stamped frames back to back,
+   all 20,000 arrived complete and in order through both, and the reads they
+   arrived in matched what the same server gives with no ssh in the path on
+   macOS (7.8 KB either way) and exceeded it on Windows (448 KiB through the
+   forward against 128 KiB direct) — aggregation of a saturated stream, with
+   nothing lost or reordered (run 33714217277).
+
+   **Both Windows transports are recorded and neither is chosen.** On the
+   same machine they are within noise of each other — 0.01 against 0.02 ms
+   per round trip, 2.1 against 2.6 GiB/s one way, the same 128 KiB before
+   the first short write, and 2.04 against 2.27 ms for a `stats` round trip
+   against the real daemon. What separates them is §3's list, and §10 still
+   holds the choice.
 
 **Done** is every lane in `poc.yml` and `matrix.yml` green with no forgiven
 suites except the slow-client scenario, on a pinned Bun, with a
