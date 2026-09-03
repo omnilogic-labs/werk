@@ -34,4 +34,4 @@ for n in $(seq 1 "$runs"); do
 done
 echo "RATE harness: $late/$runs runs had a file that passed and did not exit"
 # What the harness's kill left behind, if anything.
-powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='bun.exe'\" | Select-Object ProcessId,ParentProcessId,ThreadCount,CommandLine | Format-Table -AutoSize -Wrap | Out-String -Width 300" 2>/dev/null | tr -d '\r' | sed 's/^/  LEFT /' | grep -av '^  LEFT *$'
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='bun.exe'\" | Select-Object ProcessId,ParentProcessId,ThreadCount,CommandLine | Format-Table -AutoSize -Wrap | Out-String -Width 300" 2>/dev/null | tr -d '\r' | sed 's/^/  LEFT /' | grep -av '^  LEFT *$' || true

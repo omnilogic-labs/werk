@@ -634,22 +634,27 @@ instead of seventeen.
 
 On `windows-latest` a `bun test` process whose file ran the ghostty-wasm
 engine prints its whole tally — `15 pass`, `0 fail`, `Ran 15 tests across 1
-file. [170.00ms]` — and then, about one time in a hundred, never exits. The
-probe workflow on the step branch (`.github/workflows/step10-exit-hang-probes.yml`)
-ran one file per process under the lane's own `timeout`, six jobs at a time:
+file. [170.00ms]` — and then, about one time in a hundred, never exits;
+`bun run m3` prints every table and does the same about one run in ten.
+The probe workflow on the step branch
+(`.github/workflows/step10-exit-hang-probes.yml`) ran one file per process
+under the lane's own `timeout`, six jobs at a time:
 
-| What the process did before its tally                | Runs  | Did not exit | Run         |
-| ---------------------------------------------------- | ----- | ------------ | ----------- |
-| nothing of the engine                                | 600   | 0            | 33745611845 |
-| compiled and instantiated the module                 | 600   | 0            | 33745611845 |
-| created one terminal, wrote 12 bytes, disposed it    | 600   | 5            | 33745611845 |
-| `reattach.test.ts`                                   | 180   | 5            | 33745611845 |
-| `encoders.test.ts`                                   | 180   | 1            | 33745611845 |
-| `terminal.test.ts`                                   | 180   | 0            | 33745611845 |
-| the same two files, `BUN_JSC_useConcurrentGC=false`  | 1,200 | 36           | 33745611845 |
-| the same two files, `BUN_JSC_useConcurrentJIT=false` | 1,200 | 0            | 33745611845 |
+| What the process did before its tally                                          | Runs  | Did not exit |
+| ------------------------------------------------------------------------------ | ----- | ------------ |
+| nothing of the engine                                                          | 1,200 | 0            |
+| compiled and instantiated the module                                           | 1,200 | 0            |
+| created one terminal, wrote 12 bytes, disposed it                              | 1,200 | 11           |
+| `reattach.test.ts`                                                             | 360   | 8            |
+| `encoders.test.ts`                                                             | 360   | 1            |
+| `terminal.test.ts`                                                             | 360   | 0            |
+| `bun run m3`                                                                   | 60    | 6            |
+| the one-terminal file and `reattach.test.ts`, `BUN_JSC_useConcurrentGC=false`  | 2,400 | 75           |
+| `bun run m3`, `BUN_JSC_useConcurrentGC=false`                                  | 60    | 5            |
+| the one-terminal file and `reattach.test.ts`, `BUN_JSC_useConcurrentJIT=false` | 2,400 | 0            |
 
-The files start nothing and spawn nothing, and the engine holds no handle:
+Runs 33745611845 and 33746161808, six jobs each, on `windows-latest`. The
+files start nothing and spawn nothing, and the engine holds no handle:
 `src/engine/ghostty-wasm/` has no timer, worker, registry or file open
 after `Bun.file().arrayBuffer()` returns. What separates the rows is
 whether wasm has run, and with it whether JSC has compiler threads
@@ -662,9 +667,10 @@ to flush its instruction cache and a thread killed between the suspend and
 the resume leaves the main thread suspended inside `NtTerminateProcess`;
 on x64 that barrier is a no-op, so which lock or wait it is here is not
 separated. What is: with the concurrent JIT off — every compile on the JS
-thread, no compiler thread to lose — 1,200 runs of the two files that hang
+thread, no compiler thread to lose — 2,400 runs of the two files that hang
 most did not hang once, and with the concurrent collector off they hung
-three times more often than with nothing changed.
+two to three times as often as with nothing changed, `m3` as often as
+before.
 
 So `windows-test-full.sh` exports `BUN_JSC_useConcurrentJIT=false` for the
 `bun test` it runs, and the `win32-x64` `m3` step sets the same. It costs
@@ -677,17 +683,24 @@ without it.
 A process stuck this way is not ended from outside either. `timeout -k 5
 60` reported 137 and returned, and with the process's stdout on a pipe the
 `cat` reading it never saw the end (run 33744140485, two jobs of six sat in
-that until their step's own deadline). The harness keeps stdout on a file,
-watches it for Bun's closing `Ran N tests` line, gives the process
-`EXIT_GRACE` seconds (15) after it to be gone, then kills its tree by
-Windows pid without waiting on it and moves on. The tests' verdict and the
-process's exit are recorded separately: such a file counts as what its
-tally says and is listed in the `DETAIL` line as `passed but did not exit:`
-without turning the suite red, because its tally is complete and the cause
-is Bun's exit. A file with no tally at all, or a failing one, is red as
-before. The verdict for a hung file is therefore Bun's own tally, read from
-the log, and anyone reading `ci-result-win32-x64.json` should know that a
-`pass` there can carry that list.
+that until their step's own deadline). Listing `bun.exe` after each hang
+(run 33746161808) shows every one of them still there, each with a single
+thread — the main one, the rest already terminated — and `taskkill /F /T`
+does not remove them either; they last until the job ends. The harness
+keeps stdout on a file, watches it for Bun's closing `Ran N tests` line,
+gives the process `EXIT_GRACE` seconds (15) after it to be gone, then kills
+what it can by Windows pid without waiting on it and moves on. Over the
+two files that hang most, 240 runs of the harness without the JSC option
+(run 33746161808), 14 had a file that passed and did not exit, and a run
+with one costs about 13.6 s against 3.6 s without, at a grace of 10 s.
+The tests' verdict and the process's exit are recorded separately: such a
+file counts as what its tally says and is listed in the `DETAIL` line as
+`passed but did not exit:` without turning the suite red, because its
+tally is complete and the cause is Bun's exit. A file with no tally at
+all, or a failing one, is red as before. The verdict for a hung file is
+therefore Bun's own tally, read from the log, and anyone reading
+`ci-result-win32-x64.json` should know that a `pass` there can carry that
+list.
 
 ### A session's tree goes in a Job Object
 

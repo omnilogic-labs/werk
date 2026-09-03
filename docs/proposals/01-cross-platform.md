@@ -224,24 +224,27 @@ far enough to hit questions rather than blockers:
 - **A process that has run the wasm engine may not exit.** On
   `windows-latest` a `bun test` process whose file ran the ghostty-wasm
   engine prints its whole tally and then, about one time in a hundred,
-  never exits: 11 of 2,340 such processes in run 33745611845, and none of
-  1,200 that only compiled the module or loaded nothing. `bun run m3` ends
-  the same way about one lane run in four. It is Bun 1.3.14's exit rather
+  never exits: 20 of 2,280 such processes across runs 33745611845 and
+  33746161808, and none of 2,400 that only compiled the module or loaded
+  nothing. `bun run m3` ends the same way 6 times in 60 there, and about
+  one lane run in four. It is Bun 1.3.14's exit rather
   than the tree: `ExitProcess` terminates JSC's helper threads, and the exit
   can then wait on one of them forever — oven-sh/bun#40513 is the arm64
   shape of it, a wasm compiler thread killed while it holds the JS thread
   suspended, fixed after 1.3.14; which thread it is on x64 is not
   separated, only which pool removes it. With JSC's concurrent JIT off
   (`BUN_JSC_useConcurrentJIT=false`) the same files did not hang once in
-  1,200 runs, and with the concurrent collector off they hung 36 times, so
+  2,400 runs, and with the concurrent collector off they hung 75 times, so
   the lane's harness runs its `bun test` with that option, at about half a
   second of synchronous compilation per engine file, and the `m3` step sets
   it too; Bun refuses a `BUN_JSC_*` name its JSC does not know, so a Bun
   that drops the option fails the lane loudly. Such a process is not ended
-  from outside either: `timeout`'s kill returned, and a reader on the
-  process's pipe never saw the end of it (run 33744140485). So the harness
-  keeps stdout on a file, watches it for Bun's `Ran N tests` line, gives the
-  process fifteen seconds after it, then kills what it can and moves on.
+  from outside either: `timeout`'s kill returned, a reader on the process's
+  pipe never saw the end of it (run 33744140485), and every one of them is
+  still listed afterwards with a single thread left, `taskkill /F /T` or
+  not (run 33746161808). So the harness keeps stdout on a file, watches it
+  for Bun's `Ran N tests` line, gives the process fifteen seconds after it,
+  then kills what it can and moves on.
   That file's tests passed and its process did not exit, and the roll-up
   records the two separately — `passed but did not exit: <files>` in its
   `DETAIL` line — without going red, since the tally is complete and the
@@ -729,8 +732,8 @@ ls` against a live daemon at 79–82 ms (runs 33712817886, 33712812822).
    and 33714530862. `m3`: every snapshot it encodes decodes identically, and
    then on some runs on either runner the process does not exit, which is
    Bun's exit rather than the tree (§3). `test-full`: the ConPTY costs §3
-   records. Gating any of those would gate
-   on something already understood, which is worse than not gating it.
+   records. Gating any of those would gate on something already
+   understood, which is worse than not gating it.
 
 6. **macOS.** The listener buffer raise stays, now a row of the
    seam rather than a file of its own, the macOS
@@ -873,7 +876,7 @@ missing prebuild and a `bun:ffi` that cannot `dlopen`; `m0` is
 nondeterministic, and `m3` printed every table and then did not exit on
 about one run of the merged tree in six (run 33744965310), which is Bun's
 exit racing a JSC compiler thread, the same as the engine test files' (§3),
-and the lane now runs `m3` without that thread. `test-full` and `m2` hold on
+and the lane runs `m3` without that thread. `test-full` and `m2` hold on
 `win32-x64`: three runs of the merged tree (33742714239, 33742717583 and 33742721321) and three more with the gate in place (33744959953,
 33744962470 and 33744965310) each pass 171 tests across 23 files, one
 process per file, and nine `m2` scenarios of nine, after the unit runs that
