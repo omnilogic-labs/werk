@@ -331,21 +331,22 @@ Every "measured" in §1 points at one of these; each run uploads a
 `ci-result-<lane>.json` that is the record, and artefacts are kept 14 days
 so re-running is the way to check anything older.
 
-| What                                                    | Where                                                                      | Run                                                                            |
-| ------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| The three lanes on `main` with every spike merged       | [`poc.yml`](../../.github/workflows/poc.yml)                               | [33696942295](https://github.com/omnilogic-labs/werk/actions/runs/33696942295) |
-| The eight-target matrix on that same `main`             | [`matrix.yml`](../../.github/workflows/matrix.yml)                         | [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598) |
-| The Windows lane once its daemon suite is gated         | `poc.yml`                                                                  | [33697939359](https://github.com/omnilogic-labs/werk/actions/runs/33697939359) |
-| The eight-target matrix once Windows uploads its result | `matrix.yml`                                                               | [33698568476](https://github.com/omnilogic-labs/werk/actions/runs/33698568476) |
-| The three lanes with §2's seam in place                 | `poc.yml`                                                                  | [33702171963](https://github.com/omnilogic-labs/werk/actions/runs/33702171963) |
-| The eight targets with §2's seam in place               | `matrix.yml`                                                               | [33702173764](https://github.com/omnilogic-labs/werk/actions/runs/33702173764) |
-| The Windows lane before the daemon had `win32` branches | `poc.yml`                                                                  | [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407) |
-| Lane gates made fail-closed                             | [PR #4](https://github.com/omnilogic-labs/werk/pull/4)                     | [33688264859](https://github.com/omnilogic-labs/werk/actions/runs/33688264859) |
-| Eight targets built on Linux, smoked on native runners  | [PR #5](https://github.com/omnilogic-labs/werk/pull/5), `matrix.yml`       | [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325) |
-| macOS socket buffers, signing, process lifecycle probes | [PR #2](https://github.com/omnilogic-labs/werk/pull/2), `macos-probes.yml` | [33688130745](https://github.com/omnilogic-labs/werk/actions/runs/33688130745) |
-| The daemon with buffers raised, on the macOS lane       | PR #2, `poc.yml`                                                           | [33688537937](https://github.com/omnilogic-labs/werk/actions/runs/33688537937) |
-| Windows primitives probed directly                      | [PR #3](https://github.com/omnilogic-labs/werk/pull/3), `win32-spike.yml`  | [33691536664](https://github.com/omnilogic-labs/werk/actions/runs/33691536664) |
-| The Windows lane with the three blockers stepped over   | PR #3, `poc.yml`                                                           | [33690884893](https://github.com/omnilogic-labs/werk/actions/runs/33690884893) |
+| What                                                    | Where                                                                      | Run                                                                                                                                                            |
+| ------------------------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The three lanes on `main` with every spike merged       | [`poc.yml`](../../.github/workflows/poc.yml)                               | [33696942295](https://github.com/omnilogic-labs/werk/actions/runs/33696942295)                                                                                 |
+| The eight-target matrix on that same `main`             | [`matrix.yml`](../../.github/workflows/matrix.yml)                         | [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598)                                                                                 |
+| The Windows lane once its daemon suite is gated         | `poc.yml`                                                                  | [33697939359](https://github.com/omnilogic-labs/werk/actions/runs/33697939359)                                                                                 |
+| The eight-target matrix once Windows uploads its result | `matrix.yml`                                                               | [33698568476](https://github.com/omnilogic-labs/werk/actions/runs/33698568476)                                                                                 |
+| The three lanes with §2's seam in place                 | `poc.yml`                                                                  | [33702171963](https://github.com/omnilogic-labs/werk/actions/runs/33702171963)                                                                                 |
+| The eight targets with §2's seam in place               | `matrix.yml`                                                               | [33702173764](https://github.com/omnilogic-labs/werk/actions/runs/33702173764), [33702588265](https://github.com/omnilogic-labs/werk/actions/runs/33702588265) |
+| The eight targets on `main`, run against those two      | `matrix.yml`                                                               | [33702822069](https://github.com/omnilogic-labs/werk/actions/runs/33702822069)                                                                                 |
+| The Windows lane before the daemon had `win32` branches | `poc.yml`                                                                  | [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407)                                                                                 |
+| Lane gates made fail-closed                             | [PR #4](https://github.com/omnilogic-labs/werk/pull/4)                     | [33688264859](https://github.com/omnilogic-labs/werk/actions/runs/33688264859)                                                                                 |
+| Eight targets built on Linux, smoked on native runners  | [PR #5](https://github.com/omnilogic-labs/werk/pull/5), `matrix.yml`       | [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325)                                                                                 |
+| macOS socket buffers, signing, process lifecycle probes | [PR #2](https://github.com/omnilogic-labs/werk/pull/2), `macos-probes.yml` | [33688130745](https://github.com/omnilogic-labs/werk/actions/runs/33688130745)                                                                                 |
+| The daemon with buffers raised, on the macOS lane       | PR #2, `poc.yml`                                                           | [33688537937](https://github.com/omnilogic-labs/werk/actions/runs/33688537937)                                                                                 |
+| Windows primitives probed directly                      | [PR #3](https://github.com/omnilogic-labs/werk/pull/3), `win32-spike.yml`  | [33691536664](https://github.com/omnilogic-labs/werk/actions/runs/33691536664)                                                                                 |
+| The Windows lane with the three blockers stepped over   | PR #3, `poc.yml`                                                           | [33690884893](https://github.com/omnilogic-labs/werk/actions/runs/33690884893)                                                                                 |
 
 The cheap way to ask any further question is the same: a branch, a workflow
 with a `push` trigger scoped to it (or `gh workflow run poc.yml --ref
@@ -366,11 +367,12 @@ suites stop; 6 and 7 the platforms that already pass; 8 and 9 shape.
    were in `src/daemon/flock.ts`, `launch.ts`, `main.ts`, `paths.ts`,
    `server.ts`, `sockopt.ts`, `_testlib.ts`, `spikes/m2/harness.ts` and
    `bench/_lib.ts` are now `src/platform/`, with `posix.ts` and `win32.ts`
-   behind the §2 interface, and no behaviour changed with them: runs
-   33702171963 and 33702173764 record the same suite verdicts on all eleven
-   lanes as the runs above, the one difference being the matrix's
-   `linux-x64-glibc` `test-full`, which fails on the slow-client scenario
-   that lane has also failed without the seam (run 33689751325). Four
+   behind the §2 interface, and no behaviour changed with them: run
+   33702171963 records the same verdicts on the three `poc.yml` lanes as the
+   runs above, and run 33702588265's eight `matrix.yml` lanes are verdict for
+   verdict identical to `main` run at the same hour (33702822069) — including
+   that lane's own known-flaky `test-full`, which fails on the slow-client
+   scenario on `main` too. Four
    branches had no row and are now rows: `stateDir()`, `compiled`,
    `cpuModel()`, and the zombie check inside `isAlive(pid)`. What still reads
    `process.platform` outside `platform/` is the ffi engine's target-triple
