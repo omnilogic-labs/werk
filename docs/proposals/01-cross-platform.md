@@ -364,11 +364,11 @@ proposal picks.
 (p50 15.7 ms against 59–95 µs, which bounds how a Windows-hosted session
 feels through any client) and its line rate (about 200,000 lines a second,
 which bounds what a session can scroll through one), the re-encoding
-above, logoff killing the daemon (a service or Run-key relaunch is the only cure), the shell
-question, and an `arm64` build with no `bun:ffi`, which has no job to hold a
-session's tree — its lock is a pipe name and that much holds. None of these
-looks like a stopper; all of
-them are work that the WSL2 answer avoids. §6 says what that does to the open
+above, logoff killing the daemon (a service or Run-key relaunch is the only
+cure), the shell question, and an `arm64` build with no `bun:ffi`, which has
+no job to hold a session's tree — its lock is a pipe name and that much
+holds. None of these looks like a stopper; all of them are work that the
+WSL2 answer avoids. §6 says what that does to the open
 question.
 
 ## 4. macOS, specifically
