@@ -200,6 +200,22 @@ codesign_check() {
   return $rc
 }
 
+# The re-sign a macOS release does, and what it leaves behind. Appending the
+# JavaScript bundle invalidates whatever signature the Bun executable arrived
+# with, so a fresh `bun build --compile` output never verifies; an ad-hoc
+# signature repairs it in one step (findings/platforms.md). Describes the
+# binary as it arrived first, so the run records both states.
+codesign_sign() {
+  local bin="$1"
+  echo "\$ codesign -dvv $bin   # as it arrived"
+  codesign -dvv "$bin" 2>&1
+  echo "\$ codesign --force --sign - $bin"
+  codesign --force --sign - "$bin" 2>&1
+  local rc=$?
+  echo "codesign --force --sign - exit $rc"
+  return $rc
+}
+
 codesign_detail() {
   local sig verify
   sig="$(grep -am1 -E '^(Signature|Identifier|CodeDirectory)' "$CLEAN" | cut -c1-120)"
@@ -377,11 +393,13 @@ x-ldd)
   SCRIPT="test -n '$BIN' || exit 1; file '$BIN' 2>/dev/null; ldd '$BIN'; echo '--- beyond musl'; $(declare -f musl_extras); musl_extras '$BIN'"
   ;;
 x-codesign)
-  NAME="codesign on the cross-compiled wp"
+  NAME="ad-hoc re-sign of the cross-compiled wp, then codesign --verify"
   SECS=60
   DIR="$OUT"
   BIN="$(xbin)" || true
-  SCRIPT="test -n '$BIN' || exit 1; $(declare -f codesign_check); codesign_check '$BIN'"
+  # The binary arrives from a Linux job that cannot sign anything, so this
+  # lane does what a release would do on the macOS side and verifies that.
+  SCRIPT="test -n '$BIN' || exit 1; $(declare -f codesign_sign); $(declare -f codesign_check); codesign_sign '$BIN' || exit 1; codesign_check '$BIN'"
   ;;
 native-codesign)
   NAME="codesign on the natively compiled wp"
@@ -402,7 +420,12 @@ test-pure)
 build)
   NAME="bun run build, then wp --help and wp caps (native)"
   SECS=600
-  SCRIPT="bun run build || exit 1; ls -l dist; WP=dist/wp; test -f dist/wp.exe && WP=dist/wp.exe; echo \"binary: \$WP (\$(wc -c <\"\$WP\") bytes)\"; \"./\$WP\" --help || exit 1; echo '--- caps ---'; \"./\$WP\" caps"
+  # macOS: the compiled binary is re-signed on the way out of the build, so
+  # `native-codesign` verifies what a release would ship rather than what
+  # `bun build --compile` happens to leave behind.
+  SIGN=""
+  if [ "$OS" = darwin ]; then SIGN="$(declare -f codesign_sign); codesign_sign \"\$WP\" || exit 1;"; fi
+  SCRIPT="bun run build || exit 1; ls -l dist; WP=dist/wp; test -f dist/wp.exe && WP=dist/wp.exe; echo \"binary: \$WP (\$(wc -c <\"\$WP\") bytes)\"; $SIGN \"./\$WP\" --help || exit 1; echo '--- caps ---'; \"./\$WP\" caps"
   ;;
 diff)
   NAME="differential corpus + fuzz 200/seed 11, normalised summary diffed against linux-x64"

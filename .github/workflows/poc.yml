@@ -235,6 +235,11 @@ jobs:
         continue-on-error: true
         run: .github/ci/macos.sh suite build
 
+      - name: codesign
+        id: codesign
+        continue-on-error: true
+        run: .github/ci/macos.sh suite codesign
+
       - name: test-full
         id: test-full
         continue-on-error: true
