@@ -30,14 +30,16 @@ the product directly. What matters is what is written down in `findings/`.
 | `vendor/`       | Pinned upstream artifacts (libghostty WASM, `ghostty-web`)                        |
 | `findings/`     | What each milestone found, one file per milestone                                 |
 
-## Running things on macOS and Windows
+## Running things on every target Bun compiles for
 
 The same suites run on hosted runners, on demand rather than on every commit.
-Add the `ci:poc` label to a pull request, or start it by hand:
+One dispatch builds `wp` for all eight `bun build --compile` targets on one
+Linux runner and hands each binary to a native lane. Add the `ci:poc` label
+to a pull request, or start it by hand:
 
 ```console
-$ gh workflow run poc.yml --ref <branch> -f os=all   # or ubuntu, macos, windows
-$ gh run download <id> -n ci-result-macos            # what each suite recorded, as JSON
+$ gh workflow run poc.yml --ref <branch> -f lanes=all  # or poc, extra, ubuntu, macos, windows
+$ gh run download <id> -n ci-result-darwin-arm64       # what each suite recorded, as JSON
 ```
 
 Removing and re-adding the label runs it again. `.github/workflows/vt-win32.yml`

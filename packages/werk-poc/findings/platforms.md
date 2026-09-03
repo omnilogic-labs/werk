@@ -853,10 +853,14 @@ one is nondeterministic.
 
 ## The other five targets
 
-`.github/workflows/matrix.yml` compiles all eight `bun build --compile`
+`.github/workflows/poc.yml` compiles all eight `bun build --compile`
 targets on one `ubuntu-24.04` job and hands each binary to a native lane,
 which smokes it (`--help`, `caps`, `ls` against an autostarted daemon) and
-then runs the PoC suites from source. The two Windows rows below are read
+then runs the PoC suites from source. Three of the eight lanes —
+`linux-x64-glibc`, `darwin-arm64` and `win32-x64` — are the same jobs the
+tables further up report, with the cross-compiled smoke added at the end;
+the five here are the ones with nothing but the smoke and the suites. The
+two Windows rows below are read
 from [run 33712817886](https://github.com/omnilogic-labs/werk/actions/runs/33712817886),
 the workflow on the tree with the seam, teardown through the protocol, the
 grid oracle and the harness items all in place;
@@ -1052,22 +1056,21 @@ clean, `prettier --check .` clean).
 ## Auditing this
 
 The workflow is `.github/workflows/poc.yml` — it runs when a pull request is
-given the `ci:poc` label, and from the Actions tab or `gh workflow run`. The
-win32 build has its own, `.github/workflows/vt-win32.yml`. The macOS probes
+given the `ci:poc` label, and from the Actions tab or `gh workflow run`. One
+dispatch builds all eight targets and runs all eight lanes. The win32 build
+has its own workflow, `.github/workflows/vt-win32.yml`. The macOS probes
 (`macos-probes.yml`), the Windows probes (`win32-spike.yml`,
-`step2-probes.yml` and `step5-probes.yml`), the transport probes
-(`step9-probes.yml`) and the eight-target matrix (`matrix.yml`) are on `main`
-too; the probe workflows trigger on pushes to the branch each was written
-for, the matrix on `workflow_dispatch` as well. None runs on an ordinary
-commit.
+`step2-probes.yml` and `step5-probes.yml`) and the transport probes
+(`step9-probes.yml`) are on `main` too; each triggers on pushes to the branch
+it was written for. None runs on an ordinary commit.
 
 ```console
-$ gh workflow run poc.yml --ref <branch> -f os=all
-$ gh run download <id> -n ci-result-macos     # the table above, as JSON
+$ gh workflow run poc.yml --ref <branch> -f lanes=all
+$ gh run download <id> -n ci-result-darwin-arm64   # the table above, as JSON
 ```
 
-Each job uploads `ci-result-<os>.json` plus the raw suite logs, and the
-per-probe M0 logs quoted here are in the macOS artefact under
+Each lane uploads `ci-result-<lane>.json` plus the raw suite logs, and the
+per-probe M0 logs quoted here are in the `darwin-arm64` artefact under
 `packages/werk-poc/dist/m0/`. Artefacts are kept 14 days; re-running is the
 way to check anything older than that.
 
