@@ -772,7 +772,6 @@ The ten failing tests, by cause:
 | `launch.test.ts`: four                                     | `stat` on the socket's reparse point (`EACCES`), a stale socket `existsSync` cannot see, `pgrep` |
 | `snapshot.test.ts`: a real SIGTERM snapshots every session | signals do not reach a detached Windows daemon                                                   |
 | `m1/embedded.test.ts`, `m6/compiled.test.ts`               | both name `/$bunfs/`, which is `B:/~BUN/` here                                                   |
-| `m2/fidelity.test.ts`                                      | the vim-resize scenario, the same race the `m2` suite fails on about two runs in three           |
 | `daemon.test.ts`                                           | the slow-client scenario, which the hosted Linux and macOS lanes fail too                        |
 
 None of the ten is a fidelity failure. Where the kill path, the snapshot
