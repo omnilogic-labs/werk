@@ -612,14 +612,14 @@ contends it the way a second `wp` would: a daemon on a runtime directory of
 its own, then a second `wp __daemon --dir=` the same directory, then the
 holder killed with `taskkill /F` and a third one started. It runs as the
 matrix's `lock` suite, so every run asks again rather than the question
-having been settled once (runs 33712812822 and 33713142782, then 33713887366
-as a suite).
+having been settled once (runs 33712812822 and 33713142782, then four runs as
+a suite, 33713887366 through 33715705924, where it takes 1.1–2.3 s).
 
 | Question                                                   | `win32-arm64`, natively | `win32-x64`, `LockFileEx` | `win32-x64`, pipe forced |
 | ---------------------------------------------------------- | ----------------------- | ------------------------- | ------------------------ |
-| `bun:ffi` `dlopen`                                         | throws, TinyCC disabled | opens `kernel32.dll`      | (forced past)            |
-| what `platform.lock` returned                              | `fd` -1, a pipe         | `fd`, a handle            | `fd` -1, a pipe          |
-| a second `lock()` in the same process                      | refused                 | refused                   | refused                  |
+| `bun:ffi` `dlopen`                                         | throws, TinyCC disabled | opens `kernel32.dll`      | not consulted            |
+| what `platform.lock` returned                              | `fd` -1, a pipe         | `fd`, a handle            | forced to the pipe       |
+| a second `lock()` in the same process                      | refused                 | refused                   | —                        |
 | a second `wp __daemon`, interpreted                        | exits 1, refused        | exits 1, refused          | exits 1, refused         |
 | a second `wp __daemon`, compiled binary                    | exits 1, refused        | exits 1, refused          | —                        |
 | who is still on the socket afterwards                      | the first daemon        | the first daemon          | the first daemon         |
@@ -628,8 +628,9 @@ as a suite).
 The refused daemon says
 `wp __daemon: another daemon holds <dir>\wp.lock` on stderr and exits 1,
 which is `daemonMain` refusing before it binds anything — the same line on
-both runners, so what refuses differs and what a caller sees does not. Both
-runs above agree cell for cell.
+both runners, so what refuses differs and what a caller sees does not. The
+two probe runs agree cell for cell, and the suite has since said the same
+twice more.
 
 ### The differential corpus agrees with Linux exactly
 
@@ -856,9 +857,9 @@ one is nondeterministic.
 targets on one `ubuntu-24.04` job and hands each binary to a native lane,
 which smokes it (`--help`, `caps`, `ls` against an autostarted daemon) and
 then runs the PoC suites from source. The two Windows rows below are read
-from [run 33712817886](https://github.com/omnilogic-labs/werk/actions/runs/33712817886)
-(commit `d2db378`), which is the workflow on `main` with the seam, teardown
-through the protocol, the grid oracle and the harness items in place;
+from [run 33712817886](https://github.com/omnilogic-labs/werk/actions/runs/33712817886),
+the workflow on the tree with the seam, teardown through the protocol, the
+grid oracle and the harness items all in place;
 [run 33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138)
 (commit `789b481`) is where the four Linux rows are read from, and
 [run 33703355321](https://github.com/omnilogic-labs/werk/actions/runs/33703355321)
@@ -893,16 +894,16 @@ regressed: `x-help`, `x-ls`, `install`, `lock` and `ops` on both, plus
 | `linux-arm64-musl`  | `alpine:3.22` via `docker exec` on arm    | pass; same `ldd`                                                                                                  | pass                 | identical              | 14/14 | pass                                                                        | pass        | fail: reattach fidelity only                                                                                |
 | `darwin-x64`        | `macos-15-intel` (15.7.9, avx2)           | `--help`, `ls` pass; `caps` no `darwin-x64` prebuild                                                              | fail: 106, ffi tests | differs: no ffi column | 14/14 | pass                                                                        | pass        | fail: ffi tests, reattach fidelity                                                                          |
 | `darwin-arm64`      | `macos-latest` (26.5.2)                   | pass                                                                                                              | pass                 | identical              | 14/14 | pass                                                                        | pass        | fail: reattach fidelity only                                                                                |
-| `win32-x64`         | `windows-latest` (26100)                  | pass; `ls` autostarts the daemon                                                                                  | pass                 | identical              | 3/7   | pass, 4.7 s                                                                 | pass, 1.4 s | fail: 168 tests run, the ConPTY set above                                                                   |
-| `win32-arm64`       | `windows-11-arm` (26200), native Bun      | `--help`, `ls` pass, the daemon on the named-pipe lock and a second one refused; `caps` no prebuild; no `bun:ffi` | fail: ffi tests      | differs: no ffi        | 3/7   | printed every table and did not exit (600 s); passes in 4.7 s on other runs | pass, 1.5 s | fail: 161 tests run, the same set plus the ffi-dependent ones                                               |
+| `win32-x64`         | `windows-latest` (26100)                  | pass; `ls` autostarts the daemon                                                                                  | pass                 | identical              | 3–4/7 | pass, 4.7 s                                                                 | pass, 1.4 s | fail: 168 tests run, the ConPTY set above                                                                   |
+| `win32-arm64`       | `windows-11-arm` (26200), native Bun      | `--help`, `ls` pass, the daemon on the named-pipe lock and a second one refused; `caps` no prebuild; no `bun:ffi` | fail: ffi tests      | differs: no ffi        | 3–4/7 | printed every table and did not exit (600 s); passes in 4.7 s on other runs | pass, 1.5 s | fail: 161 tests run, the same set plus the ffi-dependent ones                                               |
 
 Before the `win32` branches (run 33689751325) both Windows lanes failed `ls`
 with `EBADF` in the client and `flock` in the daemon, `m0` reached 3/7 on
 both, and `test-full` failed 141 and 134 tests respectively. Three of the
-seven M0 probes pass on either runner now, and which three moves: on run
-33712817886 both fail `01-pty-basic`, `02-sigint` and `03-sigwinch`, where
-on 33703355321 x64 passed `03-sigwinch` and failed `06-raw-mode` instead.
-That is why neither lane gates on `m0`.
+seven M0 probes pass on either runner now, sometimes four, and which ones
+moves: on run 33712817886 both runners fail `01-pty-basic`, `02-sigint` and
+`03-sigwinch`, and on 33714530862 both fail `01-pty-basic`, `02-sigint` and
+`06-raw-mode` instead. That is why neither lane gates on `m0`.
 
 `m0` takes 31–43 s on the Intel Mac across the two runs against about 24 s
 on the others. The differential summary is byte-identical on every lane
@@ -1053,11 +1054,12 @@ clean, `prettier --check .` clean).
 The workflow is `.github/workflows/poc.yml` — it runs when a pull request is
 given the `ci:poc` label, and from the Actions tab or `gh workflow run`. The
 win32 build has its own, `.github/workflows/vt-win32.yml`. The macOS probes
-(`macos-probes.yml`), the Windows probes (`win32-spike.yml`, `step2-probes.yml`
-and `step5-probes.yml`) and the eight-target matrix (`matrix.yml`) are on
-`main` too; the probe workflows trigger on pushes to the branch each was
-written for, the matrix on `workflow_dispatch` as well. None runs on an
-ordinary commit.
+(`macos-probes.yml`), the Windows probes (`win32-spike.yml`,
+`step2-probes.yml` and `step5-probes.yml`), the transport probes
+(`step9-probes.yml`) and the eight-target matrix (`matrix.yml`) are on `main`
+too; the probe workflows trigger on pushes to the branch each was written
+for, the matrix on `workflow_dispatch` as well. None runs on an ordinary
+commit.
 
 ```console
 $ gh workflow run poc.yml --ref <branch> -f os=all
