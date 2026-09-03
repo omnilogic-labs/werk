@@ -309,6 +309,12 @@ export class UserTerminal {
   }
 
   async close(): Promise<void> {
+    // The terminal is about to be disposed and a ConPTY goes on delivering
+    // for a moment after the process it fed is killed, so a write from
+    // `onData` would land on a freed terminal and throw where nothing can
+    // catch it (the Windows lane of run 33705365214, where the throw
+    // replaced the scenario's own verdict in the report).
+    this.feed = false;
     if (this.exitCode === null) {
       try {
         this.proc.kill("SIGKILL");
