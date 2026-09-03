@@ -38,6 +38,12 @@ import type {
 const LOCK_EX = 2;
 const LOCK_NB = 4;
 
+// XNU's values. Linux spells the same three 1, 7 and 8, so these are wrong
+// there — `setSocketBuffers` is only reached on darwin by
+// `defaultSocketBufferBytes()`, but `WP_SNDBUF=<n>` reaches it on Linux too,
+// where `setsockopt` refuses the option and the daemon logs "socket buffers
+// left at default" instead of doing what was asked. A Linux row for these
+// three is what that wants.
 const SOL_SOCKET = 0xffff;
 const SO_SNDBUF = 0x1001;
 const SO_RCVBUF = 0x1002;
