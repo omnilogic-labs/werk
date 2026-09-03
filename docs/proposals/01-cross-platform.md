@@ -832,30 +832,34 @@ lane that says so. Eight lanes are green on a pinned Bun and each writes its
 record, but the second half of that is not reached and the gap is the
 honest summary of where the port stands:
 
-| Lane                                 | Forgiven                                                                         |
-| ------------------------------------ | -------------------------------------------------------------------------------- |
-| the four Linux lanes, `darwin-arm64` | the slow-client scenario                                                         |
-| `darwin-x64`                         | the same, plus the ffi tests, since no prebuild for that target exists           |
-| `win32-x64`                          | `m0-probes`, `test-full`, `m2`, `m3`                                             |
-| `win32-arm64`                        | those, plus `x-caps`, `test-pure`, `build` and `diff`, which need the ffi engine |
+| Lane                                 | Forgiven                                                                                               |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| the four Linux lanes, `darwin-arm64` | the slow-client scenario                                                                               |
+| `darwin-x64`                         | the same, plus the ffi tests, since no prebuild for that target exists                                 |
+| `win32-x64`                          | `m0-probes`, `m3`                                                                                      |
+| `win32-arm64`                        | `m0-probes` and `test-full`, plus `x-caps`, `test-pure`, `build` and `diff`, which need the ffi engine |
 
 Four of those have a cause outside the PoC and no obvious cost to fix: the
 slow-client scenario is CPU headroom on a shared runner (§5) and unexplained
 throughput on macOS (§4); `darwin-x64` and `win32-arm64`'s ffi failures are a
 missing prebuild and a `bun:ffi` that cannot `dlopen`; `m3` and `m0` are
-nondeterministic. What remains as work rather than circumstance is
-what `test-full` still fails on a run of the merged tree, which §11 lists
-against the unit runs that pass each file. `m2` is on
-the forgiven list for want of evidence rather than for a failure: every wait
-in its vim scenarios is a statement about the screen — the rows and the
-cursor the next step needs, held still, agreed with the daemon — and the
-suite passes eighteen runs in eighteen on `windows-latest` (run 33738702935,
-six jobs of three runs each, plus sixty of the resize scenario alone). What
+nondeterministic, though `m3` has exited on every run of the merged tree so
+far and may come onto the gate once more of them say so. `test-full` and
+`m2` hold on `win32-x64`: three runs of the merged tree (33742714239,
+33742717583 and 33742721321) each pass 171 tests across 23 files, one
+process per file, and nine `m2` scenarios of nine, after the unit runs that
+closed each file one by one (§3, §11) and `m2`'s own eighteen runs in
+eighteen plus sixty of the resize scenario alone (run 33738702935). Every
+wait in the vim scenarios is a statement about the screen — the rows and the
+cursor the next step needs, held still, agreed with the daemon — and what
 vim does with a resize on a ConPTY is recorded there rather than asserted,
-because it is the runtime between an MSYS vim and the console that drops it,
-not the daemon (§11); the resize itself is asserted through a child that
-asks the pty. §11's rule for gating is repeated passes of the merged tree,
-and that is what putting `m2` on the gate waits for.
+because it is the runtime between an MSYS vim and the console that drops
+it, not the daemon (§11); the resize itself is asserted through a child that
+asks the pty. So the Windows lane's `test-full` is held to the same one
+forgiven scenario as the others hold theirs to, and one thing on it is
+known to go red without a test failing: in about three lane runs in
+fourteen a pure engine test file prints its tally and the process does not
+exit until the harness kills it (§11).
 
 So the gates say what each lane holds today, and the set each forgives is the
 list of what a Windows host would still cost. Whether the slow-client
@@ -946,13 +950,15 @@ bytes**, because one of the three platforms rewrites the bytes.
 Nobody has decided any of this is worth doing; it is what the measurements
 stopped short of.
 
-- **`test-full` on Windows.** Every test that failed for a cause of its own
-  passes on the Windows runners in the unit runs — the launcher, TCP-landing
-  and compiled-binary files, which ask the seam (runs 33737702073 and
-  33737833426); the two about how a process ends (runs 33737447986 and
-  33738268367); the two floods (run 33737795804 in three attempts) — and
-  §8's table says what the merged tree holds. What the stop pipe's ACL
-  allows another local user is the part of that nobody has measured.
+- **A `bun test` process that does not exit on Windows.** In three lane
+  runs of fourteen a pure engine test file — `ghostty-wasm/reattach.test.ts`
+  in runs 33740949544 and 33738651937, `encoders.test.ts` in 33738278048 —
+  printed a clean tally (`15 pass`, `Ran 15 tests across 1 file [168 ms]`)
+  and then sat until the harness's 180 s kill; none of the four runs of the
+  merged tree did. The files start nothing and spawn nothing. What holds the
+  process is not known, and a gated `test-full` goes red on it.
+- **The stop pipe's ACL.** Who else on the machine can write `stop` to
+  `\\.\pipe\werk-poc-stop-<hash>` has not been measured (§3).
 - **What an MSYS vim does with a resize on a ConPTY.** The console has the
   new size within about 300 ms and says so to a child that asks; vim learns
   of it four times in five, and otherwise not until it next reads input, and
