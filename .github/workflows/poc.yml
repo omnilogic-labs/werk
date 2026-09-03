@@ -343,9 +343,13 @@ jobs:
       # run test-full". `m3` is deliberately not here: every snapshot it
       # encodes decodes identically, but on one run in four the process
       # printed all of its tables and then did not exit, so gating on it would
-      # gate on that.
+      # gate on that. `m2` is not here either: it reports all eight scenario
+      # verdicts now, but two of them fail — the alternate-screen scenario on
+      # what ConPTY paints, and the slow client on `SIGSTOP`, which Windows
+      # does not have — so gating it would gate a red suite.
       EXPECTED_PASS: >-
-        install typecheck test-pure build-web build diff probes daemon wp-cli
+        install typecheck test-pure build-web build diff ops probes daemon
+        wp-cli
       # The probes that fail on windows today, recorded rather than gated: the
       # readiness pipe's parent-side fd is a raw HANDLE that fs.readSync
       # refuses, which is why the win32 launcher polls a ready file instead.
