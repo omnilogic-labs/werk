@@ -348,11 +348,18 @@ async function daemonToReady(
   // launcher itself treats the socket as the authority. Poll a fresh
   // connection until one completes its hello, and time to there.
   let c: Awaited<ReturnType<typeof connect>> | null = null;
+  // Why the last attempt failed. A daemon that is merely not up yet refuses
+  // the connection and the next attempt succeeds; one that answers and then
+  // rejects the hello — a binary of a different protocol version, which
+  // `--no-compile` can reach for out of `dist/bench-ops/` — refuses every
+  // attempt with the same reason, and saying so beats ten seconds of silence.
+  let why = "";
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
-    c = await connect({ dir, autostart: false, timeoutMs: 1000 }).catch(
-      () => null,
-    );
+    c = await connect({ dir, autostart: false, timeoutMs: 1000 }).catch((e) => {
+      why = String(e);
+      return null;
+    });
     if (c) break;
     await sleep(2);
   }
@@ -363,6 +370,7 @@ async function daemonToReady(
     } catch {}
     throw new Error(
       `daemon did not answer on ${paths.socket} within 10 s` +
+        (why ? `; last attempt: ${why}` : "") +
         platform.readinessDetail(started, paths.log),
     );
   }

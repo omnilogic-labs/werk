@@ -449,7 +449,7 @@ appears to be ConPTY itself.
 ships none; `ffiPlatform()` returns `win32-x64` and the load path finds the
 DLL described below, which is why `test-pure` passes on the Windows lane.
 
-Four Bun-on-Windows facts, recorded so nobody finds them again:
+Five Bun-on-Windows facts, recorded so nobody finds them again:
 
 - A `u32` argument in `bun:ffi` given a negative JavaScript number arrives as 0. `GENERIC_READ | GENERIC_WRITE` is negative in JavaScript; use
   `FILE_GENERIC_READ | FILE_GENERIC_WRITE` (`0x12019F`).
@@ -461,6 +461,18 @@ Four Bun-on-Windows facts, recorded so nobody finds them again:
   interpreted.
 - On `windows-11-arm`, Bun 1.3.14 has no `bun:ffi` at all
   (`bun:ffi dlopen() is not available in this build (TinyCC is disabled)`).
+- One `expect(promise).rejects` hangs under `bun test`.
+  `.github/ci/win32-kill.test.ts` asks the daemon for a session it has already
+  removed, three ways, on both Windows runners (run 33707210922): caught with
+  `catch` the error comes back in under a millisecond, and through
+  `expect().rejects` the assertion hangs to the test's timeout — after which
+  `bun test` kills the daemon it started and every later test in the file
+  says `connection closed`. `expect().rejects` on an already-rejected promise
+  is fine in the same file, and so is the `expect().rejects` that
+  `daemon.test.ts` uses for an unknown engine, so this is not "`rejects` is
+  broken on Windows"; what separates the two is not known. That one line was
+  the whole of the kill test's five seconds, and catching the rejection
+  instead is what lets the file run to the end.
 
 Three smaller facts from the same probes: `mkdir` reports mode `40666`,
 `getuid` is undefined, and `LOCALAPPDATA` is set where `XDG_RUNTIME_DIR` is
@@ -551,6 +563,45 @@ Windows lane runs the files one process at a time
 (`.github/ci/windows-test-full.sh`), which costs the panic one file's verdict
 instead of seventeen.
 
+### A session's tree goes in a Job Object
+
+A ConPTY child can be put in a Job Object from Bun, and ending the job takes
+everything the child started. Measured on both Windows runners by
+`.github/ci/win32-job-probes.ts`, which spawns a child exactly as `Session`
+does, assigns it before it starts a grandchild of its own, and then ends the
+job each of the ways there are (runs 33704743713, 33706263111):
+
+| Question                                                    | `win32-x64`                                          | `win32-arm64`       |
+| ----------------------------------------------------------- | ---------------------------------------------------- | ------------------- |
+| `CreateJobObjectW` + `SetInformationJobObject`              | ok, with `KILL_ON_JOB_CLOSE`                         | no `bun:ffi` at all |
+| The daemon is itself already in a job                       | yes, and the nested assign still succeeds            | —                   |
+| `AssignProcessToJobObject` on a ConPTY child                | assigned                                             | —                   |
+| `TerminateJobObject`                                        | child and grandchild gone in 2–3 ms                  | —                   |
+| `CloseHandle` on the last job handle                        | the same, in under a millisecond                     | —                   |
+| What Bun reports for a child ended by the job               | `exitCode` 1, `signalCode` null                      | —                   |
+| What Bun reports for `proc.kill("SIGTERM")` / `("SIGKILL")` | `exitCode` null, `signalCode` the name it was passed | the same            |
+
+So the signal name Bun reports on Windows is the name the caller asked for,
+not something the platform said: a `TerminateProcess` reports `SIGTERM`
+because `SIGTERM` was passed. That is why the daemon reports no `signalCode`
+on Windows at all and carries what it asked for in the session's kill record
+instead.
+
+The one place the tree matters and cannot be measured here: the probe's
+control case, a plain `proc.kill()` with no job, also took the grandchild
+with it — a process inherits its parent's console, and the ConPTY going takes
+everything attached to it. A grandchild that detaches itself from the console
+would survive, and that is what the job covers; nothing on the runner
+produces one. On `win32-arm64` there is no job, so the kill is
+`TerminateProcess` on the child alone and whatever survives the console is
+left running.
+
+Through the daemon, the whole sequence — connect, run, attach, kill, the
+`exited` notice, `ls`, remove — takes about 250 ms on x64 and 450 ms on
+arm64 (run 33706263111). x64 reports `exitCode` 1 with the kill delivered as
+`job`; arm64 reports `exitCode` null delivered as `terminate`, which is all a
+Windows exit can say when the signal name is dropped and no job set the code.
+
 ### The differential corpus agrees with Linux exactly
 
 All 23 `ghostty-wasm` ↔ `xterm-oracle` case verdicts and all 10 reattach rows
@@ -588,7 +639,9 @@ of the seam's interface, from [PR #3](https://github.com/omnilogic-labs/werk/pul
 | `runtimeDir()`             | `%LOCALAPPDATA%\werk-poc`; skips the uid and `0o077` checks                                                                                                                                                      |
 | `listen()`                 | unlinks a stale socket before bind-and-rename; no `chmod`                                                                                                                                                        |
 | `rss()`                    | `process.memoryUsage()`                                                                                                                                                                                          |
-| `shutdown()`               | installs no signal handlers; the `shutdown` message over the socket is the only way in                                                                                                                           |
+| `onShutdownSignal()`       | installs no signal handlers; the `shutdown` message over the socket is the only way in                                                                                                                           |
+| `adoptTree()`              | a Job Object with `KILL_ON_JOB_CLOSE` per session, via `bun:ffi`; the child alone where there is none. An interrupt is `0x03` into the ConPTY                                                                    |
+| `signalsExits`             | false: nothing is delivered as a signal, so no `signalCode` is reported                                                                                                                                          |
 | `isAlive()`                | `kill(pid, 0)` alone — there are no zombies to exclude; `05-daemon-survives` judges by that and a tick file                                                                                                      |
 
 What the lane records with those in place and the fidelity oracle above,
@@ -601,7 +654,7 @@ against the last run without either:
 | `m0-probes` | 01, 02, 05, 06 fail                  | 01, 02, 06 fail; `05-daemon-survives` passes                                                                                                            |
 | `m2`        | fail, `EBADF`                        | pass — eight scenarios, seven run and one (the SIGSTOPped slow client) skipped for want of a signal Windows does not have                               |
 | `test-full` | fail, `EBADF` before any daemon test | 146 pass, 11 fail across 22 files, one process per file; `daemon.test.ts` reaches the timing-out kill test and then panics, so it has no verdict at all |
-| `ops`       | fail                                 | fail: `bench/ops.ts` spawns its own daemon with `cwd: "/"` and `--ready-fd=3`, a launcher of its own that the seam does not reach                       |
+| `ops`       | fail                                 | pass — the cold-start table, its daemon spawned through the seam                                                                                        |
 
 The `m2` and `ops` rows were harness shape, and both suites reach the daemon
 with it changed (runs 33705813223 and 33706143058):
@@ -647,6 +700,21 @@ The eleven failing tests, by cause:
 None of the eleven is a fidelity failure. Where the kill path, the snapshot
 ordering and the two harness launchers go from here is a design question
 rather than a measurement, and it is left to the proposal.
+
+Teardown is the other thing that moved. The `kill` suite runs the one test
+that says a kill reaches the child and the session reports what happened to
+it, and it passes on the lane in about 350 ms — a kill is a mode the seam
+carries out rather than a signal name, and the test's last assertion catches
+the missing session's error rather than waiting on it through
+`expect().rejects`, which hangs here.
+
+Run on its own, `src/daemon/daemon.test.ts` reaches a verdict on every test
+on both Windows runners (run 33707978762):
+
+| Runner        | Result                                                                                          |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| `win32-x64`   | 10 pass, 1 fail — the slow-client scenario, which fails on the hosted Linux and macOS lanes too |
+| `win32-arm64` | 9 pass, 2 fail — the same, plus `run, attach, see output`                                       |
 
 ## A win32 `libghostty-vt`, built rather than installed
 

@@ -10,6 +10,7 @@ import {
   gridOfCapture,
   rowIndex,
 } from "./_grid.ts";
+import { platform } from "../platform/index.ts";
 import { Capture, sleep, stopDaemon, tempDir, waitFor } from "./_testlib.ts";
 import { QUEUE_BOUND } from "./connection.ts";
 
@@ -168,18 +169,43 @@ test("kill signals the child; ls reports the signal; attached clients hear exite
   const cap = new Capture(client);
   await cap.attach(id);
   const r = await client.kill(id);
-  expect(r.action).toBe("signalled");
+  expect(r.action).toBe("killed");
+  expect(r.kill!.mode).toBe("terminate");
+  // How the platform carried it out: a signal to the child's process group on
+  // POSIX, the session's Job Object on Windows, and `TerminateProcess` on the
+  // child alone where no job could be made (../platform/).
+  expect(["group-signal", "signal", "job", "terminate"]).toContain(
+    r.kill!.delivery,
+  );
   expect(await waitFor(() => cap.exited !== null, 3000)).toBe(true);
-  expect(cap.exited!.signalCode).toBe("SIGTERM");
   const info = (await client.ls()).find((s) => s.id === id)!;
   expect(info.status).toBe("exited");
-  expect(info.signalCode).toBe("SIGTERM");
+  expect(info.kill!.mode).toBe("terminate");
   expect(info.exitedAt).not.toBeNull();
+  // A signal name only where an exit status has one to give. Windows has
+  // none: Bun echoes back whatever name `proc.kill` was passed even though
+  // `TerminateProcess` is what ran, so the daemon reports no signal there.
+  if (platform.signalsExits) {
+    expect(cap.exited!.signalCode).toBe("SIGTERM");
+    expect(info.signalCode).toBe("SIGTERM");
+    expect(r.kill!.signal).toBe("SIGTERM");
+  } else {
+    expect(cap.exited!.signalCode).toBeNull();
+    expect(info.signalCode).toBeNull();
+  }
   // the session is still there for ls and logs until it is removed
   const removed = await client.kill(id);
   expect(removed.action).toBe("removed");
   expect((await client.ls()).find((s) => s.id === id)).toBeUndefined();
-  await expect(client.kill(id)).rejects.toThrow(/no session/);
+  // Caught rather than asserted with `expect().rejects`, which on Windows
+  // never resumes for a promise that is still pending when it is handed over
+  // — the same request answers in a millisecond through `catch`
+  // (.github/ci/win32-kill.test.ts, run 33707210922).
+  const missing = await client.kill(id).then(
+    () => null,
+    (e: Error) => e.message,
+  );
+  expect(missing).toMatch(/no session/);
 });
 
 test("exit code is recorded and the last output survives the exit", async () => {

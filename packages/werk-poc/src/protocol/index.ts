@@ -14,7 +14,7 @@
 // `reply` or `error` carrying the same `rid`. Notices from the daemon
 // (`exited`, `lagging`, `resumed`, `effect`) carry no `rid`.
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /** The proof-of-concept's own version; both ends must agree exactly. */
 export const WP_VERSION = "0.0.0-poc";
@@ -85,6 +85,37 @@ export interface RestoreStats {
   snapshotBytes: number;
 }
 
+/**
+ * What a `kill` asks of a session, in terms all three platforms can carry
+ * out. A POSIX signal name is one way of saying the same thing and the
+ * daemon accepts one, but the mode is what crosses the wire: Windows has no
+ * signals to name, and a `proc.kill("SIGTERM")` there is `TerminateProcess`
+ * with the name echoed back (../platform/win32.ts).
+ */
+export type KillMode = "interrupt" | "terminate" | "force";
+
+/** How a platform carried a `kill` out, so a client can see what it got. */
+export type KillDelivery =
+  /** POSIX: the signal went to the child's process group. */
+  | "group-signal"
+  /** POSIX: the signal went to the child alone, because it leads no group. */
+  | "signal"
+  /** Windows: `0x03` written to the ConPTY; what the child makes of it is its own. */
+  | "pty-interrupt"
+  /** Windows: `TerminateJobObject` on the session's job, which takes the tree. */
+  | "job"
+  /** Windows: `TerminateProcess` on the child alone, where there is no job. */
+  | "terminate";
+
+/** The last kill a session was asked for, and what the platform did with it. */
+export interface KillRecord {
+  mode: KillMode;
+  delivery: KillDelivery;
+  /** The POSIX signal actually sent, where the platform sends signals. */
+  signal: string | null;
+  at: number;
+}
+
 export interface SessionInfo {
   id: string;
   argv: string[];
@@ -92,6 +123,10 @@ export interface SessionInfo {
   engine: string;
   status: SessionStatus;
   exitCode: number | null;
+  /**
+   * The signal that ended the child, where the platform's exit status names
+   * one. Always null on Windows, where nothing is delivered as a signal.
+   */
   signalCode: string | null;
   title: string;
   pwd: string;
@@ -104,6 +139,8 @@ export interface SessionInfo {
   snapshotAt: number | null;
   corpse: CorpseInfo | null;
   restore: RestoreStats | null;
+  /** The last kill this session was asked for; null if it was never asked. */
+  kill: KillRecord | null;
 }
 
 export interface HelloInfo {
@@ -152,7 +189,19 @@ export type ClientMessage =
   | { t: "repaint"; rid: number }
   | { t: "resize"; rid: number; cols: number; rows: number }
   | { t: "ls"; rid: number }
-  | { t: "kill"; rid: number; id: string; signal?: string }
+  /**
+   * Ends a running session, or removes one that has already ended. `mode`
+   * is the portable request; `signal` names a POSIX signal for a client that
+   * wants a particular one, and is what gets sent where signals exist. With
+   * neither, the mode is `terminate`.
+   */
+  | {
+      t: "kill";
+      rid: number;
+      id: string;
+      mode?: KillMode;
+      signal?: string;
+    }
   | { t: "logs"; rid: number; id: string; format: "text" | "vt" }
   | { t: "screen"; rid: number; id: string }
   | { t: "snapshot"; rid: number; id: string }
@@ -275,7 +324,16 @@ export type AttachResult = {
   altScreen: boolean;
 };
 export type DetachResult = { altScreen: boolean };
-export type KillResult = { id: string; action: "signalled" | "removed" };
+/**
+ * `killed` means the request was delivered to a running session — not that
+ * the child is gone, which the `exited` notice and `ls` say. `removed` means
+ * a session that had already ended was dropped along with its snapshot file.
+ */
+export type KillResult = {
+  id: string;
+  action: "killed" | "removed";
+  kill: KillRecord | null;
+};
 export type LogsResult = { id: string; format: "text" | "vt"; data: string };
 /** A session's emulator state as `GHOSTSNP` bytes, base64 in the JSON reply; what a browser running the same libghostty decodes. */
 export type SnapshotResult = {

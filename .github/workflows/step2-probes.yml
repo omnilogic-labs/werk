@@ -1,0 +1,120 @@
+# §8 step 2's one narrow question, asked on both Windows runners before the
+# daemon depends on the answer: can Bun put a session's ConPTY child in a Job
+# Object, and does ending that job take the whole tree? `win32-arm64` has no
+# `bun:ffi` in Bun 1.3.14, so its verdicts say what the fallback costs.
+#
+# Runs on every push to the step branch. `workflow_dispatch` only works for a
+# workflow file that is on the default branch, and this one is not meant to
+# reach it.
+name: step2-probes
+
+on:
+  push:
+    branches: [step/02-shutdown-kill]
+
+concurrency:
+  group: step2-probes
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  probes:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: win32-x64
+            runs-on: windows-latest
+          - lane: win32-arm64
+            runs-on: windows-11-arm
+    name: ${{ matrix.lane }}
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep line endings as committed
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Runner
+        run: |
+          bun --version
+          bun -e 'console.log(process.platform, process.arch, require("node:os").release())'
+          echo "ImageOS=${ImageOS:-} ImageVersion=${ImageVersion:-}"
+
+      # The last probe drives the real daemon through the client, which needs
+      # the workspace's dependencies present.
+      - name: install
+        timeout-minutes: 3
+        run: bun install --frozen-lockfile
+
+      - name: Probes
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          bun run .github/ci/win32-job-probes.ts 2>&1 | tee probes.log
+          {
+            echo "## step2 job-object probes — ${{ matrix.lane }}"
+            echo
+            echo "commit \`${GITHUB_SHA:0:8}\`, bun \`$(bun --version)\`"
+            echo
+            echo '```'
+            tr -d '\r' <probes.log
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # The same tail of the kill test, under the runner that fails it.
+      - name: Kill test, narrowed
+        if: always()
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          bun test ./.github/ci/win32-kill.test.ts 2>&1 | tee -a probes.log || true
+          {
+            echo
+            echo '```'
+            tr -d '\r' <probes.log | tail -40
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # How far the daemon suite gets now that the kill test does not hang:
+      # what is left is the fidelity prologue and whatever follows it, which
+      # is §8 step 3's. `test-full` on the poc lane runs every file and no
+      # longer fits its step's timeout, so this asks for the one file.
+      - name: The daemon suite alone
+        if: always()
+        timeout-minutes: 6
+        working-directory: packages/werk-poc
+        run: |
+          bun test src/daemon/daemon.test.ts 2>&1 | tee daemon-suite.log || true
+          {
+            echo
+            echo '## daemon.test.ts on ${{ matrix.lane }}'
+            echo
+            echo '```'
+            tr -d '\r' <daemon-suite.log | grep -a "(pass)\|(fail)\|dangling\|timed out\| pass$\| fail$" || true
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          mv daemon-suite.log "$GITHUB_WORKSPACE/daemon-suite.log"
+
+      - name: Upload probes.log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step2-probes-${{ matrix.lane }}
+          path: |
+            probes.log
+            daemon-suite.log
+          if-no-files-found: warn
+          retention-days: 14

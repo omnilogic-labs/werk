@@ -83,23 +83,26 @@ and `/proc` reads returned `false` for every live process on any other OS.
 The surface, from what the PoC and the spikes actually needed. The rows with
 no implementation yet are marked; they are what §8's later steps fill in:
 
-| Concern              | POSIX                                                                                      | Windows                                                                                            |
-| -------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| `lock(dir)`          | `flock(LOCK_EX\|LOCK_NB)` via `bun:ffi`                                                    | `CreateFileW` + `LockFileEx` via `bun:ffi`; where `bun:ffi` is absent, an exclusive named pipe     |
-| `runtimeDir()`       | `$XDG_RUNTIME_DIR` → `$TMPDIR/werk-$UID`, mode checked                                     | `%LOCALAPPDATA%\werk`; mode and uid checks skipped (Bun reports `40666` and no uid)                |
-| `stateDir()`         | `$XDG_STATE_HOME` → `~/.local/state/werk`                                                  | `%LOCALAPPDATA%\werk\state`                                                                        |
-| `listen()`           | `AF_UNIX` under `runtimeDir()`, bind-and-rename, `chmod 0600`                              | `AF_UNIX` works for a Bun client; a stale socket has to be unlinked first, and has no mode (§3)    |
-| `spawnDaemon()`      | `detached: true` (`setsid`), `cwd: /`                                                      | `detached: true, windowsHide: true`, stdio ignored, `cwd` the home directory                       |
-| readiness            | connect and complete `hello` within a deadline                                             | the same; the failure reason comes from the daemon's log file                                      |
-| `compiled`           | `import.meta.path` starts `/$bunfs/`                                                       | the virtual drive `B:\~BUN\`, and the path arrives with backslashes                                |
-| `isAlive(pid)`       | `kill(pid, 0)`, then `/proc/<pid>/stat` — `ps -o state=` on macOS — so a zombie reads dead | `kill(pid, 0)` (works in Bun on Windows); there are no zombies to exclude                          |
-| `rss(pid)`           | `/proc/<pid>/status`, or `ps -o rss=` on macOS                                             | `process.memoryUsage()`, so only for this process                                                  |
-| `cpuModel()`         | `machdep.cpu.brand_string` on macOS, `/proc/cpuinfo` on Linux                              | libuv's own `os.cpus()`                                                                            |
-| `shutdown()`         | `SIGTERM`/`SIGINT`/`SIGHUP` → grace → `SIGKILL`                                            | no signal reaches a detached daemon at all; a protocol message → grace → `TerminateProcess`        |
-| `interrupt(session)` | _not implemented:_ `SIGINT` to the foreground group                                        | _not implemented:_ write `0x03` to the ConPTY; what dies of it is up to the child's runtime        |
-| `killTree(session)`  | _not implemented:_ the process group                                                       | _not implemented:_ a Job Object with `KILL_ON_JOB_CLOSE`, via `bun:ffi` where present              |
-| socket buffers       | Linux default 208 KiB; macOS 8 KiB, raised via `setsockopt` on the listener's `fd`         | unmeasured, so the kernel's own figure stands                                                      |
-| `defaultShell()`     | _not implemented:_ `$SHELL` → `/bin/sh`                                                    | _not implemented:_ probably config → `pwsh` → Windows PowerShell → `%COMSPEC%`; nobody has decided |
+| Concern              | POSIX                                                                                      | Windows                                                                                             |
+| -------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `lock(dir)`          | `flock(LOCK_EX\|LOCK_NB)` via `bun:ffi`                                                    | `CreateFileW` + `LockFileEx` via `bun:ffi`; where `bun:ffi` is absent, an exclusive named pipe      |
+| `runtimeDir()`       | `$XDG_RUNTIME_DIR` → `$TMPDIR/werk-$UID`, mode checked                                     | `%LOCALAPPDATA%\werk`; mode and uid checks skipped (Bun reports `40666` and no uid)                 |
+| `stateDir()`         | `$XDG_STATE_HOME` → `~/.local/state/werk`                                                  | `%LOCALAPPDATA%\werk\state`                                                                         |
+| `listen()`           | `AF_UNIX` under `runtimeDir()`, bind-and-rename, `chmod 0600`                              | `AF_UNIX` works for a Bun client; a stale socket has to be unlinked first, and has no mode (§3)     |
+| `spawnDaemon()`      | `detached: true` (`setsid`), `cwd: /`                                                      | `detached: true, windowsHide: true`, stdio ignored, `cwd` the home directory                        |
+| readiness            | connect and complete `hello` within a deadline                                             | the same; the failure reason comes from the daemon's log file                                       |
+| `compiled`           | `import.meta.path` starts `/$bunfs/`                                                       | the virtual drive `B:\~BUN\`, and the path arrives with backslashes                                 |
+| `isAlive(pid)`       | `kill(pid, 0)`, then `/proc/<pid>/stat` — `ps -o state=` on macOS — so a zombie reads dead | `kill(pid, 0)` (works in Bun on Windows); there are no zombies to exclude                           |
+| `rss(pid)`           | `/proc/<pid>/status`, or `ps -o rss=` on macOS                                             | `process.memoryUsage()`, so only for this process                                                   |
+| `cpuModel()`         | `machdep.cpu.brand_string` on macOS, `/proc/cpuinfo` on Linux                              | libuv's own `os.cpus()`                                                                             |
+| `onShutdownSignal()` | `SIGTERM`/`SIGINT`/`SIGHUP`, each ending in the same graceful shutdown                     | nothing to register: no console-control event reaches a detached daemon                             |
+| `terminate(pid)`     | `SIGKILL`, when the `shutdown` message's grace has run out                                 | `TerminateProcess`, for the same reason                                                             |
+| `signalsExits`       | true: an exit status names the signal that ended a process                                 | false: Bun echoes back the name `proc.kill` was passed, and reports it for a `TerminateProcess`     |
+| `adoptTree(child)`   | the child's process group, which the inline `terminal` makes it the leader of              | a Job Object with `KILL_ON_JOB_CLOSE`, joined by inheritance; the child alone where there is no ffi |
+| tree `interrupt()`   | `SIGINT` to that group                                                                     | `0x03` into the ConPTY; what dies of it is up to the child's runtime                                |
+| tree `kill()`        | `SIGTERM` or `SIGKILL` to that group                                                       | `TerminateJobObject`, which takes the descendants with it                                           |
+| socket buffers       | Linux default 208 KiB; macOS 8 KiB, raised via `setsockopt` on the listener's `fd`         | unmeasured, so the kernel's own figure stands                                                       |
+| `defaultShell()`     | _not implemented:_ `$SHELL` → `/bin/sh`                                                    | _not implemented:_ probably config → `pwsh` → Windows PowerShell → `%COMSPEC%`; nobody has decided  |
 
 Two things the table does not say. The environment overrides that name a
 directory outright — `XDG_RUNTIME_DIR`, `XDG_STATE_HOME`, `WP_STATE_DIR`,
@@ -123,12 +126,17 @@ three OSes identical and costs nothing measurable. The spike used a ready
 file instead of the pipe, which also works; either is fine, and one of them
 should be the same on all three.
 
-**Shutdown is a protocol message on all three.** A detached Windows daemon
+**Teardown is a protocol message on all three.** A detached Windows daemon
 has no console, so no console-control event can reach it and every
 `proc.kill(signal)` is `TerminateProcess` regardless of the name passed —
-Bun still reports the requested `signalCode`, which is misleading. Making
-graceful shutdown a message is the only portable design and is probably the
-better one anyway.
+Bun still reports the requested `signalCode` (run 33704743713), which is
+misleading. So the `shutdown` message is the way in on every platform, and a
+`kill` carries a mode — interrupt, terminate or force — rather than a signal
+name. Signals stay a second route into the daemon's shutdown on POSIX,
+because `kill` typed at a shell is a real thing and the snapshot suite sends
+one; nothing on Windows registers a handler, since nothing could fire it. A
+POSIX signal name on a `kill` still says what it always said and is still
+the signal that gets sent; on Windows it names a mode and nothing else.
 
 ## 3. Windows, specifically
 
@@ -151,9 +159,10 @@ far enough to hit questions rather than blockers:
   rather than after it, at the same length. A recorded prologue therefore
   could not carry the fidelity guarantee and the grid can, which is what the
   PoC's assertions compare.
-- **Kill semantics.** `kill` through the protocol is `TerminateProcess`, exit
-  code 1, no signal name; a test that waits for a signal to be reported times
-  out. This is the `shutdown()`/`interrupt()` row of §2 as a design item.
+- **Kill semantics.** Nothing is delivered as a signal, so the daemon reports
+  none: a `kill` is a mode, a session records how the platform carried it out,
+  and a Windows exit says `exitCode` 1 with no `signalCode`. The tree comes
+  from a Job Object — see below.
 - **A ConPTY carries about 20 KiB/s.** A 4 MiB flood does not finish inside a
   minute: 1.0–1.3 MiB of it reaches the reader in 60 s, against about
   99 MiB/s through a session on Linux. Every PoC assertion that pushes
@@ -209,8 +218,25 @@ finds them again:
   ("TinyCC is disabled"; fixed upstream after 1.3.14). Anything Windows does
   through ffi needs a non-ffi fallback there; the lock falls back to an
   exclusive `\\.\pipe\` name, which is the lock the `win32-arm64` lane's
-  daemon holds (run 33696944598). Its refusal of a second taker is verified
-  on x64 by forcing the pipe lock, not yet on arm64.
+  daemon holds (run 33696944598), and the session tree falls back to the
+  child alone. Its refusal of a second taker is verified on x64 by forcing
+  the pipe lock, not yet on arm64.
+- One `expect(promise).rejects` hangs under `bun test` on Windows. The same
+  request answers in under a millisecond when its rejection is caught, and
+  hangs to the test's timeout when it is asserted that way; `bun test` then
+  kills the daemon, so every later test in the file says `connection closed`
+  (run 33707210922). Other `expect().rejects` in the same suites pass, so
+  this is not a blanket "`rejects` is broken"; what separates them is not
+  known. That one line was all of the kill test's five seconds.
+
+**A session's tree is a Job Object.** A ConPTY child can be assigned to one
+from Bun, and `TerminateJobObject` — or dropping the last handle to a job
+carrying `KILL_ON_JOB_CLOSE` — takes the child and its descendants in two or
+three milliseconds. The daemon is itself already inside a job on a hosted
+runner and the nested assign still succeeds. So tree kill on Windows needs no
+native helper on `win32-x64`; on `win32-arm64` there is no `bun:ffi` and the
+kill is `TerminateProcess` on the child alone, which loses anything that has
+left the ConPTY behind. Both are run 33706263111.
 
 **The socket, beyond Bun.** A Windows `AF_UNIX` socket is reachable from Bun
 and from little else werk cares about: Node reaches only `\\.\pipe\` names,
@@ -228,9 +254,10 @@ Bun-only client, and nothing forces the choice yet.
 feels through any client) and its throughput (about 20 KiB/s, which bounds
 what a session can pour through one), the re-encoding above, logoff killing
 the daemon (a service or Run-key relaunch is the only cure), the shell
-question, and the Job Object work for tree kill. None of these looks like a
-stopper; all of them are work that the WSL2 answer avoids. §6 says what that
-does to the open question.
+question, and an `arm64` build with no `bun:ffi`, which has neither a job for
+the tree nor a lock of its own. None of these looks like a stopper; all of
+them are work that the WSL2 answer avoids. §6 says what that does to the open
+question.
 
 ## 4. macOS, specifically
 
@@ -375,7 +402,8 @@ gated" is what the lanes do today and probably the right default.
   The measured costs of hosting on Windows are output re-encoding, kill
   being `TerminateProcess` with graceful teardown moved into the protocol,
   ConPTY latency and throughput, and WSL2 teardown if that is the placement;
-  `AF_UNIX` is not one of them, and neither, as it turns out, is reattach
+  `AF_UNIX` is not one of them, nor tree kill, which a Job Object handles
+  wherever `bun:ffi` exists, and neither, as it turns out, is reattach
   fidelity: the cells the same input leaves are identical run after run even
   where the bytes carrying them are not (§3). The lean towards client-first
   with WSL2 as the documented placement probably still holds on effort
@@ -397,27 +425,29 @@ Every "measured" in §1 points at one of these; each run uploads a
 `ci-result-<lane>.json` that is the record, and artefacts are kept 14 days
 so re-running is the way to check anything older.
 
-| What                                                               | Where                                                                      | Run                                                                                                                                                            |
-| ------------------------------------------------------------------ | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The three lanes on `main` with every spike merged                  | [`poc.yml`](../../.github/workflows/poc.yml)                               | [33696942295](https://github.com/omnilogic-labs/werk/actions/runs/33696942295)                                                                                 |
-| The eight-target matrix on that same `main`                        | [`matrix.yml`](../../.github/workflows/matrix.yml)                         | [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598)                                                                                 |
-| The Windows lane once its daemon suite is gated                    | `poc.yml`                                                                  | [33697939359](https://github.com/omnilogic-labs/werk/actions/runs/33697939359)                                                                                 |
-| The eight-target matrix once Windows uploads its result            | `matrix.yml`                                                               | [33698568476](https://github.com/omnilogic-labs/werk/actions/runs/33698568476)                                                                                 |
-| The three lanes with §2's seam in place                            | `poc.yml`                                                                  | [33702171963](https://github.com/omnilogic-labs/werk/actions/runs/33702171963)                                                                                 |
-| The eight targets with §2's seam in place                          | `matrix.yml`                                                               | [33702173764](https://github.com/omnilogic-labs/werk/actions/runs/33702173764), [33702588265](https://github.com/omnilogic-labs/werk/actions/runs/33702588265) |
-| The eight targets on `main`, run against those two                 | `matrix.yml`                                                               | [33702822069](https://github.com/omnilogic-labs/werk/actions/runs/33702822069)                                                                                 |
-| The Linux lanes with the musl and AVX records                      | `matrix.yml`                                                               | [33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138)                                                                                 |
-| The Windows lane before the daemon had `win32` branches            | `poc.yml`                                                                  | [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407)                                                                                 |
-| Lane gates made fail-closed                                        | [PR #4](https://github.com/omnilogic-labs/werk/pull/4)                     | [33688264859](https://github.com/omnilogic-labs/werk/actions/runs/33688264859)                                                                                 |
-| Eight targets built on Linux, smoked on native runners             | [PR #5](https://github.com/omnilogic-labs/werk/pull/5), `matrix.yml`       | [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325)                                                                                 |
-| macOS socket buffers, signing, process lifecycle probes            | [PR #2](https://github.com/omnilogic-labs/werk/pull/2), `macos-probes.yml` | [33688130745](https://github.com/omnilogic-labs/werk/actions/runs/33688130745)                                                                                 |
-| The daemon with buffers raised, on the macOS lane                  | PR #2, `poc.yml`                                                           | [33688537937](https://github.com/omnilogic-labs/werk/actions/runs/33688537937)                                                                                 |
-| Both darwin lanes verifying a signed binary, each M2 sink measured | `poc.yml` and `matrix.yml`                                                 | [33703344148](https://github.com/omnilogic-labs/werk/actions/runs/33703344148), [33703355321](https://github.com/omnilogic-labs/werk/actions/runs/33703355321) |
-| Windows primitives probed directly                                 | [PR #3](https://github.com/omnilogic-labs/werk/pull/3), `win32-spike.yml`  | [33691536664](https://github.com/omnilogic-labs/werk/actions/runs/33691536664)                                                                                 |
-| The Windows lane with the three blockers stepped over              | PR #3, `poc.yml`                                                           | [33690884893](https://github.com/omnilogic-labs/werk/actions/runs/33690884893)                                                                                 |
-| The Windows lane with the M2 and `ops` harness items done          | `step/04-harness`, `poc.yml`                                               | [33705813223](https://github.com/omnilogic-labs/werk/actions/runs/33705813223), [33706143058](https://github.com/omnilogic-labs/werk/actions/runs/33706143058) |
-| ConPTY's re-encoding, compared as bytes and as cells               | `poc.yml`'s `probes` suite                                                 | [33706788925](https://github.com/omnilogic-labs/werk/actions/runs/33706788925)                                                                                 |
-| The Windows lane with the fidelity oracle on the grid              | `poc.yml`                                                                  | [33706788925](https://github.com/omnilogic-labs/werk/actions/runs/33706788925)                                                                                 |
+| What                                                                      | Where                                                                      | Run                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The three lanes on `main` with every spike merged                         | [`poc.yml`](../../.github/workflows/poc.yml)                               | [33696942295](https://github.com/omnilogic-labs/werk/actions/runs/33696942295)                                                                                                                                                                 |
+| The eight-target matrix on that same `main`                               | [`matrix.yml`](../../.github/workflows/matrix.yml)                         | [33696944598](https://github.com/omnilogic-labs/werk/actions/runs/33696944598)                                                                                                                                                                 |
+| The Windows lane once its daemon suite is gated                           | `poc.yml`                                                                  | [33697939359](https://github.com/omnilogic-labs/werk/actions/runs/33697939359)                                                                                                                                                                 |
+| The eight-target matrix once Windows uploads its result                   | `matrix.yml`                                                               | [33698568476](https://github.com/omnilogic-labs/werk/actions/runs/33698568476)                                                                                                                                                                 |
+| The three lanes with §2's seam in place                                   | `poc.yml`                                                                  | [33702171963](https://github.com/omnilogic-labs/werk/actions/runs/33702171963)                                                                                                                                                                 |
+| The eight targets with §2's seam in place                                 | `matrix.yml`                                                               | [33702173764](https://github.com/omnilogic-labs/werk/actions/runs/33702173764), [33702588265](https://github.com/omnilogic-labs/werk/actions/runs/33702588265)                                                                                 |
+| The eight targets on `main`, run against those two                        | `matrix.yml`                                                               | [33702822069](https://github.com/omnilogic-labs/werk/actions/runs/33702822069)                                                                                                                                                                 |
+| The Linux lanes with the musl and AVX records                             | `matrix.yml`                                                               | [33701438138](https://github.com/omnilogic-labs/werk/actions/runs/33701438138)                                                                                                                                                                 |
+| The Windows lane before the daemon had `win32` branches                   | `poc.yml`                                                                  | [33686941407](https://github.com/omnilogic-labs/werk/actions/runs/33686941407)                                                                                                                                                                 |
+| Lane gates made fail-closed                                               | [PR #4](https://github.com/omnilogic-labs/werk/pull/4)                     | [33688264859](https://github.com/omnilogic-labs/werk/actions/runs/33688264859)                                                                                                                                                                 |
+| Eight targets built on Linux, smoked on native runners                    | [PR #5](https://github.com/omnilogic-labs/werk/pull/5), `matrix.yml`       | [33689751325](https://github.com/omnilogic-labs/werk/actions/runs/33689751325)                                                                                                                                                                 |
+| macOS socket buffers, signing, process lifecycle probes                   | [PR #2](https://github.com/omnilogic-labs/werk/pull/2), `macos-probes.yml` | [33688130745](https://github.com/omnilogic-labs/werk/actions/runs/33688130745)                                                                                                                                                                 |
+| The daemon with buffers raised, on the macOS lane                         | PR #2, `poc.yml`                                                           | [33688537937](https://github.com/omnilogic-labs/werk/actions/runs/33688537937)                                                                                                                                                                 |
+| Both darwin lanes verifying a signed binary, each M2 sink measured        | `poc.yml` and `matrix.yml`                                                 | [33703344148](https://github.com/omnilogic-labs/werk/actions/runs/33703344148), [33703355321](https://github.com/omnilogic-labs/werk/actions/runs/33703355321)                                                                                 |
+| Windows primitives probed directly                                        | [PR #3](https://github.com/omnilogic-labs/werk/pull/3), `win32-spike.yml`  | [33691536664](https://github.com/omnilogic-labs/werk/actions/runs/33691536664)                                                                                                                                                                 |
+| The Windows lane with the three blockers stepped over                     | PR #3, `poc.yml`                                                           | [33690884893](https://github.com/omnilogic-labs/werk/actions/runs/33690884893)                                                                                                                                                                 |
+| The Windows lane with the M2 and `ops` harness items done                 | `step/04-harness`, `poc.yml`                                               | [33705813223](https://github.com/omnilogic-labs/werk/actions/runs/33705813223), [33706143058](https://github.com/omnilogic-labs/werk/actions/runs/33706143058)                                                                                 |
+| ConPTY's re-encoding, compared as bytes and as cells                      | `poc.yml`'s `probes` suite                                                 | [33706788925](https://github.com/omnilogic-labs/werk/actions/runs/33706788925)                                                                                                                                                                 |
+| The Windows lane with the fidelity oracle on the grid                     | `poc.yml`                                                                  | [33706788925](https://github.com/omnilogic-labs/werk/actions/runs/33706788925)                                                                                                                                                                 |
+| The three lanes with teardown through the protocol                        | `poc.yml`                                                                  | [33707334391](https://github.com/omnilogic-labs/werk/actions/runs/33707334391)                                                                                                                                                                 |
+| Job Objects, the kill path and `expect().rejects` on both Windows runners | `step2-probes.yml`                                                         | [33704743713](https://github.com/omnilogic-labs/werk/actions/runs/33704743713), [33706263111](https://github.com/omnilogic-labs/werk/actions/runs/33706263111), [33707210922](https://github.com/omnilogic-labs/werk/actions/runs/33707210922) |
 
 The cheap way to ask any further question is the same: a branch, a workflow
 with a `push` trigger scoped to it (or `gh workflow run poc.yml --ref
@@ -451,16 +481,37 @@ suites stop; 6 and 7 the platforms that already pass; 8 and 9 shape.
    table: BSD against GNU `ps` keywords in `launch.test.ts` and
    `script(1)`/`head` flags in `spikes/m2/scenarios.ts`.
 
-2. **Shutdown and kill through the protocol.** Replace the daemon's
-   signal-based shutdown and the session kill path's `proc.kill(signal)` with
-   protocol messages; on Windows, put each session's child in a Job Object
-   with `KILL_ON_JOB_CLOSE` via `bun:ffi` so a kill takes the tree. _Proves_
-   teardown does not depend on a signal reaching a detached process. _Done
-   when_ `kill signals the child; ls reports the signal; attached clients
-hear exited` in `src/daemon/daemon.test.ts` passes on the `windows` lane
-   and stays green on `ubuntu-latest` and `macos-latest`. _Wrong if_ a
-   ConPTY child cannot be placed in a Job Object from Bun — then tree kill
-   needs a native helper, a cost for §10.
+2. **Shutdown and kill through the protocol — done.** The `shutdown` message
+   is the way in on all three; POSIX keeps its signal handlers as a second
+   route, since a `kill` typed at a shell is a real thing and
+   `snapshot.test.ts` sends one. A `kill` carries a mode — interrupt,
+   terminate or force — and the seam carries out what a mode means:
+   `adoptTree(child)` takes hold of a session's child as it is spawned, and
+   the tree it returns is the child's process group on POSIX and a Job Object
+   with `KILL_ON_JOB_CLOSE` on Windows. A POSIX signal name still names a
+   mode and is still the signal that gets sent where signals exist;
+   `signalCode` is reported only where an exit status has one, which is not
+   Windows. The named test passes on the `windows` lane as a suite of its
+   own (`kill`, on the `EXPECTED_PASS` list), and `ubuntu-latest` and
+   `macos-latest` record verdict for verdict what run 33702171963 did — the
+   slow-client scenario and nothing else (run 33707334391). Two Windows rows
+   moved with it: `m3` hit the non-exit it hits about one run in four, and
+   `test-full` now runs past the kill test rather than aborting there, which
+   takes it past its step's 180 s. Neither is gated; both are step 3's to
+   settle. A Job Object holds a ConPTY child on `win32-x64` and
+   `TerminateJobObject` takes the tree in 2–3 ms even though the daemon is
+   already inside a job; `win32-arm64` has no `bun:ffi` at all, so its kill
+   is `TerminateProcess` on the child alone and anything that has left the
+   ConPTY behind survives it (runs 33704743713, 33706263111). The five
+   seconds the kill test used to spend was one assertion — an
+   `expect(promise).rejects` that hangs on Windows where catching the same
+   rejection answers at once (run 33707210922) — and with it caught, the
+   whole of `daemon.test.ts` reaches a verdict on both Windows runners: 10
+   pass and the slow-client scenario on `win32-x64`, 9 pass and the render
+   prologue as well on `win32-arm64` (run 33707978762). That prologue test
+   passes on `win32-x64` run on its own and fails in the same commit's
+   `test-full`, so whatever fails it there is not simply ConPTY's opening
+   bytes; step 3 is where that goes.
 
 3. **A ConPTY-aware fidelity oracle — done.** The daemon tests and M2 ask
    the grid rather than the stream. `src/daemon/_grid.ts` replays everything

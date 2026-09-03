@@ -16,6 +16,11 @@
 // listener's fd, so one setsockopt(2) before the first accept is enough.
 // Best effort: a failure is logged by the caller, not fatal.
 //
+// A kill goes to the child's process group rather than to the child, so a
+// shell's own children go with it. The child leads that group because the
+// inline `terminal` makes it a session leader; where it does not, the signal
+// goes to the child alone rather than to a group it did not create.
+//
 // The daemon is spawned `detached` (setsid) with stdio on /dev/null, plus one
 // extra `"pipe"` slot that the child sees as fd 3. The daemon writes its
 // readiness report to it and closes it. That pipe is an optimisation and an
@@ -28,10 +33,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { dlopen, FFIType, ptr } from "bun:ffi";
+
 import type {
   DaemonStart,
   FileLock,
   Platform,
+  KillOutcome,
+  ProcessTree,
+  SessionChild,
   SpawnDaemonOptions,
 } from "./index.ts";
 
@@ -129,6 +138,41 @@ function getBuf(fd: number, name: number): number {
   return rc === 0 ? val[0]! : -1;
 }
 
+/**
+ * The process group `pid` leads, or null when it leads none. A session's
+ * child is spawned with an inline `terminal`, which on Bun 1.3.14 makes it a
+ * session leader with the PTY as its controlling terminal (findings/m2.md),
+ * so its pgid is its own pid and the group is everything it started that has
+ * not moved itself out of it. Anything else — a child that called `setpgid`,
+ * a Bun that stopped calling `setsid` — reads as "leads no group", and the
+ * kill goes to the child alone rather than to whatever group it landed in.
+ */
+function leadsGroup(pid: number): boolean {
+  try {
+    const pgid = DARWIN
+      ? Number(psField(pid, "pgid"))
+      : Number(
+          fs
+            .readFileSync(`/proc/${pid}/stat`, "utf8")
+            .split(") ")
+            .pop()
+            ?.split(" ")[2],
+        );
+    return Number.isFinite(pgid) && pgid === pid;
+  } catch {
+    return false;
+  }
+}
+
+/** The POSIX signal a mode asks for. */
+function signalFor(mode: "interrupt" | "terminate" | "force"): string {
+  return mode === "interrupt"
+    ? "SIGINT"
+    : mode === "force"
+      ? "SIGKILL"
+      : "SIGTERM";
+}
+
 /** One `ps` field for one pid, empty when the process is gone. macOS has no /proc. */
 function psField(pid: number, keyword: string): string {
   return Bun.spawnSync(["ps", "-o", `${keyword}=`, "-p", String(pid)])
@@ -169,6 +213,8 @@ async function readPipe(fd: number, timeoutMs: number): Promise<string> {
 
 export const posix: Platform = {
   id: "posix",
+
+  signalsExits: true,
 
   runtimeDir(): string {
     return path.join(os.tmpdir(), `werk-poc-${process.getuid?.() ?? "0"}`);
@@ -317,5 +363,43 @@ export const posix: Platform = {
     for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
       process.on(sig, () => handler(sig));
     }
+  },
+
+  /**
+   * The tree is the child's process group, which it leads. `kill(-pgid, sig)`
+   * reaches everything in it, so a shell's children go with the shell; a
+   * child that has moved itself into someone else's group is signalled
+   * alone, because signalling that group would reach processes this session
+   * never started.
+   */
+  adoptTree(child: SessionChild): ProcessTree {
+    const send = (
+      mode: "interrupt" | "terminate" | "force",
+      signal?: string,
+    ): KillOutcome => {
+      const sig = (signal ?? signalFor(mode)) as NodeJS.Signals;
+      if (leadsGroup(child.pid)) {
+        try {
+          process.kill(-child.pid, sig);
+          return { delivery: "group-signal", signal: sig };
+        } catch {
+          // ESRCH: the group went between the check and the signal.
+        }
+      }
+      child.kill(sig);
+      return { delivery: "signal", signal: sig };
+    };
+    return {
+      holds: "group",
+      interrupt: (signal) => send("interrupt", signal),
+      kill: (mode, signal) => send(mode, signal),
+      close: () => {},
+    };
+  },
+
+  terminate(pid: number): void {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {}
   },
 };

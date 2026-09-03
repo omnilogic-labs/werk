@@ -31,7 +31,11 @@ import {
   type SnapshotResult,
   type SnapshotStats,
 } from "../protocol/index.ts";
-import { platform, socketBufferBytes } from "../platform/index.ts";
+import {
+  modeForSignal,
+  platform,
+  socketBufferBytes,
+} from "../platform/index.ts";
 import { Connection, QUEUE_BOUND } from "./connection.ts";
 import type { DaemonPaths } from "./paths.ts";
 import { Session } from "./session.ts";
@@ -45,7 +49,11 @@ import {
 export interface DaemonServer {
   paths: DaemonPaths;
   sessions: Map<string, Session>;
-  /** Called by the shutdown message and by SIGTERM: snapshots every session, then exits. */
+  /**
+   * Called by the `shutdown` message on every platform, and by a signal
+   * where one can reach a detached daemon: snapshots every session, then
+   * exits.
+   */
   shutdown(reason: string): void;
   log(line: string): void;
 }
@@ -290,13 +298,24 @@ export async function startServer(
       case "kill": {
         const s = session(msg.id);
         if (s.status === "running") {
-          s.kill(msg.signal ?? "SIGTERM");
-          return { id: s.id, action: "signalled" } satisfies KillResult;
+          // The mode is the request; a POSIX signal name is one way of
+          // spelling it, and where the platform has signals it is the one
+          // that gets sent.
+          const mode =
+            msg.mode ??
+            (msg.signal ? modeForSignal(msg.signal) : null) ??
+            "terminate";
+          const kill = s.kill(mode, msg.signal);
+          return { id: s.id, action: "killed", kill } satisfies KillResult;
         }
         s.dispose();
         sessions.delete(s.id);
         deleteSnapshot(paths.state, s.id);
-        return { id: s.id, action: "removed" } satisfies KillResult;
+        return {
+          id: s.id,
+          action: "removed",
+          kill: s.killRecord,
+        } satisfies KillResult;
       }
       case "logs": {
         const s = session(msg.id);

@@ -111,9 +111,9 @@ export async function tempDaemon(
       await client.shutdown().catch(() => {});
       client.close();
       if (!(await waitFor(() => !alive(pid), 5000))) {
-        try {
-          process.kill(pid, "SIGKILL");
-        } catch {}
+        // The message is the way out everywhere; this is its grace running
+        // out, and what ends a process that ignored it is the seam's.
+        platform.terminate(pid);
         await waitFor(() => !alive(pid), 2000);
       }
       fs.rmSync(root, { recursive: true, force: true });
@@ -135,9 +135,9 @@ export async function waitForScreen(
   );
 }
 
-/** Signals a running session, waits for it to exit, and removes it. */
+/** Ends a running session outright, waits for it to exit, and removes it. */
 export async function killAndRemove(client: Client, id: string): Promise<void> {
-  const r = await client.kill(id, "SIGKILL");
+  const r = await client.kill(id, "force");
   if (r.action === "removed") return;
   await waitFor(
     async () => {
