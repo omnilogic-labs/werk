@@ -143,18 +143,10 @@ test("title effects reach an attached client", async () => {
 });
 
 test("kill signals the child; ls reports the signal; attached clients hear exited", async () => {
-  let t = performance.now();
-  const lap = (what: string) => {
-    console.log(`LAP ${what} ${(performance.now() - t).toFixed(0)} ms`);
-    t = performance.now();
-  };
   const { id } = await client.run({ argv: ["sleep", "30"] });
-  lap("run");
   const cap = new Capture(client);
   await cap.attach(id);
-  lap("attach");
   const r = await client.kill(id);
-  lap("kill");
   expect(r.action).toBe("killed");
   expect(r.kill!.mode).toBe("terminate");
   // How the platform carried it out: a signal to the child's process group on
@@ -164,9 +156,7 @@ test("kill signals the child; ls reports the signal; attached clients hear exite
     r.kill!.delivery,
   );
   expect(await waitFor(() => cap.exited !== null, 3000)).toBe(true);
-  lap("exited notice");
   const info = (await client.ls()).find((s) => s.id === id)!;
-  lap("ls");
   expect(info.status).toBe("exited");
   expect(info.kill!.mode).toBe("terminate");
   expect(info.exitedAt).not.toBeNull();
@@ -183,12 +173,17 @@ test("kill signals the child; ls reports the signal; attached clients hear exite
   }
   // the session is still there for ls and logs until it is removed
   const removed = await client.kill(id);
-  lap("kill again");
   expect(removed.action).toBe("removed");
   expect((await client.ls()).find((s) => s.id === id)).toBeUndefined();
-  lap("ls again");
-  await expect(client.kill(id)).rejects.toThrow(/no session/);
-  lap("kill a third time");
+  // Caught rather than asserted with `expect().rejects`, which on Windows
+  // never resumes for a promise that is still pending when it is handed over
+  // — the same request answers in a millisecond through `catch`
+  // (.github/ci/win32-kill.test.ts, run 33707210922).
+  const missing = await client.kill(id).then(
+    () => null,
+    (e: Error) => e.message,
+  );
+  expect(missing).toMatch(/no session/);
 });
 
 test("exit code is recorded and the last output survives the exit", async () => {
