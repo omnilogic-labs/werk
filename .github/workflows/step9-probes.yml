@@ -92,11 +92,30 @@ jobs:
           ssh -V 2>&1 || true
           echo "ImageOS=${ImageOS:-} ImageVersion=${ImageVersion:-}"
 
+      - name: install
+        run: bun install --frozen-lockfile
+
+      - name: build wp
+        id: build
+        continue-on-error: true
+        working-directory: packages/werk-poc
+        run: bun run build
+
       - name: Probes
         timeout-minutes: 20
         run: |
           set -o pipefail
           bun run .github/ci/step9-win32-probes.ts 2>&1 | tee probes.log
+
+      - name: A client of a daemon it did not start
+        timeout-minutes: 20
+        run: |
+          set -o pipefail
+          bun run .github/ci/step9-win32-forward.ts 2>&1 | tee -a probes.log
+
+      - name: Summary
+        if: always()
+        run: |
           {
             echo "## step9 Windows probes"
             echo

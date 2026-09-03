@@ -30,13 +30,17 @@ function firstLine(e: unknown): string {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-async function waitFor(pred: () => boolean, ms: number, step = 25) {
+async function waitFor(
+  pred: () => boolean | Promise<boolean>,
+  ms: number,
+  step = 25,
+) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
-    if (pred()) return true;
+    if (await pred()) return true;
     await sleep(step);
   }
-  return pred();
+  return !!(await pred());
 }
 
 function sh(cmd: string[]): { code: number; out: string } {
@@ -206,7 +210,7 @@ async function forward(
     stdout: "ignore",
     stderr: "pipe",
   });
-  const up = await waitFor(async () => (await ready()) === true, 10_000, 50);
+  const up = await waitFor(ready, 10_000, 50);
   return { proc: p, up };
 }
 

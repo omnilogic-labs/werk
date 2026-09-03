@@ -16,6 +16,7 @@ import {
   defaultRuntimeDir,
   type DaemonPaths,
 } from "../daemon/paths.ts";
+import { clientToken, parseSocketTarget } from "../daemon/tcp.ts";
 import {
   decodeControl,
   encodeControl,
@@ -61,8 +62,17 @@ export interface ConnectOptions {
    * this machine's: an `ssh -L` forward of a remote daemon's `wp.sock`, say.
    * Overrides `dir`, and implies `autostart: false` — nothing here could
    * start a daemon at the far end of a forward.
+   *
+   * `tcp:<host>:<port>` names the daemon's optional loopback landing
+   * instead of a path, which is where an `ssh -L` from Windows lands: that
+   * ssh forwards no Unix socket on either side (`../daemon/tcp.ts`).
    */
   socket?: string;
+  /**
+   * The token the daemon wrote to `wp.tcp`, needed over `tcp:` and ignored
+   * over a socket. Defaults to `WP_TOKEN`.
+   */
+  token?: string;
   /** Start a daemon if none answers. Default true. */
   autostart?: boolean;
   /** Override the hello the client sends; for testing the mismatch path. */
@@ -160,7 +170,12 @@ export class Client {
     let client: Client | null = null;
     if (opts.socket) {
       const paths = { ...daemonPaths(dir), socket: opts.socket };
-      client = await Client.open(paths, hello, opts.timeoutMs ?? 5000);
+      client = await Client.open(
+        paths,
+        hello,
+        opts.timeoutMs ?? 5000,
+        opts.token ?? clientToken(),
+      );
       client.requestTimeoutMs = opts.requestTimeoutMs ?? null;
       return client;
     }
@@ -187,7 +202,9 @@ export class Client {
     paths: DaemonPaths,
     hello: HelloInfo,
     timeoutMs: number,
+    token?: string,
   ): Promise<Client> {
+    const target = parseSocketTarget(paths.socket);
     return new Promise<Client>((resolve, reject) => {
       let client: Client | undefined;
       let settled = false;
@@ -200,47 +217,59 @@ export class Client {
         () => fail(new Error("hello timed out")),
         timeoutMs,
       );
-      Bun.connect({
-        unix: paths.socket,
-        socket: {
-          open(socket) {
-            client = new Client(socket, paths);
-            client.onHello = (msg) => {
-              clearTimeout(timer);
-              if (msg.t === "error") {
-                fail(new DaemonError(msg.code, msg.message));
-                return;
-              }
-              client!.daemon = {
-                protocol: msg.protocol,
-                wp: msg.wp,
-                engine: msg.engine,
-                pid: msg.pid,
-              };
-              settled = true;
-              resolve(client!);
-            };
-            client.send(encodeControl({ t: "hello", ...hello }));
-          },
-          data(_socket, chunk) {
-            client?.onChunk(chunk);
-          },
-          drain() {
-            client?.onDrain();
-          },
-          close() {
-            client?.onClose();
-            fail(new Error("connection closed before hello"));
-          },
-          error(_socket, err) {
-            fail(err);
-          },
-          connectError(_socket, err) {
+      const handlers = {
+        open(socket: Socket<unknown>) {
+          client = new Client(socket, paths);
+          client.onHello = (msg) => {
             clearTimeout(timer);
-            fail(err);
-          },
+            if (msg.t === "error") {
+              fail(new DaemonError(msg.code, msg.message));
+              return;
+            }
+            client!.daemon = {
+              protocol: msg.protocol,
+              wp: msg.wp,
+              engine: msg.engine,
+              pid: msg.pid,
+            };
+            settled = true;
+            resolve(client!);
+          };
+          client.send(
+            encodeControl(
+              target.kind === "tcp"
+                ? { t: "hello", ...hello, token }
+                : { t: "hello", ...hello },
+            ),
+          );
         },
-      }).catch(fail);
+        data(_socket: Socket<unknown>, chunk: Uint8Array) {
+          client?.onChunk(chunk);
+        },
+        drain() {
+          client?.onDrain();
+        },
+        close() {
+          client?.onClose();
+          fail(new Error("connection closed before hello"));
+        },
+        error(_socket: Socket<unknown>, err: Error) {
+          fail(err);
+        },
+        connectError(_socket: Socket<unknown>, err: Error) {
+          clearTimeout(timer);
+          fail(err);
+        },
+      };
+      const connected =
+        target.kind === "tcp"
+          ? Bun.connect({
+              hostname: target.hostname,
+              port: target.port,
+              socket: handlers,
+            })
+          : Bun.connect({ unix: target.path, socket: handlers });
+      connected.catch(fail);
     });
   }
 

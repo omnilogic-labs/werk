@@ -88,17 +88,22 @@ async function freePort(): Promise<number> {
   return p;
 }
 
+// Win32-OpenSSH cannot open `NUL` as a config file ("No such file or
+// directory"), so an empty file stands in for /dev/null on both counts.
+const emptyConf = path.join(tmp, "ssh_config.empty");
+fs.writeFileSync(emptyConf, "");
+
 function sshArgs(extra: string[] = []): string[] {
   return [
     "ssh",
     "-F",
-    "NUL",
+    emptyConf,
     "-i",
     key,
     "-o",
     "StrictHostKeyChecking=no",
     "-o",
-    "UserKnownHostsFile=NUL",
+    `UserKnownHostsFile=${path.join(tmp, "known_hosts")}`,
     "-o",
     "LogLevel=ERROR",
     "-o",
@@ -265,6 +270,127 @@ if (sshdUp) {
   say("tcp-forward", parts.join("; "));
 }
 
+// ----------------------------------------------- frames through the forward
+// The step's stop condition: does the forwarded loopback port coalesce or
+// drop frames where the Linux Unix-socket forward in findings/m5.md did
+// not. 20,000 length-prefixed frames of 512 B, each stamped with its
+// sequence number, sent from a server the forward reaches and parsed back
+// on the far side: a dropped frame is a gap, a reordered one is a wrong
+// stamp, and coalescing shows up as reads far larger than a frame.
+async function framesThroughForward(connectPort: number): Promise<{
+  frames: number;
+  bytes: number;
+  reads: number;
+  readSizes: number[];
+  gaps: number;
+  wrong: number;
+  ms: number;
+}> {
+  const N = 20_000;
+  const PAY = 512;
+  return new Promise((resolve, reject) => {
+    const readSizes: number[] = [];
+    let frames = 0;
+    let bytes = 0;
+    let gaps = 0;
+    let wrong = 0;
+    let expect = 0;
+    let buf = Buffer.alloc(0);
+    const t0 = performance.now();
+    const s = net.connect(connectPort, "127.0.0.1");
+    s.on("connect", () => s.write("go\n"));
+    s.on("data", (b: Buffer) => {
+      readSizes.push(b.length);
+      bytes += b.length;
+      buf = buf.length === 0 ? b : Buffer.concat([buf, b]);
+      for (;;) {
+        if (buf.length < 8) break;
+        const seq = buf.readUInt32LE(0);
+        const len = buf.readUInt32LE(4);
+        if (buf.length < 8 + len) break;
+        const body = buf.subarray(8, 8 + len);
+        buf = buf.subarray(8 + len);
+        frames++;
+        if (seq !== expect) gaps++;
+        expect = seq + 1;
+        if (len !== PAY || body[0] !== seq % 251 || body[len - 1] !== seq % 251)
+          wrong++;
+        if (frames >= N) {
+          s.destroy();
+          resolve({
+            frames,
+            bytes,
+            reads: readSizes.length,
+            readSizes,
+            gaps,
+            wrong,
+            ms: performance.now() - t0,
+          });
+          return;
+        }
+      }
+    });
+    s.on("error", reject);
+    setTimeout(() => reject(new Error("frames timed out")), 120_000);
+  });
+}
+
+if (sshdUp) {
+  const parts: string[] = [];
+  let fwd: ReturnType<typeof forward> | null = null;
+  const N = 20_000;
+  const PAY = 512;
+  let sender: ReturnType<typeof Bun.listen<undefined>> | null = null;
+  try {
+    let zeroWrites = 0;
+    sender = Bun.listen<undefined>({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        async data(socket) {
+          // One frame at a time, so a short write is visible as one.
+          for (let i = 0; i < N; i++) {
+            const f = Buffer.alloc(8 + PAY, i % 251);
+            f.writeUInt32LE(i, 0);
+            f.writeUInt32LE(PAY, 4);
+            let off = 0;
+            while (off < f.length) {
+              const n = socket.write(f.subarray(off));
+              if (n === 0) {
+                zeroWrites++;
+                await sleep(1);
+                continue;
+              }
+              off += n;
+            }
+          }
+        },
+      },
+    });
+    const local = await freePort();
+    fwd = forward(`127.0.0.1:${local}:127.0.0.1:${sender.port}`);
+    if (!(await waitFor(() => portAccepts(local), 20_000, 250)))
+      throw new Error("the forwarded port never accepted");
+    const r = await framesThroughForward(local);
+    const sizes = [...r.readSizes].sort((a, b) => a - b);
+    parts.push(
+      `${r.frames}/${N} frames, ${r.gaps} out of sequence, ${r.wrong} malformed, ${(r.bytes / 1048576).toFixed(1)} MiB in ${r.ms.toFixed(0)} ms`,
+    );
+    parts.push(
+      `client reads: ${r.reads}, p50 ${sizes[Math.floor(sizes.length / 2)]} B / max ${sizes[sizes.length - 1]} B against a ${8 + PAY} B frame`,
+    );
+    parts.push(`${zeroWrites} sender writes took nothing`);
+  } catch (e) {
+    parts.push(`fail — ${firstLine(e)}`);
+  } finally {
+    try {
+      fwd?.kill();
+    } catch {}
+    sender?.stop(true);
+  }
+  say("tcp-forward-frames", parts.join("; "));
+}
+
 // ------------------------------------------------- unix socket as a -L end
 // Recorded because §8 step 9 leaves the far end of the forward open: "a
 // remote unix socket or port". What Win32-OpenSSH says to each spelling.
@@ -306,6 +432,9 @@ type Verdict = {
   mibs: number;
   short: number;
   reads: number;
+  sent: number;
+  got: number;
+  zeroWrites: number;
 };
 
 async function transport(
@@ -396,24 +525,31 @@ async function transport(
   });
   let short = 0;
   let sent = 0;
+  let zeroWrites = 0;
   const buf = new Uint8Array(CHUNK).fill(65);
-  while (sent < BULK) {
-    const n = serverSock!.write(buf.subarray(0, Math.min(CHUNK, BULK - sent)));
-    if (n === 0) break;
-    if (short === 0 && n < Math.min(CHUNK, BULK - sent)) short = sent + n;
+  const deadline = Date.now() + 60_000;
+  while (sent < BULK && Date.now() < deadline) {
+    const want = Math.min(CHUNK, BULK - sent);
+    const n = serverSock!.write(buf.subarray(0, want));
+    if (n === 0) {
+      zeroWrites++;
+      await sleep(1);
+      continue;
+    }
+    if (short === 0 && n < want) short = sent + n;
     sent += n;
-    if (n < CHUNK) await sleep(1);
+    if (n < want) await sleep(1);
   }
   await Promise.race([done, sleep(30_000)]);
   const mibs = got / 1048576 / ((performance.now() - t0) / 1000);
   c.end();
   listener.stop(true);
-  return { connect, rtt, mibs, short, reads };
+  return { connect, rtt, mibs, short, reads, sent, got, zeroWrites };
 }
 
 {
   const line = (name: string, v: Verdict) =>
-    `${name}: connect p50 ${ms(pct(v.connect, 50))} ms; round trip p50 ${ms(pct(v.rtt, 50))} / p90 ${ms(pct(v.rtt, 90))} / max ${ms(Math.max(...v.rtt))} ms; 16 MiB one way at ${v.mibs.toFixed(1)} MiB/s in ${v.reads} reads; first short write after ${v.short} B`;
+    `connect p50 ${ms(pct(v.connect, 50))} ms; round trip p50 ${ms(pct(v.rtt, 50))} / p90 ${ms(pct(v.rtt, 90))} / max ${ms(Math.max(...v.rtt))} ms; ${(v.sent / 1048576).toFixed(1)} MiB written, ${(v.got / 1048576).toFixed(1)} MiB read in ${v.reads} reads at ${v.mibs.toFixed(1)} MiB/s; first short write after ${v.short} B; ${v.zeroWrites} writes took nothing`;
   for (const [name, kind, where] of [
     ["af-unix", "unix", { unix: path.join(tmp, "t.sock") }],
     ["loopback-tcp", "tcp", { hostname: "127.0.0.1", port: 0 }],
@@ -436,10 +572,10 @@ async function transport(
     const f = path.join(tmp, "wp.token");
     fs.writeFileSync(f, `${await freePort()} ${crypto.randomUUID()}\n`);
     const before = sh(["icacls", f]).out.split("\n").slice(0, 4).join(" | ");
+    sh(["icacls", f, "/inheritance:r"]);
     const set = sh([
       "icacls",
       f,
-      "/inheritance:r",
       "/grant:r",
       `${process.env.USERDOMAIN ?? "."}\\${user}:F`,
     ]);
