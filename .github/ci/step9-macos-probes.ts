@@ -415,6 +415,161 @@ if (sshdUp) {
   say("tcp-forward", parts.join("; "));
 }
 
+// --------------------------------------------- frames through the forward
+// The same question the Windows probe asks, so the two can be read against
+// each other and against the Linux forward in findings/m5.md: 20,000
+// length-prefixed 520 B frames, each stamped with its sequence number,
+// through the forward and directly. A drop is a gap, a reorder is a wrong
+// stamp, and coalescing is a read far larger than a frame.
+const FRAMES = 20_000;
+const PAYLOAD = 512;
+
+/** Serves the frame stream to whatever connects, one frame per write. */
+function framedSender(where: { unix: string } | { port: 0 }) {
+  let zeroWrites = 0;
+  const listener = Bun.listen<undefined>({
+    ...("unix" in where
+      ? { unix: where.unix }
+      : { hostname: "127.0.0.1", port: 0 }),
+    socket: {
+      async data(socket) {
+        for (let i = 0; i < FRAMES; i++) {
+          const f = Buffer.alloc(8 + PAYLOAD, i % 251);
+          f.writeUInt32LE(i, 0);
+          f.writeUInt32LE(PAYLOAD, 4);
+          let off = 0;
+          while (off < f.length) {
+            const n = socket.write(f.subarray(off));
+            if (n === 0) {
+              zeroWrites++;
+              await sleep(1);
+              continue;
+            }
+            off += n;
+          }
+        }
+      },
+    },
+  } as never);
+  return { listener, zero: () => zeroWrites };
+}
+
+/** Reads the stream back and says what arrived, in how many reads. */
+function framedReceiver(
+  open: (onData: (b: Uint8Array) => void, onOpen: () => void) => void,
+) {
+  return new Promise<{
+    frames: number;
+    gaps: number;
+    wrong: number;
+    reads: number[];
+    ms: number;
+  }>((resolve, reject) => {
+    const reads: number[] = [];
+    let frames = 0;
+    let gaps = 0;
+    let wrong = 0;
+    let expect = 0;
+    let buf = Buffer.alloc(0);
+    let t0 = 0;
+    const timer = setTimeout(
+      () => reject(new Error("frames timed out")),
+      120_000,
+    );
+    open(
+      (b) => {
+        reads.push(b.length);
+        buf =
+          buf.length === 0
+            ? Buffer.from(b)
+            : Buffer.concat([buf, Buffer.from(b)]);
+        for (;;) {
+          if (buf.length < 8) break;
+          const seq = buf.readUInt32LE(0);
+          const len = buf.readUInt32LE(4);
+          if (buf.length < 8 + len) break;
+          const body = buf.subarray(8, 8 + len);
+          buf = buf.subarray(8 + len);
+          frames++;
+          if (seq !== expect) gaps++;
+          expect = seq + 1;
+          if (len !== PAYLOAD || body[0] !== seq % 251) wrong++;
+          if (frames >= FRAMES) {
+            clearTimeout(timer);
+            resolve({ frames, gaps, wrong, reads, ms: performance.now() - t0 });
+            return;
+          }
+        }
+      },
+      () => (t0 = performance.now()),
+    );
+  });
+}
+
+const framedLine = (
+  name: string,
+  r: {
+    frames: number;
+    gaps: number;
+    wrong: number;
+    reads: number[];
+    ms: number;
+  },
+  zero: number,
+) => {
+  const sorted = [...r.reads].sort((a, b) => a - b);
+  return `${name}: ${r.frames}/${FRAMES} frames, ${r.gaps} out of sequence, ${r.wrong} malformed in ${r.ms.toFixed(0)} ms; ${r.reads.length} reads, p50 ${sorted[Math.floor(sorted.length / 2)]} B / max ${sorted[sorted.length - 1]} B against a ${8 + PAYLOAD} B frame; ${zero} sender writes took nothing`;
+};
+
+if (sshdUp) {
+  // Through the forwarded Unix socket, and directly against the same kind
+  // of socket with no ssh at all.
+  for (const through of ["ssh -N -L", "no ssh"] as const) {
+    const parts: string[] = [];
+    const target = path.join(
+      tmp,
+      `frames-${through === "no ssh" ? "d" : "f"}.sock`,
+    );
+    const sender = framedSender({ unix: target });
+    let fwdProc: { kill(sig?: string): void } | null = null;
+    try {
+      let sock = target;
+      if (through === "ssh -N -L") {
+        sock = path.join(tmp, "frames-fwd.sock");
+        const f = await forward(sock, target, "N", () => fs.existsSync(sock));
+        fwdProc = f.proc;
+        if (!f.up) throw new Error("the forwarded socket never appeared");
+      }
+      const r = await framedReceiver((onData, onOpen) => {
+        Bun.connect({
+          unix: sock,
+          socket: {
+            open(s) {
+              onOpen();
+              s.write("go\n");
+            },
+            data(_s, chunk) {
+              onData(chunk);
+            },
+          },
+        });
+      });
+      parts.push(framedLine(through, r, sender.zero()));
+    } catch (e) {
+      parts.push(`fail — ${firstLine(e)}`);
+    } finally {
+      try {
+        fwdProc?.kill("SIGKILL");
+      } catch {}
+      sender.listener.stop(true);
+    }
+    say(
+      through === "no ssh" ? "frames-direct" : "frames-forwarded",
+      parts.join("; "),
+    );
+  }
+}
+
 sh(["sudo", "-n", "pkill", "-f", `sshd.*-p ${port}`]);
 try {
   fs.rmSync(tmp, { recursive: true, force: true });

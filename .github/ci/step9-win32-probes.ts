@@ -391,6 +391,56 @@ if (sshdUp) {
   say("tcp-forward-frames", parts.join("; "));
 }
 
+if (true) {
+  // The control for `tcp-forward-frames`: the same 20,000 frames straight
+  // from a loopback TCP server, so a read size through the forward has
+  // something to be a read size against.
+  const parts: string[] = [];
+  const N = 20_000;
+  const PAY = 512;
+  let sender: ReturnType<typeof Bun.listen<undefined>> | null = null;
+  try {
+    let zeroWrites = 0;
+    sender = Bun.listen<undefined>({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        async data(socket) {
+          for (let i = 0; i < N; i++) {
+            const f = Buffer.alloc(8 + PAY, i % 251);
+            f.writeUInt32LE(i, 0);
+            f.writeUInt32LE(PAY, 4);
+            let off = 0;
+            while (off < f.length) {
+              const n = socket.write(f.subarray(off));
+              if (n === 0) {
+                zeroWrites++;
+                await sleep(1);
+                continue;
+              }
+              off += n;
+            }
+          }
+        },
+      },
+    });
+    const r = await framesThroughForward(sender.port);
+    const sizes = [...r.readSizes].sort((a, b) => a - b);
+    parts.push(
+      `${r.frames}/${N} frames, ${r.gaps} out of sequence, ${r.wrong} malformed, ${(r.bytes / 1048576).toFixed(1)} MiB in ${r.ms.toFixed(0)} ms`,
+    );
+    parts.push(
+      `client reads: ${r.reads}, p50 ${sizes[Math.floor(sizes.length / 2)]} B / max ${sizes[sizes.length - 1]} B against a ${8 + PAY} B frame`,
+    );
+    parts.push(`${zeroWrites} sender writes took nothing`);
+  } catch (e) {
+    parts.push(`fail — ${firstLine(e)}`);
+  } finally {
+    sender?.stop(true);
+  }
+  say("tcp-direct-frames", parts.join("; "));
+}
+
 // ------------------------------------------------- unix socket as a -L end
 // Recorded because §8 step 9 leaves the far end of the forward open: "a
 // remote unix socket or port". What Win32-OpenSSH says to each spelling.
@@ -447,6 +497,7 @@ async function transport(
     write(b: Uint8Array | string): number;
     end(): void;
   } | null = null;
+  let drained: (() => void) | null = null;
   const listener = Bun.listen<undefined>({
     ...(kind === "unix"
       ? { unix: where.unix! }
@@ -457,6 +508,9 @@ async function transport(
       },
       data(socket, chunk) {
         socket.write(chunk);
+      },
+      drain() {
+        drained?.();
       },
     },
   } as never);
@@ -531,14 +585,19 @@ async function transport(
   while (sent < BULK && Date.now() < deadline) {
     const want = Math.min(CHUNK, BULK - sent);
     const n = serverSock!.write(buf.subarray(0, want));
-    if (n === 0) {
-      zeroWrites++;
-      await sleep(1);
-      continue;
-    }
     if (short === 0 && n < want) short = sent + n;
-    sent += n;
-    if (n < want) await sleep(1);
+    sent += n > 0 ? n : 0;
+    if (n < want) {
+      // What the kernel would not take waits for `drain`, which is how the
+      // daemon's own connection queue works; a sleep here would measure the
+      // sleep.
+      if (n === 0) zeroWrites++;
+      await Promise.race([
+        new Promise<void>((r) => (drained = r)),
+        sleep(1000),
+      ]);
+      drained = null;
+    }
   }
   await Promise.race([done, sleep(30_000)]);
   const mibs = got / 1048576 / ((performance.now() - t0) / 1000);
@@ -572,7 +631,8 @@ async function transport(
     const f = path.join(tmp, "wp.token");
     fs.writeFileSync(f, `${await freePort()} ${crypto.randomUUID()}\n`);
     const before = sh(["icacls", f]).out.split("\n").slice(0, 4).join(" | ");
-    sh(["icacls", f, "/inheritance:r"]);
+    const cut = sh(["icacls", f, "/inheritance:r"]);
+    const afterCut = sh(["icacls", f]).out.split("\n").slice(0, 4).join(" | ");
     const set = sh([
       "icacls",
       f,
@@ -582,7 +642,8 @@ async function transport(
     const after = sh(["icacls", f]).out.split("\n").slice(0, 4).join(" | ");
     const readable = fs.readFileSync(f, "utf8").trim().length > 0;
     parts.push(`inherited ACL: ${before}`);
-    parts.push(`after /inheritance:r /grant:r (exit ${set.code}): ${after}`);
+    parts.push(`after /inheritance:r (exit ${cut.code}): ${afterCut}`);
+    parts.push(`after /grant:r this user (exit ${set.code}): ${after}`);
     parts.push(`owner can still read: ${readable}`);
     parts.push(
       `node stat mode: ${(fs.statSync(f).mode & 0o777).toString(8)} (what Bun reports on NTFS, not an ACL)`,
