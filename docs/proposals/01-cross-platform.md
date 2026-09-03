@@ -843,10 +843,11 @@ Four of those have a cause outside the PoC and no obvious cost to fix: the
 slow-client scenario is CPU headroom on a shared runner (§5) and unexplained
 throughput on macOS (§4); `darwin-x64` and `win32-arm64`'s ffi failures are a
 missing prebuild and a `bun:ffi` that cannot `dlopen`; `m3` and `m0` are
-nondeterministic, though `m3` has exited on every run of the merged tree so
-far and may come onto the gate once more of them say so. `test-full` and
-`m2` hold on `win32-x64`: three runs of the merged tree (33742714239,
-33742717583 and 33742721321) each pass 171 tests across 23 files, one
+nondeterministic, and `m3` still prints every table and then does not exit
+on about one run of the merged tree in six (run 33744965310), the same shape
+as the engine test files' non-exit below. `test-full` and `m2` hold on
+`win32-x64`: three runs of the merged tree (33742714239, 33742717583 and 33742721321) and three more with the gate in place (33744959953,
+33744962470 and 33744965310) each pass 171 tests across 23 files, one
 process per file, and nine `m2` scenarios of nine, after the unit runs that
 closed each file one by one (§3, §11) and `m2`'s own eighteen runs in
 eighteen plus sixty of the resize scenario alone (run 33738702935). Every
