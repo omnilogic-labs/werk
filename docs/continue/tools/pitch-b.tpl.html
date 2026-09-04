@@ -1,0 +1,2903 @@
+<title>werk — Flight Deck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap"
+/>
+<style>
+  /* dark-first: the bare :root carries the primary (dark) set */
+  :root {
+    --deck: #06080b;
+    --hull: #0e131a;
+    --rule: #1b2430;
+    --signal: #e6edf5;
+    --readout: #8794a6;
+    --vector: #22d3ee;
+    --ion: #7c5cff;
+
+    --running: #2dd4a0;
+    --needs: #ffb224;
+    --idle: #5c6b7e;
+    --failed: #ff4d57;
+
+    --on-vector: #04222a;
+
+    --display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+    --sans:
+      "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    --maxw: 74rem;
+    --gutter: clamp(1.15rem, 4vw, 3rem);
+    --measure: 36rem;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --deck: #f7f9fb;
+      --hull: #ffffff;
+      --rule: #dce3eb;
+      --signal: #0b1219;
+      --readout: #55637a;
+      --vector: #0e7c93;
+      --ion: #5a3fd6;
+      --running: #0e8a63;
+      --needs: #9a5b00;
+      --idle: #66748a;
+      --failed: #c42430;
+      --on-vector: #ffffff;
+    }
+  }
+
+  :root[data-theme="light"] {
+    --deck: #f7f9fb;
+    --hull: #ffffff;
+    --rule: #dce3eb;
+    --signal: #0b1219;
+    --readout: #55637a;
+    --vector: #0e7c93;
+    --ion: #5a3fd6;
+    --running: #0e8a63;
+    --needs: #9a5b00;
+    --idle: #66748a;
+    --failed: #c42430;
+    --on-vector: #ffffff;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    background: var(--deck);
+    color: var(--signal);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: var(--maxw);
+    margin: 0 auto;
+    padding: 0 var(--gutter);
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--display);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h1 {
+    font-size: clamp(2.15rem, 5.4vw, 3.25rem);
+    line-height: 1.06;
+  }
+  h2 {
+    font-size: clamp(1.55rem, 3.2vw, 2.125rem);
+    line-height: 1.14;
+  }
+  h3 {
+    font-size: 1.0625rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  p {
+    margin: 0;
+  }
+  a {
+    color: var(--vector);
+  }
+  a:focus-visible,
+  .btn:focus-visible {
+    outline: 2px solid var(--vector);
+    outline-offset: 3px;
+  }
+
+  .mono,
+  code {
+    font-family: var(--mono);
+  }
+  code {
+    font-size: 0.86em;
+    font-weight: 500;
+    color: var(--signal);
+    background: var(--hull);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 0.06em 0.34em;
+  }
+
+  .label {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--readout);
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead {
+    border-bottom: 1px solid var(--rule);
+    background: var(--deck);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  .masthead .wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 3.5rem;
+    gap: 1rem;
+  }
+  .wordmark {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 1.25rem;
+    letter-spacing: -0.025em;
+    color: var(--signal);
+    line-height: 1;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.32em;
+  }
+  .wordmark .dot {
+    width: 0.28em;
+    height: 0.28em;
+    border-radius: 1px;
+    background: var(--running);
+    display: inline-block;
+  }
+  .masthead nav {
+    display: flex;
+    gap: 1.4rem;
+  }
+  .masthead nav a {
+    font-size: 0.9375rem;
+    color: var(--readout);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .masthead nav a:hover {
+    color: var(--signal);
+  }
+  @media (max-width: 52rem) {
+    .masthead nav {
+      display: none;
+    }
+  }
+
+  .strip {
+    border-bottom: 1px solid var(--rule);
+    background: var(--hull);
+  }
+  .strip .wrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.4rem 1.1rem;
+    padding: 0.55rem var(--gutter);
+  }
+  .strip p {
+    font-size: 0.8125rem;
+    color: var(--readout);
+  }
+
+  section {
+    border-bottom: 1px solid var(--rule);
+  }
+  .pad {
+    padding-top: clamp(3rem, 6.5vw, 4.75rem);
+    padding-bottom: clamp(3rem, 6.5vw, 4.75rem);
+  }
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1.15rem;
+  }
+  .measure {
+    max-width: var(--measure);
+  }
+  .lede {
+    color: var(--readout);
+    font-size: 1.0625rem;
+  }
+
+  /* ---------- hero ---------- */
+
+  .hero {
+    position: relative;
+    overflow: hidden;
+    border-bottom: 1px solid var(--rule);
+  }
+  .hero .bg {
+    position: absolute;
+    inset: 0;
+  }
+  .hero .bg img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.5;
+  }
+  .hero .scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      var(--deck) 0%,
+      color-mix(in srgb, var(--deck) 88%, transparent) 45%,
+      color-mix(in srgb, var(--deck) 35%, transparent) 100%
+    );
+  }
+  .hero .wrap {
+    position: relative;
+    padding-top: clamp(3.5rem, 8vw, 6rem);
+    padding-bottom: clamp(3.5rem, 8vw, 6rem);
+  }
+  .hero .inner {
+    max-width: 40rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .hero h1 em {
+    font-style: normal;
+    color: var(--needs);
+  }
+  .hero .sub {
+    font-size: 1.125rem;
+    color: var(--readout);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+  }
+  .btn {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    text-decoration: none;
+    padding: 0.62rem 1.15rem;
+    border-radius: 4px;
+    display: inline-block;
+    background: var(--vector);
+    color: var(--on-vector);
+    border: 1px solid var(--vector);
+  }
+  .btn.ghost {
+    background: transparent;
+    color: var(--signal);
+    border-color: var(--rule);
+  }
+
+  /* ---------- tiles ---------- */
+
+  .tiles {
+    display: grid;
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  @media (min-width: 40rem) {
+    .tiles {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  .tile {
+    background: var(--hull);
+    padding: 1.1rem 1.25rem 1.25rem;
+  }
+  .tile .fig {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 2.25rem;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+  }
+  .tile .cap {
+    color: var(--readout);
+    font-size: 0.875rem;
+    margin-top: 0.4rem;
+  }
+
+  /* ---------- board ---------- */
+
+  .board {
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: var(--hull);
+    overflow: hidden;
+  }
+  .board-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+    align-items: baseline;
+    padding: 0.85rem 1.1rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .board-head .live {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+  .board-head .pulse {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--running);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pulse {
+      animation: none;
+    }
+  }
+
+  .board-scroll {
+    overflow-x: auto;
+  }
+  table.fleet {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 56rem;
+    font-size: 0.875rem;
+  }
+  table.fleet th {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--readout);
+    text-align: left;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  table.fleet td {
+    font-family: var(--mono);
+    font-weight: 400;
+    padding: 0.66rem 1rem;
+    border-bottom: 1px solid var(--rule);
+    color: var(--signal);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  table.fleet tr:last-child td {
+    border-bottom: none;
+  }
+  table.fleet td.dim {
+    color: var(--readout);
+  }
+  table.fleet td.num {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    color: var(--readout);
+  }
+  table.fleet tr.attn {
+    background: color-mix(in srgb, var(--needs) 9%, transparent);
+  }
+  table.fleet tr.fail {
+    background: color-mix(in srgb, var(--failed) 8%, transparent);
+  }
+  table.fleet td.ws {
+    font-weight: 500;
+  }
+
+  .state {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-weight: 500;
+  }
+  .glyph {
+    width: 9px;
+    height: 9px;
+    flex: none;
+    border-radius: 50%;
+  }
+  .s-running .glyph {
+    background: var(--running);
+  }
+  .s-running {
+    color: var(--running);
+  }
+  .s-needs .glyph {
+    background: var(--needs);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--needs) 28%, transparent);
+  }
+  .s-needs {
+    color: var(--needs);
+  }
+  .s-idle .glyph {
+    background: transparent;
+    border: 1.5px solid var(--idle);
+  }
+  .s-idle {
+    color: var(--readout);
+  }
+  .s-failed .glyph {
+    border-radius: 1px;
+    background: var(--failed);
+  }
+  .s-failed {
+    color: var(--failed);
+  }
+  .s-done .glyph {
+    background: transparent;
+    border: 1.5px solid var(--running);
+  }
+  .s-done {
+    color: var(--running);
+  }
+
+  .board-foot {
+    padding: 0.8rem 1.1rem;
+    border-top: 1px solid var(--rule);
+    color: var(--readout);
+    font-size: 0.875rem;
+  }
+
+  /* ---------- generic grids ---------- */
+
+  .cols {
+    display: grid;
+    gap: 1.75rem;
+  }
+  @media (min-width: 46rem) {
+    .cols-3 {
+      grid-template-columns: repeat(3, 1fr);
+    }
+    .cols-2 {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  .block h3 + p {
+    margin-top: 0.45rem;
+    color: var(--readout);
+  }
+
+  .steps {
+    display: grid;
+    gap: 0;
+  }
+  .steps > div {
+    display: grid;
+    grid-template-columns: 2.25rem 1fr;
+    gap: 0 1rem;
+    padding: 1.2rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .steps > div:last-child {
+    border-bottom: 1px solid var(--rule);
+  }
+  .steps .n {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 0.8125rem;
+    color: var(--vector);
+    padding-top: 0.28rem;
+  }
+  .steps p {
+    color: var(--readout);
+    margin-top: 0.35rem;
+  }
+
+  /* ---------- ladder ---------- */
+
+  .ladder {
+    display: grid;
+    gap: 0;
+    counter-reset: rung;
+  }
+  .rung {
+    display: grid;
+    grid-template-columns: 3.25rem 1fr;
+    gap: 0 1rem;
+    padding: 1.2rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .rung:last-child {
+    border-bottom: 1px solid var(--rule);
+  }
+  .rung .bar {
+    display: flex;
+    align-items: flex-start;
+    padding-top: 0.4rem;
+  }
+  .rung .bar i {
+    display: block;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--vector);
+    opacity: 0.85;
+  }
+  .rung:nth-child(1) .bar i {
+    width: 22%;
+  }
+  .rung:nth-child(2) .bar i {
+    width: 42%;
+  }
+  .rung:nth-child(3) .bar i {
+    width: 62%;
+  }
+  .rung:nth-child(4) .bar i {
+    width: 80%;
+  }
+  .rung:nth-child(5) .bar i {
+    width: 100%;
+    background: var(--ion);
+  }
+  .rung h3 {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .rung p {
+    color: var(--readout);
+    margin-top: 0.3rem;
+    max-width: 46rem;
+  }
+  .tag {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    padding: 0.12rem 0.4rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+  }
+  .tag.now {
+    color: var(--running);
+  }
+  .tag.next {
+    color: var(--readout);
+  }
+  .tag.goal {
+    color: var(--ion);
+  }
+
+  /* ---------- wall ---------- */
+
+  .wall-figure {
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+  }
+  .wall-figure img {
+    display: block;
+    width: 100%;
+    height: clamp(190px, 26vw, 340px);
+    object-fit: cover;
+  }
+
+  .bullets {
+    display: grid;
+    gap: 0;
+    margin-top: 0.5rem;
+  }
+  .bullets > div {
+    padding: 0.95rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .bullets > div:last-child {
+    border-bottom: 1px solid var(--rule);
+  }
+  .bullets strong {
+    font-weight: 600;
+  }
+  .bullets p {
+    color: var(--readout);
+    display: inline;
+  }
+
+  /* ---------- product screens ---------- */
+
+  .board-head .right {
+    margin-left: auto;
+  }
+  .screen-note {
+    color: var(--readout);
+    font-size: 0.8125rem;
+  }
+
+  .term {
+    background: var(--deck);
+  }
+  .term-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 0.9rem;
+    padding: 0.5rem 0.85rem;
+    border-bottom: 1px solid var(--rule);
+    background: var(--hull);
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--readout);
+  }
+  .term-head .path {
+    color: var(--signal);
+  }
+  .term pre {
+    margin: 0;
+    padding: 0.85rem 1rem;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    line-height: 1.62;
+    color: var(--signal);
+    white-space: pre;
+  }
+  .term .q {
+    color: var(--readout);
+  }
+  .term .am {
+    color: var(--needs);
+  }
+  .term .gr {
+    color: var(--running);
+  }
+  .term .rd {
+    color: var(--failed);
+  }
+  .term .cy {
+    color: var(--vector);
+  }
+  .caret {
+    display: inline-block;
+    width: 0.5em;
+    height: 1em;
+    vertical-align: -0.15em;
+    background: var(--vector);
+  }
+
+  .field {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.7rem;
+    padding: 0.5rem 0.9rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--readout);
+  }
+  .field .val {
+    color: var(--signal);
+  }
+  /* browser frame for werk serve */
+
+  .browser-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .browser-bar .sq {
+    width: 8px;
+    height: 8px;
+    border-radius: 1px;
+    background: var(--rule);
+    flex: none;
+  }
+  .urlbar {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--readout);
+    background: var(--deck);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 0.12rem 0.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .serve {
+    display: grid;
+  }
+  .serve > * {
+    min-width: 0;
+  }
+  .rail {
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 0.3rem;
+  }
+  @media (min-width: 58rem) {
+    .serve {
+      grid-template-columns: 15rem minmax(0, 1fr);
+    }
+    .rail {
+      border-bottom: none;
+      border-right: 1px solid var(--rule);
+      padding-bottom: 0;
+    }
+  }
+  .rail-head {
+    padding: 0.5rem 0.85rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .rail-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.36rem 0.85rem;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--readout);
+  }
+  .rail-row .rn {
+    color: var(--signal);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rail-row .rt {
+    font-variant-numeric: tabular-nums;
+  }
+  .rail-row.on {
+    background: color-mix(in srgb, var(--vector) 12%, transparent);
+    box-shadow: inset 2px 0 0 var(--vector);
+  }
+  .panes {
+    display: grid;
+    gap: 1px;
+    background: var(--rule);
+  }
+  @media (min-width: 46rem) {
+    .panes {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  .pane {
+    background: var(--hull);
+    min-width: 0;
+  }
+  .pane-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    padding: 0.4rem 0.7rem;
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    color: var(--readout);
+  }
+  .pane-head .pw {
+    color: var(--signal);
+  }
+  .pane.needs {
+    box-shadow: inset 0 0 0 1px var(--needs);
+  }
+  .pane .term pre {
+    font-size: 0.6875rem;
+    line-height: 1.55;
+    padding: 0.6rem 0.7rem;
+  }
+
+  /* web-app chrome inside the product screens */
+
+  .apphead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 1rem;
+    padding: 0.7rem 0.9rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .apphead .t {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: -0.01em;
+  }
+  .apphead .sub2 {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--readout);
+  }
+  .embed {
+    border-top: 1px solid var(--rule);
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.55rem 0.9rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--readout);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 0.1rem 0.45rem;
+  }
+  .chip.on {
+    color: var(--signal);
+    border-color: color-mix(in srgb, var(--vector) 55%, var(--rule));
+    background: color-mix(in srgb, var(--vector) 12%, transparent);
+  }
+  .tw {
+    width: 12px;
+    height: 12px;
+    flex: none;
+    color: var(--readout);
+  }
+  .tw.blank {
+    visibility: hidden;
+  }
+  .trow .nm {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .trow.d1 .nm {
+    padding-left: 1.15rem;
+  }
+  .trow.d2 .nm {
+    padding-left: 2.5rem;
+  }
+
+  /* two-up: sharing a session */
+
+  .duo {
+    display: grid;
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  @media (min-width: 54rem) {
+    .duo {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  .duo > div {
+    background: var(--hull);
+    min-width: 0;
+  }
+
+  /* drilldown tree */
+
+  .split {
+    display: grid;
+  }
+  .split > * {
+    min-width: 0;
+  }
+  .split > .left {
+    border-bottom: 1px solid var(--rule);
+  }
+  .tree-scroll {
+    overflow-x: auto;
+  }
+  .tree {
+    min-width: 58rem;
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+  }
+  .trow {
+    display: grid;
+    grid-template-columns:
+      minmax(16rem, 1.15fr) 10.5rem 8.5rem minmax(12rem, 1fr)
+      5.5rem;
+    gap: 0 1rem;
+    align-items: center;
+    padding: 0.32rem 1rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--rule) 60%, transparent);
+  }
+  .trow:last-child {
+    border-bottom: none;
+  }
+  .trow.thead {
+    border-bottom: 1px solid var(--rule);
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+  .trow .pl,
+  .trow .dt {
+    color: var(--readout);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .trow .el {
+    color: var(--readout);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .trow.person {
+    background: color-mix(in srgb, var(--signal) 5%, transparent);
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+  .trow.person .nm {
+    font-family: var(--sans);
+    font-weight: 600;
+  }
+  .trow.person .handle {
+    font-family: var(--mono);
+    font-weight: 400;
+    color: var(--readout);
+  }
+  .trow.needsrow {
+    background: color-mix(in srgb, var(--needs) 9%, transparent);
+  }
+  .trow.failrow {
+    background: color-mix(in srgb, var(--failed) 8%, transparent);
+  }
+  .trow.sel {
+    background: color-mix(in srgb, var(--vector) 14%, transparent);
+    box-shadow: inset 2px 0 0 var(--vector);
+  }
+  .trow.more .nm {
+    color: var(--readout);
+  }
+  .kind {
+    font-family: var(--sans);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--readout);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 0 0.25rem;
+    margin-right: 0.35rem;
+  }
+
+  .right {
+    margin-left: auto;
+  }
+  .trow .nm {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .fig-inline img {
+    display: block;
+    width: 100%;
+    height: clamp(150px, 20vw, 270px);
+    object-fit: cover;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+  }
+
+  /* ---------- faq ---------- */
+
+  .faq > div {
+    padding: 1.35rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .faq > div:last-child {
+    border-bottom: 1px solid var(--rule);
+  }
+  .faq p {
+    color: var(--readout);
+    margin-top: 0.45rem;
+    max-width: 48rem;
+  }
+
+  /* ---------- appendix ---------- */
+
+  .appendix {
+    background: var(--hull);
+  }
+  .swatches {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .sw {
+    background: var(--hull);
+  }
+  .sw .chip {
+    height: 3.25rem;
+  }
+  .sw .meta {
+    padding: 0.55rem 0.7rem 0.75rem;
+  }
+  .sw .nm {
+    font-weight: 600;
+    font-size: 0.8125rem;
+  }
+  .sw .hx {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--readout);
+  }
+  .sw .role {
+    font-size: 0.75rem;
+    color: var(--readout);
+    margin-top: 0.15rem;
+    line-height: 1.4;
+  }
+
+  .markcard {
+    display: grid;
+    gap: 1.4rem;
+    align-items: start;
+  }
+  @media (min-width: 46rem) {
+    .markcard {
+      grid-template-columns: 15rem 1fr;
+    }
+  }
+  .markcard img {
+    display: block;
+    width: 100%;
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+  }
+  .markcard p {
+    color: var(--readout);
+  }
+
+  .voice > div {
+    padding: 1rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .voice > div:last-child {
+    border-bottom: 1px solid var(--rule);
+  }
+  .voice .say,
+  .voice .dont {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    margin-top: 0.4rem;
+    padding-left: 0.85rem;
+    border-left: 2px solid var(--running);
+  }
+  .voice .dont {
+    border-left-color: var(--failed);
+    color: var(--readout);
+  }
+
+  ol.taglines {
+    margin: 0;
+    padding-left: 1.4rem;
+    display: grid;
+    gap: 0.85rem;
+    max-width: 48rem;
+  }
+  ol.taglines li::marker {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    color: var(--readout);
+  }
+  ol.taglines span {
+    display: block;
+    color: var(--readout);
+    font-size: 0.9375rem;
+    margin-top: 0.1rem;
+  }
+
+  .callout {
+    border-left: 2px solid var(--needs);
+    padding-left: 1rem;
+    color: var(--readout);
+    max-width: 48rem;
+  }
+
+  .tablewrap {
+    overflow-x: auto;
+  }
+  table.spec {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 40rem;
+    font-size: 0.9375rem;
+  }
+  table.spec th {
+    text-align: left;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--readout);
+    font-weight: 600;
+    padding: 0.55rem 1rem 0.55rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  table.spec td {
+    text-align: left;
+    vertical-align: top;
+    padding: 0.7rem 1rem 0.7rem 0;
+    border-bottom: 1px solid var(--rule);
+    color: var(--readout);
+  }
+  table.spec td:first-child {
+    color: var(--signal);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  table.spec td.mono {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+  }
+
+  footer {
+    padding: 2.5rem 0 3.5rem;
+  }
+  footer p {
+    font-size: 0.8125rem;
+    color: var(--readout);
+    max-width: 48rem;
+  }
+</style>
+
+<header class="masthead">
+  <div class="wrap">
+    <span class="wordmark">werk<span class="dot"></span></span>
+    <nav>
+      <a href="#board">The board</a>
+      <a href="#signals">Signals</a>
+      <a href="#ladder">Reach</a>
+      <a href="#today">Today</a>
+      <a href="#shared">Shared</a>
+      <a href="#wall">The wall</a>
+      <a href="#brand">Brand</a>
+    </nav>
+  </div>
+</header>
+
+<div class="strip">
+  <div class="wrap">
+    <span class="label">Concept B · Flight Deck</span>
+    <p>One of four branding concepts for werk. Lane: mission control.</p>
+  </div>
+</div>
+
+<section class="hero">
+  <div class="bg">
+    <img
+      src="{{B_HERO}}"
+      alt="A dark operations room, one seated figure silhouetted against a curved wall of glowing panels, most teal-green, two burning amber."
+    />
+  </div>
+  <div class="scrim"></div>
+  <div class="wrap">
+    <div class="inner">
+      <span class="label">Know which one needs you</span>
+      <h1>Twelve agents. Four machines. <em>One board.</em></h1>
+      <p class="sub">
+        werk starts terminal sessions wherever you want them and puts every one
+        of them on a single live board, so you always know which one needs you.
+      </p>
+      <div class="actions">
+        <a class="btn" href="#install">Install werk</a>
+        <a class="btn ghost" href="#board">Tour the board</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="pad" id="board">
+  <div class="wrap stack">
+    <div class="tiles">
+      <div class="tile">
+        <div class="fig">8</div>
+        <div class="cap">sessions running right now</div>
+      </div>
+      <div class="tile">
+        <div class="fig">4</div>
+        <div class="cap">machines, one command each</div>
+      </div>
+      <div class="tile">
+        <div class="fig" style="color: var(--needs)">2</div>
+        <div class="cap">want you, this second</div>
+      </div>
+    </div>
+
+    <div class="board" style="margin-top: 0.5rem">
+      <div class="board-head">
+        <span class="live"
+          ><span class="pulse"></span
+          ><span class="label" style="color: var(--signal)"
+            >Running now</span
+          ></span
+        >
+        <span style="color: var(--readout); font-size: 0.875rem"
+          >Eight sessions, four machines, two want you.</span
+        >
+      </div>
+      <div class="board-scroll">
+        <table class="fleet">
+          <thead>
+            <tr>
+              <th>Repo</th>
+              <th>Workspace</th>
+              <th>Placement</th>
+              <th>Status</th>
+              <th>Running</th>
+              <th style="text-align: right">Elapsed</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="attn">
+              <td class="dim">acme/checkout</td>
+              <td class="ws">payments-retry</td>
+              <td class="dim">local</td>
+              <td>
+                <span class="state s-needs"
+                  ><span class="glyph"></span>needs you</span
+                >
+              </td>
+              <td class="dim">Claude Code, waiting on a question</td>
+              <td class="num">41m 18s</td>
+            </tr>
+            <tr class="fail">
+              <td class="dim">acme/platform</td>
+              <td class="ws">pg17-migration</td>
+              <td class="dim">k8s eu-build/pool-2</td>
+              <td>
+                <span class="state s-failed"
+                  ><span class="glyph"></span>failed</span
+                >
+              </td>
+              <td class="dim">bun run migrate exited 1</td>
+              <td class="num">3m 41s</td>
+            </tr>
+            <tr>
+              <td class="dim">acme/checkout</td>
+              <td class="ws">webhook-tests</td>
+              <td class="dim">ssh orbit-01</td>
+              <td>
+                <span class="state s-running"
+                  ><span class="glyph"></span>running</span
+                >
+              </td>
+              <td class="dim">bun test, 214 of 380</td>
+              <td class="num">6m 52s</td>
+            </tr>
+            <tr>
+              <td class="dim">acme/platform</td>
+              <td class="ws">rate-limit-redis</td>
+              <td class="dim">docker werk-a3f7</td>
+              <td>
+                <span class="state s-running"
+                  ><span class="glyph"></span>running</span
+                >
+              </td>
+              <td class="dim">Codex, editing 11 files</td>
+              <td class="num">22m 09s</td>
+            </tr>
+            <tr>
+              <td class="dim">acme/checkout</td>
+              <td class="ws">cart-perf-spike</td>
+              <td class="dim">ssh orbit-01</td>
+              <td>
+                <span class="state s-running"
+                  ><span class="glyph"></span>running</span
+                >
+              </td>
+              <td class="dim">Aider, profiling the render path</td>
+              <td class="num">1h 04m</td>
+            </tr>
+            <tr>
+              <td class="dim">acme/platform</td>
+              <td class="ws">flaky-e2e-hunt</td>
+              <td class="dim">k8s eu-build/pool-1</td>
+              <td>
+                <span class="state s-running"
+                  ><span class="glyph"></span>running</span
+                >
+              </td>
+              <td class="dim">Gemini CLI, repeat run 7 of 20</td>
+              <td class="num">38m 22s</td>
+            </tr>
+            <tr>
+              <td class="dim">acme/design-system</td>
+              <td class="ws">token-rename</td>
+              <td class="dim">local</td>
+              <td>
+                <span class="state s-idle"
+                  ><span class="glyph"></span>idle</span
+                >
+              </td>
+              <td class="dim">shell, no output for 18m</td>
+              <td class="num">2h 37m</td>
+            </tr>
+            <tr>
+              <td class="dim">acme/infra</td>
+              <td class="ws">terraform-drift</td>
+              <td class="dim">docker werk-91c2</td>
+              <td>
+                <span class="state s-done"
+                  ><span class="glyph"></span>done</span
+                >
+              </td>
+              <td class="dim">terraform plan exited 0, 3 commits ready</td>
+              <td class="num">9m 58s</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="board-foot">
+        Press a row number to open it. You are typing into that terminal, on
+        that machine, in under a second.
+      </div>
+    </div>
+    <p style="color: var(--readout); font-size: 0.8125rem">
+      Illustrative board contents, not live data.
+    </p>
+  </div>
+</section>
+
+<div class="wall-figure">
+  <img
+    src="{{B_QUIET}}"
+    alt="An empty desk in a dark room, the chair pushed back, one screen still glowing amber."
+  />
+</div>
+
+<section class="pad">
+  <div class="wrap stack">
+    <span class="label">The problem</span>
+    <h2 class="measure">Parallelism arrived. The cockpit did not.</h2>
+    <div class="cols cols-3" style="margin-top: 0.6rem">
+      <div class="block">
+        <h3>Tabs are not a fleet view.</h3>
+        <p>
+          You started three agents this morning and two more after lunch. They
+          are spread across your laptop, a box you ssh into and a container you
+          provisioned on Tuesday. The only index of them is your memory, and
+          your memory is wrong.
+        </p>
+      </div>
+      <div class="block">
+        <h3>The expensive state is silence.</h3>
+        <p>
+          An agent that finished is fine. An agent that failed is fine, you will
+          find it. The one that costs you an hour is the one that asked a polite
+          question at 10:14 and has been sitting still ever since, while you
+          assumed it was working.
+        </p>
+      </div>
+      <div class="block">
+        <h3>Nobody knows what the team is running.</h3>
+        <p>
+          Multiply one engineer's five sessions by a team of twelve. There is no
+          list. There is no way to answer "what is everyone's agent doing right
+          now" other than asking everyone, one at a time, in Slack.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="pad">
+  <div class="wrap stack">
+    <span class="label">How it works</span>
+    <h2 class="measure">Four moves, and you are running a fleet.</h2>
+    <div class="steps" style="margin-top: 0.6rem">
+      <div>
+        <span class="n">01</span>
+        <div>
+          <h3>Say where work happens.</h3>
+          <p>
+            Your Mac mini on the desk, a VPS, a container werk provisions, your
+            company's Kubernetes cluster. Placement is a parameter, not an
+            architecture. The same command and the same board, wherever the work
+            lands.
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="n">02</span>
+        <div>
+          <h3>Dispatch from your own terminal.</h3>
+          <p>
+            <code>werk create</code> builds a workspace: a place to run, a fresh
+            git branch, your repo seeded there, and a terminal that keeps
+            running when you shut the laptop. One self-contained binary, nothing
+            to install on the remote.
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="n">03</span>
+        <div>
+          <h3>Watch the board.</h3>
+          <p>
+            <code>werk</code> with no arguments prints every workspace on every
+            machine, live. It is built to answer two questions and no others:
+            which of these needs me, and what is that one doing right now.
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="n">04</span>
+        <div>
+          <h3>Get the work back.</h3>
+          <p>
+            werk made the branch, put the code there and brings the commits
+            home. A container destroyed with unpushed commits is a catastrophic
+            bug in werk, not an edge case in your workflow. Getting the work
+            back is the product.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="pad" id="signals">
+  <div class="wrap stack">
+    <span class="label">Signals</span>
+    <h2 class="measure">
+      werk can tell "thinking" from "asking you a question".
+    </h2>
+    <p class="measure lede">
+      It does it without a single per-agent integration, because it does not
+      watch the agent. It watches the terminal.
+    </p>
+    <p class="measure lede">
+      Well-behaved command-line programs already announce themselves. The bell
+      tells werk something wants attention. OSC 9 and OSC 777 carry desktop
+      notifications. OSC 9;4 reports progress. OSC 133 marks where one command
+      ends, the next begins, and what the exit status was. Read those together
+      and the difference between running, finished, failed and waiting on a
+      human stops being a guess.
+    </p>
+    <p class="measure lede">
+      The consequence is the part worth caring about: an agent released next
+      month, by a company that has never heard of us, shows up correctly on your
+      board on the day you install it. No plugin, no adapter, no werk release.
+      If it behaves like a terminal program, werk already understands it.
+    </p>
+
+    <div class="tablewrap" style="margin-top: 1.25rem">
+      <table class="spec">
+        <thead>
+          <tr>
+            <th>State</th>
+            <th>Glyph</th>
+            <th>Colour</th>
+            <th>What werk saw</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <span class="state s-running"
+                ><span class="glyph"></span>running</span
+              >
+            </td>
+            <td>Filled dot</td>
+            <td class="mono">#2DD4A0</td>
+            <td>Output is moving.</td>
+          </tr>
+          <tr>
+            <td>
+              <span class="state s-needs"
+                ><span class="glyph"></span>needs you</span
+              >
+            </td>
+            <td>Filled dot with ring</td>
+            <td class="mono">#FFB224</td>
+            <td>A bell, or a notification, and then nothing.</td>
+          </tr>
+          <tr>
+            <td>
+              <span class="state s-idle"><span class="glyph"></span>idle</span>
+            </td>
+            <td>Hollow dot</td>
+            <td class="mono">#5C6B7E</td>
+            <td>Alive, silent for a while. Possibly forgotten.</td>
+          </tr>
+          <tr>
+            <td>
+              <span class="state s-failed"
+                ><span class="glyph"></span>failed</span
+              >
+            </td>
+            <td>Filled square</td>
+            <td class="mono">#FF4D57</td>
+            <td>A command boundary with a non-zero exit status.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="color: var(--readout); font-size: 0.875rem; max-width: 48rem">
+      A closed vocabulary of four. Every state is carried by glyph and word as
+      well as colour, so the board survives greyscale, a projector and colour
+      blindness. Idle is deliberately the quietest thing on the screen.
+    </p>
+  </div>
+</section>
+
+<section class="pad" id="ladder">
+  <div class="wrap stack">
+    <span class="label">Reach</span>
+    <h2 class="measure">
+      Start in your own shell. Finish with the whole company on one wall.
+    </h2>
+    <div class="ladder" style="margin-top: 0.6rem">
+      <div class="rung">
+        <span class="bar"><i></i></span>
+        <div>
+          <h3>Terminal <span class="tag now">Works today</span></h3>
+          <p>
+            Reattach to any running session from the shell you are already in.
+            Real terminal state, scrollback and all, so coming back is
+            pixel-exact rather than a replayed log that lost the last screen.
+          </p>
+        </div>
+      </div>
+      <div class="rung">
+        <span class="bar"><i></i></span>
+        <div>
+          <h3>
+            <code>werk serve</code> <span class="tag now">Works today</span>
+          </h3>
+          <p>
+            Run it on your own machine and open a browser. Every terminal
+            process, everywhere, on one page. Watch four at once, type into any
+            of them, close the tab when you are done. Nothing is hosted.
+          </p>
+        </div>
+      </div>
+      <div class="rung">
+        <span class="bar"><i></i></span>
+        <div>
+          <h3>Hosted, by us or by you <span class="tag next">Roadmap</span></h3>
+          <p>
+            The same board from anywhere: your phone on a train, a second
+            workstation, another continent. Answer the agent that has been
+            waiting 40 minutes without walking back to your desk. Security
+            matters most at this rung.
+          </p>
+        </div>
+      </div>
+      <div class="rung">
+        <span class="bar"><i></i></span>
+        <div>
+          <h3>Shared <span class="tag next">Roadmap</span></h3>
+          <p>
+            Hand a colleague a live link to one terminal. They see what you see,
+            in real time, and they can type. Debugging together stops being a
+            screen share and becomes a place both of you are standing.
+          </p>
+        </div>
+      </div>
+      <div class="rung">
+        <span class="bar"><i></i></span>
+        <div>
+          <h3>
+            The team portal <span class="tag goal">Where this is going</span>
+          </h3>
+          <p>
+            Every session, every engineer, every machine in the company, on one
+            live wall. Not a report written overnight. The actual terminals,
+            this second, open to anyone with the standing to look.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="pad" id="today">
+  <div class="wrap stack">
+    <span class="label">Rungs 1 and 2 · what exists</span>
+    <h2 class="measure">Two of these you can use this afternoon.</h2>
+    <p class="measure lede">
+      The board at the top of this page is what <code>werk</code> prints. Here
+      are the two rungs that are built: reattach from the shell you are already
+      in, and <code>werk serve</code> on your own machine with every session on
+      one page. The two screens after these are roadmap, and they say so.
+    </p>
+
+    <div class="board" style="margin-top: 0.4rem">
+      <div class="board-head">
+        <span class="label" style="color: var(--signal)">Reattach</span>
+        <span style="color: var(--readout); font-size: 0.875rem"
+          >One shell. The oldest thing on it has been waiting 41 minutes.</span
+        >
+        <span class="right"><span class="tag now">Works today</span></span>
+      </div>
+      <div class="term">
+        <pre>
+<span class="q">mac-mini  ~/acme/checkout</span>
+<span class="cy">$</span> werk
+
+  <span class="q">#   WORKSPACE          PLACEMENT             STATUS         ELAPSED</span>
+  1   payments-retry     local                 <span class="am">◉ needs you</span>    41m 18s
+  2   pg17-migration     k8s eu-build/pool-2   <span class="rd">■ failed</span>        3m 41s
+  3   webhook-tests      ssh orbit-01          <span class="gr">● running</span>       6m 52s
+  4   rate-limit-redis   docker werk-a3f7      <span class="gr">● running</span>      22m 09s
+  <span class="q">…   4 more</span>
+
+<span class="cy">$</span> werk attach 1
+  <span class="q">attaching · local · scrollback restored, 2,184 lines</span>
+
+  <span class="q">Claude Code</span>
+  Retrying idempotently means keying on the Stripe request id, and
+  that wants a column on payment_attempts. Add the column, or put
+  it in the metadata jsonb that is already there?
+
+  <span class="caret"></span></pre>
+      </div>
+      <div class="board-foot">
+        Rung 1 is the shell you are already in. <code>werk</code> lists,
+        <code>werk attach</code> puts you back inside the real terminal, and the
+        session went on running while the laptop was shut.
+      </div>
+    </div>
+
+    <div class="fig-inline" style="margin-top: 0.4rem">
+      <img
+        src="{{B_BENCH}}"
+        alt="A dark shelf of small machines, rows of tiny cool-green indicator lights and one amber, a closed laptop beside them."
+      />
+    </div>
+
+    <div class="board">
+      <div class="board-head">
+        <span class="live"
+          ><span class="pulse"></span
+          ><span class="label" style="color: var(--signal)"
+            >werk serve</span
+          ></span
+        >
+        <span style="color: var(--readout); font-size: 0.875rem"
+          >Four of the eight open at once, on your own machine.</span
+        >
+        <span class="right"><span class="tag now">Works today</span></span>
+      </div>
+      <div class="browser-bar">
+        <span class="sq"></span><span class="sq"></span><span class="sq"></span>
+        <span class="urlbar">http://localhost:7788/board</span>
+        <span class="screen-note mono">no account · nothing hosted</span>
+      </div>
+      <div class="apphead">
+        <span class="wordmark" style="font-size: 1rem"
+          >werk<span class="dot" style="background: var(--needs)"></span
+        ></span>
+        <span class="t">your fleet</span>
+        <span class="sub2">8 sessions · 4 machines</span>
+        <span class="right live"
+          ><span class="pulse"></span
+          ><span class="sub2" style="color: var(--signal)">live</span></span
+        >
+      </div>
+      <div class="serve">
+        <div class="rail">
+          <div class="rail-head"><span class="label">Sessions · 8</span></div>
+          <div class="rail-row on">
+            <span class="state s-needs"><span class="glyph"></span></span>
+            <span class="rn">payments-retry</span><span class="rt">41m</span>
+          </div>
+          <div class="rail-row">
+            <span class="state s-failed"><span class="glyph"></span></span>
+            <span class="rn">pg17-migration</span><span class="rt">3m</span>
+          </div>
+          <div class="rail-row on">
+            <span class="state s-running"><span class="glyph"></span></span>
+            <span class="rn">webhook-tests</span><span class="rt">6m</span>
+          </div>
+          <div class="rail-row on">
+            <span class="state s-running"><span class="glyph"></span></span>
+            <span class="rn">rate-limit-redis</span><span class="rt">22m</span>
+          </div>
+          <div class="rail-row">
+            <span class="state s-running"><span class="glyph"></span></span>
+            <span class="rn">cart-perf-spike</span
+            ><span class="rt">1h 04m</span>
+          </div>
+          <div class="rail-row on">
+            <span class="state s-running"><span class="glyph"></span></span>
+            <span class="rn">flaky-e2e-hunt</span><span class="rt">38m</span>
+          </div>
+          <div class="rail-row">
+            <span class="state s-idle"><span class="glyph"></span></span>
+            <span class="rn">token-rename</span><span class="rt">2h 37m</span>
+          </div>
+          <div class="rail-row">
+            <span class="state s-done"><span class="glyph"></span></span>
+            <span class="rn">terraform-drift</span><span class="rt">9m</span>
+          </div>
+        </div>
+        <div class="panes">
+          <div class="pane needs">
+            <div class="pane-head">
+              <span class="pw">payments-retry</span><span>local</span>
+            </div>
+            <div class="term">
+              <pre>
+<span class="q">Claude Code</span>
+Add the column, or put it in the
+metadata jsonb that is already there?
+
+<span class="am">◉ needs you · 41m 18s</span>
+<span class="caret"></span></pre>
+            </div>
+          </div>
+          <div class="pane">
+            <div class="pane-head">
+              <span class="pw">webhook-tests</span><span>ssh orbit-01</span>
+            </div>
+            <div class="term">
+              <pre>
+<span class="q">bun test</span>
+ 214 pass  0 fail
+ tests/webhooks/retry.test.ts
+ tests/webhooks/signature.test.ts
+
+<span class="gr">● running · 6m 52s</span></pre>
+            </div>
+          </div>
+          <div class="pane">
+            <div class="pane-head">
+              <span class="pw">rate-limit-redis</span
+              ><span>docker werk-a3f7</span>
+            </div>
+            <div class="term">
+              <pre>
+<span class="q">Codex</span>
+editing src/limiter/window.ts
+11 files changed, 3 staged
+
+<span class="gr">● running · 22m 09s</span></pre>
+            </div>
+          </div>
+          <div class="pane">
+            <div class="pane-head">
+              <span class="pw">flaky-e2e-hunt</span
+              ><span>k8s eu-build/pool-1</span>
+            </div>
+            <div class="term">
+              <pre>
+<span class="q">Gemini CLI</span>
+repeat run 7 of 20
+4 failures reproduced so far
+
+<span class="gr">● running · 38m 22s</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="board-foot">
+        Type into any pane. Closing the tab stops nothing: the sessions are on
+        their own machines, not in the browser.
+      </div>
+    </div>
+    <p class="screen-note">
+      Illustrative screens. Both of these rungs exist today.
+    </p>
+  </div>
+</section>
+
+<div class="wall-figure">
+  <img
+    src="{{B_TWO}}"
+    alt="Two silhouetted figures side by side at one large glowing panel in a dark room, one leaning in toward the keyboard."
+  />
+</div>
+
+<section class="pad" id="shared">
+  <div class="wrap stack">
+    <span class="label">Rung 4 · shared</span>
+    <h2 class="measure">Two people, one terminal.</h2>
+    <p class="measure lede">
+      Hand a colleague a live link to one session. The link opens a page in
+      their browser with the terminal itself inside it, rather than a picture of
+      it: the same scrollback, the same cursor, the same keystrokes, live.
+      Debugging together stops being a screen share and becomes a place both of
+      you are standing.
+    </p>
+
+    <div class="duo" style="margin-top: 0.4rem">
+      <div>
+        <div class="board-head">
+          <span class="label" style="color: var(--signal)"
+            >Priya's terminal</span
+          >
+          <span class="right"><span class="tag next">Roadmap</span></span>
+        </div>
+        <div class="term">
+          <pre>
+<span class="q">mac-mini  ~/acme/checkout</span>
+<span class="cy">$</span> werk share cart-perf-spike --for 30m
+  <span class="q">https://werk.sh/s/kx7f2n</span>
+  <span class="q">expires in 30m · opens in a browser</span>
+
+<span class="cy">$</span> werk attach cart-perf-spike
+  <span class="q">Aider · profiling the render path · 1h 04m</span>
+
+    CartSummary        412ms   <span class="am">61% of the frame</span>
+    PriceBreakdown      94ms
+    DeliveryEstimate    38ms
+
+  memoise the totals selector and re-run? <span class="caret"></span></pre>
+        </div>
+      </div>
+      <div>
+        <div class="board-head">
+          <span class="label" style="color: var(--signal)">What Dan opens</span>
+          <span class="right"><span class="tag next">Roadmap</span></span>
+        </div>
+        <div class="browser-bar">
+          <span class="sq"></span><span class="sq"></span
+          ><span class="sq"></span>
+          <span class="urlbar">https://werk.sh/s/kx7f2n</span>
+        </div>
+        <div class="apphead">
+          <span class="wordmark" style="font-size: 1rem"
+            >werk<span class="dot"></span
+          ></span>
+          <span class="t">cart-perf-spike</span>
+          <span class="sub2">shared by priya.raman · 27m left</span>
+        </div>
+        <div class="embed">
+          <div class="pane-head">
+            <span class="pw">acme/checkout · cart-perf-spike</span>
+            <span>live terminal · ssh orbit-01</span>
+          </div>
+          <div class="term">
+            <pre>
+<span class="q">Aider · profiling the render path · 1h 04m</span>
+
+  CartSummary        412ms   <span class="am">61% of the frame</span>
+  PriceBreakdown      94ms
+  DeliveryEstimate    38ms
+
+memoise the totals selector and re-run? <span class="caret"></span></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="screen-note">
+      The left is Priya's shell. The right is a web page her colleague opened
+      from a link, with the same terminal live inside it: one session, one
+      second, on a machine that belongs to neither of them.
+    </p>
+  </div>
+</section>
+
+<div class="wall-figure">
+  <img
+    src="{{B_WALL}}"
+    alt="A vast dark control hall with tiers of desks descending toward an immense curved display wall of green, grey and amber tiles."
+  />
+</div>
+
+<section class="pad" id="wall">
+  <div class="wrap stack">
+    <span class="label">The team portal</span>
+    <h2 class="measure">The wall.</h2>
+    <p class="measure lede">
+      Twelve engineers running five agents each is sixty terminals nobody can
+      see. The team portal makes that one screen: every session in the company,
+      grouped by team or repo or machine, colour-coded by state, live. A CTO
+      opens it and reads the shape of the whole floor in three seconds. Then
+      they drill into a single session and watch the actual terminal, scrollback
+      and all, as it runs. Not a dashboard summarising work. The work itself,
+      legible from across the room. This rung is roadmap, and it is the reason
+      the rest of the ladder is built the way it is.
+    </p>
+    <div class="bullets">
+      <div>
+        <strong>Fleet at a glance.</strong>
+        <p>
+          Every session in the org on one board, filtered by team, repo, machine
+          or state, with the ones that need a human floated to the top.
+        </p>
+      </div>
+      <div>
+        <strong>Drill to the terminal.</strong>
+        <p>
+          Click any tile and you are looking at the live session, exact terminal
+          state rather than a summary, with the same reattach that the CLI gives
+          you.
+        </p>
+      </div>
+      <div>
+        <strong>Spend and sprawl, visible.</strong>
+        <p>
+          Which machines are busy, which containers have been running for eleven
+          hours, which workspaces hold commits that were never pushed.
+        </p>
+      </div>
+    </div>
+
+    <h3 style="margin-top: 2rem">The drilldown</h3>
+    <p class="measure" style="color: var(--readout); margin-top: 0.5rem">
+      Person, then the session that person started, then the subagents that
+      session started. Three depths, live, and any node in the tree opens onto
+      the terminal it belongs to.
+    </p>
+
+    <div class="fig-inline" style="margin-top: 0.9rem">
+      <img
+        src="{{B_DEPTH}}"
+        alt="Three receding planes of glowing rectangles in a near-black room, with one amber rectangle burning in the deepest plane."
+      />
+    </div>
+
+    <div class="board" style="margin-top: 0.9rem">
+      <div class="board-head">
+        <span class="label" style="color: var(--signal)"
+          >Rung 5 · the team portal</span
+        >
+        <span style="color: var(--readout); font-size: 0.875rem"
+          >A browser, on a laptop or a phone. Not a shell.</span
+        >
+        <span class="right"
+          ><span class="tag goal">Where this is going</span></span
+        >
+      </div>
+      <div class="browser-bar">
+        <span class="sq"></span><span class="sq"></span><span class="sq"></span>
+        <span class="urlbar">https://werk.acme.internal/fleet</span>
+        <span class="screen-note mono">any device on the network</span>
+      </div>
+      <div class="apphead">
+        <span class="wordmark" style="font-size: 1rem"
+          >werk<span class="dot" style="background: var(--needs)"></span
+        ></span>
+        <span class="t">acme</span>
+        <span class="sub2">6 people · 19 sessions</span>
+        <span class="right live"
+          ><span class="pulse"></span
+          ><span class="sub2" style="color: var(--signal)">live</span></span
+        >
+      </div>
+      <div class="chips">
+        <span class="chip on"
+          ><span class="state s-needs"><span class="glyph"></span></span>needs
+          you · 2</span
+        >
+        <span class="chip"
+          ><span class="state s-failed"><span class="glyph"></span></span>failed
+          · 1</span
+        >
+        <span class="chip">all sessions · 19</span>
+        <span class="right chip">grouped by person</span>
+      </div>
+      <div class="tree-scroll">
+        <div class="tree">
+          <div class="trow thead">
+            <span class="label">Node</span><span class="label">Placement</span
+            ><span class="label">Status</span><span class="label">Doing</span
+            ><span class="label" style="text-align: right">Elapsed</span>
+          </div>
+          <div class="trow person">
+            <span class="nm"
+              ><svg class="tw" viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  d="M2.5 4.5 6 8 9.5 4.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                /></svg
+              >Priya Raman <span class="handle">priya.raman</span></span
+            >
+            <span class="pl">5 sessions</span>
+            <span
+              ><span class="state s-needs"
+                ><span class="glyph"></span>needs you</span
+              ></span
+            >
+            <span class="dt">rolled up from payments-retry</span>
+            <span class="el">41m 18s</span>
+          </div>
+          <div class="trow d1 needsrow">
+            <span class="nm"
+              ><svg class="tw" viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  d="M2.5 4.5 6 8 9.5 4.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                /></svg
+              >payments-retry</span
+            >
+            <span class="pl">local</span>
+            <span
+              ><span class="state s-needs"
+                ><span class="glyph"></span>needs you</span
+              ></span
+            >
+            <span class="dt">Claude Code, waiting on a question</span>
+            <span class="el">41m 18s</span>
+          </div>
+          <div class="trow d2">
+            <span class="nm"
+              ><span class="tw blank"></span
+              ><span class="kind">sub</span>schema-diff</span
+            >
+            <span class="pl">local</span>
+            <span
+              ><span class="state s-running"
+                ><span class="glyph"></span>running</span
+              ></span
+            >
+            <span class="dt">reading 14 migrations</span>
+            <span class="el">2m 11s</span>
+          </div>
+          <div class="trow d2">
+            <span class="nm"
+              ><span class="tw blank"></span
+              ><span class="kind">sub</span>stripe-fixtures</span
+            >
+            <span class="pl">local</span>
+            <span
+              ><span class="state s-done"
+                ><span class="glyph"></span>done</span
+              ></span
+            >
+            <span class="dt">18 fixtures written</span>
+            <span class="el">4m 02s</span>
+          </div>
+          <div class="trow d1">
+            <span class="nm"><span class="tw blank"></span>webhook-tests</span>
+            <span class="pl">ssh orbit-01</span>
+            <span
+              ><span class="state s-running"
+                ><span class="glyph"></span>running</span
+              ></span
+            >
+            <span class="dt">bun test, 214 of 380</span>
+            <span class="el">6m 52s</span>
+          </div>
+          <div class="trow d1">
+            <span class="nm"
+              ><svg class="tw" viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  d="M2.5 4.5 6 8 9.5 4.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                /></svg
+              >cart-perf-spike</span
+            >
+            <span class="pl">ssh orbit-01</span>
+            <span
+              ><span class="state s-running"
+                ><span class="glyph"></span>running</span
+              ></span
+            >
+            <span class="dt">Aider, profiling the render path</span>
+            <span class="el">1h 04m</span>
+          </div>
+          <div class="trow d2">
+            <span class="nm"
+              ><span class="tw blank"></span
+              ><span class="kind">sub</span>flamegraph-parse</span
+            >
+            <span class="pl">ssh orbit-01</span>
+            <span
+              ><span class="state s-running"
+                ><span class="glyph"></span>running</span
+              ></span
+            >
+            <span class="dt">folding 41k samples</span>
+            <span class="el">0m 48s</span>
+          </div>
+          <div class="trow d1 more">
+            <span class="nm"
+              ><svg class="tw" viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  d="M4.5 2.5 8 6 4.5 9.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                /></svg
+              >2 more sessions</span
+            >
+            <span class="pl"></span>
+            <span
+              ><span class="state s-running"
+                ><span class="glyph"></span>running</span
+              ></span
+            >
+            <span class="dt">both running</span>
+            <span class="el"></span>
+          </div>
+          <div class="trow person">
+            <span class="nm"
+              ><svg class="tw" viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  d="M2.5 4.5 6 8 9.5 4.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                /></svg
+              >Tom Okafor <span class="handle">tom.okafor</span></span
+            >
+            <span class="pl">4 sessions</span>
+            <span
+              ><span class="state s-failed"
+                ><span class="glyph"></span>failed</span
+              ></span
+            >
+            <span class="dt">rolled up from pg17-migration</span>
+            <span class="el">3m 41s</span>
+          </div>
+          <div class="trow d1 failrow">
+            <span class="nm"><span class="tw blank"></span>pg17-migration</span>
+            <span class="pl">k8s eu-build/pool-2</span>
+            <span
+              ><span class="state s-failed"
+                ><span class="glyph"></span>failed</span
+              ></span
+            >
+            <span class="dt">bun run migrate exited 1</span>
+            <span class="el">3m 41s</span>
+          </div>
+          <div class="trow d1">
+            <span class="nm"
+              ><svg class="tw" viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  d="M2.5 4.5 6 8 9.5 4.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                /></svg
+              >rate-limit-redis</span
+            >
+            <span class="pl">docker werk-a3f7</span>
+            <span
+              ><span class="state s-running"
+                ><span class="glyph"></span>running</span
+              ></span
+            >
+            <span class="dt">Codex, editing 11 files</span>
+            <span class="el">22m 09s</span>
+          </div>
+          <div class="trow d2">
+            <span class="nm"
+              ><span class="tw blank"></span
+              ><span class="kind">sub</span>bench-harness</span
+            >
+            <span class="pl">docker werk-a3f7</span>
+            <span
+              ><span class="state s-running"
+                ><span class="glyph"></span>running</span
+              ></span
+            >
+            <span class="dt">400 rps against the new window</span>
+            <span class="el">5m 30s</span>
+          </div>
+          <div class="trow d2">
+            <span class="nm"
+              ><span class="tw blank"></span
+              ><span class="kind">sub</span>docs-sweep</span
+            >
+            <span class="pl">docker werk-a3f7</span>
+            <span
+              ><span class="state s-idle"
+                ><span class="glyph"></span>idle</span
+              ></span
+            >
+            <span class="dt">no output for 12m</span>
+            <span class="el">19m 44s</span>
+          </div>
+          <div class="trow d1 more">
+            <span class="nm"
+              ><svg class="tw" viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  d="M4.5 2.5 8 6 4.5 9.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                /></svg
+              >2 more sessions</span
+            >
+            <span class="pl"></span>
+            <span
+              ><span class="state s-running"
+                ><span class="glyph"></span>running</span
+              ></span
+            >
+            <span class="dt">both running</span>
+            <span class="el"></span>
+          </div>
+          <div class="trow person">
+            <span class="nm"
+              ><svg class="tw" viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  d="M2.5 4.5 6 8 9.5 4.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                /></svg
+              >Dan Whitfield <span class="handle">dan.whitfield</span></span
+            >
+            <span class="pl">3 sessions</span>
+            <span
+              ><span class="state s-needs"
+                ><span class="glyph"></span>needs you</span
+              ></span
+            >
+            <span class="dt">rolled up from two levels down</span>
+            <span class="el">6m 03s</span>
+          </div>
+          <div class="trow d1">
+            <span class="nm"
+              ><svg class="tw" viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  d="M2.5 4.5 6 8 9.5 4.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                /></svg
+              >flaky-e2e-hunt</span
+            >
+            <span class="pl">k8s eu-build/pool-1</span>
+            <span
+              ><span class="state s-running"
+                ><span class="glyph"></span>running</span
+              ></span
+            >
+            <span class="dt">Gemini CLI, repeat run 7 of 20</span>
+            <span class="el">38m 22s</span>
+          </div>
+          <div class="trow d2 sel">
+            <span class="nm"
+              ><span class="tw blank"></span
+              ><span class="kind">sub</span>seed-repro</span
+            >
+            <span class="pl">k8s eu-build/pool-1</span>
+            <span
+              ><span class="state s-needs"
+                ><span class="glyph"></span>needs you</span
+              ></span
+            >
+            <span class="dt">asked a question, then stopped</span>
+            <span class="el">6m 03s</span>
+          </div>
+          <div class="trow d2">
+            <span class="nm"
+              ><span class="tw blank"></span
+              ><span class="kind">sub</span>quarantine-list</span
+            >
+            <span class="pl">k8s eu-build/pool-1</span>
+            <span
+              ><span class="state s-running"
+                ><span class="glyph"></span>running</span
+              ></span
+            >
+            <span class="dt">sorting 41 failures</span>
+            <span class="el">1m 12s</span>
+          </div>
+          <div class="trow d1 more">
+            <span class="nm"
+              ><svg class="tw" viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  d="M4.5 2.5 8 6 4.5 9.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                /></svg
+              >2 more sessions</span
+            >
+            <span class="pl"></span>
+            <span
+              ><span class="state s-running"
+                ><span class="glyph"></span>running</span
+              ></span
+            >
+            <span class="dt">both running</span>
+            <span class="el"></span>
+          </div>
+          <div class="trow person">
+            <span class="nm"
+              ><svg class="tw" viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  d="M2.5 4.5 6 8 9.5 4.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                /></svg
+              >Mara Lindqvist <span class="handle">mara.lindqvist</span></span
+            >
+            <span class="pl">2 sessions</span>
+            <span
+              ><span class="state s-idle"
+                ><span class="glyph"></span>idle</span
+              ></span
+            >
+            <span class="dt">nothing waiting on a human</span>
+            <span class="el">2h 37m</span>
+          </div>
+          <div class="trow d1">
+            <span class="nm"><span class="tw blank"></span>token-rename</span>
+            <span class="pl">local</span>
+            <span
+              ><span class="state s-idle"
+                ><span class="glyph"></span>idle</span
+              ></span
+            >
+            <span class="dt">shell, no output for 18m</span>
+            <span class="el">2h 37m</span>
+          </div>
+          <div class="trow d1">
+            <span class="nm"
+              ><span class="tw blank"></span>terraform-drift</span
+            >
+            <span class="pl">docker werk-91c2</span>
+            <span
+              ><span class="state s-done"
+                ><span class="glyph"></span>done</span
+              ></span
+            >
+            <span class="dt">exited 0, 3 commits ready</span>
+            <span class="el">9m 58s</span>
+          </div>
+          <div class="trow person more">
+            <span class="nm"
+              ><svg class="tw" viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  d="M4.5 2.5 8 6 4.5 9.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                /></svg
+              >2 more people <span class="handle">design, security</span></span
+            >
+            <span class="pl">5 sessions</span>
+            <span
+              ><span class="state s-running"
+                ><span class="glyph"></span>running</span
+              ></span
+            >
+            <span class="dt">nothing waiting on a human</span>
+            <span class="el"></span>
+          </div>
+        </div>
+      </div>
+      <div class="embed">
+        <div class="pane-head">
+          <span class="pw">dan.whitfield / flaky-e2e-hunt / seed-repro</span>
+          <span>live terminal · k8s eu-build/pool-1</span>
+        </div>
+        <div class="term">
+          <pre>
+<span class="q">Gemini CLI · subagent seed-repro</span>
+
+  reproduced on seed 41128, first attempt.
+
+  Pinning it makes the suite deterministic, and it will also
+  hide any other ordering bug behind it. Pin 41128, or keep
+  the seed random and quarantine the four tests?
+
+<span class="am">◉ waiting on a human · 6m 03s</span>
+<span class="caret"></span></pre>
+        </div>
+      </div>
+      <div class="board-foot">
+        Open any node and the real terminal is there inside the page, scrollback
+        and all, with the same reattach the CLI gives you. Illustrative: this
+        rung does not exist yet, and the two screens above it do.
+      </div>
+    </div>
+
+    <span class="label" style="margin-top: 1.5rem; display: block"
+      >What makes one node the one you look at</span
+    >
+    <div class="cols cols-3" style="margin-top: 0.75rem">
+      <div class="block">
+        <h3>It rolls up.</h3>
+        <p>
+          A parent carries the worst state underneath it, however deep. Dan's
+          three sessions are all running. The amber on his row comes from a
+          subagent two levels down that asked a question six minutes ago and has
+          been sitting still since.
+        </p>
+      </div>
+      <div class="block">
+        <h3>It floats.</h3>
+        <p>
+          Anything blocked on a human sorts above its siblings, and its
+          ancestors sort above theirs. The rows that want something arrive at
+          the top of the tree on their own. Nobody has to remember to filter.
+        </p>
+      </div>
+      <div class="block">
+        <h3>Everything else goes quiet.</h3>
+        <p>
+          Idle greys out, done shrinks to a line, running is a dot and a word.
+          The contrast is spent on the three rows that want a human, which is
+          why those three are legible from the back of the room.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="pad">
+  <div class="wrap stack">
+    <span class="label">Placement</span>
+    <h2 class="measure">Your machines. Your sessions. Your infrastructure.</h2>
+    <p class="measure lede">
+      Run everything on hardware you already own and nothing leaves it.
+      <code>werk serve</code> runs on your own machine: no account, no cloud and
+      no third party in the path between you and a terminal on the box beside
+      you.
+    </p>
+    <p class="measure lede">
+      One binary drives all four placements, so moving a workspace from your
+      laptop to a cluster changes one argument and nothing else about the
+      command or the board. The board does not care where the work is, which is
+      the whole reason every machine can be on one.
+    </p>
+  </div>
+</section>
+
+<section class="pad" id="install">
+  <div class="wrap stack">
+    <span class="label">Start</span>
+    <h2 class="measure">You already have a fleet. Get the board.</h2>
+    <p class="measure lede">
+      One binary, no runtime, nothing to install on the far end. Point it at
+      your laptop, a box you ssh into, a container or a cluster, and the command
+      and the board are identical in all four places. Start one workspace this
+      afternoon, run <code>werk</code> with no arguments tomorrow morning, and
+      see how many things were quietly waiting for you.
+    </p>
+    <div class="actions"><a class="btn" href="#install">Install werk</a></div>
+  </div>
+</section>
+
+<section class="pad">
+  <div class="wrap stack">
+    <span class="label">Questions</span>
+    <h2 class="measure">Questions, answered.</h2>
+    <div class="faq" style="margin-top: 0.6rem">
+      <div>
+        <h3>How many agents before this pays?</h3>
+        <p>
+          Two, on two different machines, is already more than you can hold in
+          your head reliably. The board is the only place that knows where all
+          of them are, what each one is doing and which of them stopped to ask
+          you something. It scales in the direction you are already going: more
+          agents, more machines, the same one command and the same board.
+        </p>
+      </div>
+      <div>
+        <h3>Where does the work actually run?</h3>
+        <p>
+          Wherever you point it: the Mac mini on the desk, a VPS you ssh into, a
+          container werk provisions, your company's Kubernetes cluster.
+          Placement is a parameter on the command rather than a different
+          product, and the board reads the same for all four. Rungs one and two
+          run entirely on your own machine, with no account and no third party
+          in the path.
+        </p>
+      </div>
+      <div>
+        <h3>Does werk need to support my agent?</h3>
+        <p>
+          No. werk reads the signals any well-behaved terminal program already
+          emits: bell, OSC 9 and 777 notifications, OSC 9;4 progress, OSC 133
+          command boundaries and exit status. Claude Code, Codex, Gemini CLI and
+          Aider are all just command-line programs. An agent that ships next
+          month works on the day you install it, with no release from us.
+        </p>
+      </div>
+      <div>
+        <h3>What happens to my commits if a container is destroyed?</h3>
+        <p>
+          werk creates the branch, seeds the repo and brings the commits back,
+          and we treat losing them as a catastrophic bug rather than an edge
+          case. Getting work back is not a feature bolted onto the side of the
+          dashboard. It is half of what the product is for, and the board exists
+          partly so that a workspace holding unpushed commits is something you
+          can see rather than something you remember.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="appendix pad" id="brand">
+  <div class="wrap stack">
+    <span class="label">Brand appendix · Concept B</span>
+    <h2 class="measure">Flight Deck</h2>
+    <p class="measure lede">
+      werk is the flight deck for your agent fleet: every terminal, on every
+      machine, on one live board, so you always know which one needs you.
+    </p>
+
+    <h3 style="margin-top: 2rem">The strategic bet</h3>
+    <p class="measure" style="color: var(--readout); margin-top: 0.5rem">
+      This concept wagers that the pain has already moved. Running one coding
+      agent is solved by forty tools. Running twelve, across a laptop, a VPS, a
+      container and a cluster, is not, and cross-machine terminal fleet
+      dashboards are essentially unbuilt. We bet on the reader who has passed
+      the threshold: the tech lead with eleven terminal tabs who cannot say
+      which agent is stuck.
+    </p>
+    <p class="measure" style="color: var(--readout)">
+      They win first because they feel the cost daily. It spreads upward, not
+      sideways: the lead who runs the board wants their team on it, and the team
+      portal is the thing a CTO buys. Fleet awareness is a wedge with a paid
+      ceiling above it.
+    </p>
+
+    <h3 style="margin-top: 2rem">The mark</h3>
+    <div class="markcard" style="margin-top: 0.75rem">
+      <img
+        src="{{B_MARK}}"
+        alt="A four by four lattice of small rounded squares on near-black, fifteen drawn as thin outlines and one solid amber square breaking the rhythm."
+      />
+      <div class="stack" style="gap: 0.7rem">
+        <p>
+          <strong>The Lattice.</strong> A 4 by 4 grid on a 24-unit artboard.
+          Cells are 3-unit squares with a 1-unit corner radius, pitched 5 units
+          apart, origins at 2, 7, 12 and 17. Fifteen are 1-unit strokes in Rule.
+          One, at row 2 column 3, is a solid fill in Needs you, scaled to 1.35
+          about its own centre so it breaks the rhythm.
+        </p>
+        <p>
+          It reads at 16 pixels because at that size the grey lattice collapses
+          to texture and only the amber cell survives, which is exactly the
+          message: a fleet, and the one in it that wants you. Monochrome
+          fallback is the fifteen cells at 40 per cent opacity and the one cell
+          at full.
+        </p>
+        <p>
+          The wordmark is
+          <span class="mono" style="font-weight: 700">werk</span> in Space
+          Grotesk 700 at <span class="mono">-0.025em</span>, always lowercase,
+          followed by a square status dot of <span class="mono">0.28em</span>.
+          The dot is the whole idea: on any live surface it carries the colour
+          of the most urgent session in your fleet. On a static page it is
+          Running green, and it never animates unless it is showing real state.
+        </p>
+      </div>
+    </div>
+
+    <h3 style="margin-top: 2rem">Palette</h3>
+    <p
+      style="
+        color: var(--readout);
+        max-width: var(--measure);
+        margin-top: 0.4rem;
+      "
+    >
+      Dark is the primary set. Status is a closed vocabulary of four, and no
+      other colour in the product may imitate them.
+    </p>
+    <div class="swatches" style="margin-top: 0.75rem">
+      <div class="sw">
+        <div class="chip" style="background: #06080b"></div>
+        <div class="meta">
+          <div class="nm">Deck</div>
+          <div class="hx">#06080B</div>
+          <div class="role">Page ground. The room with the lights down.</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #0e131a"></div>
+        <div class="meta">
+          <div class="nm">Hull</div>
+          <div class="hx">#0E131A</div>
+          <div class="role">Panels, cards, the board surface</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #1b2430"></div>
+        <div class="meta">
+          <div class="nm">Rule</div>
+          <div class="hx">#1B2430</div>
+          <div class="role">Hairlines, borders, unlit cells</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #e6edf5"></div>
+        <div class="meta">
+          <div class="nm">Signal</div>
+          <div class="hx">#E6EDF5</div>
+          <div class="role">Anything you read to decide</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #8794a6"></div>
+        <div class="meta">
+          <div class="nm">Readout</div>
+          <div class="hx">#8794A6</div>
+          <div class="role">Labels, elapsed times, help text</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #22d3ee"></div>
+        <div class="meta">
+          <div class="nm">Vector</div>
+          <div class="hx">#22D3EE</div>
+          <div class="role">The one interactive accent</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #7c5cff"></div>
+        <div class="meta">
+          <div class="nm">Ion</div>
+          <div class="hx">#7C5CFF</div>
+          <div class="role">Second accent: the portal, charts</div>
+        </div>
+      </div>
+    </div>
+    <div class="swatches" style="margin-top: 1px">
+      <div class="sw">
+        <div class="chip" style="background: #2dd4a0"></div>
+        <div class="meta">
+          <div class="nm">Running</div>
+          <div class="hx">#2DD4A0</div>
+          <div class="role">Filled dot. Output is moving.</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #ffb224"></div>
+        <div class="meta">
+          <div class="nm">Needs you</div>
+          <div class="hx">#FFB224</div>
+          <div class="role">Dot with ring. Blocked on a human.</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #5c6b7e"></div>
+        <div class="meta">
+          <div class="nm">Idle</div>
+          <div class="hx">#5C6B7E</div>
+          <div class="role">Hollow dot. Never colour alone.</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #ff4d57"></div>
+        <div class="meta">
+          <div class="nm">Failed</div>
+          <div class="hx">#FF4D57</div>
+          <div class="role">Filled square. Exited non-zero.</div>
+        </div>
+      </div>
+    </div>
+    <p
+      style="
+        color: var(--readout);
+        font-size: 0.875rem;
+        margin-top: 0.6rem;
+        max-width: 48rem;
+      "
+    >
+      Light variant: Paper <span class="mono">#F7F9FB</span>, Card
+      <span class="mono">#FFFFFF</span>, Rule <span class="mono">#DCE3EB</span>,
+      Ink <span class="mono">#0B1219</span>, Ink Muted
+      <span class="mono">#55637A</span>, Vector
+      <span class="mono">#0E7C93</span>, Ion <span class="mono">#5A3FD6</span>;
+      status darkened to <span class="mono">#0E8A63</span>,
+      <span class="mono">#9A5B00</span>, <span class="mono">#66748A</span>,
+      <span class="mono">#C42430</span>. Signal on Deck is about 17:1 because
+      the board is read at a glance and often at a distance. Idle sits
+      deliberately below the text floor at about 3.4:1, which is why idle is
+      never carried by colour alone.
+    </p>
+
+    <h3 style="margin-top: 2rem">Typography</h3>
+    <div class="tablewrap" style="margin-top: 0.5rem">
+      <table class="spec">
+        <thead>
+          <tr>
+            <th>Family</th>
+            <th>Weights</th>
+            <th>Role</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Space Grotesk</td>
+            <td class="mono">500, 700</td>
+            <td>
+              Wordmark, headings, large numerals. Headings tracked at -0.02em.
+            </td>
+          </tr>
+          <tr>
+            <td>Inter</td>
+            <td class="mono">400, 500, 600</td>
+            <td>
+              Body, buttons, FAQ, navigation. Column labels at 11px, uppercase,
+              0.08em.
+            </td>
+          </tr>
+          <tr>
+            <td>JetBrains Mono</td>
+            <td class="mono">400, 500, 700</td>
+            <td>
+              The board itself: workspace names, placements, elapsed times,
+              status words, commands.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="color: var(--readout); margin-top: 0.6rem; max-width: 48rem">
+      The rule that makes the brand: anything the system knows is set in mono,
+      anything we are telling you is set in Inter or Space Grotesk. A reader can
+      tell fact from marketing by the shape of the letters. Elapsed times use
+      tabular numerals so the column does not jitter as it ticks.
+    </p>
+
+    <h3 style="margin-top: 2rem">Taglines, ranked</h3>
+    <ol class="taglines" style="margin-top: 0.75rem">
+      <li>
+        <strong>Know which one needs you.</strong
+        ><span
+          >States the product's actual job in five words, presumes a fleet
+          without arguing for one, and "needs you" is the pivot from anxiety to
+          command. Quiet, and it never says "machines".</span
+        >
+      </li>
+      <li>
+        <strong>One board. Every machine. Live.</strong
+        ><span
+          >Says the differentiator out loud, which matters when the crowded
+          local-only tools all sound alike. Describes the artefact rather than
+          the relief, so it works better as a subhead.</span
+        >
+      </li>
+      <li>
+        <strong>You are not running an agent. You are running a fleet.</strong
+        ><span
+          >Reframes the reader's situation and creates the category. It is a
+          sentence, not a mark, and it slightly scolds.</span
+        >
+      </li>
+      <li>
+        <strong>The room you watch them from.</strong
+        ><span
+          >Carries the whole feeling in six words and is the most memorable of
+          the five. Alone it does not tell a cold reader what the software
+          does.</span
+        >
+      </li>
+      <li>
+        <strong>Twelve agents. Four machines. One screen.</strong
+        ><span
+          >Concrete and instantly legible. The numbers date fast, and a reader
+          running three agents reads it as "not for me", which is the wrong door
+          to close.</span
+        >
+      </li>
+    </ol>
+
+    <h3 style="margin-top: 2rem">Voice</h3>
+    <div class="voice" style="margin-top: 0.75rem">
+      <div>
+        <h3>1. Open with the reader's own question, not our category.</h3>
+        <p class="say">Which one needs you?</p>
+        <p class="dont">
+          Unified observability for agentic development workflows.
+        </p>
+      </div>
+      <div>
+        <h3>2. Count things. Numbers are the texture of this brand.</h3>
+        <p class="say">Eight sessions, four machines, two of them want you.</p>
+        <p class="dont">
+          Manage your agents at scale with powerful multi-session controls.
+        </p>
+      </div>
+      <div>
+        <h3>3. Use the status vocabulary exactly, and never blur it.</h3>
+        <p class="say">An agent has been waiting 41 minutes for an answer.</p>
+        <p class="dont">You might have something that needs looking at.</p>
+      </div>
+      <div>
+        <h3>
+          4. Kinetic, not breathless. This is a control room, not a launch
+          party.
+        </h3>
+        <p class="say">
+          The board updates live. Nothing else about your setup changes.
+        </p>
+        <p class="dont">
+          Supercharge your fleet and unleash 10x parallel velocity.
+        </p>
+      </div>
+      <div>
+        <h3>5. Mark the roadmap as roadmap, every time.</h3>
+        <p class="say">
+          Reattach from your own terminal today. The team portal is where this
+          is going.
+        </p>
+        <p class="dont">Every CTO gets a live wall of the whole company.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>
+      Concept B of four, prepared as a branding and positioning proposal for
+      werk. The board above is illustrative. The reach ladder marks which rungs
+      exist today and which are roadmap; nothing on this page is a settled
+      product decision.
+    </p>
+  </div>
+</footer>

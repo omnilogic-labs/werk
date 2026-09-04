@@ -1,0 +1,3047 @@
+<title>werk — The Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+/>
+<style>
+  :root {
+    --paper: #fbfaf7;
+    --vellum: #f2efe8;
+    --ink: #10151c;
+    --graphite: #5a6270;
+    --rule: #e3e0d9;
+    --ledger: #1f6f4a;
+    --signal: #b27300;
+    --halt: #a32b22;
+    --on-ledger: #fbfaf7;
+
+    --display: "Newsreader", Georgia, "Times New Roman", serif;
+    --sans:
+      "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    --maxw: 68rem;
+    --gutter: clamp(1.2rem, 4vw, 3.5rem);
+    --measure: 34rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #0e1216;
+      --vellum: #161b21;
+      --ink: #edebe5;
+      --graphite: #99a2af;
+      --rule: #232a32;
+      --ledger: #4fb185;
+      --signal: #e0a32e;
+      --halt: #e0685c;
+      --on-ledger: #0e1216;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #0e1216;
+    --vellum: #161b21;
+    --ink: #edebe5;
+    --graphite: #99a2af;
+    --rule: #232a32;
+    --ledger: #4fb185;
+    --signal: #e0a32e;
+    --halt: #e0685c;
+    --on-ledger: #0e1216;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .wrap {
+    max-width: var(--maxw);
+    margin: 0 auto;
+    padding: 0 var(--gutter);
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--display);
+    font-weight: 500;
+    margin: 0;
+    text-wrap: balance;
+    font-optical-sizing: auto;
+  }
+  h1 {
+    font-size: clamp(2.25rem, 5.2vw, 3.5rem);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+  }
+  h2 {
+    font-size: clamp(1.55rem, 3.2vw, 2rem);
+    line-height: 1.15;
+    letter-spacing: -0.014em;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 1rem;
+    line-height: 1.35;
+    letter-spacing: -0.004em;
+  }
+  p {
+    margin: 0;
+  }
+  a {
+    color: var(--ledger);
+  }
+  a:focus-visible,
+  .btn:focus-visible {
+    outline: 2px solid var(--ledger);
+    outline-offset: 3px;
+  }
+
+  .mono,
+  code {
+    font-family: var(--mono);
+  }
+  code {
+    font-size: 0.86em;
+    font-weight: 500;
+    background: var(--vellum);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 0.06em 0.34em;
+    color: var(--ink);
+  }
+
+  .eyebrow {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 0.75rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--graphite);
+  }
+
+  /* ---------- masthead: the ledger lockup ---------- */
+
+  .masthead {
+    background: var(--paper);
+    border-bottom: 1px solid var(--rule);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  .masthead .wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 3.5rem;
+    gap: 1rem;
+  }
+  .lockup {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .lockup svg {
+    display: block;
+    height: 1.15rem;
+    width: auto;
+  }
+  .wordmark {
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 1.35rem;
+    letter-spacing: -0.018em;
+    color: var(--ink);
+    line-height: 1;
+  }
+  .masthead nav {
+    display: flex;
+    gap: 1.4rem;
+  }
+  .masthead nav a {
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--graphite);
+    text-decoration: none;
+  }
+  .masthead nav a:hover {
+    color: var(--ink);
+  }
+  @media (max-width: 52rem) {
+    .masthead nav {
+      display: none;
+    }
+  }
+
+  .strip {
+    border-bottom: 1px solid var(--rule);
+    background: var(--vellum);
+  }
+  .strip .wrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.35rem 1.1rem;
+    padding-top: 0.55rem;
+    padding-bottom: 0.55rem;
+  }
+  .strip p {
+    font-size: 0.8125rem;
+    color: var(--graphite);
+  }
+
+  section {
+    border-bottom: 1px solid var(--rule);
+  }
+  .pad {
+    padding-top: clamp(3.25rem, 7vw, 5.5rem);
+    padding-bottom: clamp(3.25rem, 7vw, 5.5rem);
+  }
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+  }
+  .measure {
+    max-width: var(--measure);
+  }
+  .lede {
+    color: var(--graphite);
+  }
+
+  /* ---------- hero ---------- */
+
+  .hero-figure {
+    border-bottom: 1px solid var(--rule);
+  }
+  .hero-figure img {
+    display: block;
+    width: 100%;
+    height: clamp(190px, 28vw, 380px);
+    object-fit: cover;
+  }
+
+  .hero .inner {
+    max-width: 42rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.3rem;
+  }
+  .hero .sub {
+    font-size: 1.1875rem;
+    color: var(--graphite);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    margin-top: 0.2rem;
+  }
+  .btn {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    text-decoration: none;
+    padding: 0.62rem 1.15rem;
+    border-radius: 3px;
+    display: inline-block;
+    background: var(--ledger);
+    color: var(--on-ledger);
+    border: 1px solid var(--ledger);
+  }
+  .btn.ghost {
+    background: transparent;
+    color: var(--ink);
+    border-color: var(--rule);
+  }
+
+  /* ---------- ruled entries: the structural device ---------- */
+
+  .entries {
+    display: grid;
+    gap: 0;
+  }
+  .entries > div {
+    padding: 1.35rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .entries > div:first-child {
+    border-top: 1px solid var(--rule);
+  }
+  .entries p {
+    color: var(--graphite);
+    margin-top: 0.4rem;
+    max-width: 46rem;
+  }
+
+  .entries.keyed > div {
+    display: grid;
+    grid-template-columns: 8.5rem 1fr;
+    gap: 0 1.5rem;
+    align-items: start;
+  }
+  .entries.keyed .key {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 0.75rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--graphite);
+    padding-top: 0.3rem;
+  }
+  @media (max-width: 42rem) {
+    .entries.keyed > div {
+      grid-template-columns: 1fr;
+      gap: 0.5rem;
+    }
+    .entries.keyed .key {
+      padding-top: 0;
+    }
+  }
+
+  /* ---------- question tiles ---------- */
+
+  .tiles {
+    display: grid;
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  @media (min-width: 46rem) {
+    .tiles {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  .tile {
+    background: var(--vellum);
+    padding: 1.35rem 1.35rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .tile .q {
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 1.1875rem;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+  }
+  .tile .a {
+    font-size: 0.9375rem;
+    color: var(--graphite);
+  }
+  .tile .stamp {
+    font-family: var(--sans);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  /* ---------- grids ---------- */
+
+  .cols {
+    display: grid;
+    gap: 2rem;
+  }
+  @media (min-width: 48rem) {
+    .cols-3 {
+      grid-template-columns: repeat(3, 1fr);
+    }
+    .cols-2 {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  .block h3 + p {
+    margin-top: 0.45rem;
+    color: var(--graphite);
+    font-size: 0.9375rem;
+  }
+
+  /* ---------- ladder ---------- */
+
+  .ladder {
+    display: grid;
+    gap: 0;
+  }
+  .rung {
+    display: grid;
+    grid-template-columns: 9.5rem 1fr;
+    gap: 0 1.5rem;
+    padding: 1.3rem 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: start;
+  }
+  .rung:first-child {
+    border-top: 1px solid var(--rule);
+  }
+  .rung .rname {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .rung .rname h3 {
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 1.1875rem;
+    letter-spacing: -0.01em;
+  }
+  .rung p {
+    color: var(--graphite);
+    max-width: 44rem;
+  }
+  .tag {
+    align-self: flex-start;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.1rem 0.4rem;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+  }
+  .tag.now {
+    color: var(--ledger);
+  }
+  .tag.later {
+    color: var(--graphite);
+  }
+  @media (max-width: 42rem) {
+    .rung {
+      grid-template-columns: 1fr;
+      gap: 0.55rem;
+    }
+  }
+
+  .band {
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+  }
+  .band img {
+    display: block;
+    width: 100%;
+    height: clamp(170px, 24vw, 320px);
+    object-fit: cover;
+  }
+
+  .callout {
+    border-left: 2px solid var(--signal);
+    padding-left: 1.05rem;
+    color: var(--graphite);
+    max-width: 46rem;
+  }
+
+  /* ---------- faq ---------- */
+
+  .faq > div {
+    padding: 1.4rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .faq > div:first-child {
+    border-top: 1px solid var(--rule);
+  }
+  .faq h3 {
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 1.1875rem;
+    letter-spacing: -0.01em;
+  }
+  .faq p {
+    color: var(--graphite);
+    margin-top: 0.45rem;
+    font-size: 0.9375rem;
+    max-width: 48rem;
+  }
+
+  /* ---------- appendix ---------- */
+
+  .appendix {
+    background: var(--vellum);
+  }
+  .swatches {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .sw {
+    background: var(--paper);
+  }
+  .sw .chip {
+    height: 3.4rem;
+  }
+  .sw .meta {
+    padding: 0.55rem 0.7rem 0.8rem;
+  }
+  .sw .nm {
+    font-weight: 600;
+    font-size: 0.8125rem;
+  }
+  .sw .hx {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--graphite);
+  }
+  .sw .role {
+    font-size: 0.75rem;
+    color: var(--graphite);
+    margin-top: 0.15rem;
+    line-height: 1.4;
+  }
+
+  .markcard {
+    display: grid;
+    gap: 1.5rem;
+    align-items: start;
+  }
+  @media (min-width: 48rem) {
+    .markcard {
+      grid-template-columns: 16rem 1fr;
+    }
+  }
+  .markcard img {
+    display: block;
+    width: 100%;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+  }
+  .markcard p {
+    color: var(--graphite);
+    font-size: 0.9375rem;
+  }
+
+  .voice > div {
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .voice > div:first-child {
+    border-top: 1px solid var(--rule);
+  }
+  .voice .say,
+  .voice .dont {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    margin-top: 0.4rem;
+    padding-left: 0.85rem;
+    border-left: 2px solid var(--ledger);
+    color: var(--ink);
+  }
+  .voice .dont {
+    border-left-color: var(--halt);
+    color: var(--graphite);
+  }
+
+  ol.taglines {
+    margin: 0;
+    padding-left: 1.4rem;
+    display: grid;
+    gap: 0.9rem;
+    max-width: 46rem;
+  }
+  ol.taglines li::marker {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    color: var(--graphite);
+  }
+  ol.taglines strong {
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 1.125rem;
+  }
+  ol.taglines span {
+    display: block;
+    color: var(--graphite);
+    font-size: 0.9375rem;
+    margin-top: 0.15rem;
+  }
+
+  .tablewrap {
+    overflow-x: auto;
+  }
+  table.spec {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 40rem;
+    font-size: 0.9375rem;
+  }
+  table.spec th {
+    text-align: left;
+    font-size: 0.75rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--graphite);
+    font-weight: 600;
+    padding: 0.5rem 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--ink);
+  }
+  table.spec td {
+    text-align: left;
+    vertical-align: top;
+    padding: 0.7rem 1rem 0.7rem 0;
+    border-bottom: 1px solid var(--rule);
+    color: var(--graphite);
+  }
+  table.spec td:first-child {
+    color: var(--ink);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  table.spec td.mono {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+  }
+
+  /* ---------- product screens ---------- */
+
+  figure.shot {
+    margin: 0;
+  }
+  figure.shot figcaption {
+    margin-top: 0.65rem;
+    font-size: 0.8125rem;
+    color: var(--graphite);
+    max-width: 46rem;
+  }
+  .screen {
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    background: var(--paper);
+    overflow: hidden;
+  }
+  .screen-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.5rem 0.9rem;
+    background: var(--vellum);
+    border-bottom: 1px solid var(--rule);
+  }
+  .screen-bar .what {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 0.75rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--graphite);
+  }
+  .screen-scroll {
+    overflow-x: auto;
+  }
+
+  .is-run {
+    color: var(--ledger);
+  }
+  .is-inp {
+    color: var(--signal);
+  }
+  .is-fail {
+    color: var(--halt);
+  }
+  .is-end {
+    color: var(--graphite);
+  }
+  .st {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    white-space: nowrap;
+  }
+  .st i {
+    width: 7px;
+    height: 7px;
+    background: currentColor;
+    display: inline-block;
+  }
+
+  /* transcript blocks */
+
+  pre.term {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    line-height: 1.7;
+    color: var(--ink);
+    background: var(--vellum);
+    padding: 0.85rem 1rem 0.95rem 2.1rem;
+    position: relative;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+  pre.term::before {
+    content: "";
+    position: absolute;
+    left: 1.3rem;
+    top: 0;
+    bottom: 0;
+    border-left: 1px solid var(--rule);
+  }
+  .t-d {
+    color: var(--graphite);
+  }
+  .t-g {
+    color: var(--ledger);
+  }
+  .t-s {
+    color: var(--signal);
+  }
+  .t-r {
+    color: var(--halt);
+  }
+
+  /* the werk list, ruled like a page */
+
+  .lrows {
+    min-width: 44rem;
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    background: linear-gradient(var(--rule), var(--rule)) 2.6rem 0 / 1px 100%
+      no-repeat;
+  }
+  .lrow,
+  .lhead {
+    display: grid;
+    grid-template-columns: 1.4rem 21rem 8rem 4.5rem 1fr;
+    gap: 0 1rem;
+    align-items: baseline;
+    padding: 0.45rem 1rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .lrows .lrow:last-child {
+    border-bottom: 0;
+  }
+  @media (max-width: 46rem) {
+    .lrows {
+      min-width: 0;
+      background-position: 100rem 0;
+    }
+    .lhead {
+      display: none;
+    }
+    .lrow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.1rem 0.85rem;
+      padding: 0.55rem 0.9rem;
+    }
+    .lrow .ws {
+      flex-basis: 100%;
+    }
+  }
+  .lhead {
+    font-family: var(--sans);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--graphite);
+    border-bottom: 1px solid var(--ink);
+  }
+  .lrow .ws {
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .lrow .host,
+  .lrow .age {
+    color: var(--graphite);
+  }
+  .tick {
+    display: inline-block;
+    width: 11px;
+    height: 2px;
+    background: var(--signal);
+  }
+  .tick.fail {
+    background: var(--halt);
+  }
+
+  /* the drilldown */
+
+  .dd {
+    position: relative;
+  }
+  .dd input.vh {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+    pointer-events: none;
+  }
+  .portal-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 1.15rem;
+    padding: 0.5rem 0.9rem;
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--sans);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--graphite);
+  }
+  .dd-grid {
+    display: grid;
+  }
+  .dd-grid > div,
+  .duo > div {
+    min-width: 0;
+  }
+  .dd-tree {
+    overflow-x: auto;
+    border-bottom: 1px solid var(--rule);
+  }
+  @media (min-width: 62rem) {
+    .dd-grid {
+      grid-template-columns: 24rem 1fr;
+    }
+    .dd-tree {
+      border-bottom: 0;
+      border-right: 1px solid var(--rule);
+    }
+  }
+  .tree {
+    min-width: 21rem;
+    padding: 0.35rem 0.8rem 0.9rem;
+  }
+  .person {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.2rem 0.55rem;
+    padding: 0.7rem 0.2rem 0.35rem;
+    border-top: 1px solid var(--rule);
+  }
+  .tree > .person:first-child {
+    border-top: 0;
+  }
+  .pname {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 0.875rem;
+  }
+  .phandle,
+  .pmeta {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--graphite);
+  }
+  .kids {
+    margin-left: 0.3rem;
+    padding-left: 0.9rem;
+    border-left: 1px solid var(--rule);
+  }
+  .node {
+    position: relative;
+  }
+  .node > .row::before {
+    content: "";
+    position: absolute;
+    left: -0.9rem;
+    top: 0.95rem;
+    width: 0.6rem;
+    border-top: 1px solid var(--rule);
+  }
+  .row {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.15rem 0.5rem;
+    padding: 0.4rem 0.5rem;
+  }
+  label.row {
+    cursor: pointer;
+  }
+  label.row:hover {
+    background: var(--vellum);
+  }
+  .row .ws {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    font-weight: 500;
+  }
+  .row .st {
+    font-family: var(--sans);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .row .meta {
+    font-family: var(--sans);
+    font-size: 0.75rem;
+    color: var(--graphite);
+    flex-basis: 100%;
+  }
+  .subrow .ix {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--graphite);
+  }
+  .subrow .stask {
+    font-size: 0.78rem;
+    color: var(--ink);
+  }
+  .subrow .sst {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+  }
+  .dd-detail > div {
+    display: none;
+  }
+  .facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border-bottom: 1px solid var(--rule);
+  }
+  @media (min-width: 52rem) {
+    .facts {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  .facts > div {
+    padding: 0.55rem 0.9rem 0.65rem;
+    border-top: 1px solid var(--rule);
+  }
+  .facts > div:first-child,
+  .facts > div:nth-child(2) {
+    border-top: 0;
+  }
+  @media (min-width: 52rem) {
+    .facts > div:nth-child(3) {
+      border-top: 0;
+    }
+  }
+  .facts .k {
+    font-family: var(--sans);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--graphite);
+  }
+  .facts .v {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    margin-top: 0.15rem;
+    overflow-wrap: anywhere;
+  }
+  .ctl {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.7rem 0.9rem;
+    background: var(--vellum);
+    border-bottom: 1px solid var(--rule);
+  }
+  .ctl span {
+    font-family: var(--sans);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.28rem 0.62rem;
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    background: var(--paper);
+  }
+  .ctl span.primary {
+    background: var(--ledger);
+    border-color: var(--ledger);
+    color: var(--on-ledger);
+  }
+  .ctl .note {
+    border: 0;
+    background: none;
+    font-weight: 400;
+    color: var(--graphite);
+    padding-left: 0;
+    align-self: center;
+  }
+  .seen {
+    padding: 0.7rem 0.9rem 0.85rem;
+    font-size: 0.8125rem;
+    color: var(--graphite);
+  }
+  /* shared session */
+
+  .duo {
+    display: grid;
+  }
+  @media (min-width: 58rem) {
+    .duo {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  .duo > div + div {
+    border-top: 1px solid var(--rule);
+  }
+  @media (min-width: 58rem) {
+    .duo > div + div {
+      border-top: 0;
+      border-left: 1px solid var(--rule);
+    }
+  }
+  .pane-head {
+    padding: 0.5rem 0.9rem;
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--sans);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--graphite);
+  }
+  .browser {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.45rem 0.9rem;
+    background: var(--vellum);
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--graphite);
+  }
+  .browser .nav {
+    letter-spacing: 0.18em;
+  }
+  .browser .addr {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    background: var(--paper);
+    padding: 0.2rem 0.55rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pagehead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.25rem 0.9rem;
+    padding: 0.75rem 0.9rem 0.65rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .pagehead .title {
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 1.0625rem;
+    letter-spacing: -0.01em;
+  }
+  .pagehead .sub,
+  .panehead .sub {
+    font-size: 0.8125rem;
+    color: var(--graphite);
+  }
+  .colhead,
+  .termlabel {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.42rem 0.9rem;
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--sans);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--graphite);
+  }
+  .termlabel span:last-child {
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    text-transform: none;
+  }
+  .panehead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.75rem;
+    padding: 0.6rem 0.9rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .panehead .ws {
+    font-family: var(--mono);
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+  .panehead .st {
+    font-family: var(--sans);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .cmdbar {
+    padding: 0.45rem 0.9rem;
+    border-bottom: 1px solid var(--rule);
+    background: var(--vellum);
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--graphite);
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .banner {
+    padding: 0.6rem 0.9rem;
+    border-bottom: 1px solid var(--rule);
+    border-left: 2px solid var(--signal);
+    font-size: 0.8125rem;
+    color: var(--graphite);
+  }
+  .participants {
+    padding: 0.6rem 0.9rem 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--graphite);
+  }
+  .kids.subs {
+    display: none;
+  }
+  #dd-s1:checked ~ .dd-grid .pane-s1,
+  #dd-s2:checked ~ .dd-grid .pane-s2,
+  #dd-s3:checked ~ .dd-grid .pane-s3,
+  #dd-s4:checked ~ .dd-grid .pane-s4,
+  #dd-s5:checked ~ .dd-grid .pane-s5,
+  #dd-s6:checked ~ .dd-grid .pane-s6,
+  #dd-s7:checked ~ .dd-grid .pane-s7,
+  #dd-s8:checked ~ .dd-grid .pane-s8,
+  #dd-s9:checked ~ .dd-grid .pane-s9 {
+    display: block;
+  }
+  #dd-s1:checked ~ .dd-grid .subs-s1,
+  #dd-s2:checked ~ .dd-grid .subs-s2,
+  #dd-s3:checked ~ .dd-grid .subs-s3,
+  #dd-s5:checked ~ .dd-grid .subs-s5,
+  #dd-s7:checked ~ .dd-grid .subs-s7,
+  #dd-s9:checked ~ .dd-grid .subs-s9 {
+    display: block;
+  }
+  #dd-s1:checked ~ .dd-grid label[for="dd-s1"],
+  #dd-s2:checked ~ .dd-grid label[for="dd-s2"],
+  #dd-s3:checked ~ .dd-grid label[for="dd-s3"],
+  #dd-s4:checked ~ .dd-grid label[for="dd-s4"],
+  #dd-s5:checked ~ .dd-grid label[for="dd-s5"],
+  #dd-s6:checked ~ .dd-grid label[for="dd-s6"],
+  #dd-s7:checked ~ .dd-grid label[for="dd-s7"],
+  #dd-s8:checked ~ .dd-grid label[for="dd-s8"],
+  #dd-s9:checked ~ .dd-grid label[for="dd-s9"] {
+    background: var(--vellum);
+    box-shadow: inset 2px 0 0 var(--ledger);
+  }
+  #dd-s1:focus-visible ~ .dd-grid label[for="dd-s1"],
+  #dd-s2:focus-visible ~ .dd-grid label[for="dd-s2"],
+  #dd-s3:focus-visible ~ .dd-grid label[for="dd-s3"],
+  #dd-s4:focus-visible ~ .dd-grid label[for="dd-s4"],
+  #dd-s5:focus-visible ~ .dd-grid label[for="dd-s5"],
+  #dd-s6:focus-visible ~ .dd-grid label[for="dd-s6"],
+  #dd-s7:focus-visible ~ .dd-grid label[for="dd-s7"],
+  #dd-s8:focus-visible ~ .dd-grid label[for="dd-s8"],
+  #dd-s9:focus-visible ~ .dd-grid label[for="dd-s9"] {
+    outline: 2px solid var(--ledger);
+    outline-offset: -2px;
+  }
+  .inset-img {
+    display: block;
+    width: 100%;
+    height: clamp(150px, 21vw, 270px);
+    object-fit: cover;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+  }
+  footer {
+    padding: 2.5rem 0 3.5rem;
+  }
+  footer p {
+    font-size: 0.8125rem;
+    color: var(--graphite);
+    max-width: 48rem;
+  }
+</style>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="lockup">
+      <svg viewBox="0 0 36 32" aria-hidden="true" role="presentation">
+        <rect
+          x="0.75"
+          y="0.75"
+          width="30.5"
+          height="30.5"
+          rx="2"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+        />
+        <path d="M10 4 V28" stroke="currentColor" stroke-width="1.5" />
+        <path d="M14 11 H25" stroke="currentColor" stroke-width="1.5" />
+        <path d="M14 16 H25" stroke="currentColor" stroke-width="1.5" />
+        <path d="M14 21 H36" stroke="#1F6F4A" stroke-width="1.5" />
+        <path d="M4 21 H8" stroke="#1F6F4A" stroke-width="1.5" />
+      </svg>
+      <span class="wordmark">werk</span>
+    </div>
+    <nav>
+      <a href="#workforce">The second workforce</a>
+      <a href="#how">How it works</a>
+      <a href="#ledger">The ledger</a>
+      <a href="#brand">Brand</a>
+    </nav>
+  </div>
+</header>
+
+<div class="strip">
+  <div class="wrap">
+    <span class="eyebrow">Concept D · The Ledger</span>
+    <p>
+      One of four branding concepts for werk. Lane: the system of record for
+      agent labour.
+    </p>
+  </div>
+</div>
+
+<figure class="hero-figure" style="margin: 0">
+  <img
+    src="{{D_HERO}}"
+    alt="A long wall of shallow unmarked wooden filing drawers in raking window light, three of them standing open, one lined in forest green."
+  />
+</figure>
+
+<section class="hero pad">
+  <div class="wrap">
+    <div class="inner">
+      <span class="eyebrow">System of record for agent labour</span>
+      <h1>A record of what the machines did.</h1>
+      <p class="sub">
+        Your company is running agent sessions on laptops, containers and cloud
+        boxes right now. werk places each one deliberately, keeps it on a
+        branch, and gets the work back.
+      </p>
+      <div class="actions">
+        <a class="btn" href="#install">Start with your own terminal</a>
+        <a class="btn ghost" href="#ledger">Talk to us about the portal</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="pad" id="workforce">
+  <div class="wrap stack">
+    <span class="eyebrow">The second workforce</span>
+    <h2 class="measure">
+      You acquired a second workforce without hiring anyone.
+    </h2>
+    <p class="measure lede">
+      Coding agents arrived through individual developers, one licence at a
+      time, and now they run all day. They edit real files in real repositories,
+      on laptops that close mid-task, in containers that get destroyed, on boxes
+      nobody put in an inventory. The work is genuine and much of it is good.
+      What does not exist is any account of it. No one can say how many sessions
+      are running, which repositories they touched, which produced commits that
+      landed, or which quietly died with an hour of unpushed work inside them.
+      Every other class of production work in your company has a ledger. This
+      one has none.
+    </p>
+    <div class="tiles" style="margin-top: 1rem">
+      <div class="tile">
+        <span class="stamp">Unanswered</span>
+        <span class="q"
+          >How many agent sessions ran in your company yesterday?</span
+        >
+        <span class="a"
+          >Most engineering leaders cannot answer within an order of
+          magnitude.</span
+        >
+      </div>
+      <div class="tile">
+        <span class="stamp">Unanswered</span>
+        <span class="q">What share of agent work never reaches a branch?</span>
+        <span class="a"
+          >Unknown almost everywhere, because nothing is counting the sessions
+          that end without a push.</span
+        >
+      </div>
+      <div class="tile">
+        <span class="stamp">Unanswered</span>
+        <span class="q"
+          >How long to answer "which agent touched this repository last
+          month"?</span
+        >
+        <span class="a"
+          >Today the honest answer is usually days of asking people, if it is
+          answerable at all.</span
+        >
+      </div>
+    </div>
+    <p style="color: var(--graphite); font-size: 0.8125rem">
+      Framed as questions rather than statistics on purpose. We are not going to
+      invent a figure for something nobody is currently measuring.
+    </p>
+  </div>
+</section>
+
+<div class="band">
+  <img
+    src="{{D_WORKFORCE}}"
+    alt="A long hall of identical unattended workbenches at night, each under its own small pool of light, seen from a high vantage with nobody present."
+  />
+</div>
+
+<section class="pad">
+  <div class="wrap stack">
+    <span class="eyebrow">The gap</span>
+    <h2 class="measure">Three blind spots, one missing record.</h2>
+    <div class="entries keyed" style="margin-top: 0.7rem">
+      <div>
+        <span class="key">Cost</span>
+        <div>
+          <h3>Spend is knowable in total and unattributable in detail.</h3>
+          <p>
+            The invoices arrive per vendor and per seat. They do not tell you
+            which repository consumed the budget, which team, or which piece of
+            work. That makes it impossible to govern and impossible to defend.
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="key">Security</span>
+        <div>
+          <h3>
+            An agent with repository access is a principal acting on your code.
+          </h3>
+          <p>
+            When someone asks which sessions had access to a given repository,
+            on which machines, under whose account, and what they pushed, the
+            answer needs to be a query, not an investigation.
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="key">Visibility</span>
+        <div>
+          <h3>"What is being built right now?" has no answer.</h3>
+          <p>
+            Work in progress lives in terminals nobody else can see, on machines
+            nobody else can reach, and surfaces only when a pull request appears
+            or does not.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="pad" id="how">
+  <div class="wrap stack">
+    <span class="eyebrow">How it works</span>
+    <h2 class="measure">Four stages, one command each.</h2>
+    <div class="entries keyed" style="margin-top: 0.7rem">
+      <div>
+        <span class="key">01 · Place</span>
+        <div>
+          <h3>Tell werk where work should happen.</h3>
+          <p>
+            A Mac mini on a desk, a remote VPS, a container werk provisions,
+            your Kubernetes cluster. Placement is a parameter, not an
+            architecture. The same command and the same interface, wherever the
+            work actually runs.
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="key">02 · Dispatch</span>
+        <div>
+          <h3>Dispatch from your own terminal.</h3>
+          <p>
+            <code>werk create</code> makes a workspace: somewhere to run, a
+            fresh git branch, the repository seeded there, and a terminal
+            session that survives your laptop closing, your network dropping,
+            and your walking away.
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="key">03 · Monitor</span>
+        <div>
+          <h3>Monitor.</h3>
+          <p>
+            <code>werk</code> with no arguments prints one live list of every
+            workspace on every machine. It is built to answer two questions and
+            no others: which of these needs me, and what is that one doing right
+            now?
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="key">04 · Recover</span>
+        <div>
+          <h3>Get the work back.</h3>
+          <p>
+            werk creates the branch, gets the code there, and gets the commits
+            back. A container destroyed with unpushed commits inside it is a
+            catastrophic bug in this product, not an acceptable edge case.
+          </p>
+        </div>
+      </div>
+    </div>
+    <figure class="shot" style="margin-top: 0.8rem">
+      <div class="screen">
+        <div class="screen-bar">
+          <span class="what">werk · one list, every machine</span>
+          <span class="tag now">Works today</span>
+        </div>
+        <div class="cmdbar">$ werk</div>
+        <div class="screen-scroll">
+          <div class="lrows">
+            <div class="lhead">
+              <span></span><span>Workspace</span><span>Host</span>
+              <span>Age</span><span>State</span>
+            </div>
+            <div class="lrow">
+              <span></span><span class="ws">checkout-svc/ao-idempotency</span
+              ><span class="host">k8s/agents-1</span
+              ><span class="age">3h 41m</span
+              ><span class="st is-run"><i></i>running · 4 subagents</span>
+            </div>
+            <div class="lrow">
+              <span><span class="tick"></span></span
+              ><span class="ws">atlas-api/ao-webhook-retries</span
+              ><span class="host">mac-mini-04</span><span class="age">12m</span
+              ><span class="st is-inp"><i></i>needs you</span>
+            </div>
+            <div class="lrow">
+              <span></span><span class="ws">ledger-web/ao-empty-states</span
+              ><span class="host">vps-lon-1</span><span class="age">41m</span
+              ><span class="st is-run"><i></i>running · 1 subagent</span>
+            </div>
+            <div class="lrow">
+              <span><span class="tick fail"></span></span
+              ><span class="ws">infra-terraform/ao-state-lock</span
+              ><span class="host">vps-lon-1</span><span class="age">35m</span
+              ><span class="st is-fail"><i></i>exit 1 · 0 commits</span>
+            </div>
+          </div>
+        </div>
+        <div class="seen" style="border-top: 1px solid var(--rule)">
+          Four workspaces, three machines, none of them this laptop. The mark in
+          the margin is the one that wants a person.
+        </div>
+      </div>
+      <figcaption>
+        Every column is a fact werk had to know in order to create the
+        workspace: who, which repository, which branch, which machine. The
+        record is what is left over afterwards. These same four sessions appear
+        under Amara Okonkwo in the organisation view further down the page — the
+        same work, seen from further away.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="pad">
+  <div class="wrap stack">
+    <span class="eyebrow">Adoption</span>
+    <h2 class="measure">
+      The portal only exists because engineers wanted the tool.
+    </h2>
+    <div class="cols cols-2" style="margin-top: 0.5rem">
+      <div class="stack" style="gap: 1.05rem">
+        <p class="lede">
+          A company-wide record of agent work cannot be installed from the top.
+          It gets populated because the people doing the work chose the thing
+          that produces it, and kept choosing it.
+        </p>
+        <p class="lede">
+          So werk has to earn its place on a single developer's machine first,
+          with no meeting and no rollout. One binary, no runtime, nothing to
+          install on the remote; werk copies itself across the ssh connection
+          you already have. Reattach to a session from a different machine.
+          Close the laptop mid-run and pick it up on the train. Run four agents
+          on a box that is not your laptop and stop hearing the fans.
+        </p>
+      </div>
+      <div class="stack" style="gap: 1.05rem">
+        <p class="lede">
+          None of that is a concession to make the governance case work. It is
+          the case.
+        </p>
+        <p
+          style="
+            font-family: var(--display);
+            font-weight: 500;
+            font-size: clamp(1.15rem, 2.3vw, 1.45rem);
+            line-height: 1.3;
+            letter-spacing: -0.012em;
+            max-width: 28rem;
+          "
+        >
+          A record assembled from tools people actively want is accurate. A
+          record assembled from tools people were told to use is a compliance
+          exercise that quietly routes around itself.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="pad">
+  <div class="wrap stack">
+    <span class="eyebrow">Reach</span>
+    <h2 class="measure">The same work, seen from further away.</h2>
+    <div class="ladder" style="margin-top: 0.7rem">
+      <div class="rung">
+        <div class="rname">
+          <h3>Terminal</h3>
+          <span class="tag now">Works today</span>
+        </div>
+        <p>
+          Reattach to any running session from your own shell, on any machine
+          you have configured. Full terminal state, scrollback included, exactly
+          as you left it. This rung is useful with nobody else involved.
+        </p>
+      </div>
+      <div class="rung">
+        <div class="rname">
+          <h3><code>werk serve</code></h3>
+          <span class="tag now">Works today</span>
+        </div>
+        <p>
+          Run the server on your own machine and open a browser. Every terminal
+          process you have running anywhere, in one live view, with the same
+          list the CLI prints and a real terminal in each pane.
+        </p>
+      </div>
+      <div class="rung">
+        <div class="rname">
+          <h3>Hosted</h3>
+          <span class="tag later">Not built yet</span>
+        </div>
+        <p>
+          The same view from anywhere: your phone, another workstation, another
+          continent. Run it as a service from us or host it yourself. Reaching
+          terminals across a network is where security stops being a section and
+          becomes the product.
+        </p>
+      </div>
+      <div class="rung">
+        <div class="rname">
+          <h3>Shared</h3>
+          <span class="tag later">Not built yet</span>
+        </div>
+        <p>
+          Hand a colleague a live link to one of your terminals. Debugging
+          together, a handover at the end of a shift, a second pair of eyes on
+          an agent that has got itself stuck. Scoped to one session, granted by
+          you.
+        </p>
+      </div>
+      <div class="rung">
+        <div class="rname">
+          <h3>Team portal</h3>
+          <span class="tag later">Not built yet</span>
+        </div>
+        <p>
+          Every session your organisation is running, live, in one place, with
+          history behind it. A platform lead can see the shape of the whole
+          thing. A CTO can drill into any single session and watch what it is
+          doing right now.
+        </p>
+      </div>
+    </div>
+    <img
+      class="inset-img"
+      src="{{D_SHARED}}"
+      alt="Two figures seen from behind at one lit workbench in a dark room, one seated and one standing, sharing a single screen."
+    />
+    <figure class="shot" style="margin-top: 0.6rem">
+      <div class="screen">
+        <div class="screen-bar">
+          <span class="what">Sharing one session with a colleague</span>
+          <span class="tag later">Not built yet</span>
+        </div>
+        <div class="duo">
+          <div>
+            <div class="pane-head">Your side · Amara’s terminal</div>
+            <div class="screen-scroll">
+              <pre
+                class="term"
+              >$ werk share checkout-svc/ao-idempotency --with dwhit --write --for 2h
+<span class="t-g">grant   g-7c31</span>
+<span class="t-d">scope   one session · terminal depth · read and write</span>
+<span class="t-d">link    werk.eng.internal/s/g-7c31</span>
+<span class="t-d">ends    12:25 · revoke now: werk share revoke g-7c31</span></pre>
+            </div>
+            <div class="banner">
+              Dan Whitfield joined at 10:19. He is in the session with you and
+              you can see him type. Ending the grant closes his link.
+            </div>
+          </div>
+          <div>
+            <div class="pane-head">What Dan opens · a browser</div>
+            <div class="browser">
+              <span class="nav">◂ ▸</span
+              ><span class="addr">werk.eng.internal/s/g-7c31</span>
+            </div>
+            <div class="panehead">
+              <span class="ws">checkout-svc/agent/ao-idempotency</span>
+              <span class="st is-run"><i></i>running</span>
+              <span class="sub">k8s/agents-1</span>
+            </div>
+            <div class="banner">
+              Shared by Amara Okonkwo · one session · read and write · ends
+              12:25. Amara can end this at any time, and can see that you are
+              here.
+            </div>
+            <div class="termlabel">
+              <span>Live terminal</span><span>joined 10:19</span>
+            </div>
+            <div class="screen-scroll">
+              <pre
+                class="term"
+              ><span class="t-d">checkout-svc/ao-idempotency · k8s/agents-1</span>
+<span class="t-d">… joined 10:19 · 2 141 lines of scrollback available</span>
+<span class="t-s">› [4] asks: apply 0043_idem_keys to staging-eu? (y/N)</span>
+dwhit ▌</pre>
+            </div>
+            <div class="participants">
+              In this session: Amara Okonkwo (owner) · Dan Whitfield (guest,
+              until 12:25).
+            </div>
+          </div>
+        </div>
+      </div>
+      <figcaption>
+        A grant, not an account. One session, one repository, one expiry,
+        revocable from the side that made it — and legible from both sides while
+        it lasts.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<div class="band">
+  <img
+    src="{{D_LEDGER}}"
+    alt="Overhead view of a walnut desk covered in a strict grid of unmarked cream index cards, three lifted slightly and one tinted forest green."
+  />
+</div>
+
+<section class="pad" id="ledger">
+  <div class="wrap stack">
+    <span class="eyebrow">The portal</span>
+    <h2 class="measure">The ledger.</h2>
+    <p class="measure lede">
+      The portal is the point of all of it. Every workspace werk creates is
+      already a structured fact: a person, a repository, a branch, a machine, a
+      start time, a live terminal, an end state. Collect those across an
+      organisation and you have the account of agent labour that does not
+      currently exist anywhere. Not inferred from billing, not reconstructed
+      from pull requests after the fact, and not a separate thing engineers have
+      to remember to file. It is a by-product of the tool doing its actual job,
+      which is why it stays accurate. Live at the top, reviewable underneath.
+    </p>
+    <div class="entries keyed" style="margin-top: 0.7rem">
+      <div>
+        <span class="key">Attribution</span>
+        <div>
+          <p style="margin-top: 0; color: var(--graphite)">
+            Every session carries the person who started it, the repository it
+            was given, the branch it made and the machine it ran on. No
+            unattributed work exists, because a workspace cannot be created
+            without those four.
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="key">Drilldown</span>
+        <div>
+          <p style="margin-top: 0; color: var(--graphite)">
+            From the organisation view to one running session and its real
+            terminal state, scrollback included, in two clicks. Not a status
+            field. The actual session.
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="key">Outcome</span>
+        <div>
+          <p style="margin-top: 0; color: var(--graphite)">
+            Which sessions produced commits, which landed on a branch, which
+            ended with nothing. The difference between agent work and agent
+            output becomes a number you can look at.
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="key">Placement</span>
+        <div>
+          <p style="margin-top: 0; color: var(--graphite)">
+            Where work ran, on whose infrastructure, for how long. Enough to
+            attribute cost to the thing it was spent on rather than to a vendor
+            line.
+          </p>
+        </div>
+      </div>
+    </div>
+    <img
+      class="inset-img"
+      src="{{D_HIERARCHY}}"
+      alt="Three receding ranks of illuminated horizontal shelves in a dark hall, each rank dimmer and denser than the one in front of it."
+    />
+    <figure class="shot" style="margin-top: 0.6rem">
+      <div class="screen dd">
+        <div class="screen-bar">
+          <span class="what">Team portal · engineering · Tuesday, 10:26</span>
+          <span class="tag later">Not built yet</span>
+        </div>
+        <div class="browser">
+          <span class="nav">◂ ▸</span
+          ><span class="addr">werk.eng.internal/org/engineering</span>
+        </div>
+        <div class="pagehead">
+          <span class="title">Engineering</span>
+          <span class="sub">Tuesday 10:26 · updating live</span>
+        </div>
+        <div class="portal-strip">
+          <span>4 people</span><span>9 sessions</span><span>12 subagents</span
+          ><span class="is-run">5 running</span
+          ><span class="is-inp">2 need input</span><span>2 ended today</span>
+        </div>
+        <input class="vh" type="radio" name="dd" id="dd-s1" /><input
+          class="vh"
+          type="radio"
+          name="dd"
+          id="dd-s2"
+        /><input class="vh" type="radio" name="dd" id="dd-s3" /><input
+          class="vh"
+          type="radio"
+          name="dd"
+          id="dd-s4"
+        /><input class="vh" type="radio" name="dd" id="dd-s5" checked /><input
+          class="vh"
+          type="radio"
+          name="dd"
+          id="dd-s6"
+        /><input class="vh" type="radio" name="dd" id="dd-s7" /><input
+          class="vh"
+          type="radio"
+          name="dd"
+          id="dd-s8"
+        /><input class="vh" type="radio" name="dd" id="dd-s9" />
+        <div class="dd-grid">
+          <div class="dd-tree">
+            <div class="colhead">
+              <span>People and sessions</span><span>9</span>
+            </div>
+            <div class="tree">
+              <div class="person">
+                <span class="pname">Tomas Berg</span
+                ><span class="phandle">tberg</span
+                ><span class="pmeta">2 sessions · 4 subagents</span>
+              </div>
+              <div class="kids">
+                <div class="node">
+                  <label class="row" for="dd-s1"
+                    ><span class="ws">atlas-api/tb-invoice-splits</span
+                    ><span class="st is-run"><i></i>running</span
+                    ><span class="meta"
+                      >mac-mini-04 · 1h 12m · 3 subagents</span
+                    ></label
+                  >
+                  <div class="kids subs subs-s1">
+                    <div class="node">
+                      <div class="row subrow">
+                        <span class="ix">[1]</span
+                        ><span class="stask"
+                          >map call sites of splitInvoice</span
+                        ><span class="sst is-end">ended 3m 40s</span>
+                      </div>
+                    </div>
+                    <div class="node">
+                      <div class="row subrow">
+                        <span class="ix">[2]</span
+                        ><span class="stask"
+                          >write property tests for rounding</span
+                        ><span class="sst is-run">running 11m</span>
+                      </div>
+                    </div>
+                    <div class="node">
+                      <div class="row subrow">
+                        <span class="ix">[3]</span
+                        ><span class="stask">update the openapi schema</span
+                        ><span class="sst is-run">running 6m</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="node">
+                  <label class="row" for="dd-s2"
+                    ><span class="ws">pipeline-runner/tb-retry-backoff</span
+                    ><span class="st is-inp"><i></i>needs input</span
+                    ><span class="meta"
+                      >vps-fra-2 · 6m · 1 subagent</span
+                    ></label
+                  >
+                  <div class="kids subs subs-s2">
+                    <div class="node">
+                      <div class="row subrow">
+                        <span class="ix">[1]</span
+                        ><span class="stask"
+                          >reproduce the flake on runner-7</span
+                        ><span class="sst is-inp">needs input</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="person">
+                <span class="pname">Priya Raman</span
+                ><span class="phandle">praman</span
+                ><span class="pmeta">2 sessions · 2 subagents</span>
+              </div>
+              <div class="kids">
+                <div class="node">
+                  <label class="row" for="dd-s3"
+                    ><span class="ws">ledger-web/pr-table-virtualise</span
+                    ><span class="st is-run"><i></i>running</span
+                    ><span class="meta"
+                      >k8s/agents-3 · 24m · 2 subagents</span
+                    ></label
+                  >
+                  <div class="kids subs subs-s3">
+                    <div class="node">
+                      <div class="row subrow">
+                        <span class="ix">[1]</span
+                        ><span class="stask"
+                          >measure scroll jank at 10 000 rows</span
+                        ><span class="sst is-run">running 9m</span>
+                      </div>
+                    </div>
+                    <div class="node">
+                      <div class="row subrow">
+                        <span class="ix">[2]</span
+                        ><span class="stask"
+                          >port the row renderer to the virtual list</span
+                        ><span class="sst is-run">running 21m</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="node">
+                  <label class="row" for="dd-s4"
+                    ><span class="ws">docs-site/pr-changelog</span
+                    ><span class="st is-end"><i></i>ended</span
+                    ><span class="meta"
+                      >mac-mini-01 · 21m · no subagents</span
+                    ></label
+                  >
+                </div>
+              </div>
+              <div class="person">
+                <span class="pname">Amara Okonkwo</span
+                ><span class="phandle">aokonkwo</span
+                ><span class="pmeta">4 sessions · 5 subagents</span>
+              </div>
+              <div class="kids">
+                <div class="node">
+                  <label class="row" for="dd-s5"
+                    ><span class="ws">checkout-svc/ao-idempotency</span
+                    ><span class="st is-run"><i></i>running</span
+                    ><span class="meta"
+                      >k8s/agents-1 · 3h 41m · 4 subagents</span
+                    ></label
+                  >
+                  <div class="kids subs subs-s5">
+                    <div class="node">
+                      <div class="row subrow">
+                        <span class="ix">[1]</span
+                        ><span class="stask"
+                          >map idempotency keys across call sites</span
+                        ><span class="sst is-end">ended 4m 12s</span>
+                      </div>
+                    </div>
+                    <div class="node">
+                      <div class="row subrow">
+                        <span class="ix">[2]</span
+                        ><span class="stask">write replay tests</span
+                        ><span class="sst is-run">running 2m 03s</span>
+                      </div>
+                    </div>
+                    <div class="node">
+                      <div class="row subrow">
+                        <span class="ix">[3]</span
+                        ><span class="stask">patch the retry middleware</span
+                        ><span class="sst is-run">running 6m 40s</span>
+                      </div>
+                    </div>
+                    <div class="node">
+                      <div class="row subrow">
+                        <span class="ix">[4]</span
+                        ><span class="stask"
+                          >check the migration against a staging dump</span
+                        ><span class="sst is-inp">needs input</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="node">
+                  <label class="row" for="dd-s6"
+                    ><span class="ws">atlas-api/ao-webhook-retries</span
+                    ><span class="st is-inp"><i></i>needs input</span
+                    ><span class="meta"
+                      >mac-mini-04 · 12m · no subagents</span
+                    ></label
+                  >
+                </div>
+                <div class="node">
+                  <label class="row" for="dd-s7"
+                    ><span class="ws">ledger-web/ao-empty-states</span
+                    ><span class="st is-run"><i></i>running</span
+                    ><span class="meta"
+                      >vps-lon-1 · 41m · 1 subagent</span
+                    ></label
+                  >
+                  <div class="kids subs subs-s7">
+                    <div class="node">
+                      <div class="row subrow">
+                        <span class="ix">[1]</span
+                        ><span class="stask"
+                          >collect every empty state in the app</span
+                        ><span class="sst is-run">running 8m</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="node">
+                  <label class="row" for="dd-s8"
+                    ><span class="ws">infra-terraform/ao-state-lock</span
+                    ><span class="st is-fail"><i></i>failed</span
+                    ><span class="meta"
+                      >vps-lon-1 · 35m · no subagents</span
+                    ></label
+                  >
+                </div>
+              </div>
+              <div class="person">
+                <span class="pname">Dan Whitfield</span
+                ><span class="phandle">dwhit</span
+                ><span class="pmeta">1 session · 1 subagent</span>
+              </div>
+              <div class="kids">
+                <div class="node">
+                  <label class="row" for="dd-s9"
+                    ><span class="ws">atlas-api/dw-rate-limit</span
+                    ><span class="st is-run"><i></i>running</span
+                    ><span class="meta"
+                      >mac-mini-04 · 8m · 1 subagent</span
+                    ></label
+                  >
+                  <div class="kids subs subs-s9">
+                    <div class="node">
+                      <div class="row subrow">
+                        <span class="ix">[1]</span
+                        ><span class="stask"
+                          >read the limiter middleware and its tests</span
+                        ><span class="sst is-run">running 5m</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="dd-detail">
+            <div class="pane-s1">
+              <div class="panehead">
+                <span class="ws">atlas-api/agent/tb-invoice-splits</span>
+                <span class="st is-run"><i></i>running</span>
+                <span class="sub">mac-mini-04</span>
+              </div>
+              <div class="facts">
+                <div>
+                  <div class="k">Person</div>
+                  <div class="v">Tomas Berg</div>
+                </div>
+                <div>
+                  <div class="k">Repository</div>
+                  <div class="v">atlas-api</div>
+                </div>
+                <div>
+                  <div class="k">Branch</div>
+                  <div class="v">agent/tb-invoice-splits</div>
+                </div>
+                <div>
+                  <div class="k">Host</div>
+                  <div class="v">mac-mini-04</div>
+                </div>
+                <div>
+                  <div class="k">Started</div>
+                  <div class="v">09:14 · 1h 12m</div>
+                </div>
+                <div>
+                  <div class="k">Outcome</div>
+                  <div class="v">5 commits · pushed 4m ago</div>
+                </div>
+              </div>
+              <div class="ctl">
+                <span class="primary">Attach and type</span>
+                <span>Copy branch</span>
+                <span>Open in my terminal</span>
+                <span class="note"
+                  >The pane below is the session, not a recording of it.</span
+                >
+              </div>
+              <div class="termlabel">
+                <span>Live terminal</span
+                ><span>986 lines of scrollback attached</span>
+              </div>
+              <div class="screen-scroll">
+                <pre
+                  class="term"
+                ><span class="t-d">atlas-api/tb-invoice-splits   ·   claude-code</span>
+<span class="t-d">… 986 lines of scrollback above</span>
+› commit 5 — split rounding on partial invoices
+<span class="t-g">› push agent/tb-invoice-splits → origin   (4m ago)</span>
+› [2] property tests: 118 passed, 0 failed
+▌</pre>
+              </div>
+              <div class="seen">
+                Workspace <span class="mono">ws-3b91</span> · created by
+                <code>werk create</code> at 09:14 · seeded from
+                <span class="mono">origin/main</span>.
+              </div>
+            </div>
+            <div class="pane-s2">
+              <div class="panehead">
+                <span class="ws">pipeline-runner/agent/tb-retry-backoff</span>
+                <span class="st is-inp"><i></i>needs input</span>
+                <span class="sub">vps-fra-2</span>
+              </div>
+              <div class="facts">
+                <div>
+                  <div class="k">Person</div>
+                  <div class="v">Tomas Berg</div>
+                </div>
+                <div>
+                  <div class="k">Repository</div>
+                  <div class="v">pipeline-runner</div>
+                </div>
+                <div>
+                  <div class="k">Branch</div>
+                  <div class="v">agent/tb-retry-backoff</div>
+                </div>
+                <div>
+                  <div class="k">Host</div>
+                  <div class="v">vps-fra-2</div>
+                </div>
+                <div>
+                  <div class="k">Started</div>
+                  <div class="v">10:20 · 6m</div>
+                </div>
+                <div>
+                  <div class="k">Outcome</div>
+                  <div class="v">0 commits yet</div>
+                </div>
+              </div>
+              <div class="ctl">
+                <span class="primary">Attach and type</span>
+                <span>Copy branch</span>
+                <span>Open in my terminal</span>
+                <span class="note"
+                  >The pane below is the session, not a recording of it.</span
+                >
+              </div>
+              <div class="termlabel">
+                <span>Live terminal</span
+                ><span>312 lines of scrollback attached</span>
+              </div>
+              <div class="screen-scroll">
+                <pre
+                  class="term"
+                ><span class="t-d">pipeline-runner/tb-retry-backoff   ·   codex</span>
+<span class="t-d">… 312 lines of scrollback above</span>
+› [1] reproduce the flake on runner-7 — 3 of 40 runs failed
+<span class="t-s">› asks: raise max attempts from 3 to 5? (y/N)</span>
+▌</pre>
+              </div>
+              <div class="seen">
+                Workspace <span class="mono">ws-6d02</span> · created by
+                <code>werk create</code> at 10:20 · seeded from
+                <span class="mono">origin/main</span>.
+              </div>
+            </div>
+            <div class="pane-s3">
+              <div class="panehead">
+                <span class="ws">ledger-web/agent/pr-table-virtualise</span>
+                <span class="st is-run"><i></i>running</span>
+                <span class="sub">k8s/agents-3</span>
+              </div>
+              <div class="facts">
+                <div>
+                  <div class="k">Person</div>
+                  <div class="v">Priya Raman</div>
+                </div>
+                <div>
+                  <div class="k">Repository</div>
+                  <div class="v">ledger-web</div>
+                </div>
+                <div>
+                  <div class="k">Branch</div>
+                  <div class="v">agent/pr-table-virtualise</div>
+                </div>
+                <div>
+                  <div class="k">Host</div>
+                  <div class="v">k8s/agents-3</div>
+                </div>
+                <div>
+                  <div class="k">Started</div>
+                  <div class="v">10:02 · 24m</div>
+                </div>
+                <div>
+                  <div class="k">Outcome</div>
+                  <div class="v">2 commits · pushed 1m ago</div>
+                </div>
+              </div>
+              <div class="ctl">
+                <span class="primary">Attach and type</span>
+                <span>Copy branch</span>
+                <span>Open in my terminal</span>
+                <span class="note"
+                  >The pane below is the session, not a recording of it.</span
+                >
+              </div>
+              <div class="termlabel">
+                <span>Live terminal</span
+                ><span>1 402 lines of scrollback attached</span>
+              </div>
+              <div class="screen-scroll">
+                <pre
+                  class="term"
+                ><span class="t-d">ledger-web/pr-table-virtualise   ·   claude-code</span>
+<span class="t-d">… 1 402 lines of scrollback above</span>
+› [1] median frame 41 ms at 10 000 rows, 9 ms at 500
+› [2] porting the row renderer
+▌</pre>
+              </div>
+              <div class="seen">
+                Workspace <span class="mono">ws-a41c</span> · created by
+                <code>werk create</code> at 10:02 · seeded from
+                <span class="mono">origin/main</span>.
+              </div>
+            </div>
+            <div class="pane-s4">
+              <div class="panehead">
+                <span class="ws">docs-site/agent/pr-changelog</span>
+                <span class="st is-end"><i></i>ended 09:52</span>
+                <span class="sub">mac-mini-01</span>
+              </div>
+              <div class="facts">
+                <div>
+                  <div class="k">Person</div>
+                  <div class="v">Priya Raman</div>
+                </div>
+                <div>
+                  <div class="k">Repository</div>
+                  <div class="v">docs-site</div>
+                </div>
+                <div>
+                  <div class="k">Branch</div>
+                  <div class="v">agent/pr-changelog</div>
+                </div>
+                <div>
+                  <div class="k">Host</div>
+                  <div class="v">mac-mini-01</div>
+                </div>
+                <div>
+                  <div class="k">Started</div>
+                  <div class="v">09:31 · 21m</div>
+                </div>
+                <div>
+                  <div class="k">Outcome</div>
+                  <div class="v">exit 0 · 2 commits · pushed</div>
+                </div>
+              </div>
+              <div class="ctl">
+                <span class="primary">Reopen this branch</span>
+                <span>Copy branch</span>
+                <span class="note"
+                  >The terminal closed with the workspace; the entry
+                  stays.</span
+                >
+              </div>
+              <div class="termlabel">
+                <span>Terminal at exit</span><span>kept for 7 days</span>
+              </div>
+              <div class="screen-scroll">
+                <pre
+                  class="term"
+                ><span class="t-d">docs-site/pr-changelog   ·   claude-code</span>
+› commit 2 — regenerate the changelog for 0.9.4
+<span class="t-g">› push agent/pr-changelog → origin</span>
+<span class="t-d">› exit 0 · 09:52 · workspace kept for 7 days</span></pre>
+              </div>
+              <div class="seen">
+                Workspace <span class="mono">ws-77e5</span> · created by
+                <code>werk create</code> at 09:31 · seeded from
+                <span class="mono">origin/main</span>.
+              </div>
+            </div>
+            <div class="pane-s5">
+              <div class="panehead">
+                <span class="ws">checkout-svc/agent/ao-idempotency</span>
+                <span class="st is-run"><i></i>running</span>
+                <span class="sub">k8s/agents-1</span>
+              </div>
+              <div class="facts">
+                <div>
+                  <div class="k">Person</div>
+                  <div class="v">Amara Okonkwo</div>
+                </div>
+                <div>
+                  <div class="k">Repository</div>
+                  <div class="v">checkout-svc</div>
+                </div>
+                <div>
+                  <div class="k">Branch</div>
+                  <div class="v">agent/ao-idempotency</div>
+                </div>
+                <div>
+                  <div class="k">Host</div>
+                  <div class="v">k8s/agents-1</div>
+                </div>
+                <div>
+                  <div class="k">Started</div>
+                  <div class="v">06:44 · 3h 41m</div>
+                </div>
+                <div>
+                  <div class="k">Outcome</div>
+                  <div class="v">3 commits · pushed 12m ago</div>
+                </div>
+              </div>
+              <div class="ctl">
+                <span class="primary">Attach and type</span>
+                <span>Copy branch</span>
+                <span>Open in my terminal</span>
+                <span class="note"
+                  >The pane below is the session, not a recording of it.</span
+                >
+              </div>
+              <div class="termlabel">
+                <span>Live terminal</span
+                ><span>2 141 lines of scrollback attached</span>
+              </div>
+              <div class="screen-scroll">
+                <pre
+                  class="term"
+                ><span class="t-d">checkout-svc/ao-idempotency   ·   claude-code</span>
+<span class="t-d">… 2 141 lines of scrollback above</span>
+› read checkout/idempotency.ts, checkout/retry.ts
+› patch checkout/idempotency.ts — 41 lines
+› spawn 4 subagents
+<span class="t-d">    [1] map idempotency keys across call sites    ended 4m12s</span>
+<span class="t-d">    [2] write replay tests                        running 2m03s</span>
+<span class="t-d">    [3] patch the retry middleware                running 6m40s</span>
+<span class="t-d">    [4] check the migration against a dump        needs input</span>
+<span class="t-s">› [4] asks: apply 0043_idem_keys to staging-eu? (y/N)</span>
+▌</pre>
+              </div>
+              <div class="seen">
+                Workspace <span class="mono">ws-4f2a</span> · created by
+                <code>werk create</code> at 06:44 · seeded from
+                <span class="mono">origin/main</span>.
+              </div>
+            </div>
+            <div class="pane-s6">
+              <div class="panehead">
+                <span class="ws">atlas-api/agent/ao-webhook-retries</span>
+                <span class="st is-inp"><i></i>needs input</span>
+                <span class="sub">mac-mini-04</span>
+              </div>
+              <div class="facts">
+                <div>
+                  <div class="k">Person</div>
+                  <div class="v">Amara Okonkwo</div>
+                </div>
+                <div>
+                  <div class="k">Repository</div>
+                  <div class="v">atlas-api</div>
+                </div>
+                <div>
+                  <div class="k">Branch</div>
+                  <div class="v">agent/ao-webhook-retries</div>
+                </div>
+                <div>
+                  <div class="k">Host</div>
+                  <div class="v">mac-mini-04</div>
+                </div>
+                <div>
+                  <div class="k">Started</div>
+                  <div class="v">10:14 · 12m</div>
+                </div>
+                <div>
+                  <div class="k">Outcome</div>
+                  <div class="v">1 commit · not pushed yet</div>
+                </div>
+              </div>
+              <div class="ctl">
+                <span class="primary">Attach and type</span>
+                <span>Copy branch</span>
+                <span>Open in my terminal</span>
+                <span class="note"
+                  >The pane below is the session, not a recording of it.</span
+                >
+              </div>
+              <div class="termlabel">
+                <span>Live terminal</span
+                ><span>214 lines of scrollback attached</span>
+              </div>
+              <div class="screen-scroll">
+                <pre
+                  class="term"
+                ><span class="t-d">atlas-api/ao-webhook-retries   ·   codex</span>
+<span class="t-d">… 214 lines of scrollback above</span>
+› commit 1 — retry ledger for outbound webhooks
+<span class="t-s">› asks: cap the backoff at 15 minutes or at 60?</span>
+▌</pre>
+              </div>
+              <div class="seen">
+                Workspace <span class="mono">ws-c108</span> · created by
+                <code>werk create</code> at 10:14 · seeded from
+                <span class="mono">origin/main</span>.
+              </div>
+            </div>
+            <div class="pane-s7">
+              <div class="panehead">
+                <span class="ws">ledger-web/agent/ao-empty-states</span>
+                <span class="st is-run"><i></i>running</span>
+                <span class="sub">vps-lon-1</span>
+              </div>
+              <div class="facts">
+                <div>
+                  <div class="k">Person</div>
+                  <div class="v">Amara Okonkwo</div>
+                </div>
+                <div>
+                  <div class="k">Repository</div>
+                  <div class="v">ledger-web</div>
+                </div>
+                <div>
+                  <div class="k">Branch</div>
+                  <div class="v">agent/ao-empty-states</div>
+                </div>
+                <div>
+                  <div class="k">Host</div>
+                  <div class="v">vps-lon-1</div>
+                </div>
+                <div>
+                  <div class="k">Started</div>
+                  <div class="v">09:45 · 41m</div>
+                </div>
+                <div>
+                  <div class="k">Outcome</div>
+                  <div class="v">0 commits yet</div>
+                </div>
+              </div>
+              <div class="ctl">
+                <span class="primary">Attach and type</span>
+                <span>Copy branch</span>
+                <span>Open in my terminal</span>
+                <span class="note"
+                  >The pane below is the session, not a recording of it.</span
+                >
+              </div>
+              <div class="termlabel">
+                <span>Live terminal</span
+                ><span>88 lines of scrollback attached</span>
+              </div>
+              <div class="screen-scroll">
+                <pre
+                  class="term"
+                ><span class="t-d">ledger-web/ao-empty-states   ·   claude-code</span>
+<span class="t-d">… 88 lines of scrollback above</span>
+› [1] 23 components render nothing when the list is empty
+› drafting the first six
+▌</pre>
+              </div>
+              <div class="seen">
+                Workspace <span class="mono">ws-9e63</span> · created by
+                <code>werk create</code> at 09:45 · seeded from
+                <span class="mono">origin/main</span>.
+              </div>
+            </div>
+            <div class="pane-s8">
+              <div class="panehead">
+                <span class="ws">infra-terraform/agent/ao-state-lock</span>
+                <span class="st is-fail"><i></i>failed 08:37</span>
+                <span class="sub">vps-lon-1</span>
+              </div>
+              <div class="facts">
+                <div>
+                  <div class="k">Person</div>
+                  <div class="v">Amara Okonkwo</div>
+                </div>
+                <div>
+                  <div class="k">Repository</div>
+                  <div class="v">infra-terraform</div>
+                </div>
+                <div>
+                  <div class="k">Branch</div>
+                  <div class="v">agent/ao-state-lock</div>
+                </div>
+                <div>
+                  <div class="k">Host</div>
+                  <div class="v">vps-lon-1</div>
+                </div>
+                <div>
+                  <div class="k">Started</div>
+                  <div class="v">08:02 · 35m</div>
+                </div>
+                <div>
+                  <div class="k">Outcome</div>
+                  <div class="v">exit 1 · 0 commits · nothing to push</div>
+                </div>
+              </div>
+              <div class="ctl">
+                <span class="primary">Reopen this branch</span>
+                <span>Copy branch</span>
+                <span class="note"
+                  >The terminal closed with the workspace; the entry
+                  stays.</span
+                >
+              </div>
+              <div class="termlabel">
+                <span>Terminal at exit</span><span>kept for 7 days</span>
+              </div>
+              <div class="screen-scroll">
+                <pre
+                  class="term"
+                ><span class="t-d">infra-terraform/ao-state-lock   ·   claude-code</span>
+› terraform init — backend "s3" changed, reinitialisation required
+<span class="t-r">› exit 1 · 08:37 · 0 commits</span>
+<span class="t-d">› nothing was written, so nothing was lost</span></pre>
+              </div>
+              <div class="seen">
+                Workspace <span class="mono">ws-2d47</span> · created by
+                <code>werk create</code> at 08:02 · seeded from
+                <span class="mono">origin/main</span>.
+              </div>
+            </div>
+            <div class="pane-s9">
+              <div class="panehead">
+                <span class="ws">atlas-api/agent/dw-rate-limit</span>
+                <span class="st is-run"><i></i>running</span>
+                <span class="sub">mac-mini-04</span>
+              </div>
+              <div class="facts">
+                <div>
+                  <div class="k">Person</div>
+                  <div class="v">Dan Whitfield</div>
+                </div>
+                <div>
+                  <div class="k">Repository</div>
+                  <div class="v">atlas-api</div>
+                </div>
+                <div>
+                  <div class="k">Branch</div>
+                  <div class="v">agent/dw-rate-limit</div>
+                </div>
+                <div>
+                  <div class="k">Host</div>
+                  <div class="v">mac-mini-04</div>
+                </div>
+                <div>
+                  <div class="k">Started</div>
+                  <div class="v">10:18 · 8m</div>
+                </div>
+                <div>
+                  <div class="k">Outcome</div>
+                  <div class="v">0 commits yet</div>
+                </div>
+              </div>
+              <div class="ctl">
+                <span class="primary">Attach and type</span>
+                <span>Copy branch</span>
+                <span>Open in my terminal</span>
+                <span class="note"
+                  >The pane below is the session, not a recording of it.</span
+                >
+              </div>
+              <div class="termlabel">
+                <span>Live terminal</span
+                ><span>41 lines of scrollback attached</span>
+              </div>
+              <div class="screen-scroll">
+                <pre
+                  class="term"
+                ><span class="t-d">atlas-api/dw-rate-limit   ·   claude-code</span>
+<span class="t-d">… 41 lines of scrollback above</span>
+› [1] reading the limiter middleware and its tests
+▌</pre>
+              </div>
+              <div class="seen">
+                Workspace <span class="mono">ws-5ab0</span> · created by
+                <code>werk create</code> at 10:18 · seeded from
+                <span class="mono">origin/main</span>.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <figcaption>
+        One organisation's dispatched work, three levels deep. Selecting a
+        session in the tree opens its subagents and its terminal; the terminal
+        is the session itself, not a copy of it. Every string here is
+        illustrative.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="pad">
+  <div class="wrap stack">
+    <span class="eyebrow">Deployment</span>
+    <h2 class="measure">It touches your source code. Deploy it accordingly.</h2>
+    <p class="measure lede">
+      werk puts repositories on machines and opens terminals on them. There is
+      no honest version of this product that is low-stakes, so the deployment
+      story comes first rather than last.
+    </p>
+    <div class="entries keyed" style="margin-top: 0.7rem">
+      <div>
+        <span class="key">Self-hosting</span>
+        <div>
+          <h3>First-class, not a stripped tier.</h3>
+          <p>
+            The same binary, the same interface, running entirely on
+            infrastructure you control, with the record staying inside your
+            network. It is one of the two supported ways to run werk, and the
+            hosted service is the other.
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="key">Footprint</span>
+        <div>
+          <h3>One binary, nothing to pre-install.</h3>
+          <p>
+            No runtime, no agent to package, no dependency to approve on every
+            target. werk copies itself over the ssh connection you already have
+            and runs there. What arrives on a remote machine is one file you can
+            hash.
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="key">Placement</span>
+        <div>
+          <h3>Placement stays yours.</h3>
+          <p>
+            Your Mac mini, your VPS, your Kubernetes cluster, your container
+            images. werk decides nothing about where your code is allowed to
+            live; it makes the placement you already chose reachable and
+            recorded.
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="key">Access</span>
+        <div>
+          <h3>Per session, and revocable.</h3>
+          <p>
+            A shared terminal link is a grant you made for one session, and it
+            can be taken back. Portal visibility is scoped by the organisation
+            and does not extend to anything outside a dispatched workspace.
+          </p>
+        </div>
+      </div>
+    </div>
+    <p class="callout" style="margin-top: 0.5rem">
+      What we can tell you is exactly what the software does, where it runs, and
+      what it stores, in enough detail for your security team to make their own
+      decision.
+    </p>
+  </div>
+</section>
+
+<div class="band">
+  <img
+    src="{{D_ARCHIVE}}"
+    alt="A long archive aisle of identical bound volumes in raking light, one volume lying open on a lectern at the near end, a single green binding beside it."
+  />
+</div>
+
+<section class="pad" id="install">
+  <div class="wrap stack">
+    <span class="eyebrow">Start</span>
+    <h2 class="measure">Start where the work is. The record follows.</h2>
+    <p class="measure lede">
+      The fastest way to evaluate this is not a demo of the portal. Install werk
+      on one machine, dispatch a few agents to somewhere that is not your
+      laptop, close the lid, and see whether the tool is one your engineers
+      would keep. That is the precondition for everything above it. When it
+      holds, the ledger is what you get for free, because every session it
+      records was one somebody wanted to run.
+    </p>
+    <div class="actions"><a class="btn" href="#install">Install werk</a></div>
+  </div>
+</section>
+
+<section class="pad">
+  <div class="wrap stack">
+    <span class="eyebrow">Questions</span>
+    <h2 class="measure">Objections, answered.</h2>
+    <div class="faq" style="margin-top: 0.6rem">
+      <div>
+        <h3>Can we run the whole thing on our own infrastructure?</h3>
+        <p>
+          Yes. The same binary and the same interface, running entirely on
+          machines you control, with the record staying inside your network.
+          Self-hosting is one of the two supported ways to run werk and the
+          hosted service is the other, so nothing about the record depends on it
+          leaving your estate.
+        </p>
+      </div>
+      <div>
+        <h3>Do we have to change how our developers work?</h3>
+        <p>
+          No. Coding agents are command-line programs, and werk dispatches
+          command-line programs. It works off signals any well-behaved terminal
+          program already emits, including the bell, OSC 9 and 777
+          notifications, OSC 9;4 progress, and OSC 133 command boundaries with
+          exit status. There is no per-agent integration, so an agent released
+          next month is useful in werk with no release from us.
+        </p>
+      </div>
+      <div>
+        <h3>What happens to work in a container that gets destroyed?</h3>
+        <p>
+          It is on a branch and it gets pushed. werk creates the branch, seeds
+          the repository, and gets the commits back. We treat a workspace that
+          disappears with unpushed commits inside it as a catastrophic bug
+          rather than a known limitation, and it is the thing we test hardest.
+        </p>
+      </div>
+      <div>
+        <h3>How much of this is built today?</h3>
+        <p>
+          The terminal and the local server are the working parts: a detachable
+          session daemon built on libghostty's snapshot format, so reattaching
+          gives you real terminal state with scrollback, plus
+          <code>werk</code> printing one live list across every machine you have
+          configured and <code>werk serve</code> putting that in a browser.
+          Windows, macOS and Linux are all first-class clients. Hosted, shared
+          links and the team portal are where this is going, and we will tell
+          you plainly which rung anything you see is on.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="appendix pad" id="brand">
+  <div class="wrap stack">
+    <span class="eyebrow">Brand appendix · Concept D</span>
+    <h2 class="measure">The Ledger</h2>
+    <p class="measure lede">
+      werk is the system of record for agent labour: every agent session placed
+      deliberately, run on a branch, attributed to a person and a repository,
+      and recoverable afterwards.
+    </p>
+
+    <h3
+      style="
+        margin-top: 2rem;
+        font-family: var(--display);
+        font-size: 1.1875rem;
+      "
+    >
+      The strategic bet
+    </h3>
+    <p
+      class="measure"
+      style="color: var(--graphite); margin-top: 0.5rem; font-size: 0.9375rem"
+    >
+      This wagers that the scarce thing in 2026 is not another local worktree
+      manager but an account of what the agents did. Forty tools already run
+      tmux next to a git worktree. None of them can tell a CTO what is running
+      across the company right now.
+    </p>
+    <p class="measure" style="color: var(--graphite); font-size: 0.9375rem">
+      <strong>Who buys:</strong> the VP Engineering or platform lead with an
+      agent spend line nobody can itemise and an auditor asking who changed
+      what. <strong>Who adopts:</strong> the individual engineer, freely,
+      because the terminal that survives a closed laptop is worth having on its
+      own. <strong>How it spreads:</strong> bottom-up first, one developer at a
+      time, then a <code>werk serve</code> on a team box, then a portal over
+      sessions that already exist. The portal is populated by adoption, never
+      mandated into being.
+    </p>
+    <p class="measure" style="color: var(--graphite); font-size: 0.9375rem">
+      <strong>What it gives up:</strong> speed. Buyer-facing positioning is
+      slower to prove, demands a security review before a purchase, and asks the
+      product to be trustworthy before it is popular.
+    </p>
+
+    <h3
+      style="
+        margin-top: 2rem;
+        font-family: var(--display);
+        font-size: 1.1875rem;
+      "
+    >
+      The mark
+    </h3>
+    <div class="markcard" style="margin-top: 0.75rem">
+      <img
+        src="{{D_MARK}}"
+        alt="A dark stone plate standing on a warm off-white ground, cut with a vertical channel and three grooves, the lowest a green metal bar overhanging the edge."
+      />
+      <div class="stack" style="gap: 0.7rem">
+        <p>
+          <strong>A ledger page.</strong> Four primitives on a 32 × 32 grid. The
+          field is the square page. A 1.5px vertical rule at x=10 makes the
+          ruled margin. Three horizontal entries sit at y=11, 16 and 21,
+          starting at x=14. The first two stop at x=25. The third does not stop:
+          it crosses the right edge and continues four pixels beyond, to x=36. A
+          single tick in the left margin at y=21 marks the line that is still
+          running.
+        </p>
+        <p>
+          Read: two entries closed, one still open and running past the boundary
+          of the page, marked in the margin. At 16px that overhang is the only
+          asymmetry, which is what makes the mark identifiable in a favicon.
+          Monochrome by default; the one permitted colour variant tints the
+          overhang and the margin tick in Ledger Green.
+        </p>
+        <p>
+          The wordmark is <strong>werk</strong> in Newsreader 500, always
+          lowercase, never capitalised in any position. The
+          <em>ledger lockup</em> sets it above a hairline rule that runs the
+          full column width and past the word to the container edge. The rule is
+          the entire graphic idea: the entry and the line it is written on.
+        </p>
+      </div>
+    </div>
+
+    <h3
+      style="
+        margin-top: 2rem;
+        font-family: var(--display);
+        font-size: 1.1875rem;
+      "
+    >
+      Palette
+    </h3>
+    <p
+      style="
+        color: var(--graphite);
+        max-width: var(--measure);
+        margin-top: 0.4rem;
+        font-size: 0.9375rem;
+      "
+    >
+      Light-first. Paper, ink, one hairline grey, one working green, two states.
+      Colour carries meaning, so it is spent sparingly: on any page, at most one
+      element carries Ledger Green, and amber and red only ever describe the
+      state of real work.
+    </p>
+    <div class="swatches" style="margin-top: 0.75rem">
+      <div class="sw">
+        <div class="chip" style="background: #fbfaf7"></div>
+        <div class="meta">
+          <div class="nm">Paper</div>
+          <div class="hx">#FBFAF7</div>
+          <div class="role">Page ground. Warm off-white, not pure white.</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #f2efe8"></div>
+        <div class="meta">
+          <div class="nm">Vellum</div>
+          <div class="hx">#F2EFE8</div>
+          <div class="role">Tiles, tables, quoted blocks</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #10151c"></div>
+        <div class="meta">
+          <div class="nm">Ink</div>
+          <div class="hx">#10151C</div>
+          <div class="role">
+            Wordmark, headings, body. Near-black, blue cast.
+          </div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #5a6270"></div>
+        <div class="meta">
+          <div class="nm">Graphite</div>
+          <div class="hx">#5A6270</div>
+          <div class="role">Secondary text, captions, metadata</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #e3e0d9"></div>
+        <div class="meta">
+          <div class="nm">Rule</div>
+          <div class="hx">#E3E0D9</div>
+          <div class="role">Hairlines and dividers. Never text.</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #1f6f4a"></div>
+        <div class="meta">
+          <div class="nm">Ledger Green</div>
+          <div class="hx">#1F6F4A</div>
+          <div class="role">Primary action, live and attributed</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #b27300"></div>
+        <div class="meta">
+          <div class="nm">Signal Amber</div>
+          <div class="hx">#B27300</div>
+          <div class="role">Needs you. Blocked, awaiting review.</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #a32b22"></div>
+        <div class="meta">
+          <div class="nm">Halt Red</div>
+          <div class="hx">#A32B22</div>
+          <div class="role">Failure, unpushed work at risk</div>
+        </div>
+      </div>
+    </div>
+    <p
+      style="
+        color: var(--graphite);
+        font-size: 0.875rem;
+        margin-top: 0.6rem;
+        max-width: 46rem;
+      "
+    >
+      Dark set, not an inversion: Paper <span class="mono">#0E1216</span>,
+      Vellum <span class="mono">#161B21</span>, Ink
+      <span class="mono">#EDEBE5</span>, Graphite
+      <span class="mono">#99A2AF</span>, Rule <span class="mono">#232A32</span>,
+      Ledger <span class="mono">#4FB185</span>, Signal
+      <span class="mono">#E0A32E</span>, Halt <span class="mono">#E0685C</span>.
+      Ink becomes a cool near-black surface and the accents lift in lightness so
+      they hold on it.
+    </p>
+
+    <h3
+      style="
+        margin-top: 2rem;
+        font-family: var(--display);
+        font-size: 1.1875rem;
+      "
+    >
+      Typography
+    </h3>
+    <div class="tablewrap" style="margin-top: 0.5rem">
+      <table class="spec">
+        <thead>
+          <tr>
+            <th>Family</th>
+            <th>Weights</th>
+            <th>Role</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Newsreader</td>
+            <td class="mono">400, 500, opsz</td>
+            <td>
+              Wordmark, hero, every section heading. A serif does the work a
+              grotesque cannot: it says the page expects to be read by someone
+              who signs things.
+            </td>
+          </tr>
+          <tr>
+            <td>Inter</td>
+            <td class="mono">400, 500, 600</td>
+            <td>
+              Body, UI, tables, buttons. Tabular numerals wherever a figure
+              appears in a column.
+            </td>
+          </tr>
+          <tr>
+            <td>JetBrains Mono</td>
+            <td class="mono">400, 500</td>
+            <td>
+              Commands, workspace and branch names, session identifiers,
+              hostnames, exit codes. The voice of the machine, used only where
+              machine output belongs.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p
+      style="
+        color: var(--graphite);
+        margin-top: 0.6rem;
+        max-width: 46rem;
+        font-size: 0.9375rem;
+      "
+    >
+      Scale at a 16px base: hero 56/1.05 Newsreader 500 at -0.02em; section
+      heading 32/1.15; subheading 21/1.35; body 17/1.6 Inter 400; small 14/1.5;
+      eyebrow 12/1.2 Inter 600 at 0.09em uppercase; mono 15/1.5. Measure caps at
+      68 characters.
+    </p>
+
+    <h3
+      style="
+        margin-top: 2rem;
+        font-family: var(--display);
+        font-size: 1.1875rem;
+      "
+    >
+      Taglines, ranked
+    </h3>
+    <ol class="taglines" style="margin-top: 0.75rem">
+      <li>
+        <strong>A record of what the machines did.</strong
+        ><span
+          >The entire concept in six words, past tense, making no promise about
+          intelligence. "The machines" is dry rather than breathless, which is
+          exactly the register.</span
+        >
+      </li>
+      <li>
+        <strong>Agent work, on the record.</strong
+        ><span
+          >Tight, buyer-legible, and it carries the double meaning of a ledger
+          entry and a public statement. Slightly softer than the first.</span
+        >
+      </li>
+      <li>
+        <strong>Every session placed. Every branch accounted for.</strong
+        ><span
+          >Strongest for a security or finance reader because it names the two
+          verifiable mechanisms. Two sentences make it a subhead rather than a
+          mark lockup.</span
+        >
+      </li>
+      <li>
+        <strong
+          >You hired a second workforce. Nobody is keeping the books.</strong
+        ><span
+          >The most persuasive opener in a deck and the weakest tagline on a
+          page: it accuses the reader, which works once and grates on the fourth
+          read.</span
+        >
+      </li>
+      <li>
+        <strong>Know what is running.</strong
+        ><span
+          >Clean and short, but it underclaims. It describes the dashboard rung
+          and leaves out attribution, recovery and the record, which is where
+          this lane's value sits.</span
+        >
+      </li>
+    </ol>
+
+    <h3
+      style="
+        margin-top: 2rem;
+        font-family: var(--display);
+        font-size: 1.1875rem;
+      "
+    >
+      Voice
+    </h3>
+    <div class="voice" style="margin-top: 0.75rem">
+      <div>
+        <h3>1. State the mechanism, not the outcome.</h3>
+        <p class="say">
+          werk creates the branch, seeds the repo, and pushes the commits back
+          before it destroys the container.
+        </p>
+        <p class="dont">
+          werk gives you peace of mind about your agent workflows.
+        </p>
+      </div>
+      <div>
+        <h3>
+          2. Name the buyer's problem in their own words, without dramatising
+          it.
+        </h3>
+        <p class="say">You have an agent spend line and no itemisation.</p>
+        <p class="dont">
+          The AI revolution has created an accountability crisis in engineering
+          organisations everywhere.
+        </p>
+      </div>
+      <div>
+        <h3>3. Be plain about what is built and what is planned.</h3>
+        <p class="say">
+          The team portal is where this is going. Today werk runs from your
+          terminal and from a browser you point at your own machine.
+        </p>
+        <p class="dont">
+          werk gives every CTO complete oversight of their agent fleet.
+        </p>
+      </div>
+      <div>
+        <h3>
+          4. Respect the engineer in every sentence, including the ones aimed at
+          their boss.
+        </h3>
+        <p class="say">
+          An engineer picks werk because reattaching to a session from a
+          different laptop is worth having on its own.
+        </p>
+        <p class="dont">
+          Finally, visibility into what your developers are actually doing all
+          day.
+        </p>
+      </div>
+      <div>
+        <h3>5. Never inflate the machine.</h3>
+        <p class="say">
+          Coding agents are command-line programs, so werk dispatches them the
+          way it dispatches anything else.
+        </p>
+        <p class="dont">werk orchestrates your autonomous AI workforce.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>
+      Concept D of four, prepared as a branding and positioning proposal for
+      werk. The questions in the tiles above are framed as questions on purpose:
+      no figure on this page is a measured statistic. The reach ladder marks
+      which rungs exist today; nothing here is a settled product decision, and
+      no compliance certification is claimed.
+    </p>
+  </div>
+</footer>

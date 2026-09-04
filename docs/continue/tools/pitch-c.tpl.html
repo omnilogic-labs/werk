@@ -1,0 +1,2397 @@
+<title>werk — Werkstatt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..700&family=Source+Serif+4:opsz,wght@8..60,400..600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+/>
+<style>
+  :root {
+    --bone: #f4efe6;
+    --chalk: #fbf8f2;
+    --graphite: #1c1a17;
+    --pencil: #6b6459;
+    --rule: #ddd3c3;
+    --vermilion: #c8442a;
+    --patina: #4c7a69;
+    --brass: #9a7524;
+    --on-accent: #fbf8f2;
+
+    --grotesk: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    --maxw: 70rem;
+    --gutter: clamp(1.2rem, 4vw, 3.25rem);
+    --measure: 33rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bone: #131210;
+      --chalk: #1d1b17;
+      --graphite: #ede6d8;
+      --pencil: #9e9587;
+      --rule: #312e28;
+      --vermilion: #e4643f;
+      --patina: #6ea792;
+      --brass: #c39a44;
+      --on-accent: #131210;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bone: #131210;
+    --chalk: #1d1b17;
+    --graphite: #ede6d8;
+    --pencil: #9e9587;
+    --rule: #312e28;
+    --vermilion: #e4643f;
+    --patina: #6ea792;
+    --brass: #c39a44;
+    --on-accent: #131210;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bone);
+    color: var(--graphite);
+    font-family: var(--serif);
+    font-size: 19px;
+    line-height: 1.62;
+    font-variation-settings: "opsz" 19;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: var(--maxw);
+    margin: 0 auto;
+    padding: 0 var(--gutter);
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--grotesk);
+    margin: 0;
+    text-wrap: balance;
+  }
+  h1 {
+    font-weight: 700;
+    font-variation-settings: "wdth" 125;
+    font-size: clamp(2.4rem, 6.4vw, 4.25rem);
+    line-height: 0.96;
+    letter-spacing: -0.022em;
+    text-transform: lowercase;
+  }
+  h2 {
+    font-weight: 700;
+    font-variation-settings: "wdth" 105;
+    font-size: clamp(1.6rem, 3.4vw, 2.3rem);
+    line-height: 1.1;
+    letter-spacing: -0.016em;
+  }
+  h3 {
+    font-weight: 600;
+    font-variation-settings: "wdth" 100;
+    font-size: 1.0625rem;
+    line-height: 1.3;
+    letter-spacing: -0.006em;
+  }
+  p {
+    margin: 0;
+  }
+  a {
+    color: var(--vermilion);
+  }
+  a:focus-visible,
+  .btn:focus-visible {
+    outline: 2px solid var(--vermilion);
+    outline-offset: 3px;
+  }
+
+  .mono,
+  code {
+    font-family: var(--mono);
+  }
+  code {
+    font-size: 0.82em;
+    font-weight: 500;
+    background: var(--chalk);
+    border: 1px solid var(--rule);
+    padding: 0.06em 0.34em;
+    color: var(--graphite);
+  }
+
+  .label {
+    font-family: var(--grotesk);
+    font-weight: 600;
+    font-variation-settings: "wdth" 88;
+    font-size: 0.75rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--pencil);
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead {
+    border-bottom: 1px solid var(--rule);
+    background: var(--bone);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  .masthead .wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 3.4rem;
+    gap: 1rem;
+  }
+  .lockup {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+  }
+  .lockup svg {
+    display: block;
+    height: 1.15rem;
+    width: auto;
+    color: var(--vermilion);
+  }
+  .wordmark {
+    font-family: var(--grotesk);
+    font-weight: 700;
+    font-variation-settings: "wdth" 118;
+    font-size: 1.3rem;
+    letter-spacing: -0.018em;
+    line-height: 1;
+    color: var(--graphite);
+  }
+  .masthead nav {
+    display: flex;
+    gap: 1.4rem;
+  }
+  .masthead nav a {
+    font-family: var(--grotesk);
+    font-weight: 500;
+    font-variation-settings: "wdth" 95;
+    font-size: 0.9375rem;
+    color: var(--pencil);
+    text-decoration: none;
+  }
+  .masthead nav a:hover {
+    color: var(--graphite);
+  }
+  @media (max-width: 50rem) {
+    .masthead nav {
+      display: none;
+    }
+  }
+
+  .strip {
+    border-bottom: 1px solid var(--rule);
+    background: var(--chalk);
+  }
+  .strip .wrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.35rem 1.1rem;
+    padding-top: 0.55rem;
+    padding-bottom: 0.55rem;
+  }
+  .strip p {
+    font-size: 0.875rem;
+    color: var(--pencil);
+    font-family: var(--grotesk);
+    font-variation-settings: "wdth" 95;
+  }
+
+  section {
+    border-bottom: 1px solid var(--rule);
+  }
+  .pad {
+    padding-top: clamp(3rem, 7vw, 5rem);
+    padding-bottom: clamp(3rem, 7vw, 5rem);
+  }
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+  }
+  .measure {
+    max-width: var(--measure);
+  }
+  .lede {
+    color: var(--pencil);
+  }
+
+  /* ---------- hero ---------- */
+
+  .hero-figure {
+    border-bottom: 1px solid var(--rule);
+  }
+  .hero-figure img {
+    display: block;
+    width: 100%;
+    height: clamp(200px, 30vw, 400px);
+    object-fit: cover;
+  }
+
+  .hero .inner {
+    max-width: 44rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.35rem;
+  }
+  .hero .sub {
+    font-size: 1.2rem;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    margin-top: 0.2rem;
+  }
+  .btn {
+    font-family: var(--grotesk);
+    font-weight: 600;
+    font-variation-settings: "wdth" 100;
+    font-size: 0.9375rem;
+    text-decoration: none;
+    padding: 0.62rem 1.2rem;
+    display: inline-block;
+    background: var(--vermilion);
+    color: var(--on-accent);
+    border: 1px solid var(--vermilion);
+  }
+  .btn.ghost {
+    background: transparent;
+    color: var(--graphite);
+    border-color: var(--graphite);
+  }
+
+  /* ---------- terminal ---------- */
+
+  .docket {
+    border: 1px solid var(--rule);
+    background: var(--chalk);
+  }
+  .docket-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    flex-wrap: wrap;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .docket-scroll {
+    overflow-x: auto;
+  }
+  .docket pre {
+    margin: 0;
+    padding: 1.1rem 1.15rem 1.3rem;
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height: 1.66;
+    color: var(--graphite);
+    white-space: pre;
+  }
+  .docket .p {
+    color: var(--pencil);
+  }
+  .docket .k {
+    color: var(--pencil);
+  }
+  .docket .hd {
+    color: var(--pencil);
+    font-weight: 500;
+  }
+  .docket .run {
+    color: var(--patina);
+  }
+  .docket .wait {
+    color: var(--vermilion);
+  }
+  .docket .idle {
+    color: var(--pencil);
+  }
+  .docket .brass {
+    color: var(--brass);
+  }
+
+  /* ---------- grids ---------- */
+
+  .cols {
+    display: grid;
+    gap: 2rem;
+  }
+  @media (min-width: 48rem) {
+    .cols-3 {
+      grid-template-columns: repeat(3, 1fr);
+    }
+    .cols-2 {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  .block h3 + p {
+    margin-top: 0.45rem;
+    color: var(--pencil);
+    font-size: 1rem;
+  }
+
+  .stages {
+    display: grid;
+    gap: 0;
+  }
+  .stages > div {
+    display: grid;
+    grid-template-columns: 2.5rem 1fr;
+    gap: 0 1.1rem;
+    padding: 1.25rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .stages > div:last-child {
+    border-bottom: 1px solid var(--rule);
+  }
+  .stages .n {
+    font-family: var(--grotesk);
+    font-weight: 700;
+    font-variation-settings: "wdth" 88;
+    font-size: 0.9375rem;
+    color: var(--vermilion);
+    padding-top: 0.25rem;
+  }
+  .stages p {
+    color: var(--pencil);
+    margin-top: 0.35rem;
+    font-size: 1rem;
+  }
+
+  /* ---------- ladder ---------- */
+
+  .ladder {
+    display: grid;
+    gap: 0;
+  }
+  .rung {
+    display: grid;
+    grid-template-columns: 2.5rem 1fr;
+    gap: 0 1.1rem;
+    padding: 1.25rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .rung:last-child {
+    border-bottom: 1px solid var(--rule);
+  }
+  .rung .n {
+    font-family: var(--grotesk);
+    font-weight: 700;
+    font-variation-settings: "wdth" 88;
+    font-size: 0.9375rem;
+    color: var(--vermilion);
+    padding-top: 0.25rem;
+  }
+  .rung h3 {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .rung p {
+    color: var(--pencil);
+    margin-top: 0.3rem;
+    font-size: 1rem;
+    max-width: 44rem;
+  }
+  .tag {
+    font-family: var(--grotesk);
+    font-weight: 600;
+    font-variation-settings: "wdth" 88;
+    font-size: 0.6875rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.1rem 0.4rem;
+    border: 1px solid currentColor;
+  }
+  .tag.now {
+    color: var(--patina);
+  }
+  .tag.later {
+    color: var(--pencil);
+  }
+
+  .band {
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+  }
+  .band img {
+    display: block;
+    width: 100%;
+    height: clamp(170px, 24vw, 320px);
+    object-fit: cover;
+  }
+
+  .pull {
+    font-family: var(--grotesk);
+    font-weight: 600;
+    font-variation-settings: "wdth" 105;
+    font-size: clamp(1.15rem, 2.4vw, 1.5rem);
+    line-height: 1.28;
+    letter-spacing: -0.012em;
+    max-width: 30rem;
+    color: var(--graphite);
+  }
+
+  /* ---------- product screens ---------- */
+
+  .docket-head .tag {
+    margin-left: auto;
+  }
+  .caption {
+    font-family: var(--grotesk);
+    font-variation-settings: "wdth" 95;
+    font-size: 0.875rem;
+    color: var(--pencil);
+    max-width: 46rem;
+  }
+
+  /* a browser, because rungs two to five are web surfaces */
+
+  .browser {
+    border: 1px solid var(--rule);
+    background: var(--chalk);
+  }
+  .chrome {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--rule);
+    background: var(--bone);
+  }
+  .chrome .nav {
+    display: flex;
+    gap: 0.5rem;
+    color: var(--pencil);
+    flex: none;
+  }
+  .chrome .nav svg {
+    display: block;
+    width: 0.8rem;
+    height: 0.8rem;
+  }
+  .chrome .url {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid var(--rule);
+    background: var(--chalk);
+    padding: 0.2rem 0.55rem;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--pencil);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .chrome .url b {
+    color: var(--graphite);
+    font-weight: 500;
+  }
+
+  .appbar {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem 0.8rem;
+    flex-wrap: wrap;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .appbar .mk {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex: none;
+  }
+  .appbar .mk svg {
+    display: block;
+    height: 0.9rem;
+    width: auto;
+    color: var(--vermilion);
+  }
+  .appbar .mk span {
+    font-family: var(--grotesk);
+    font-weight: 700;
+    font-variation-settings: "wdth" 118;
+    font-size: 0.95rem;
+    color: var(--graphite);
+  }
+  .appbar .where {
+    font-family: var(--grotesk);
+    font-weight: 600;
+    font-variation-settings: "wdth" 88;
+    font-size: 0.6875rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--pencil);
+  }
+  .chips {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    margin-left: auto;
+  }
+  .chip2 {
+    font-family: var(--grotesk);
+    font-weight: 600;
+    font-variation-settings: "wdth" 92;
+    font-size: 0.75rem;
+    border: 1px solid var(--rule);
+    padding: 0.08rem 0.45rem;
+    color: var(--pencil);
+    white-space: nowrap;
+  }
+  .chip2 b {
+    color: var(--graphite);
+    font-weight: 700;
+  }
+  .chip2.warn {
+    color: var(--brass);
+    border-color: var(--brass);
+  }
+  .chip2.warn b {
+    color: var(--brass);
+  }
+  .chip2.need {
+    color: var(--vermilion);
+    border-color: var(--vermilion);
+  }
+  .chip2.need b {
+    color: var(--vermilion);
+  }
+  .btn2 {
+    font-family: var(--grotesk);
+    font-weight: 600;
+    font-variation-settings: "wdth" 92;
+    font-size: 0.8125rem;
+    border: 1px solid var(--graphite);
+    color: var(--graphite);
+    background: transparent;
+    padding: 0.2rem 0.6rem;
+    display: inline-block;
+    white-space: nowrap;
+  }
+  .btn2.solid {
+    background: var(--vermilion);
+    border-color: var(--vermilion);
+    color: var(--on-accent);
+  }
+
+  .browser .p,
+  .browser .k {
+    color: var(--pencil);
+  }
+  .browser .run {
+    color: var(--patina);
+  }
+  .browser .wait {
+    color: var(--vermilion);
+  }
+  .browser .idle {
+    color: var(--pencil);
+  }
+  .browser .brass {
+    color: var(--brass);
+  }
+
+  /* a terminal pane living inside a page */
+
+  .termpane {
+    border: 1px solid var(--rule);
+    background: var(--chalk);
+  }
+  .termbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    padding: 0.34rem 0.6rem;
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--grotesk);
+    font-weight: 600;
+    font-variation-settings: "wdth" 88;
+    font-size: 0.6875rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--pencil);
+  }
+  .browser .termpane pre {
+    margin: 0;
+    padding: 0.75rem 0.8rem 0.95rem;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1.64;
+    white-space: pre;
+    color: var(--graphite);
+  }
+
+  /* werk serve: four benches in one page */
+
+  .panes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--rule);
+    min-width: 46rem;
+  }
+  .pane {
+    background: var(--chalk);
+  }
+  .pane-head {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    padding: 0.42rem 0.7rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .pane-head .ws {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--graphite);
+  }
+  .pane-head .host {
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    color: var(--pencil);
+  }
+  .pane-head .st {
+    margin-left: auto;
+    font-family: var(--grotesk);
+    font-weight: 600;
+    font-variation-settings: "wdth" 92;
+    font-size: 0.6875rem;
+    white-space: nowrap;
+  }
+  .browser .pane pre {
+    margin: 0;
+    padding: 0.7rem 0.75rem 0.95rem;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1.62;
+    white-space: pre;
+    color: var(--graphite);
+  }
+  .appfoot {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem 0.9rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 1rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--grotesk);
+    font-variation-settings: "wdth" 92;
+    font-size: 0.8125rem;
+    color: var(--pencil);
+  }
+
+  /* the floor: person, session, apprentice */
+
+  .floor {
+    display: grid;
+    grid-template-columns: 30rem 1fr;
+    gap: 1px;
+    background: var(--rule);
+    min-width: 58rem;
+  }
+  .floorcol {
+    background: var(--chalk);
+  }
+  .tree {
+    padding: 0.4rem 0 0.6rem;
+  }
+  .trow {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.28rem 0.9rem;
+    white-space: nowrap;
+    border-left: 2px solid transparent;
+  }
+  .trow .car {
+    width: 0.7rem;
+    flex: none;
+    display: flex;
+    color: var(--pencil);
+  }
+  .trow .car svg {
+    width: 0.5rem;
+    height: 0.5rem;
+    display: block;
+  }
+  .trow .dot {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    flex: none;
+  }
+  .trow .who {
+    font-family: var(--grotesk);
+    font-weight: 600;
+    font-variation-settings: "wdth" 95;
+    font-size: 0.9375rem;
+  }
+  .trow .job {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+  }
+  .trow .sub {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+  }
+  .trow .rt {
+    margin-left: auto;
+    padding-left: 1.2rem;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    font-family: var(--grotesk);
+    font-variation-settings: "wdth" 92;
+    font-size: 0.75rem;
+    color: var(--pencil);
+  }
+  .trow.d2 {
+    padding-left: 2rem;
+  }
+  .trow.d3 {
+    padding-left: 3.5rem;
+  }
+  .trow.on {
+    background: var(--bone);
+    border-left-color: var(--vermilion);
+  }
+  .brline {
+    padding: 0 0.9rem 0.4rem 2.9rem;
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    color: var(--pencil);
+    white-space: nowrap;
+  }
+  .detail {
+    padding: 0.9rem 1rem 1.1rem;
+    display: grid;
+    gap: 0.8rem;
+  }
+  .detail h4 {
+    margin: 0;
+    font-family: var(--grotesk);
+    font-weight: 600;
+    font-variation-settings: "wdth" 100;
+    font-size: 1rem;
+  }
+  .kv {
+    display: grid;
+    gap: 0.22rem;
+  }
+  .kv > div {
+    display: flex;
+    gap: 0.6rem;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+  .kv .k {
+    font-family: var(--grotesk);
+    font-weight: 600;
+    font-variation-settings: "wdth" 88;
+    font-size: 0.625rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--pencil);
+    width: 4.4rem;
+    flex: none;
+  }
+  .kv .v {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--graphite);
+    overflow-wrap: anywhere;
+  }
+  .acts {
+    display: flex;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .sides {
+    display: grid;
+    gap: 1.4rem;
+    align-items: start;
+  }
+  @media (min-width: 54rem) {
+    .sides {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  /* ---------- faq ---------- */
+
+  .faq > div {
+    padding: 1.4rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .faq > div:last-child {
+    border-bottom: 1px solid var(--rule);
+  }
+  .faq p {
+    color: var(--pencil);
+    margin-top: 0.45rem;
+    font-size: 1rem;
+    max-width: 46rem;
+  }
+
+  /* ---------- appendix ---------- */
+
+  .appendix {
+    background: var(--chalk);
+  }
+  .swatches {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+  }
+  .sw {
+    background: var(--chalk);
+  }
+  .sw .chip {
+    height: 3.4rem;
+  }
+  .sw .meta {
+    padding: 0.55rem 0.7rem 0.8rem;
+  }
+  .sw .nm {
+    font-family: var(--grotesk);
+    font-weight: 600;
+    font-size: 0.8125rem;
+    font-variation-settings: "wdth" 95;
+  }
+  .sw .hx {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--pencil);
+  }
+  .sw .role {
+    font-family: var(--grotesk);
+    font-size: 0.75rem;
+    color: var(--pencil);
+    margin-top: 0.15rem;
+    line-height: 1.4;
+    font-variation-settings: "wdth" 95;
+  }
+
+  .markcard {
+    display: grid;
+    gap: 1.5rem;
+    align-items: start;
+  }
+  @media (min-width: 48rem) {
+    .markcard {
+      grid-template-columns: 16rem 1fr;
+    }
+  }
+  .markcard img {
+    display: block;
+    width: 100%;
+    border: 1px solid var(--rule);
+  }
+  .markcard p {
+    color: var(--pencil);
+    font-size: 1rem;
+  }
+
+  .voice > div {
+    padding: 1rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .voice > div:last-child {
+    border-bottom: 1px solid var(--rule);
+  }
+  .voice .say,
+  .voice .dont {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    margin-top: 0.4rem;
+    padding-left: 0.85rem;
+    border-left: 2px solid var(--patina);
+    color: var(--graphite);
+  }
+  .voice .dont {
+    border-left-color: var(--vermilion);
+    color: var(--pencil);
+  }
+
+  ol.taglines {
+    margin: 0;
+    padding-left: 1.4rem;
+    display: grid;
+    gap: 0.9rem;
+    max-width: 46rem;
+  }
+  ol.taglines li::marker {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    color: var(--pencil);
+  }
+  ol.taglines strong {
+    font-family: var(--grotesk);
+    font-weight: 700;
+    font-variation-settings: "wdth" 105;
+  }
+  ol.taglines span {
+    display: block;
+    color: var(--pencil);
+    font-size: 1rem;
+    margin-top: 0.15rem;
+  }
+
+  .callout {
+    border-left: 2px solid var(--brass);
+    padding-left: 1.05rem;
+    color: var(--pencil);
+    max-width: 46rem;
+    font-size: 1rem;
+  }
+
+  .tablewrap {
+    overflow-x: auto;
+  }
+  table.spec {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 40rem;
+    font-size: 1rem;
+  }
+  table.spec th {
+    font-family: var(--grotesk);
+    font-weight: 600;
+    font-variation-settings: "wdth" 88;
+    font-size: 0.75rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--pencil);
+    text-align: left;
+    padding: 0.5rem 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--graphite);
+  }
+  table.spec td {
+    text-align: left;
+    vertical-align: top;
+    padding: 0.7rem 1rem 0.7rem 0;
+    border-bottom: 1px solid var(--rule);
+    color: var(--pencil);
+  }
+  table.spec td:first-child {
+    color: var(--graphite);
+    white-space: nowrap;
+    font-family: var(--grotesk);
+    font-weight: 600;
+    font-variation-settings: "wdth" 95;
+  }
+  table.spec td.mono {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+  }
+
+  footer {
+    padding: 2.5rem 0 3.5rem;
+  }
+  footer p {
+    font-family: var(--grotesk);
+    font-variation-settings: "wdth" 95;
+    font-size: 0.875rem;
+    color: var(--pencil);
+    max-width: 46rem;
+  }
+</style>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="lockup">
+      <svg
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        role="presentation"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.5"
+        stroke-linecap="butt"
+      >
+        <path d="M3 7 H21" />
+        <path d="M12 21 V9.5" />
+        <path d="M12 21 L5.5 9.5" />
+        <path d="M12 21 L18.5 9.5" />
+      </svg>
+      <span class="wordmark">werk</span>
+    </div>
+    <nav>
+      <a href="#floor">The floor</a>
+      <a href="#how">How it works</a>
+      <a href="#reach">Reach</a>
+      <a href="#wholeshop">The whole shop</a>
+      <a href="#back">The work comes back</a>
+      <a href="#brand">Brand</a>
+    </nav>
+  </div>
+</header>
+
+<div class="strip">
+  <div class="wrap">
+    <span class="label">Concept C · Werkstatt</span>
+    <p>One of four branding concepts for werk. Lane: the workshop.</p>
+  </div>
+</div>
+
+<figure class="hero-figure" style="margin: 0">
+  <img
+    src="{{C_HERO}}"
+    alt="A long oiled beech workbench at night, three small unattended machines mid-task under a single bench lamp, sawdust hanging in the light."
+  />
+</figure>
+
+<section class="hero pad">
+  <div class="wrap">
+    <div class="inner">
+      <span class="label">Werkstatt</span>
+      <h1>You run a shop now.</h1>
+      <p class="sub">
+        Five agents running, four terminals lost, a branch somewhere with good
+        work on it. werk gives all of it a place, and every job is still there
+        in the morning.
+      </p>
+      <div class="actions">
+        <a class="btn" href="#install">Install werk</a>
+        <a class="btn ghost" href="#floor">Take the tour</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="pad">
+  <div class="wrap stack">
+    <div class="docket">
+      <div class="docket-head">
+        <span class="label">The bench</span>
+        <span
+          style="
+            font-family: var(--mono);
+            font-size: 0.8125rem;
+            color: var(--pencil);
+          "
+          >~/src/invoicing</span
+        >
+      </div>
+      <div class="docket-scroll">
+        <pre><span class="p">$</span> werk create --on mac-mini invoicing-rewrite
+
+  <span class="k">workspace</span>   sleepy-otters-counting
+  <span class="k">placement</span>   mac-mini · 192.168.1.40
+  <span class="k">branch</span>      werk/sleepy-otters-counting
+  <span class="k">repo</span>        seeded from main @ 4f2ac91
+  <span class="k">terminal</span>    ready
+
+  <span class="k">attach with:</span>  werk attach sleepy-otters-counting
+
+<span class="p">$</span> werk attach sleepy-otters-counting
+  <span class="p">(detached with ctrl-\ ctrl-d · session kept running)</span>
+
+<span class="p">$</span> werk
+
+  <span class="hd">WORKSPACE                      PLACEMENT      STATE               AGE</span>
+  sleepy-otters-counting         mac-mini       <span class="run">● running</span>          4m
+  affectionate-badgers-writing   mac-mini       <span class="wait">○ waiting on you</span>   12m
+  brave-herons-refactoring       hetzner-fsn1   <span class="run">● running</span>          41m
+  patient-magpies-migrating      docker         <span class="run">● running</span>          2h
+  tidy-foxes-packaging           k8s/build-2    <span class="idle">· idle</span>             6h   <span class="brass">4 commits unpushed</span>
+
+  <span class="p">5 workspaces · 3 machines · 1 waiting on you</span>
+  <span class="p">enter to open · o to open in browser · ? for keys</span>
+</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="band">
+  <img
+    src="{{C_NIGHT}}"
+    alt="One workbench at two in the morning: a pair of hands under a single lamp, tools set down where they were last used, a machine still running at the edge of the light."
+  />
+</div>
+
+<section class="pad">
+  <div class="wrap stack">
+    <span class="label">The problem</span>
+    <h2 class="measure">The bench got crowded while you were looking away</h2>
+    <div class="cols cols-3" style="margin-top: 0.7rem">
+      <div class="block">
+        <h3>You are supervising, not typing.</h3>
+        <p>
+          Somewhere in the last year the job changed. Most of your day is now
+          spent starting robots, waiting on robots, and reading what robots did.
+          Nobody trained you for this and no tool was built for it.
+        </p>
+      </div>
+      <div class="block">
+        <h3>The sessions are scattered and fragile.</h3>
+        <p>
+          One agent on the laptop, one on the Mac mini, one in a container on a
+          box you rented. Every one of them dies the moment the ssh connection
+          blinks or the lid closes. You have learned to keep the laptop open
+          like it is 1998.
+        </p>
+      </div>
+      <div class="block">
+        <h3>Work goes missing.</h3>
+        <p>
+          A container gets torn down. A machine reboots. Two hours of good
+          commits were on a branch that only ever existed inside it. You cannot
+          even be sure how often this happens, which is its own kind of answer.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="pad" id="how">
+  <div class="wrap stack">
+    <span class="label">How it works</span>
+    <h2 class="measure">Four stages, and none of them are clever</h2>
+    <div class="stages" style="margin-top: 0.7rem">
+      <div>
+        <span class="n">01</span>
+        <div>
+          <h3>Say where work should happen</h3>
+          <p>
+            The Mac mini on the desk. A VPS you rent. A container werk builds
+            for you. The Kubernetes cluster your company already pays for.
+            Placement is a parameter you pass, not an architecture you commit
+            to. Same command everywhere.
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="n">02</span>
+        <div>
+          <h3>Dispatch from your own terminal</h3>
+          <p>
+            <code>werk create</code> makes a workspace: somewhere to run, a
+            fresh git branch, your repository seeded onto it, and a terminal
+            session that keeps running when your laptop closes, your network
+            drops, or you go to bed.
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="n">03</span>
+        <div>
+          <h3>Walk the floor</h3>
+          <p>
+            Type <code>werk</code> with nothing after it. One live list of every
+            workspace on every machine you use. It is built to answer two
+            questions and no others: which of these needs me, and what is that
+            one doing right now.
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="n">04</span>
+        <div>
+          <h3>Get the work back</h3>
+          <p>
+            werk made the branch, put the code there, and brings the commits
+            home. A workspace destroyed with unpushed work in it is a
+            catastrophic bug, not an edge case. Losing work should take
+            deliberate effort.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="pad" id="floor">
+  <div class="wrap stack">
+    <span class="label">The shop floor</span>
+    <h2 class="measure">Walking the floor</h2>
+    <div class="cols cols-2" style="margin-top: 0.5rem">
+      <div class="stack" style="gap: 1.1rem">
+        <p>
+          A shop is not a list of machines. It is a room you can walk through,
+          where you can tell from the doorway which lathe is cutting, which one
+          has stopped, and which one wants a word.
+        </p>
+        <p>
+          <code>werk</code> with no arguments is that walk. Every workspace, on
+          every machine you use: the one on your desk, the one in Falkenstein,
+          the one in a container that will not outlive the afternoon. Running
+          jobs are quiet. Jobs that need a decision say so. Jobs holding commits
+          nobody has pushed say that too, in brass, until you deal with them.
+        </p>
+      </div>
+      <div class="stack" style="gap: 1.1rem">
+        <p>
+          Press enter on any line and you are inside that terminal, with the
+          scrollback intact, exactly as you left it. Not a redraw. The actual
+          screen, restored from a snapshot of real terminal state, so you can
+          read what happened at 03:40 as easily as what is happening now.
+        </p>
+        <p class="pull">Then you step back out, and the job keeps running.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="band">
+  <img
+    src="{{C_BENCHES}}"
+    alt="Four workbenches in a row down a dark workshop, each under its own lamp, each with a different machine working away unattended."
+  />
+</div>
+
+<section class="pad" id="browser">
+  <div class="wrap stack">
+    <span class="label">In a browser</span>
+    <h2 class="measure">Four benches at once</h2>
+    <p class="measure lede">
+      <code>werk serve</code> runs on the machine you are sitting at and opens a
+      page. Every terminal process, on every host, side by side. Not pictures of
+      them. The terminals themselves, live, and you can type into any of them.
+    </p>
+    <div class="browser" style="margin-top: 0.7rem">
+      <div class="chrome">
+        <span class="nav">
+          <svg
+            viewBox="0 0 16 16"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="butt"
+          >
+            <path d="M10 3 L5 8 L10 13" />
+          </svg>
+          <svg
+            viewBox="0 0 16 16"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="butt"
+          >
+            <path d="M6 3 L11 8 L6 13" />
+          </svg>
+        </span>
+        <span class="url"><b>localhost:7749</b>/bench</span>
+      </div>
+      <div class="appbar">
+        <span class="mk">
+          <svg
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="butt"
+          >
+            <path d="M3 7 H21" />
+            <path d="M12 21 V9.5" />
+            <path d="M12 21 L5.5 9.5" />
+            <path d="M12 21 L18.5 9.5" />
+          </svg>
+          <span>werk</span>
+        </span>
+        <span class="where">serve · the bench</span>
+        <span class="chips">
+          <span class="chip2"><b>5</b> workspaces</span>
+          <span class="chip2"><b>3</b> machines</span>
+          <span class="chip2 need"><b>1</b> waiting on you</span>
+          <span class="tag now">Works today</span>
+        </span>
+      </div>
+      <div class="docket-scroll">
+        <div class="panes">
+          <div class="pane">
+            <div class="pane-head">
+              <span class="ws">sleepy-otters-counting</span>
+              <span class="host">mac-mini</span>
+              <span class="st run">● running</span>
+            </div>
+            <pre>claude code · 4m
+
+<span class="p">●</span> Editing src/invoice/total.ts
+    +34 −12
+<span class="p">●</span> bun test invoice
+    <span class="run">84 pass</span> · 0 fail · 1.9s
+<span class="p">●</span> Reading src/invoice/round.ts
+<span class="wait">▌</span></pre>
+          </div>
+          <div class="pane">
+            <div class="pane-head">
+              <span class="ws">affectionate-badgers-writing</span>
+              <span class="host">mac-mini</span>
+              <span class="st wait">○ waiting on you</span>
+            </div>
+            <pre>claude code · 12m
+
+The migration drops legacy_rate.
+Nothing on main reads it. Go ahead?
+
+    <span class="k">[1]</span> yes  <span class="k">[2]</span> no  <span class="k">[3]</span> show me
+<span class="wait">❯ ▌</span></pre>
+          </div>
+          <div class="pane">
+            <div class="pane-head">
+              <span class="ws">brave-herons-refactoring</span>
+              <span class="host">hetzner-fsn1</span>
+              <span class="st run">● running</span>
+            </div>
+            <pre>aider · 41m
+
+<span class="p">›</span> rg -l InvoiceLine src | wc -l
+    27
+<span class="p">●</span> Rewriting call sites  14/27
+    src/billing/period.ts
+<span class="wait">▌</span></pre>
+          </div>
+          <div class="pane">
+            <div class="pane-head">
+              <span class="ws">patient-magpies-migrating</span>
+              <span class="host">docker</span>
+              <span class="st run">● running</span>
+            </div>
+            <pre>psql · 2h
+
+<span class="p">›</span> 0041_split_rates.sql
+    ALTER TABLE invoice_line   1.2s
+    CREATE INDEX period_idx    8.4s
+<span class="p">●</span> 41 of 63 applied
+<span class="wait">▌</span></pre>
+          </div>
+        </div>
+      </div>
+      <div class="appfoot">
+        <span>Click a pane to type into it.</span>
+        <span class="chips">
+          <span class="chip2 warn"><b>4</b> commits unpushed</span>
+          <span class="btn2">Full width</span>
+          <span class="btn2 solid">New workspace</span>
+        </span>
+      </div>
+    </div>
+    <p class="caption">
+      The page is served by the binary already on your laptop. Close the tab and
+      every one of those keeps running.
+    </p>
+  </div>
+</section>
+
+<section class="pad" id="reach">
+  <div class="wrap stack">
+    <span class="label">Reach</span>
+    <h2 class="measure">How far the shop reaches</h2>
+    <div class="ladder" style="margin-top: 0.7rem">
+      <div class="rung">
+        <span class="n">01</span>
+        <div>
+          <h3>Your terminal <span class="tag now">Works today</span></h3>
+          <p>
+            Where it starts and where most of it stays. Reattach to any running
+            session from the shell you already have open. No browser, no
+            account, no daemon you did not ask for.
+          </p>
+        </div>
+      </div>
+      <div class="rung">
+        <span class="n">02</span>
+        <div>
+          <h3>
+            <code>werk serve</code> <span class="tag now">Works today</span>
+          </h3>
+          <p>
+            Run it on your own machine and open a browser. Every terminal
+            process, everywhere, on one page. Type into them. Watch four at
+            once, side by side. Close the tab when you are done and nothing
+            stops.
+          </p>
+        </div>
+      </div>
+      <div class="rung">
+        <span class="n">03</span>
+        <div>
+          <h3>
+            Hosted, by us or by you <span class="tag later">Not built yet</span>
+          </h3>
+          <p>
+            The same floor from anywhere. The phone in the pub garden, the
+            workstation at home, a hotel desk on another continent. The job
+            carried on without you, and now you can see it without going back to
+            your desk.
+          </p>
+        </div>
+      </div>
+      <div class="rung">
+        <span class="n">04</span>
+        <div>
+          <h3>Shared <span class="tag later">Not built yet</span></h3>
+          <p>
+            Hand a colleague a live link to one terminal. They see what you see,
+            in real time, and can type if you let them. Debugging together stops
+            being a screen-share and starts being two people at one bench.
+          </p>
+        </div>
+      </div>
+      <div class="rung">
+        <span class="n">05</span>
+        <div>
+          <h3>The whole shop <span class="tag later">Not built yet</span></h3>
+          <p>
+            Every agent session in the company on one floor, three levels deep:
+            the person, the job they set running, and the jobs that job spawned.
+            See who is stuck, borrow what already worked, and learn the trade by
+            watching someone better than you do it.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="band">
+  <img
+    src="{{C_STOOL}}"
+    alt="Two stools drawn up at one bench, seen from behind, two pairs of hands on the same piece of work under a single lamp."
+  />
+</div>
+
+<section class="pad" id="stool">
+  <div class="wrap stack">
+    <span class="label">Shared</span>
+    <h2 class="measure">Pull up a stool</h2>
+    <p class="measure lede">
+      You are stuck on something you cannot see your way past, and the person
+      who can see it is three time zones away. You send them a link. They land
+      in the terminal you are already in, scrollback and all, and you can hand
+      them the keyboard without handing over the machine.
+    </p>
+    <div class="sides" style="margin-top: 0.7rem">
+      <div class="docket">
+        <div class="docket-head">
+          <span class="label">Your side · the terminal</span>
+          <span class="tag later">Not built yet</span>
+        </div>
+        <div class="docket-scroll">
+          <pre><span class="p">$</span> werk share brave-herons-refactoring
+
+  <span class="k">link</span>      werk.sh/s/otter-bench-3f9a
+  <span class="k">bench</span>     brave-herons-refactoring · hetzner-fsn1
+  <span class="k">branch</span>    werk/brave-herons-refactoring
+  <span class="k">access</span>    watch only
+  <span class="k">expires</span>   when this session ends
+
+  <span class="p">copied to clipboard · --type hands over the keyboard</span>
+
+  <span class="run">●</span> Priya Raghavan opened the link · 14:22
+</pre>
+        </div>
+      </div>
+
+      <div class="browser">
+        <div class="chrome">
+          <span class="nav">
+            <svg
+              viewBox="0 0 16 16"
+              aria-hidden="true"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="butt"
+            >
+              <path d="M10 3 L5 8 L10 13" />
+            </svg>
+            <svg
+              viewBox="0 0 16 16"
+              aria-hidden="true"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="butt"
+            >
+              <path d="M6 3 L11 8 L6 13" />
+            </svg>
+          </span>
+          <span class="url"><b>werk.sh</b>/s/otter-bench-3f9a</span>
+        </div>
+        <div class="appbar">
+          <span class="mk">
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="butt"
+            >
+              <path d="M3 7 H21" />
+              <path d="M12 21 V9.5" />
+              <path d="M12 21 L5.5 9.5" />
+              <path d="M12 21 L18.5 9.5" />
+            </svg>
+            <span>werk</span>
+          </span>
+          <span class="where">Priya's browser</span>
+          <span class="chips">
+            <span class="chip2"><b>2</b> at this bench</span>
+            <span class="tag later">Not built yet</span>
+          </span>
+        </div>
+        <div style="padding: 0.9rem 1rem 1.1rem; display: grid; gap: 0.8rem">
+          <div class="kv">
+            <div>
+              <span class="k">Bench</span
+              ><span class="v">brave-herons-refactoring</span>
+            </div>
+            <div>
+              <span class="k">Branch</span
+              ><span class="v">werk/brave-herons-refactoring</span>
+            </div>
+          </div>
+          <div class="termpane">
+            <div class="termbar">
+              <span>Live terminal</span>
+              <span class="run">● running</span>
+            </div>
+            <div class="docket-scroll">
+              <pre><span class="p">›</span> bun test billing
+
+  <span class="run">17 pass</span> · <span class="wait">2 fail</span> · 4.1s
+
+  <span class="wait">fail</span>  period boundary, month end
+        expected 2026-08-31
+        received 2026-09-01
+
+  <span class="wait">fail</span>  proration, leap day
+        expected 0.0274
+        received 0.0273
+
+<span class="p">›</span> <span class="wait">▌</span></pre>
+            </div>
+          </div>
+          <div class="acts">
+            <span class="btn2 solid">Ask for the keyboard</span>
+            <span class="btn2">Copy the branch name</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="caption">
+      The link is the whole mechanism. Priya opens a web page: no werk
+      installed, no account, no ssh key for hetzner-fsn1.
+    </p>
+  </div>
+</section>
+
+<div class="band">
+  <img
+    src="{{C_FLOOR}}"
+    alt="A whole workshop seen from the doorway: benches receding in two rows, each with its own lamp, the light falling away into warm shadow at the back of the room."
+  />
+</div>
+
+<section class="pad" id="wholeshop">
+  <div class="wrap stack">
+    <span class="label">The whole shop</span>
+    <h2 class="measure">A floor you can see across</h2>
+    <p class="measure lede">
+      Everyone who works here, the jobs they set running, and the apprentice
+      jobs those agents put on the bench underneath them. Open any node and the
+      real terminal is right there in the page, live, the same screen the person
+      at that bench is looking at.
+    </p>
+    <div class="browser" style="margin-top: 0.7rem">
+      <div class="chrome">
+        <span class="nav">
+          <svg
+            viewBox="0 0 16 16"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="butt"
+          >
+            <path d="M10 3 L5 8 L10 13" />
+          </svg>
+          <svg
+            viewBox="0 0 16 16"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="butt"
+          >
+            <path d="M6 3 L11 8 L6 13" />
+          </svg>
+        </span>
+        <span class="url"><b>werk.sh</b>/floor</span>
+      </div>
+      <div class="appbar">
+        <span class="mk">
+          <svg
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="butt"
+          >
+            <path d="M3 7 H21" />
+            <path d="M12 21 V9.5" />
+            <path d="M12 21 L5.5 9.5" />
+            <path d="M12 21 L18.5 9.5" />
+          </svg>
+          <span>werk</span>
+        </span>
+        <span class="where">the floor</span>
+        <span class="chips">
+          <span class="chip2"><b>14</b> people</span>
+          <span class="chip2"><b>23</b> sessions live</span>
+          <span class="chip2 need"><b>3</b> waiting on someone</span>
+          <span class="chip2 warn"><b>11</b> commits unpushed</span>
+          <span class="tag later">Not built yet</span>
+        </span>
+      </div>
+      <div class="docket-scroll">
+        <div class="floor">
+          <div class="floorcol">
+            <div class="tree">
+              <div class="trow">
+                <span class="car"
+                  ><svg
+                    viewBox="0 0 8 8"
+                    aria-hidden="true"
+                    fill="currentColor"
+                  >
+                    <path d="M1 2 L7 2 L4 6.5 Z" /></svg
+                ></span>
+                <span class="who">Priya Raghavan</span>
+                <span class="rt">3 sessions</span>
+              </div>
+              <div class="trow d2">
+                <span class="car"
+                  ><svg
+                    viewBox="0 0 8 8"
+                    aria-hidden="true"
+                    fill="currentColor"
+                  >
+                    <path d="M1 2 L7 2 L4 6.5 Z" /></svg
+                ></span>
+                <span class="dot run">●</span>
+                <span class="job">curious-otters-indexing</span>
+                <span class="rt">claude code · 41m</span>
+              </div>
+              <div class="brline">
+                hetzner-fsn1 · werk/curious-otters-indexing · 7 commits
+              </div>
+              <div class="trow d3 on">
+                <span class="dot run">●</span>
+                <span class="sub">schema-diff</span>
+                <span class="rt">running · 2m</span>
+              </div>
+              <div class="trow d3">
+                <span class="dot run">●</span>
+                <span class="sub">test-runner</span>
+                <span class="rt">running · 6m</span>
+              </div>
+              <div class="trow d3">
+                <span class="dot wait">○</span>
+                <span class="sub">migration-writer</span>
+                <span class="rt wait">waiting on Priya · 11m</span>
+              </div>
+              <div class="trow d2">
+                <span class="car"
+                  ><svg
+                    viewBox="0 0 8 8"
+                    aria-hidden="true"
+                    fill="currentColor"
+                  >
+                    <path d="M2 1 L6.5 4 L2 7 Z" /></svg
+                ></span>
+                <span class="dot run">●</span>
+                <span class="job">gentle-herons-porting</span>
+                <span class="rt">aider · 2h</span>
+              </div>
+              <div class="trow d2">
+                <span class="car"
+                  ><svg
+                    viewBox="0 0 8 8"
+                    aria-hidden="true"
+                    fill="currentColor"
+                  >
+                    <path d="M2 1 L6.5 4 L2 7 Z" /></svg
+                ></span>
+                <span class="dot idle">·</span>
+                <span class="job">tidy-foxes-packaging</span>
+                <span class="rt"
+                  >idle 6h
+                  <span class="chip2 warn"><b>4</b> unpushed</span></span
+                >
+              </div>
+              <div class="trow">
+                <span class="car"
+                  ><svg
+                    viewBox="0 0 8 8"
+                    aria-hidden="true"
+                    fill="currentColor"
+                  >
+                    <path d="M1 2 L7 2 L4 6.5 Z" /></svg
+                ></span>
+                <span class="who">Tom Beazley</span>
+                <span class="rt">2 sessions</span>
+              </div>
+              <div class="trow d2">
+                <span class="car"
+                  ><svg
+                    viewBox="0 0 8 8"
+                    aria-hidden="true"
+                    fill="currentColor"
+                  >
+                    <path d="M2 1 L6.5 4 L2 7 Z" /></svg
+                ></span>
+                <span class="dot run">●</span>
+                <span class="job">steady-magpies-migrating</span>
+                <span class="rt">codex · 18m</span>
+              </div>
+              <div class="trow d2">
+                <span class="car"
+                  ><svg
+                    viewBox="0 0 8 8"
+                    aria-hidden="true"
+                    fill="currentColor"
+                  >
+                    <path d="M2 1 L6.5 4 L2 7 Z" /></svg
+                ></span>
+                <span class="dot run">●</span>
+                <span class="job">quiet-kestrels-auditing</span>
+                <span class="rt">claude code · 3h</span>
+              </div>
+              <div class="trow">
+                <span class="car"
+                  ><svg
+                    viewBox="0 0 8 8"
+                    aria-hidden="true"
+                    fill="currentColor"
+                  >
+                    <path d="M2 1 L6.5 4 L2 7 Z" /></svg
+                ></span>
+                <span class="who">Sam Oyelaran</span>
+                <span class="rt"
+                  >4 sessions
+                  <span class="chip2 need"><b>1</b> waiting</span></span
+                >
+              </div>
+              <div class="trow">
+                <span class="car"
+                  ><svg
+                    viewBox="0 0 8 8"
+                    aria-hidden="true"
+                    fill="currentColor"
+                  >
+                    <path d="M2 1 L6.5 4 L2 7 Z" /></svg
+                ></span>
+                <span class="who">Nadia Herrmann</span>
+                <span class="rt">1 session</span>
+              </div>
+              <div class="trow">
+                <span class="car"
+                  ><svg
+                    viewBox="0 0 8 8"
+                    aria-hidden="true"
+                    fill="currentColor"
+                  >
+                    <path d="M2 1 L6.5 4 L2 7 Z" /></svg
+                ></span>
+                <span class="who">Wes Okonjo</span>
+                <span class="rt">nothing on the bench</span>
+              </div>
+            </div>
+          </div>
+          <div class="floorcol">
+            <div class="detail">
+              <h4>schema-diff</h4>
+              <div class="kv">
+                <div>
+                  <span class="k">Under</span
+                  ><span class="v">curious-otters-indexing</span>
+                </div>
+                <div>
+                  <span class="k">Bench of</span
+                  ><span class="v">Priya Raghavan</span>
+                </div>
+                <div>
+                  <span class="k">Host</span><span class="v">hetzner-fsn1</span>
+                </div>
+                <div>
+                  <span class="k">Branch</span
+                  ><span class="v">werk/curious-otters-indexing @ 8c41d0e</span>
+                </div>
+              </div>
+              <div class="termpane">
+                <div class="termbar">
+                  <span>Live terminal</span>
+                  <span class="run">● running · 2m</span>
+                </div>
+                <div class="docket-scroll">
+                  <pre><span class="p">›</span> comparing schema.prisma to the live database
+
+  <span class="run">+</span> index    invoice_line_period_idx
+  <span class="run">+</span> column   invoice.settled_at
+  <span class="wait">−</span> column   invoice.legacy_rate
+
+<span class="p">●</span> 3 differences. Writing .werk/schema-diff.md
+<span class="p">●</span> Handing back to curious-otters-indexing
+<span class="wait">▌</span></pre>
+                </div>
+              </div>
+              <div class="acts">
+                <span class="btn2 solid">Type into this</span>
+                <span class="btn2">Open the parent</span>
+                <span class="btn2">Share a link</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="caption">
+      Person, then the job they set running, then the jobs that job spawned.
+      Three levels, because that is how deep the work goes now, and every one of
+      them opens.
+    </p>
+    <div class="cols cols-2" style="margin-top: 1.4rem">
+      <div class="stack" style="gap: 1.1rem">
+        <p>
+          A shop where the work is visible is a shop where you can see who is
+          stuck, borrow what already worked, and learn the trade by watching
+          someone better than you do it. That is the oldest way anybody has ever
+          picked up a craft, and it quietly stopped being possible when the work
+          moved inside individual laptops.
+        </p>
+      </div>
+      <div class="stack" style="gap: 1.1rem">
+        <p>
+          The floor puts it back. Not a report at the end of the week and not a
+          chart of how busy everyone looks. The actual bench, live, and the
+          option to walk over to it.
+        </p>
+        <p class="pull">Twenty-three benches, one room, one page.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="band">
+  <img
+    src="{{C_RETURN}}"
+    alt="Morning light in a workshop falling on a low wooden rack holding four finished metal components, set down in a row where the machines left them overnight."
+  />
+</div>
+
+<section class="pad" id="back">
+  <div class="wrap stack">
+    <span class="label">The work comes back</span>
+    <h2 class="measure">Nothing gets left on the floor</h2>
+    <div class="cols cols-2" style="margin-top: 0.5rem">
+      <div class="stack" style="gap: 1.1rem">
+        <p>Here is the thing werk is really for.</p>
+        <p>
+          Machines you do not own are temporary. Containers get reaped. Spot
+          instances vanish. A box reboots for a kernel update at four in the
+          morning and takes the afternoon with it. Every one of those is fine,
+          and every one of those has quietly eaten somebody's work.
+        </p>
+        <p>
+          So werk holds the git end of it from the start. It creates the branch
+          before the first line is written. It seeds your repository onto the
+          machine itself, not a copy of some files, a real clone on a real
+          branch. It knows what is committed, what is not, and what has never
+          left that machine. That last number is on the list, in brass, every
+          time you look.
+        </p>
+      </div>
+      <div class="stack" style="gap: 1.1rem">
+        <p>
+          When you are done, the commits come home. When you are not done, they
+          still come home. And if you ask werk to destroy a workspace holding
+          work nobody has seen, it stops and makes you say it twice.
+        </p>
+        <p class="pull">
+          Losing work should require deliberate effort. That is the whole design
+          goal, and it is the one we would treat a bug report about as a fire.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="pad">
+  <div class="wrap stack">
+    <span class="label">Agents</span>
+    <h2 class="measure">It does not care which robot you hired</h2>
+    <p class="measure lede">
+      Claude Code, Codex, Gemini CLI, Aider, the one that launches next Tuesday.
+      They are all command-line programs, and werk is a shop for command-line
+      programs. It watches the signals any well-behaved terminal program already
+      emits: what it printed, whether it is asking for input, whether it exited
+      and how.
+    </p>
+    <p class="measure lede">
+      That means no plugin, no adapter, no per-agent release. A brand-new tool
+      works on day one, and so does the twenty-year-old build script you have
+      never got round to replacing. If it runs in a terminal, it runs on the
+      bench.
+    </p>
+  </div>
+</section>
+
+<section class="pad">
+  <div class="wrap stack">
+    <span class="label">Trust</span>
+    <h2 class="measure">What we can honestly tell you</h2>
+    <p class="measure lede">
+      werk is one self-contained binary. No runtime, no package manager, nothing
+      to install on the far end. It copies itself across the ssh connection you
+      already had and already trusted, which means the security of a remote
+      workspace is mostly the security of your ssh setup. That is a smaller
+      claim than most tools make, and it is the true one.
+    </p>
+    <p class="measure lede">
+      Your terminal sessions live on your machines. Nothing leaves them unless
+      you run <code>werk serve</code> or opt into hosting, and when you do, you
+      should expect us to publish exactly what is transported and where it rests
+      before you trust it with anything real.
+    </p>
+    <p class="callout">
+      The honest risk is not werk. It is that you are running agents with your
+      credentials, on your code, unattended. Containers narrow the blast radius
+      and placement lets you choose it deliberately. Neither makes the risk go
+      away, and we would rather say so than sell you a padlock icon.
+    </p>
+  </div>
+</section>
+
+<section class="pad" id="install">
+  <div class="wrap stack">
+    <span class="label">Start</span>
+    <h1 style="font-size: clamp(2rem, 5vw, 3.25rem)">
+      Come back in the morning
+    </h1>
+    <p class="measure" style="font-size: 1.125rem">
+      Put a job on the bench, set it running, and shut the laptop. The machine
+      does not care that you have gone to bed. In the morning there is a branch
+      with commits on it and a screen you can scroll back through to see exactly
+      how it got there. That is the whole promise, and it is a bigger one than
+      it sounds.
+    </p>
+    <div class="actions"><a class="btn" href="#install">Install werk</a></div>
+  </div>
+</section>
+
+<section class="pad">
+  <div class="wrap stack">
+    <span class="label">Questions</span>
+    <h2 class="measure">Questions people ask</h2>
+    <div class="faq" style="margin-top: 0.6rem">
+      <div>
+        <h3>Isn't this just tmux with nicer fonts?</h3>
+        <p>
+          tmux is one machine. werk is every machine you use, on one list, with
+          git and a browser attached. The session layer is a detachable daemon
+          built on libghostty's snapshot format, so reattaching restores real
+          terminal state, scrollback included, rather than whatever the program
+          decides to redraw. It is the same reattach whether the box is under
+          your desk or in Falkenstein.
+        </p>
+      </div>
+      <div>
+        <h3>There are forty of these already. Why another?</h3>
+        <p>
+          Most of those forty are the same tool: git worktrees plus tmux plus a
+          TUI, on your laptop, for your laptop. That shape is solved. What is
+          not built is the cross-machine view, the browser that reaches it, and
+          a link you can hand to somebody else. werk is aimed at the part nobody
+          has done.
+        </p>
+      </div>
+      <div>
+        <h3>What happens if werk itself falls over?</h3>
+        <p>
+          Your sessions do not. They are held by a daemon on the machine where
+          the work is, not by the CLI you typed into, and the branches are
+          ordinary git branches you can reach with ordinary git. If werk
+          disappeared tomorrow, everything you made with it is still on those
+          machines and still in your repository. That is deliberate.
+        </p>
+      </div>
+      <div>
+        <h3>Do I have to run agents to get anything out of it?</h3>
+        <p>
+          No. Agents are what made the problem urgent, but a workspace does not
+          know what you put in it. A long test suite, an overnight migration, a
+          build that takes forty minutes, a REPL you want to come back to on
+          Thursday. It is a place to leave a running process, and it does not
+          ask what the process is for.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="appendix pad" id="brand">
+  <div class="wrap stack">
+    <span class="label">Brand appendix · Concept C</span>
+    <h2 class="measure">Werkstatt</h2>
+    <p class="measure lede">
+      You stopped being a person who writes code and became a person who runs a
+      shop. werk is the shop: bench, floor, and the promise that nothing you set
+      running gets lost.
+    </p>
+
+    <h3 style="margin-top: 2rem">The strategic bet</h3>
+    <p
+      class="measure"
+      style="color: var(--pencil); margin-top: 0.5rem; font-size: 1rem"
+    >
+      This concept wagers that the developer worth winning is not shopping for a
+      dashboard. They are quietly unsettled by what their day has become: five
+      agents running, four terminals lost, a branch somewhere with good work on
+      it they cannot find. Sterile SaaS language makes that worse. A shop makes
+      it a job again: a bench, a floor, hours.
+    </p>
+    <p class="measure" style="color: var(--pencil); font-size: 1rem">
+      It wins the practitioner first, one at a time, because it is the only tool
+      in a crowded field that sounds like it was made by hands rather than
+      assembled by a growth team. It spreads by affection: people show
+      colleagues things they find beautiful, and a shared live terminal link is
+      a demo that travels.
+    </p>
+    <p class="measure" style="color: var(--pencil); font-size: 1rem">
+      It gives up the fast enterprise read. A CTO scanning for compliance
+      vocabulary will not find it here, and the team portal has to earn its way
+      up from the bench rather than down from procurement.
+    </p>
+
+    <h3 style="margin-top: 2rem">The mark</h3>
+    <div class="markcard" style="margin-top: 0.75rem">
+      <img
+        src="{{C_MARK}}"
+        alt="A letterpress emblem in brick-red ink on cream paper: a horizontal bar with three strokes converging to a point beneath it, debossed into the sheet."
+      />
+      <div class="stack" style="gap: 0.7rem">
+        <p>
+          <strong>A bench mark.</strong> Surveyors cut one into stone where the
+          levelling bench rested: a horizontal bar with a three-stroke crow's
+          foot beneath, pointing up at it. It means this is a fixed point,
+          measured, you can build from here. It is also, literally, a bench and
+          a mark.
+        </p>
+        <p>
+          Constructed on a 24 × 24 grid, all strokes 2.5 units with butt caps.
+          The bar runs from (3, 7) to (21, 7). The stem rises from (12, 21) to
+          (12, 9.5), stopping one stroke width short so a visible gap remains,
+          which is what survives embossing. Two wings run from the same foot to
+          (5.5, 9.5) and (18.5, 9.5), drawn at 2.3 units because diagonals read
+          heavier than orthogonals at small sizes. The three strokes meet at a
+          single mitred point. No join radius: it is a chisel mark, not a
+          swoosh.
+        </p>
+        <p>
+          It stamps, embosses, engraves, cuts as vinyl, and reduces to 16 px
+          without the gap closing. The wordmark is <strong>werk</strong> in
+          Archivo 700 with the width axis pushed to 118, so it reads as painted
+          signage rather than a UI label. Never a capital W, in any position.
+        </p>
+      </div>
+    </div>
+
+    <h3 style="margin-top: 2rem">Palette</h3>
+    <p
+      style="
+        color: var(--pencil);
+        max-width: var(--measure);
+        margin-top: 0.4rem;
+        font-size: 1rem;
+      "
+    >
+      Warm, paper-first, one strong accent. Two supporting semantics only,
+      because a shop floor with six colours of paint is a shop nobody has swept.
+    </p>
+    <div class="swatches" style="margin-top: 0.75rem">
+      <div class="sw">
+        <div class="chip" style="background: #f4efe6"></div>
+        <div class="meta">
+          <div class="nm">Bone</div>
+          <div class="hx">#F4EFE6</div>
+          <div class="role">Page ground. Unbleached paper, not white.</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #fbf8f2"></div>
+        <div class="meta">
+          <div class="nm">Chalk</div>
+          <div class="hx">#FBF8F2</div>
+          <div class="role">Raised surfaces, code blocks, panels</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #1c1a17"></div>
+        <div class="meta">
+          <div class="nm">Graphite</div>
+          <div class="hx">#1C1A17</div>
+          <div class="role">Ink. Body, headings, the wordmark.</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #6b6459"></div>
+        <div class="meta">
+          <div class="nm">Pencil</div>
+          <div class="hx">#6B6459</div>
+          <div class="role">Secondary text, captions, timestamps</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #ddd3c3"></div>
+        <div class="meta">
+          <div class="nm">Rule</div>
+          <div class="hx">#DDD3C3</div>
+          <div class="role">Hairlines, dividers, the 1px grid</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #c8442a"></div>
+        <div class="meta">
+          <div class="nm">Vermilion</div>
+          <div class="hx">#C8442A</div>
+          <div class="role">The single accent. Waiting on you.</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #4c7a69"></div>
+        <div class="meta">
+          <div class="nm">Patina</div>
+          <div class="hx">#4C7A69</div>
+          <div class="role">Running and healthy. Aged copper.</div>
+        </div>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background: #9a7524"></div>
+        <div class="meta">
+          <div class="nm">Brass</div>
+          <div class="hx">#9A7524</div>
+          <div class="role">Unpushed work. Always with words.</div>
+        </div>
+      </div>
+    </div>
+    <p
+      style="
+        color: var(--pencil);
+        font-size: 0.9375rem;
+        margin-top: 0.6rem;
+        max-width: 46rem;
+      "
+    >
+      Dark: Night <span class="mono">#131210</span>, Bench
+      <span class="mono">#1D1B17</span>, Bone Light
+      <span class="mono">#EDE6D8</span>, Pencil Light
+      <span class="mono">#9E9587</span>, Rule Dark
+      <span class="mono">#312E28</span>, Vermilion Light
+      <span class="mono">#E4643F</span>, Patina Light
+      <span class="mono">#6EA792</span>, Brass Light
+      <span class="mono">#C39A44</span>. Dark mode is not an inversion. It is
+      the same shop with the overheads off and the bench lamp on.
+    </p>
+
+    <h3 style="margin-top: 2rem">Typography</h3>
+    <div class="tablewrap" style="margin-top: 0.5rem">
+      <table class="spec">
+        <thead>
+          <tr>
+            <th>Face</th>
+            <th>Weights / axes</th>
+            <th>Role</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Archivo</td>
+            <td class="mono">500–700, wdth 88–118</td>
+            <td>
+              Wordmark, headings, buttons, small-caps labels. A grotesque drawn
+              from highway and signage lettering, which is the right ancestry.
+            </td>
+          </tr>
+          <tr>
+            <td>Source Serif 4</td>
+            <td class="mono">400, 600, opsz</td>
+            <td>
+              Body copy. Warm, sturdy, slightly old-style, and it holds long
+              paragraphs without the page feeling like a marketing site.
+            </td>
+          </tr>
+          <tr>
+            <td>IBM Plex Mono</td>
+            <td class="mono">400, 500, 600</td>
+            <td>
+              Every terminal block, command, path, branch and workspace name.
+              Chosen over sharper coding monos for its typewriter warmth.
+            </td>
+          </tr>
+          <tr>
+            <td>Archivo Expanded</td>
+            <td class="mono">700, wdth 125</td>
+            <td>
+              Exactly two things: the hero headline and the closing headline.
+              Nowhere else.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p
+      style="
+        color: var(--pencil);
+        margin-top: 0.6rem;
+        max-width: 46rem;
+        font-size: 1rem;
+      "
+    >
+      No more than three sizes in any one section. Rules are 1 px Rule, never
+      shadows. Nothing is centred except the mark.
+    </p>
+
+    <h3 style="margin-top: 2rem">Taglines, ranked</h3>
+    <ol class="taglines" style="margin-top: 0.75rem">
+      <li>
+        <strong>You run a shop now.</strong
+        ><span
+          >The whole concept in four words. It names a change the reader has
+          already felt and never said out loud, and sets up bench, floor and
+          jobs as the natural vocabulary. Says nothing about what the software
+          does, so the subhead has to work.</span
+        >
+      </li>
+      <li>
+        <strong>Somewhere for the work to happen.</strong
+        ><span
+          >Literal and true, since a workspace is a place. Calm and slightly
+          old-fashioned, which is the tone. Weaker because it is a description
+          rather than a recognition.</span
+        >
+      </li>
+      <li>
+        <strong>Mind the shop.</strong
+        ><span
+          >Good imperative, good British texture, works on a sticker and on a
+          terminal splash. Slightly ambiguous: it can read as "watch out" rather
+          than "look after the place".</span
+        >
+      </li>
+      <li>
+        <strong>The work comes back.</strong
+        ><span
+          >The emotional promise stated flat, and the best line in the system
+          for the git section. Too quiet on first read to lead with.</span
+        >
+      </li>
+      <li>
+        <strong>Every job on the floor, on one list.</strong
+        ><span
+          >The most functional line and the easiest to justify to a sceptic.
+          Also the least distinctive: any of forty competing tools could put it
+          up tomorrow.</span
+        >
+      </li>
+    </ol>
+
+    <h3 style="margin-top: 2rem">Voice</h3>
+    <div class="voice" style="margin-top: 0.75rem">
+      <div>
+        <h3>1. Name the object, not the outcome.</h3>
+        <p class="say">
+          werk makes a workspace: a place to run, a branch, your repo, and a
+          terminal.
+        </p>
+        <p class="dont">
+          werk unlocks frictionless developer velocity across your fleet.
+        </p>
+      </div>
+      <div>
+        <h3>2. Say what it costs and what it can't do.</h3>
+        <p class="say">
+          Reattaching over a slow link takes a second or two while the screen is
+          restored.
+        </p>
+        <p class="dont">
+          Instant, seamless reconnection anywhere in the world.
+        </p>
+      </div>
+      <div>
+        <h3>3. Be funny about the situation, never about the software.</h3>
+        <p class="say">
+          You have four robots working for you and no idea what any of them is
+          doing. This is a management problem now.
+        </p>
+        <p class="dont">
+          Wrangle your AI squad with werk's magical agent herding powers.
+        </p>
+      </div>
+      <div>
+        <h3>
+          4. Plain verbs, short sentences, no vocabulary from a pitch deck.
+        </h3>
+        <p class="say">
+          Type werk. You get one list of every workspace on every machine.
+        </p>
+        <p class="dont">
+          werk surfaces unified observability across heterogeneous compute
+          targets.
+        </p>
+      </div>
+      <div>
+        <h3>5. Respect the machines by name.</h3>
+        <p class="say">
+          It runs on the Mac mini under your desk, a rented Hetzner box, a
+          container it builds, or the cluster your company already pays for.
+        </p>
+        <p class="dont">Deploy to any environment.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>
+      Concept C of four, prepared as a branding and positioning proposal for
+      werk. The transcript and product screens above are illustrative. The reach
+      ladder marks which rungs exist today.
+    </p>
+  </div>
+</footer>

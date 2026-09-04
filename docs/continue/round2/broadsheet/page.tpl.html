@@ -1,0 +1,2177 @@
+<title>The Werk Dispatch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,700;0,6..96,900;1,6..96,700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+/>
+
+<style>
+  /* ============================================================
+   THE WERK DISPATCH — two inks on newsprint.
+   Day edition (light) / Night edition (dark).
+   ============================================================ */
+
+  :root {
+    /* newsprint, cool grey-beige — not cream */
+    --paper: #dbd8cd;
+    --paper-2: #d1cdc0;
+    --paper-3: #c6c2b4;
+    --ink: #1a1915;
+    --ink-2: #4c4941;
+    --ink-3: #6e6a5f;
+    --rule: #aba79a;
+    --rule-soft: #bfbbae;
+    /* second ink: press blue-violet */
+    --spot: #2b33a6;
+    --spot-soft: rgba(43, 51, 166, 0.13);
+    --grain: 0.075;
+    --shadow: 0 1px 0 rgba(26, 25, 21, 0.1);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #14140e;
+      --paper-2: #1b1b14;
+      --paper-3: #22221a;
+      --ink: #dfdcce;
+      --ink-2: #a7a395;
+      --ink-3: #837f72;
+      --rule: #3a392e;
+      --rule-soft: #2b2b22;
+      --spot: #98a2ff;
+      --spot-soft: rgba(152, 162, 255, 0.16);
+      --grain: 0.05;
+      --shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #14140e;
+    --paper-2: #1b1b14;
+    --paper-3: #22221a;
+    --ink: #dfdcce;
+    --ink-2: #a7a395;
+    --ink-3: #837f72;
+    --rule: #3a392e;
+    --rule-soft: #2b2b22;
+    --spot: #98a2ff;
+    --spot-soft: rgba(152, 162, 255, 0.16);
+    --grain: 0.05;
+    --shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+  }
+
+  /* screens are screens in both editions: a printed screenshot keeps its own inks */
+  :root {
+    --scr-bg: #0e1113;
+    --scr-panel: #15181b;
+    --scr-panel2: #1b1f22;
+    --scr-line: #272c31;
+    --scr-txt: #c7cfce;
+    --scr-dim: #737d80;
+    --scr-live: #74c05c;
+    --scr-wait: #dba43f;
+    --scr-done: #7fa6d8;
+    --scr-off: #5a6265;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Newsreader", Georgia, "Times New Roman", serif;
+    font-size: 19px;
+    line-height: 1.55;
+    font-optical-sizing: auto;
+  }
+
+  /* newsprint tooth */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9;
+    opacity: var(--grain);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .sheet {
+    max-width: 1160px;
+    margin: 0 auto;
+    padding: 0 28px 96px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ---------- shared type roles ---------- */
+
+  .disp {
+    font-family: "Bodoni Moda", "Bodoni MT", Didot, Georgia, serif;
+    font-weight: 900;
+    line-height: 0.94;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  .kicker {
+    font-family:
+      "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--spot);
+    margin: 0;
+  }
+
+  .mono {
+    font-family:
+      "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  p {
+    margin: 0 0 1.05em;
+  }
+  a {
+    color: inherit;
+  }
+
+  /* ============================================================
+   MASTHEAD
+   ============================================================ */
+
+  .masthead {
+    padding-top: 34px;
+  }
+
+  .masthead-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 20px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 9px;
+  }
+  .masthead-top span:last-child {
+    text-align: right;
+  }
+
+  .title-block {
+    padding: 26px 0 18px;
+    text-align: center;
+  }
+
+  .paper-name {
+    font-family: "Bodoni Moda", Didot, Georgia, serif;
+    font-weight: 900;
+    font-size: clamp(52px, 12.2vw, 152px);
+    line-height: 0.86;
+    letter-spacing: -0.03em;
+    margin: 0;
+    /* the second ink, printed a hair out of register */
+    text-shadow: 2px -1.5px 0 var(--spot-soft);
+  }
+  .paper-name em {
+    font-style: italic;
+    font-weight: 700;
+  }
+
+  .strap {
+    margin: 30px auto 0;
+    max-width: 640px;
+    font-size: 15.5px;
+    font-style: italic;
+    color: var(--ink-2);
+    line-height: 1.4;
+  }
+
+  .double-rule {
+    border-top: 3px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    height: 4px;
+    margin: 14px 0 0;
+    position: relative;
+  }
+  .double-rule::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -4px;
+    height: 1px;
+    background: var(--spot);
+    opacity: 0.5;
+  }
+
+  /* ============================================================
+   FRONT PAGE LEAD
+   ============================================================ */
+
+  .lead {
+    display: grid;
+    grid-template-columns: minmax(0, 1.62fr) minmax(0, 1fr);
+    gap: 0 46px;
+    padding-top: 30px;
+  }
+
+  .lead-head {
+    grid-column: 1 / -1;
+    margin-bottom: 26px;
+  }
+
+  .lead-head .kicker {
+    margin-bottom: 14px;
+  }
+
+  h1.headline {
+    font-family: "Bodoni Moda", Didot, Georgia, serif;
+    font-weight: 900;
+    font-size: clamp(38px, 6.6vw, 84px);
+    line-height: 0.92;
+    letter-spacing: -0.022em;
+    margin: 0 0 20px;
+    text-wrap: balance;
+    max-width: 15ch;
+  }
+
+  .standfirst {
+    font-size: clamp(19px, 2.1vw, 24px);
+    line-height: 1.4;
+    font-weight: 400;
+    color: var(--ink-2);
+    max-width: 46ch;
+    margin: 0 0 18px;
+  }
+  .standfirst strong {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .byline {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    border-top: 1px solid var(--rule);
+    padding-top: 10px;
+    max-width: 46ch;
+  }
+
+  .lead-body {
+    min-width: 0;
+  }
+  .lead-rail {
+    min-width: 0;
+  }
+
+  /* drop cap */
+  .dropcap::first-letter {
+    font-family: "Bodoni Moda", Didot, Georgia, serif;
+    font-weight: 900;
+    float: left;
+    font-size: 5.05em;
+    line-height: 0.78;
+    padding: 0.04em 0.09em 0 0;
+    margin-top: 0.04em;
+    color: var(--ink);
+  }
+
+  .lede-line {
+    font-family: "Bodoni Moda", Didot, Georgia, serif;
+    font-weight: 700;
+    font-style: italic;
+    font-size: clamp(23px, 2.7vw, 31px);
+    line-height: 1.18;
+    margin: 26px 0;
+    padding: 18px 0;
+    border-top: 1px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    text-wrap: balance;
+  }
+
+  /* ---------- figures & photographs ---------- */
+
+  figure {
+    margin: 0;
+  }
+
+  .plate img {
+    display: block;
+    width: 100%;
+    height: auto;
+    filter: grayscale(1) contrast(1.05);
+  }
+
+  .plate figcaption {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--ink-2);
+    padding-top: 8px;
+    border-top: 1px solid var(--rule-soft);
+    margin-top: 8px;
+  }
+  .plate figcaption b {
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .plate-hero {
+    margin: 34px 0 0;
+  }
+  .plate-hero img {
+    aspect-ratio: 16/9;
+    object-fit: cover;
+  }
+
+  /* ---------- in brief ---------- */
+
+  .brief {
+    border-top: 3px solid var(--ink);
+    border-bottom: 1px solid var(--rule);
+    margin-top: 34px;
+    padding: 14px 0 18px;
+  }
+  .brief h2 {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin: 0 0 14px;
+    color: var(--ink);
+  }
+  .brief-cols {
+    columns: 3 210px;
+    column-gap: 34px;
+    column-rule: 1px solid var(--rule-soft);
+    font-size: 16.5px;
+    line-height: 1.5;
+  }
+  .brief-cols p {
+    break-inside: avoid;
+    margin-bottom: 0.95em;
+  }
+  .brief-cols p:last-child {
+    margin-bottom: 0;
+  }
+  .brief-cols b {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    display: block;
+    color: var(--spot);
+    margin-bottom: 3px;
+  }
+
+  /* ============================================================
+   SECTIONS
+   ============================================================ */
+
+  section.part {
+    padding-top: 66px;
+  }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 18px;
+    flex-wrap: wrap;
+    border-bottom: 3px solid var(--ink);
+    padding-bottom: 8px;
+    margin-bottom: 26px;
+    position: relative;
+  }
+  .part-head::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -5px;
+    height: 1px;
+    background: var(--ink);
+  }
+
+  .part-head h2 {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin: 0;
+  }
+
+  /* status tag — the accuracy device */
+  .tag {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 4px 9px 3px;
+    white-space: nowrap;
+  }
+  .tag-now {
+    color: var(--paper);
+    background: var(--ink);
+  }
+  .tag-soon {
+    color: var(--spot);
+    border: 1px dashed var(--spot);
+    background: var(--spot-soft);
+  }
+
+  .part-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.62fr) minmax(0, 1fr);
+    gap: 0 46px;
+  }
+  .part-main {
+    min-width: 0;
+  }
+  .part-rail {
+    min-width: 0;
+  }
+
+  .part-main h3 {
+    font-family: "Bodoni Moda", Didot, Georgia, serif;
+    font-weight: 900;
+    font-size: clamp(31px, 4.6vw, 52px);
+    line-height: 0.96;
+    letter-spacing: -0.02em;
+    margin: 0 0 18px;
+    max-width: 17ch;
+    text-wrap: balance;
+  }
+
+  .crosshead {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin: 30px 0 10px;
+    color: var(--ink-2);
+  }
+
+  .part-main p,
+  .part-rail p {
+    max-width: 64ch;
+  }
+
+  /* rail furniture */
+  .rail-box {
+    background: var(--paper-2);
+    border-top: 3px solid var(--ink);
+    padding: 16px 18px 18px;
+    margin-bottom: 26px;
+  }
+  .rail-box h4 {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin: 0 0 10px;
+  }
+  .rail-box p {
+    font-size: 16px;
+    line-height: 1.5;
+    margin-bottom: 0.8em;
+  }
+  .rail-box p:last-child {
+    margin-bottom: 0;
+  }
+  .rail-box code {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.86em;
+    background: var(--paper-3);
+    padding: 1px 4px;
+  }
+
+  .signal-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+  .signal-list li {
+    display: grid;
+    grid-template-columns: 78px 1fr;
+    gap: 12px;
+    padding: 7px 0;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .signal-list li:first-child {
+    border-top: 0;
+  }
+  .signal-list b {
+    font-weight: 600;
+    color: var(--spot);
+  }
+  .signal-list span {
+    color: var(--ink-2);
+    font-family: "Newsreader", Georgia, serif;
+    font-size: 15px;
+  }
+
+  .pull {
+    font-family: "Bodoni Moda", Didot, Georgia, serif;
+    font-weight: 700;
+    font-size: clamp(21px, 2.4vw, 27px);
+    line-height: 1.2;
+    margin: 26px 0;
+    padding-left: 16px;
+    border-left: 4px solid var(--spot);
+    text-wrap: balance;
+  }
+
+  .plate-rail {
+    margin-bottom: 26px;
+  }
+  .plate-rail img {
+    aspect-ratio: 4/5;
+    object-fit: cover;
+  }
+  .plate-wide img {
+    aspect-ratio: 16/9;
+    object-fit: cover;
+  }
+  .plate-sq img {
+    aspect-ratio: 3/2;
+    object-fit: cover;
+  }
+
+  /* ============================================================
+   TERMINAL TRANSCRIPT (printed, in the paper's own inks)
+   ============================================================ */
+
+  .transcript {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13px;
+    line-height: 1.62;
+    background: var(--paper-2);
+    border-top: 3px solid var(--ink);
+    border-bottom: 1px solid var(--rule);
+    padding: 16px 18px;
+    margin: 26px 0;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--ink);
+    tab-size: 4;
+  }
+  .transcript .c {
+    color: var(--ink-3);
+  }
+  .transcript .p {
+    color: var(--spot);
+    font-weight: 600;
+  }
+  .transcript .ok {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  /* ============================================================
+   DRAWN SCREENS — Fig. 1, 2, 3
+   ============================================================ */
+
+  .figure {
+    margin: 34px 0 0;
+    grid-column: 1 / -1;
+  }
+
+  .figure-scroll {
+    overflow-x: auto;
+    background: var(--scr-bg);
+    border: 1px solid var(--rule);
+    box-shadow: var(--shadow);
+  }
+
+  .scr {
+    min-width: 880px;
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    color: var(--scr-txt);
+    background: var(--scr-bg);
+  }
+
+  .scr-chrome {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 12px;
+    background: var(--scr-panel);
+    border-bottom: 1px solid var(--scr-line);
+  }
+  .dots {
+    display: flex;
+    gap: 6px;
+  }
+  .dots i {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--scr-off);
+    display: block;
+  }
+  .url {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    color: var(--scr-dim);
+    background: var(--scr-bg);
+    border: 1px solid var(--scr-line);
+    padding: 3px 10px;
+    border-radius: 3px;
+    flex: 1;
+  }
+  .url b {
+    color: var(--scr-txt);
+    font-weight: 500;
+  }
+  .chrome-right {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    color: var(--scr-dim);
+    letter-spacing: 0.04em;
+  }
+
+  .scr-body {
+    display: grid;
+  }
+  .fig1 .scr-body {
+    grid-template-columns: 262px 1fr;
+  }
+
+  .rail {
+    background: var(--scr-panel);
+    border-right: 1px solid var(--scr-line);
+    padding: 12px 0 16px;
+  }
+  .rail-group {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--scr-dim);
+    padding: 14px 14px 6px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .rail-group:first-child {
+    padding-top: 4px;
+  }
+  .srow {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 14px;
+    font-size: 13px;
+    border-left: 2px solid transparent;
+  }
+  .srow.on {
+    background: var(--scr-panel2);
+    border-left-color: var(--scr-live);
+  }
+  .srow .nm {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+  }
+  .srow .mt {
+    margin-left: auto;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    color: var(--scr-dim);
+  }
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex: none;
+  }
+  .dot.live {
+    background: var(--scr-live);
+    box-shadow: 0 0 0 0 rgba(116, 192, 92, 0.55);
+    animation: pulse 2.6s ease-out infinite;
+  }
+  .dot.wait {
+    background: var(--scr-wait);
+  }
+  .dot.done {
+    background: var(--scr-done);
+  }
+  .dot.off {
+    background: var(--scr-off);
+  }
+
+  @keyframes pulse {
+    0% {
+      box-shadow: 0 0 0 0 rgba(116, 192, 92, 0.5);
+    }
+    70% {
+      box-shadow: 0 0 0 7px rgba(116, 192, 92, 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(116, 192, 92, 0);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dot.live {
+      animation: none;
+    }
+    .cur {
+      animation: none;
+      opacity: 1;
+    }
+  }
+
+  .term {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    line-height: 1.62;
+    padding: 14px 16px 16px;
+    white-space: pre-wrap;
+    overflow: hidden;
+  }
+  .term .d {
+    color: var(--scr-dim);
+  }
+  .term .g {
+    color: var(--scr-live);
+  }
+  .term .a {
+    color: var(--scr-wait);
+  }
+  .term .b {
+    color: var(--scr-done);
+  }
+  .cur {
+    display: inline-block;
+    width: 7px;
+    height: 14px;
+    background: var(--scr-txt);
+    vertical-align: -2px;
+    animation: blink 1.1s steps(1) infinite;
+  }
+  @keyframes blink {
+    0%,
+    50% {
+      opacity: 1;
+    }
+    50.01%,
+    100% {
+      opacity: 0;
+    }
+  }
+
+  .term-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--scr-line);
+    background: var(--scr-panel2);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    color: var(--scr-dim);
+  }
+  .term-head b {
+    color: var(--scr-txt);
+    font-weight: 500;
+  }
+  .chip {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 2px;
+    border: 1px solid var(--scr-line);
+    color: var(--scr-dim);
+  }
+  .chip.live {
+    color: var(--scr-live);
+    border-color: rgba(116, 192, 92, 0.4);
+  }
+  .chip.wait {
+    color: var(--scr-wait);
+    border-color: rgba(219, 164, 63, 0.4);
+  }
+  .chip.share {
+    color: var(--scr-done);
+    border-color: rgba(127, 166, 216, 0.45);
+  }
+
+  .statusbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    padding: 7px 14px;
+    border-top: 1px solid var(--scr-line);
+    background: var(--scr-panel);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    color: var(--scr-dim);
+    letter-spacing: 0.04em;
+  }
+  .statusbar .sp {
+    margin-left: auto;
+  }
+
+  /* fig 2: two windows */
+  .fig2-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    min-width: 900px;
+  }
+  .fig2-pair .scr {
+    min-width: 0;
+  }
+  .pane-label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--scr-dim);
+    padding: 8px 12px 0;
+  }
+  .pane {
+    border-right: 1px solid var(--scr-line);
+  }
+  .pane:last-child {
+    border-right: 0;
+  }
+
+  .presence {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    color: var(--scr-dim);
+  }
+  .av {
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 9px;
+    font-weight: 600;
+    font-family: "IBM Plex Sans", sans-serif;
+    color: #0e1113;
+  }
+
+  /* fig 3: the floor */
+  .fig3 .scr {
+    min-width: 1000px;
+  }
+  .fig3 .scr-body {
+    grid-template-columns: 1fr 372px;
+  }
+  .floor-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--scr-line);
+    flex-wrap: wrap;
+  }
+  .fchip {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    padding: 3px 9px;
+    border: 1px solid var(--scr-line);
+    border-radius: 2px;
+    color: var(--scr-dim);
+  }
+  .fchip.sel {
+    color: var(--scr-txt);
+    border-color: var(--scr-dim);
+    background: var(--scr-panel2);
+  }
+  .fcount {
+    margin-left: auto;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    color: var(--scr-dim);
+  }
+
+  .floor {
+    padding: 4px 0 10px;
+  }
+  .person {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 14px 5px;
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+  .person .cnt {
+    margin-left: auto;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    color: var(--scr-dim);
+    font-weight: 400;
+  }
+  .frow {
+    display: grid;
+    grid-template-columns: 20px 1fr 122px 78px 96px;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 14px 5px 26px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    border-left: 2px solid transparent;
+  }
+  .frow.sel {
+    background: var(--scr-panel2);
+    border-left-color: var(--scr-done);
+  }
+  .frow .tree {
+    color: var(--scr-off);
+  }
+  .frow .where,
+  .frow .agent {
+    color: var(--scr-dim);
+    font-size: 11px;
+  }
+  .frow .st {
+    font-size: 10.5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .frow.sub {
+    padding-left: 50px;
+    font-size: 11.5px;
+    color: var(--scr-dim);
+  }
+  .frow.sub .nm {
+    color: var(--scr-dim);
+  }
+
+  .detail {
+    border-left: 1px solid var(--scr-line);
+    background: var(--scr-panel);
+  }
+  .detail .term {
+    background: var(--scr-bg);
+  }
+
+  .figure figcaption {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--ink-2);
+    border-top: 1px solid var(--rule);
+    margin-top: 9px;
+    padding-top: 8px;
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .figure figcaption b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .figure figcaption .fno {
+    color: var(--spot);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .figure figcaption p {
+    margin: 0;
+    max-width: 78ch;
+  }
+
+  /* ============================================================
+   THE LEDGER
+   ============================================================ */
+
+  .ledger {
+    padding-top: 66px;
+  }
+  .ledger-inner {
+    border: 1px solid var(--ink);
+    padding: 0;
+  }
+  .ledger h2 {
+    font-family: "Bodoni Moda", Didot, Georgia, serif;
+    font-weight: 900;
+    font-size: clamp(28px, 3.6vw, 40px);
+    margin: 0;
+    padding: 18px 22px 4px;
+    letter-spacing: -0.02em;
+  }
+  .ledger .ledger-sub {
+    padding: 0 22px 16px;
+    font-size: 16.5px;
+    color: var(--ink-2);
+    font-style: italic;
+    max-width: 62ch;
+  }
+  table.ledger-tbl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 16px;
+  }
+  table.ledger-tbl th {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    text-align: left;
+    color: var(--ink-2);
+    font-weight: 600;
+    padding: 8px 22px;
+    border-top: 1px solid var(--ink);
+    border-bottom: 1px solid var(--rule);
+    background: var(--paper-2);
+  }
+  table.ledger-tbl td {
+    padding: 11px 22px;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: baseline;
+  }
+  table.ledger-tbl tr:last-child td {
+    border-bottom: 0;
+  }
+  table.ledger-tbl td.what {
+    font-weight: 500;
+  }
+  table.ledger-tbl td.what small {
+    display: block;
+    font-family: "Newsreader", Georgia, serif;
+    font-size: 15px;
+    font-weight: 400;
+    color: var(--ink-2);
+    margin-top: 2px;
+    line-height: 1.4;
+  }
+  table.ledger-tbl td.state {
+    width: 210px;
+    white-space: nowrap;
+  }
+
+  /* ============================================================
+   LEADER (comment)
+   ============================================================ */
+
+  .leader {
+    padding-top: 66px;
+  }
+  .leader-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.62fr) minmax(0, 1fr);
+    gap: 0 46px;
+  }
+  .leader .leader-hed {
+    font-family: "Bodoni Moda", Didot, Georgia, serif;
+    font-weight: 900;
+    font-style: italic;
+    font-size: clamp(32px, 4.6vw, 54px);
+    line-height: 0.98;
+    letter-spacing: -0.02em;
+    margin: 0 0 18px;
+    max-width: 16ch;
+    text-wrap: balance;
+  }
+
+  /* ============================================================
+   FOOT
+   ============================================================ */
+
+  .foot {
+    margin-top: 74px;
+    border-top: 3px solid var(--ink);
+    padding-top: 22px;
+    display: grid;
+    grid-template-columns: minmax(0, 1.62fr) minmax(0, 1fr);
+    gap: 26px 46px;
+  }
+  .foot h2 {
+    font-family: "Bodoni Moda", Didot, Georgia, serif;
+    font-weight: 900;
+    font-size: clamp(26px, 3.4vw, 38px);
+    letter-spacing: -0.02em;
+    margin: 0 0 14px;
+  }
+  .foot .transcript {
+    margin-top: 0;
+  }
+  .folio {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--rule);
+    padding-top: 12px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  /* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+  @media (max-width: 900px) {
+    .lead,
+    .part-grid,
+    .leader-grid,
+    .foot {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0;
+    }
+    .lead-rail,
+    .part-rail {
+      margin-top: 30px;
+    }
+    .foot {
+      gap: 26px;
+    }
+    .sheet {
+      padding: 0 18px 72px;
+    }
+    body {
+      font-size: 18px;
+    }
+    .paper-name {
+      text-shadow: 1px -1px 0 var(--spot-soft);
+    }
+  }
+</style>
+
+<div class="sheet">
+  <!-- ========================= MASTHEAD ========================= -->
+  <header class="masthead">
+    <div class="masthead-top">
+      <span>No. 1 &nbsp;·&nbsp; Late edition</span>
+      <span>A paper about where software gets written now</span>
+    </div>
+
+    <div class="title-block">
+      <h1 class="paper-name">The <em>werk</em> Dispatch</h1>
+      <p class="strap">
+        Coding agents are terminal programs. They run for forty minutes without
+        you, and there is no reason at all for those forty minutes to happen on
+        the machine in your bag.
+      </p>
+    </div>
+    <div class="double-rule"></div>
+  </header>
+
+  <!-- ========================= LEAD ========================= -->
+  <article class="lead">
+    <div class="lead-head">
+      <p class="kicker">The machine room &nbsp;/&nbsp; Comment</p>
+      <h1 class="headline">The laptop stopped being the place</h1>
+      <p class="standfirst">
+        Work now outlives the session you started it in.
+        <strong
+          >werk starts a process somewhere and lets you come back to it
+          later</strong
+        >
+        — on a machine you choose, on a fresh branch, with the terminal still
+        open when you get back.
+      </p>
+      <p class="byline">
+        By our own correspondent &nbsp;·&nbsp; Filed from a closed laptop
+      </p>
+    </div>
+
+    <div class="lead-body">
+      <p class="dropcap">
+        There is a particular kind of foolishness that everyone who has run a
+        coding agent has committed at least once. You give it something
+        substantial — port the importer to the new schema, work through the
+        failing suite — and it settles in. Then the meeting starts, or the train
+        is called, and you look at the lid of the laptop and understand that the
+        lid is now load-bearing. So you sit there. You keep it open on your
+        knees in the corridor. You have become a power supply.
+      </p>
+
+      <p>
+        The absurdity is not the agent. The agent is behaving well: it is a
+        command-line program doing a long job. The absurdity is that a long job
+        is pinned to the one computer in the building that gets carried around,
+        closed, put to sleep, and taken through a tunnel.
+      </p>
+
+      <p>
+        Move the job off the laptop and the whole thing relaxes. It runs on the
+        Mac mini on the desk, or a VPS, or a container werk provisions, or the
+        cluster the company already pays for. Placement stops being an
+        architecture decision and becomes an argument you pass. The lid closes.
+        Nothing notices.
+      </p>
+
+      <p class="lede-line">
+        You dispatch from your own terminal. The work runs somewhere with power
+        and a proper network. The commits come back.
+      </p>
+
+      <p>
+        What makes this tractable is that nobody has to invent a new interface
+        for it. A repository already has two universal interfaces, and both of
+        them predate every agent on the market: the terminal and git. People use
+        them. Agents use them. Neither needs a plugin to be understood by the
+        other. werk's whole argument is that if you make those two things
+        trivially easy to reach — from any machine, from a browser, from someone
+        else's browser — the rest of the workflow follows without being
+        designed.
+      </p>
+
+      <p>
+        So: a fresh branch for every session, on whichever machine you named. A
+        terminal that survives your laptop closing. And one list of every one of
+        them, everywhere, that you can open from a shell or a browser tab.
+      </p>
+    </div>
+
+    <aside class="lead-rail">
+      <figure class="plate plate-rail">
+        <img
+          src="{{03_SHELF}}"
+          alt="A small computer and a network switch on a domestic bookshelf, indicator lights on in the dark."
+        />
+        <figcaption>
+          <b>Placement is an argument.</b> The desk machine, a VPS, a container
+          it provisions, the company cluster — named on the command line, not
+          decided in an architecture.
+        </figcaption>
+      </figure>
+
+      <div class="rail-box">
+        <h4>What werk is</h4>
+        <p>
+          A single command that starts a process somewhere, puts your repository
+          there on a fresh branch, and keeps the terminal alive after you have
+          gone.
+        </p>
+        <p>
+          Bare <code>werk</code> prints the fleet and exits, the way
+          <code>ls</code> or <code>git status</code> does.
+          <code>werk attach &lt;name&gt;</code> puts you back inside a session.
+          There is a TUI when you want to steer the fleet without leaving the
+          terminal, and <code>werk serve</code> when you want the same thing in
+          a browser.
+        </p>
+      </div>
+    </aside>
+
+    <figure class="plate plate-hero" style="grid-column: 1 / -1">
+      <img
+        src="{{01_HERO}}"
+        alt="A dark home study at night: a closed laptop on the desk in the foreground, and behind it a monitor still lit with dense terminal output."
+      />
+      <figcaption>
+        <b>Half past eleven, lid down.</b> The session is running on the machine
+        in the corner, not on the one that went into the bag. Nothing here
+        needed a person in the chair.
+      </figcaption>
+    </figure>
+
+    <div class="brief" style="grid-column: 1 / -1">
+      <h2>In brief</h2>
+      <div class="brief-cols">
+        <p>
+          <b>One command</b>Name a machine, name a job. werk clones the
+          repository there, cuts a branch, starts the process and hands you the
+          terminal.
+        </p>
+        <p>
+          <b>One list</b>Every session on every machine, with its state and its
+          last signal, in a shell or in a browser tab.
+        </p>
+        <p>
+          <b>No integration per agent</b>Claude Code, Codex, Gemini CLI, Aider.
+          An agent released next month works on the day you install it.
+        </p>
+        <p>
+          <b>Work arrives as git</b>Each session gets its own branch, so what
+          comes back is history you can read, review and merge.
+        </p>
+      </div>
+    </div>
+  </article>
+
+  <!-- ========================= PART ONE ========================= -->
+  <section class="part" id="one">
+    <div class="part-head">
+      <h2>Part one &nbsp;·&nbsp; On your own</h2>
+      <span class="tag tag-now">Works today</span>
+    </div>
+
+    <div class="part-grid">
+      <div class="part-main">
+        <h3>Shut the lid. Come back Tuesday.</h3>
+
+        <p>
+          The first run is undramatic, which is the point. You are in your
+          repository, in your own terminal, on your own laptop. You name a
+          machine you can already reach — the mini under the desk, a VPS you
+          keep, a container werk brings up for the occasion — and you name the
+          job.
+        </p>
+
+        <div class="transcript">
+          <span class="p">$</span> werk run --on studio-mini
+          <span class="c"
+            >\ "claude -p 'port the importer to the new schema'"</span
+          >
+
+          studio-mini <span class="c">repo cloned · branch</span>
+          <span class="ok">werk/importer-schema</span> session
+          <span class="ok">importer-schema</span>
+          <span class="c">· started · attaching</span>
+        </div>
+
+        <p>
+          You watch it for a minute because the first time you always do. Then
+          you detach, and this is the part that takes some getting used to:
+          nothing happens. The process is not on your laptop. Detaching from it
+          is no more significant than closing a window onto a room you have
+          left.
+        </p>
+
+        <p>
+          Close the lid. Go to the meeting, get the train, sleep. The session is
+          a process on a machine that is plugged in, and it stays a process on a
+          machine that is plugged in.
+        </p>
+
+        <p class="pull">
+          Reattaching is the moment the product sells itself. The terminal is
+          exactly where you left it, with two hours of work in the scrollback.
+        </p>
+
+        <p class="crosshead">The list is the product</p>
+
+        <p>
+          Once you have more than two of these, the list matters more than any
+          one session. Bare <code class="mono">werk</code> prints the fleet and
+          exits — every session on every machine, its state, and how long since
+          it last said anything.
+        </p>
+
+        <div class="transcript">
+          <span class="p">$</span> werk NAME WHERE STATE LAST SIGNAL
+          importer-schema studio-mini running 3m ago docs-sweep vps-fra1
+          <span class="ok">waiting</span> 12m ago needs input flaky-test-hunt
+          local done 1h ago exit 0 schema-migration k8s/dev running moments ago
+        </div>
+
+        <p>
+          <code class="mono">werk attach importer-schema</code> puts you inside
+          that one. Or you run <code class="mono">werk serve</code>, open a
+          browser on your own network, and get the same fleet as a web
+          application — every session on every machine in one window, and you
+          can type into any of them.
+        </p>
+      </div>
+
+      <aside class="part-rail">
+        <figure class="plate plate-rail">
+          <img
+            src="{{02_LID}}"
+            alt="A hand closing a laptop lid in a darkened room, lit only by the screen."
+          />
+          <figcaption>
+            <b>The lid is no longer load-bearing.</b> Detaching closes a window
+            onto the work, not the work.
+          </figcaption>
+        </figure>
+
+        <div class="rail-box">
+          <h4>How it reads any agent at all</h4>
+          <p>
+            werk does not integrate with agents one at a time. It reads the
+            signals a well-behaved terminal program already emits, and every
+            serious agent is a well-behaved terminal program.
+          </p>
+          <ul class="signal-list">
+            <li><b>BEL</b><span>The bell. Something wants you.</span></li>
+            <li>
+              <b>OSC 9<br />OSC 777</b
+              ><span
+                >Desktop notifications, so the fleet list can say what the
+                session said.</span
+              >
+            </li>
+            <li>
+              <b>OSC 9;4</b><span>Progress, where a program reports it.</span>
+            </li>
+            <li>
+              <b>OSC 133</b
+              ><span
+                >Command boundaries and exit status — where a command started,
+                stopped, and whether it worked.</span
+              >
+            </li>
+          </ul>
+          <p style="margin-top: 12px">
+            Nothing on that list is werk's invention, and nothing on it is
+            optional for a program that wants to behave in a terminal. That is
+            why an agent released next month works on the day you install it.
+          </p>
+        </div>
+      </aside>
+
+      <figure class="figure fig1">
+        <div class="figure-scroll">
+          <div class="scr">
+            <div class="scr-chrome">
+              <span class="dots"><i></i><i></i><i></i></span>
+              <span class="url"
+                ><b>127.0.0.1:7717</b>/sessions/importer-schema</span
+              >
+              <span class="chrome-right">werk serve · local network</span>
+            </div>
+            <div class="scr-body">
+              <div class="rail">
+                <div class="rail-group">
+                  <span>studio-mini</span><span>2</span>
+                </div>
+                <div class="srow on">
+                  <span class="dot live"></span
+                  ><span class="nm">importer-schema</span
+                  ><span class="mt">3m</span>
+                </div>
+                <div class="srow">
+                  <span class="dot done"></span
+                  ><span class="nm">bench-rewrite</span
+                  ><span class="mt">2h</span>
+                </div>
+                <div class="rail-group">
+                  <span>vps-fra1</span><span>2</span>
+                </div>
+                <div class="srow">
+                  <span class="dot wait"></span
+                  ><span class="nm">docs-sweep</span><span class="mt">12m</span>
+                </div>
+                <div class="srow">
+                  <span class="dot live"></span
+                  ><span class="nm">changelog-pass</span
+                  ><span class="mt">1m</span>
+                </div>
+                <div class="rail-group">
+                  <span>k8s / dev</span><span>1</span>
+                </div>
+                <div class="srow">
+                  <span class="dot live"></span
+                  ><span class="nm">schema-migration</span
+                  ><span class="mt">now</span>
+                </div>
+                <div class="rail-group"><span>local</span><span>1</span></div>
+                <div class="srow">
+                  <span class="dot off"></span
+                  ><span class="nm">flaky-test-hunt</span
+                  ><span class="mt">1h</span>
+                </div>
+              </div>
+              <div>
+                <div class="term-head">
+                  <b>importer-schema</b>
+                  <span>studio-mini</span>
+                  <span>branch werk/importer-schema</span>
+                  <span class="chip live">running</span>
+                  <span class="chip" style="margin-left: auto"
+                    >attach in terminal</span
+                  >
+                </div>
+                <div class="term">
+                  <span class="d"
+                    >● claude · port the importer to the new schema</span
+                  >
+
+                  <span class="g">✓</span> read src/import/rows.ts,
+                  src/import/schema.ts <span class="g">✓</span> mapped 14
+                  columns to the new field names
+                  <span class="g">✓</span> rewrote the batch writer to take a
+                  typed record running the importer suite …
+                  <span class="g">✓</span> parses the 2019 fixture
+                  <span class="g">✓</span> parses the 2024 fixture
+                  <span class="a">…</span> 41 of 68 examples
+
+                  <span class="d"
+                    >committed 9f2ac41 import: take typed records end to
+                    end</span
+                  >
+                  <span class="d"
+                    >committed 4b81e0d import: map legacy column names</span
+                  >
+
+                  <span class="cur"></span>
+                </div>
+                <div class="statusbar">
+                  <span>6 sessions · 4 machines</span>
+                  <span>4 running</span>
+                  <span>1 waiting on input</span>
+                  <span class="sp">last signal 3m ago</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption>
+          <span class="fno">Fig. 1</span>
+          <p>
+            <b>werk serve, in a browser on your own network.</b> The fleet
+            grouped by machine, the selected session live, and a cursor you can
+            type into. Working today, along with the CLI and the TUI. Session
+            names and output are illustrative.
+          </p>
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ========================= PART TWO ========================= -->
+  <section class="part" id="two">
+    <div class="part-head">
+      <h2>Part two &nbsp;·&nbsp; Two people, one terminal</h2>
+      <span class="tag tag-soon">Planned · not built</span>
+    </div>
+
+    <div class="part-grid">
+      <div class="part-main">
+        <h3>Hand somebody the live line.</h3>
+
+        <p>
+          Here is the situation this is for. A session has been going for an
+          hour, it is deep in a migration nobody else has touched, and it has
+          stopped on a question about a table that predates you. The person who
+          knows the answer is two time zones away. You do not want to describe
+          the terminal. You want them in it.
+        </p>
+
+        <p>
+          The plan is a link. You share the session, you send the link, and it
+          opens in their browser onto the same live terminal you are attached to
+          from your shell. Same scrollback, same cursor, same agent waiting on
+          the same question. They type; you both see it. When they answer and
+          drop out, you carry on where you were.
+        </p>
+
+        <p class="pull">
+          Not a recording, not a screen share, and not a copy. One session, two
+          windows onto it.
+        </p>
+
+        <p>
+          The link is the unit, which means it can be scoped and it can expire.
+          A share is for one session rather than for your machine, and it lasts
+          as long as you say. Screen sharing gives away a whole desktop for the
+          length of a call; a shared session gives away one terminal for half an
+          hour.
+        </p>
+
+        <p class="crosshead">Why this follows from the rest</p>
+
+        <p>
+          <code class="mono">werk serve</code> already puts a live terminal
+          inside a web page and lets you type into it. Sharing is that page,
+          addressed to somebody else, with the reach to get to them and a
+          boundary around what they can see. The hard part — a browser pane that
+          is genuinely the terminal rather than a picture of it — is the part
+          that exists.
+        </p>
+      </div>
+
+      <aside class="part-rail">
+        <figure class="plate plate-rail">
+          <img
+            src="{{05_ELSEWHERE}}"
+            alt="A person working alone at night with a laptop, in a different room from where the work is running."
+          />
+          <figcaption>
+            <b>Two time zones.</b> A shared session is scoped to one terminal
+            and to a stretch of time, rather than to a whole desktop for the
+            length of a call.
+          </figcaption>
+        </figure>
+
+        <div class="rail-box">
+          <h4>What a share would be</h4>
+          <p>
+            One session, not a machine. One link, revocable. An expiry you set
+            when you create it. A record of who was in it.
+          </p>
+          <p>
+            Everything above this line is design intent. None of it is built
+            yet, and the drawing opposite is a drawing.
+          </p>
+        </div>
+      </aside>
+
+      <figure class="figure fig2">
+        <div class="figure-scroll">
+          <div class="fig2-pair">
+            <div class="pane">
+              <div class="scr">
+                <div class="scr-chrome">
+                  <span class="chrome-right" style="letter-spacing: 0.14em"
+                    >YOUR TERMINAL · werk attach schema-migration</span
+                  >
+                </div>
+                <div class="term-head">
+                  <b>schema-migration</b>
+                  <span>k8s/dev</span>
+                  <span class="chip share">shared · 27m left</span>
+                </div>
+                <div class="term">
+                  <span class="d">● claude · migrate the ledger tables</span>
+
+                  <span class="g">✓</span> 3 of 5 tables migrated
+                  <span class="a">?</span> ledger_entries has two created_at
+                  columns. Which one is authoritative?
+
+                  <span class="p">&gt;</span> <span class="d">waiting</span>
+                  <span class="cur"></span>
+
+                  <span class="d">— priya joined this session · 2m ago</span>
+                  <span class="b">priya:</span> the one on the right, the other
+                  is from the 2021 import and is never read
+                </div>
+                <div class="statusbar">
+                  <span>you · attached from your shell</span>
+                  <span class="sp">2 people here</span>
+                </div>
+              </div>
+            </div>
+            <div class="pane">
+              <div class="scr">
+                <div class="scr-chrome">
+                  <span class="dots"><i></i><i></i><i></i></span>
+                  <span class="url">share.werk.sh/s/<b>k4f2-mig</b></span>
+                  <span class="chrome-right">priya's browser</span>
+                </div>
+                <div class="term-head">
+                  <b>schema-migration</b>
+                  <span class="chip live">live</span>
+                  <span class="presence">
+                    <span class="av" style="background: #74c05c">M</span>
+                    <span class="av" style="background: #7fa6d8">P</span>
+                    <span>you + priya</span>
+                  </span>
+                </div>
+                <div class="term">
+                  <span class="d">● claude · migrate the ledger tables</span>
+
+                  <span class="g">✓</span> 3 of 5 tables migrated
+                  <span class="a">?</span> ledger_entries has two created_at
+                  columns. Which one is authoritative?
+
+                  <span class="p">&gt;</span> <span class="d">waiting</span>
+                  <span class="cur"></span>
+
+                  <span class="d">— you joined this session · 2m ago</span>
+                  <span class="b">priya:</span> the one on the right, the other
+                  is from the 2021 import and is never read
+                </div>
+                <div class="statusbar">
+                  <span>read + write</span>
+                  <span>expires 16:40</span>
+                  <span class="sp">shared by you</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption>
+          <span class="fno">Fig. 2</span>
+          <p>
+            <b>Planned, not built.</b> The same session in two windows: your
+            shell on the left, a colleague's browser on the right, from a link
+            you sent and can revoke. A drawing of the intended behaviour — no
+            part of this ships today.
+          </p>
+        </figcaption>
+      </figure>
+
+      <figure
+        class="plate plate-wide"
+        style="grid-column: 1 / -1; margin-top: 34px"
+      >
+        <img
+          src="{{04_TWO}}"
+          alt="Two colleagues at one desk at night, both looking at a single screen full of terminal output, one pointing at it."
+        />
+        <figcaption>
+          <b>The oldest way to unblock a session</b> is to get the person who
+          knows into it. Sharing a link is that, without the flight.
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ========================= PART THREE ========================= -->
+  <section class="part" id="three">
+    <div class="part-head">
+      <h2>Part three &nbsp;·&nbsp; The floor</h2>
+      <span class="tag tag-soon">Planned · not built</span>
+    </div>
+
+    <div class="part-grid">
+      <div class="part-main">
+        <h3>Every session in the building, on one sheet.</h3>
+
+        <p>
+          Ask an engineering organisation today what its agents are doing and
+          you will get a shrug, a guess, and someone volunteering to go round
+          the desks. The sessions exist, they are doing real work against real
+          repositories, and there is no view of them. Each one lives inside one
+          person's terminal on one person's machine.
+        </p>
+
+        <p>
+          The plan is a company-wide view: every agent session in the
+          organisation on one page. Each person, the sessions they are running,
+          and the subagents those sessions have spawned, because a session that
+          fans out into six of its own is now the normal shape of a large job
+          and is invisible from outside.
+        </p>
+
+        <p>
+          And then the part that makes it a view rather than a report: you open
+          any one of them onto its live terminal. Not a status, not a summary
+          written afterwards. The terminal, as it is, with the scrollback.
+        </p>
+
+        <p class="pull">
+          A tech lead should be able to see the whole floor, and then look at
+          any one bench.
+        </p>
+
+        <p class="crosshead">What it is good for</p>
+
+        <p>
+          Knowing which sessions have been sitting on a question for forty
+          minutes while their author is in a meeting. Seeing that three people
+          started the same migration this morning. Watching a large job fan out
+          and come back. Finding the run that produced a branch nobody can
+          account for. All of it is the same primitive as part one — a fleet
+          list with a live terminal behind every row — pointed at the
+          organisation instead of at you.
+        </p>
+      </div>
+
+      <aside class="part-rail">
+        <figure class="plate plate-rail">
+          <img
+            src="{{07_AISLE}}"
+            alt="An empty open-plan office at night, monitors still lit at unoccupied desks."
+          />
+          <figcaption>
+            <b>Nine o'clock, and the desks are empty.</b> The sessions are not.
+            Today there is no view that says so.
+          </figcaption>
+        </figure>
+
+        <div class="rail-box">
+          <h4>The row and what is behind it</h4>
+          <p>
+            Person, session, machine, agent, state, age. Indented under a
+            session, the subagents it spawned, with the same columns.
+          </p>
+          <p>
+            Behind every row, the live terminal. That is what distinguishes this
+            from a dashboard: the drilldown is the session itself, not a card
+            about it.
+          </p>
+          <p>
+            Planned. Not built. The drawing opposite is a drawing, and the names
+            in it are invented.
+          </p>
+        </div>
+      </aside>
+
+      <figure class="figure fig3">
+        <div class="figure-scroll">
+          <div class="scr">
+            <div class="scr-chrome">
+              <span class="dots"><i></i><i></i><i></i></span>
+              <span class="url">werk.acme.internal/<b>floor</b></span>
+              <span class="chrome-right">company view</span>
+            </div>
+            <div class="floor-head">
+              <span class="fchip sel">everyone</span>
+              <span class="fchip">running</span>
+              <span class="fchip">waiting on input</span>
+              <span class="fchip">idle over 30m</span>
+              <span class="fcount">4 people · 9 sessions · 12 subagents</span>
+            </div>
+            <div class="scr-body">
+              <div class="floor">
+                <div class="person">
+                  <span class="av" style="background: #74c05c">M</span>
+                  mika.laine <span class="cnt">3 sessions · 5 subagents</span>
+                </div>
+                <div class="frow">
+                  <span class="tree">├</span
+                  ><span class="nm">importer-schema</span
+                  ><span class="where">studio-mini</span
+                  ><span class="agent">claude</span
+                  ><span class="st"><span class="dot live"></span>running</span>
+                </div>
+                <div class="frow sub">
+                  <span class="tree">│└</span
+                  ><span class="nm">fixture-audit</span
+                  ><span class="where">studio-mini</span
+                  ><span class="agent">claude</span
+                  ><span class="st"><span class="dot live"></span>running</span>
+                </div>
+                <div class="frow sub">
+                  <span class="tree">│└</span><span class="nm">column-map</span
+                  ><span class="where">studio-mini</span
+                  ><span class="agent">claude</span
+                  ><span class="st"><span class="dot done"></span>done</span>
+                </div>
+                <div class="frow">
+                  <span class="tree">├</span
+                  ><span class="nm">changelog-pass</span
+                  ><span class="where">vps-fra1</span
+                  ><span class="agent">codex</span
+                  ><span class="st"><span class="dot live"></span>running</span>
+                </div>
+                <div class="frow">
+                  <span class="tree">└</span
+                  ><span class="nm">flaky-test-hunt</span
+                  ><span class="where">local</span
+                  ><span class="agent">aider</span
+                  ><span class="st"><span class="dot off"></span>done</span>
+                </div>
+
+                <div class="person">
+                  <span class="av" style="background: #7fa6d8">P</span>
+                  priya.raman <span class="cnt">2 sessions · 4 subagents</span>
+                </div>
+                <div class="frow sel">
+                  <span class="tree">├</span
+                  ><span class="nm">ledger-rollup</span
+                  ><span class="where">k8s/dev</span
+                  ><span class="agent">claude</span
+                  ><span class="st"
+                    ><span class="dot wait"></span>waiting 41m</span
+                  >
+                </div>
+                <div class="frow sub">
+                  <span class="tree">│└</span
+                  ><span class="nm">rollup-tests</span
+                  ><span class="where">k8s/dev</span
+                  ><span class="agent">claude</span
+                  ><span class="st"><span class="dot live"></span>running</span>
+                </div>
+                <div class="frow sub">
+                  <span class="tree">│└</span
+                  ><span class="nm">backfill-plan</span
+                  ><span class="where">k8s/dev</span
+                  ><span class="agent">claude</span
+                  ><span class="st"><span class="dot live"></span>running</span>
+                </div>
+                <div class="frow">
+                  <span class="tree">└</span><span class="nm">docs-sweep</span
+                  ><span class="where">vps-fra1</span
+                  ><span class="agent">gemini</span
+                  ><span class="st"><span class="dot live"></span>running</span>
+                </div>
+
+                <div class="person">
+                  <span class="av" style="background: #dba43f">T</span>
+                  tom.okafor <span class="cnt">2 sessions · 2 subagents</span>
+                </div>
+                <div class="frow">
+                  <span class="tree">├</span
+                  ><span class="nm">billing-webhooks</span
+                  ><span class="where">mac-studio-2</span
+                  ><span class="agent">claude</span
+                  ><span class="st"><span class="dot live"></span>running</span>
+                </div>
+                <div class="frow sub">
+                  <span class="tree">│└</span
+                  ><span class="nm">stripe-fixtures</span
+                  ><span class="where">mac-studio-2</span
+                  ><span class="agent">claude</span
+                  ><span class="st"><span class="dot live"></span>running</span>
+                </div>
+                <div class="frow">
+                  <span class="tree">└</span><span class="nm">perf-triage</span
+                  ><span class="where">k8s/dev</span
+                  ><span class="agent">codex</span
+                  ><span class="st"
+                    ><span class="dot wait"></span>waiting 6m</span
+                  >
+                </div>
+
+                <div class="person">
+                  <span class="av" style="background: #c7cfce">S</span>
+                  sara.nkemdi <span class="cnt">2 sessions · 1 subagent</span>
+                </div>
+                <div class="frow">
+                  <span class="tree">├</span
+                  ><span class="nm">search-reindex</span
+                  ><span class="where">k8s/prod-ro</span
+                  ><span class="agent">claude</span
+                  ><span class="st"><span class="dot live"></span>running</span>
+                </div>
+                <div class="frow">
+                  <span class="tree">└</span
+                  ><span class="nm">onboarding-copy</span
+                  ><span class="where">local</span
+                  ><span class="agent">claude</span
+                  ><span class="st"><span class="dot done"></span>done</span>
+                </div>
+              </div>
+
+              <div class="detail">
+                <div class="term-head">
+                  <b>ledger-rollup</b>
+                  <span>priya.raman</span>
+                  <span class="chip wait">waiting 41m</span>
+                </div>
+                <div class="term">
+                  <span class="d"
+                    >● claude · nightly rollup for the ledger</span
+                  >
+
+                  <span class="g">✓</span> spawned 2 subagents
+                  <span class="g">✓</span> rollup-tests · 18 green
+                  <span class="a">…</span> backfill-plan · drafting
+
+                  <span class="a">?</span> The 2021 rows have no tenant id. Skip
+                  them or attribute to the parent account?
+
+                  <span class="p">&gt;</span> <span class="cur"></span>
+                </div>
+                <div class="statusbar">
+                  <span>k8s/dev</span>
+                  <span>branch werk/ledger-rollup</span>
+                  <span class="sp">open in terminal</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption>
+          <span class="fno">Fig. 3</span>
+          <p>
+            <b>Planned, not built.</b> Every session in the organisation,
+            indented under the person running it, with subagents under their
+            parent — and a row opened onto its live terminal. People, session
+            names and output are invented for the drawing.
+          </p>
+        </figcaption>
+      </figure>
+
+      <figure
+        class="plate plate-wide"
+        style="grid-column: 1 / -1; margin-top: 34px"
+      >
+        <img
+          src="{{06_WALL}}"
+          alt="A dark operations room where a large wall display carries a grid of terminal panes above a few occupied desks."
+        />
+        <figcaption>
+          <b>The floor, as it would look.</b> One view of the whole
+          organisation, and a live terminal behind every row of it.
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ========================= LEDGER ========================= -->
+  <section class="ledger">
+    <div class="ledger-inner">
+      <h2>What is printed, and what is still in galley</h2>
+      <p class="ledger-sub">
+        Stated plainly, because a pitch that blurs this line is not worth
+        reading. Everything in the first block runs today. Everything in the
+        second is intent.
+      </p>
+      <table class="ledger-tbl">
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th>State</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="what">
+              The terminal and the CLI<small
+                >Dispatch to any machine you can reach, reattach to any session,
+                one fleet list across all of them.</small
+              >
+            </td>
+            <td class="state"><span class="tag tag-now">Works today</span></td>
+          </tr>
+          <tr>
+            <td class="what">
+              The TUI<small
+                >Steering the whole fleet without leaving the terminal.</small
+              >
+            </td>
+            <td class="state"><span class="tag tag-now">Works today</span></td>
+          </tr>
+          <tr>
+            <td class="what">
+              <code class="mono">werk serve</code> in a browser<small
+                >The same fleet as a web application on your own network, with a
+                live terminal you can type into.</small
+              >
+            </td>
+            <td class="state"><span class="tag tag-now">Works today</span></td>
+          </tr>
+          <tr>
+            <td class="what">
+              Hosted, so the view reaches you anywhere<small
+                >The same list from a phone, another workstation, another
+                continent.</small
+              >
+            </td>
+            <td class="state">
+              <span class="tag tag-soon">Planned · not built</span>
+            </td>
+          </tr>
+          <tr>
+            <td class="what">
+              A live link to one of your sessions<small
+                >Part two: hand a colleague a link and both be in the same
+                terminal.</small
+              >
+            </td>
+            <td class="state">
+              <span class="tag tag-soon">Planned · not built</span>
+            </td>
+          </tr>
+          <tr>
+            <td class="what">
+              The company-wide view<small
+                >Part three: every session and subagent in the organisation,
+                each one openable onto its live terminal.</small
+              >
+            </td>
+            <td class="state">
+              <span class="tag tag-soon">Planned · not built</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ========================= LEADER ========================= -->
+  <section class="leader">
+    <div class="part-head">
+      <h2>Leader</h2>
+      <span class="tag tag-now">The argument</span>
+    </div>
+    <div class="leader-grid">
+      <div class="part-main">
+        <h2 class="leader-hed">Two interfaces, both older than the problem.</h2>
+
+        <p>
+          Every few years something arrives that needs a place to run, and the
+          industry's reflex is to build it a bespoke home: a console, an
+          orchestrator, a control plane with its own vocabulary. It is worth
+          noticing that this workload does not need one. A coding agent is a
+          program that reads a repository, writes to it, and talks over a
+          terminal. Those are the same two interfaces a person uses, and they
+          are the two interfaces every tool in the ecosystem already speaks.
+        </p>
+
+        <p>
+          That is the bet. Rather than integrate agents one at a time, take the
+          two universal interfaces to a repository and make them trivially easy
+          to reach: from your laptop, from a browser, from a colleague's
+          browser, from a view of the whole company. The workload changes
+          underneath and the surface does not. An agent released next month
+          works on the day you install it, because werk did not need to know
+          anything about it in the first place.
+        </p>
+
+        <p>
+          The first rung of that ladder is running now: dispatch, detach,
+          reattach, one list. The rungs above it — reach from anywhere, a link
+          you can hand somebody, the floor — are the same object seen from
+          further away, and they are what we are asking to build next.
+        </p>
+      </div>
+      <aside class="part-rail">
+        <figure class="plate plate-sq">
+          <img
+            src="{{09_WINDOWS}}"
+            alt="Office windows lit at night, seen from the street, most of the desks empty."
+          />
+          <figcaption>
+            <b>The building at midnight.</b> Sessions do not keep office hours,
+            and neither should the view of them.
+          </figcaption>
+        </figure>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ========================= FOOT ========================= -->
+  <footer class="foot">
+    <div>
+      <h2>Try the part that exists.</h2>
+      <p>
+        Point werk at a machine you can already reach, dispatch something long,
+        and close the lid. The rest of the argument makes itself when you come
+        back to it in the morning.
+      </p>
+      <div class="transcript">
+        <span class="p">$</span> werk run --on studio-mini "claude -p
+        '&hellip;'" <span class="p">$</span> werk
+        <span class="c"># the fleet, then exit</span>
+        <span class="p">$</span> werk attach <span class="c">&lt;name&gt;</span>
+        <span class="p">$</span> werk serve
+        <span class="c"># the same thing, in a browser</span>
+      </div>
+    </div>
+    <aside>
+      <figure class="plate plate-sq">
+        <img
+          src="{{08_CABLES}}"
+          alt="Close-up of a patch panel with cables in low light."
+        />
+        <figcaption>
+          <b>Somewhere with power and a proper network.</b>
+        </figcaption>
+      </figure>
+    </aside>
+    <div class="folio">
+      <span>The werk Dispatch &nbsp;·&nbsp; No. 1</span>
+      <span>An internal pitch, not a product announcement</span>
+      <span>Illustrations of planned work are marked as such throughout</span>
+    </div>
+  </footer>
+</div>

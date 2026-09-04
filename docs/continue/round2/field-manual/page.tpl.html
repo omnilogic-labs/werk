@@ -1,0 +1,1439 @@
+<title>werk Field Manual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap"
+/>
+<style>
+  :root {
+    --paper: #e7e0d0;
+    --paper-2: #dcd4c0;
+    --paper-3: #f1ece0;
+    --ink: #1a1611;
+    --ink-2: #514839;
+    --ink-3: #7c7260;
+    --rule: #b7ac95;
+    --rule-2: #cdc3ad;
+    --spot: #af3719;
+    --spot-soft: rgba(175, 55, 25, 0.1);
+    --ok: #55663a;
+    --screen: #100e0b;
+    --screen-2: #1a1713;
+    --screen-ink: #d9d3c4;
+    --screen-dim: #8b8371;
+    --screen-rule: #2e2a23;
+    --grain: rgba(26, 22, 17, 0.035);
+    --shadow: 0 1px 0 var(--rule-2);
+    --sans: "IBM Plex Sans Condensed", "Helvetica Neue", Arial, sans-serif;
+    --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    --mono:
+      "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas,
+      monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #131110;
+      --paper-2: #1c1917;
+      --paper-3: #0e0c0b;
+      --ink: #e6ddcb;
+      --ink-2: #a79c88;
+      --ink-3: #807765;
+      --rule: #3b352c;
+      --rule-2: #2a251f;
+      --spot: #e06a45;
+      --spot-soft: rgba(224, 106, 69, 0.13);
+      --ok: #96ae6c;
+      --screen: #0a0908;
+      --screen-2: #141210;
+      --screen-ink: #dad4c6;
+      --screen-dim: #8a8270;
+      --screen-rule: #282420;
+      --grain: rgba(230, 221, 203, 0.028);
+      --shadow: 0 1px 0 var(--rule-2);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #131110;
+    --paper-2: #1c1917;
+    --paper-3: #0e0c0b;
+    --ink: #e6ddcb;
+    --ink-2: #a79c88;
+    --ink-3: #807765;
+    --rule: #3b352c;
+    --rule-2: #2a251f;
+    --spot: #e06a45;
+    --spot-soft: rgba(224, 106, 69, 0.13);
+    --ok: #96ae6c;
+    --screen: #0a0908;
+    --screen-2: #141210;
+    --screen-ink: #dad4c6;
+    --screen-dim: #8a8270;
+    --screen-rule: #282420;
+    --grain: rgba(230, 221, 203, 0.028);
+    --shadow: 0 1px 0 var(--rule-2);
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9;
+    background: repeating-linear-gradient(
+      0deg,
+      var(--grain) 0 1px,
+      transparent 1px 3px
+    );
+  }
+  a {
+    color: inherit;
+  }
+  :focus-visible {
+    outline: 2px solid var(--spot);
+    outline-offset: 3px;
+  }
+
+  .sheet {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 28px 0;
+  }
+
+  /* ---------- masthead ---------- */
+  .form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 26px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    padding: 14px 0 12px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .form b {
+    font-weight: 500;
+    color: var(--ink-2);
+  }
+  .masthead {
+    padding: 44px 0 30px;
+    border-bottom: 3px solid var(--ink);
+  }
+  .wordmark {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: clamp(84px, 17vw, 196px);
+    line-height: 0.82;
+    letter-spacing: -0.035em;
+    margin: 0;
+    text-transform: lowercase;
+  }
+  .wordmark span {
+    color: var(--spot);
+  }
+  .masthead__sub {
+    font-family: var(--sans);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    font-size: clamp(12px, 1.5vw, 15px);
+    color: var(--ink-2);
+    margin: 18px 0 0;
+    max-width: 46ch;
+    line-height: 1.5;
+    text-wrap: balance;
+  }
+  .masthead__lede {
+    font-family: var(--serif);
+    font-size: clamp(20px, 2.6vw, 27px);
+    line-height: 1.36;
+    margin: 26px 0 0;
+    max-width: 26ch;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+  .masthead__lede em {
+    font-style: italic;
+    color: var(--spot);
+    font-weight: 400;
+  }
+
+  /* ---------- plates ---------- */
+  .plate {
+    margin: 34px 0 0;
+  }
+  .plate img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--rule);
+  }
+  .plate--half {
+    max-width: 620px;
+  }
+  .plate figcaption {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    align-items: baseline;
+    padding-top: 9px;
+    border-top: 1px solid var(--rule-2);
+    margin-top: 9px;
+  }
+  .plate__n {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--spot);
+    white-space: nowrap;
+  }
+  .plate__t {
+    font-size: 14.5px;
+    line-height: 1.5;
+    color: var(--ink-2);
+    max-width: 74ch;
+  }
+
+  /* ---------- parts / rail ---------- */
+  .part {
+    display: flex;
+    gap: 46px;
+    align-items: flex-start;
+    padding: 56px 0 0;
+  }
+  .rail {
+    flex: 0 0 176px;
+    position: sticky;
+    top: 24px;
+  }
+  .col {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 66ch;
+  }
+  .partno {
+    font-family: var(--sans);
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 13px;
+    letter-spacing: 0.22em;
+    color: var(--ink);
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--ink);
+  }
+  .stamp {
+    display: inline-block;
+    margin-top: 14px;
+    font-family: var(--sans);
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 12px;
+    letter-spacing: 0.15em;
+    line-height: 1;
+    padding: 7px 9px 6px;
+    transform: rotate(-1.6deg);
+  }
+  .stamp--live {
+    color: var(--spot);
+    border: 2px solid var(--spot);
+    background: var(--spot-soft);
+  }
+  .stamp--planned {
+    color: var(--ink-3);
+    border: 2px dashed var(--ink-3);
+  }
+  .note {
+    margin: 22px 0 0;
+    font-family: var(--sans);
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--ink-2);
+    border-top: 1px solid var(--rule);
+    padding-top: 10px;
+  }
+  .note b {
+    display: block;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-size: 11px;
+    color: var(--ink-3);
+    margin-bottom: 4px;
+  }
+  .note--caution b {
+    color: var(--spot);
+  }
+
+  h2 {
+    font-family: var(--sans);
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: clamp(29px, 4.4vw, 44px);
+    line-height: 1.02;
+    letter-spacing: -0.012em;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 14px;
+    letter-spacing: 0.17em;
+    color: var(--ink-2);
+    margin: 38px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .deck {
+    font-family: var(--sans);
+    font-size: 16px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--spot);
+    margin: 0 0 22px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+  }
+  .col p {
+    margin: 0 0 16px;
+  }
+  .col p.lead {
+    font-size: 19.5px;
+    line-height: 1.55;
+  }
+  .col strong {
+    font-weight: 600;
+  }
+  .k {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--paper-2);
+    padding: 1px 5px;
+    border: 1px solid var(--rule-2);
+    white-space: nowrap;
+  }
+
+  /* ---------- serviceability ---------- */
+  .serv {
+    border-top: 2px solid var(--ink);
+    margin-top: 26px;
+  }
+  .serv__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 24px;
+    align-items: center;
+    padding: 15px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .serv__ttl {
+    font-family: var(--sans);
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 15.5px;
+    letter-spacing: 0.06em;
+    line-height: 1.25;
+  }
+  .serv__ttl small {
+    display: block;
+    font-family: var(--serif);
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 14.5px;
+    color: var(--ink-2);
+    margin-top: 3px;
+  }
+  .tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 5px 8px;
+    white-space: nowrap;
+  }
+  .tag--live {
+    color: var(--spot);
+    border: 1px solid var(--spot);
+    background: var(--spot-soft);
+  }
+  .tag--planned {
+    color: var(--ink-3);
+    border: 1px dashed var(--ink-3);
+  }
+
+  /* ---------- terminal ---------- */
+  .term {
+    background: var(--screen);
+    color: var(--screen-ink);
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height: 1.72;
+    border: 1px solid var(--screen-rule);
+    margin: 22px 0;
+  }
+  .term__bar {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 14px;
+    border-bottom: 1px solid var(--screen-rule);
+    color: var(--screen-dim);
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+  .term__body {
+    padding: 14px 16px;
+    overflow-x: auto;
+  }
+  .term pre {
+    margin: 0;
+    font: inherit;
+    white-space: pre;
+  }
+  .term .pr {
+    color: var(--spot);
+  }
+  .term .cm {
+    color: var(--screen-dim);
+  }
+  .term .ok {
+    color: var(--ok);
+  }
+  .term .hi {
+    color: var(--screen-ink);
+    font-weight: 500;
+  }
+  .cur {
+    display: inline-block;
+    width: 0.62em;
+    height: 1.02em;
+    vertical-align: -0.16em;
+    background: var(--screen-ink);
+    animation: blink 1.15s steps(1, end) infinite;
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+
+  /* ---------- fleet listing ---------- */
+  .fleet {
+    font-family: var(--mono);
+    font-size: 13px;
+    margin: 22px 0;
+    border-top: 2px solid var(--ink);
+    border-bottom: 2px solid var(--ink);
+    overflow-x: auto;
+  }
+  .fleet__in {
+    min-width: 600px;
+  }
+  .fleet__r {
+    display: grid;
+    grid-template-columns: 64px 1.5fr 1fr 1.35fr;
+    gap: 16px;
+    padding: 9px 2px;
+    border-bottom: 1px solid var(--rule-2);
+    align-items: baseline;
+  }
+  .fleet__r:last-child {
+    border-bottom: 0;
+  }
+  .fleet__h {
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    border-bottom: 1px solid var(--rule);
+  }
+  .dot {
+    font-size: 11px;
+  }
+  .dot--run {
+    color: var(--ok);
+  }
+  .dot--attn {
+    color: var(--spot);
+    font-weight: 600;
+  }
+  .dot--idle {
+    color: var(--ink-3);
+  }
+  .fleet__st {
+    color: var(--ink-2);
+  }
+  .fleet__r.is-attn .fleet__st {
+    color: var(--spot);
+  }
+  .fleet__nm {
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  /* ---------- org tree ---------- */
+  .tree {
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+    border-top: 2px solid var(--ink);
+    margin: 22px 0;
+    overflow-x: auto;
+  }
+  .tree__in {
+    min-width: 580px;
+  }
+  .tree__hdr {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 10px 2px;
+    border-bottom: 1px solid var(--rule);
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .tree__who {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 14px 2px 6px;
+    font-weight: 600;
+    color: var(--ink);
+    border-bottom: 1px solid var(--rule-2);
+  }
+  .tree__who span {
+    color: var(--ink-3);
+    font-weight: 400;
+  }
+  .tree__s {
+    display: grid;
+    grid-template-columns: 20px 1.4fr 1fr 1.2fr;
+    gap: 14px;
+    padding: 6px 2px;
+    align-items: baseline;
+    border-bottom: 1px solid var(--rule-2);
+  }
+  .tree__s:last-child {
+    border-bottom: 0;
+  }
+  .tree__sub {
+    padding-left: 26px;
+    border-left: 1px solid var(--rule);
+    margin-left: 8px;
+    color: var(--ink-2);
+  }
+  .tree__sub .tree__s {
+    grid-template-columns: 20px 1.4fr 1fr 1.2fr;
+  }
+  .tree__foot {
+    padding: 10px 2px;
+    border-top: 1px solid var(--rule);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  /* ---------- tables ---------- */
+  .tbl {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 18px 0;
+    font-size: 15px;
+  }
+  .tbl th {
+    text-align: left;
+    font-family: var(--sans);
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    color: var(--ink-3);
+    padding: 0 16px 7px 0;
+    border-bottom: 1px solid var(--ink);
+  }
+  .tbl td {
+    padding: 10px 16px 10px 0;
+    border-bottom: 1px solid var(--rule-2);
+    vertical-align: top;
+  }
+  .tbl td:first-child {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  .tbl td:last-child,
+  .tbl th:last-child {
+    padding-right: 0;
+  }
+  .tblwrap {
+    overflow-x: auto;
+  }
+
+  /* ---------- rule / closing ---------- */
+  .brk {
+    border: 0;
+    border-top: 1px solid var(--rule);
+    margin: 64px 0 0;
+  }
+  .ask {
+    padding: 60px 0 0;
+  }
+  .ask h2 {
+    font-size: clamp(30px, 5vw, 52px);
+  }
+  .ask .col {
+    max-width: 60ch;
+  }
+  .colophon {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 26px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    padding: 16px 0 60px;
+    border-top: 1px solid var(--rule);
+    margin-top: 34px;
+  }
+
+  @media (max-width: 900px) {
+    .part {
+      display: block;
+      padding-top: 44px;
+    }
+    .rail {
+      position: static;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px 18px;
+      margin-bottom: 22px;
+    }
+    .partno {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+    .stamp {
+      margin-top: 0;
+    }
+    .note {
+      flex: 1 1 100%;
+      margin-top: 4px;
+    }
+    .col {
+      max-width: none;
+    }
+    body {
+      font-size: 16px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .cur {
+      animation: none;
+    }
+  }
+</style>
+
+<div class="sheet">
+  <div class="form">
+    <span><b>Form</b> WK-1</span>
+    <span><b>Issue</b> One</span>
+    <span><b>Supersedes</b> Nothing</span>
+    <span><b>Holder</b> The operator</span>
+    <span><b>Sections</b> Three, of which one is in service</span>
+  </div>
+
+  <header class="masthead">
+    <h1 class="wordmark">werk<span>.</span></h1>
+    <p class="masthead__sub">
+      Field manual for dispatching work to machines you are not sitting at
+    </p>
+    <p class="masthead__lede">
+      werk starts a process somewhere and lets you
+      <em>come back to it later.</em>
+    </p>
+  </header>
+
+  <figure class="plate">
+    <img
+      src="{{COVER}}"
+      alt="A workbench at night: a shut laptop, a small desktop machine with an amber status light, a torch beam across a thumbed booklet, and a monitor of dense terminal text glowing behind."
+    />
+    <figcaption>
+      <span class="plate__n">Plate 1</span>
+      <span class="plate__t"
+        >The bench at 02:40. The lid is down and the operator has gone to bed.
+        The machine beside it has not.</span
+      >
+    </figcaption>
+  </figure>
+
+  <section class="part">
+    <div class="rail">
+      <div class="partno">Section 0</div>
+      <p class="note">
+        <b>Note</b>One binary. No runtime on the far machine, no package
+        manager, no <span class="k">git</span> at the other end. werk copies
+        itself over the ssh connection it already has.
+      </p>
+    </div>
+    <div class="col">
+      <p class="deck">General description</p>
+      <h2>What you are holding</h2>
+      <p class="lead">
+        You are running a lot of long-lived, half-autonomous processes. Mostly
+        coding agents. Each one wants a terminal, wants an hour or four, wants
+        its own copy of the repository on its own branch, and every so often
+        wants you.
+      </p>
+      <p>
+        Today the terminal comes from <span class="k">tmux</span>, the branch
+        from <span class="k">git worktree</span>, and the machine from ssh and
+        hope. None of the three knows the other two exist, and none of them
+        knows there are eleven of these running.
+      </p>
+      <p>
+        werk is the one tool for all of it. It finds somewhere for the work to
+        happen — the mini on the desk, a VPS, a container it builds on the spot,
+        the cluster you already run — puts your code there on a fresh branch,
+        hands you a terminal that outlives your laptop, and then shows you every
+        one of those, across every machine, in one list you can open from a
+        terminal or a browser.
+      </p>
+      <p>
+        The two universal interfaces to a repository, for people and for agents
+        alike, are <strong>the terminal</strong> and <strong>git</strong>. werk
+        exists to make both trivially easy to reach from wherever you happen to
+        be.
+      </p>
+
+      <h3>Serviceability</h3>
+      <p>
+        This manual covers three operations. One is in service now. Two are
+        drawn and not yet built, and are marked as such wherever they appear.
+      </p>
+      <div class="serv">
+        <div class="serv__row">
+          <div class="serv__ttl">
+            One &mdash; On your own<small
+              >Dispatch a session to another machine, shut the laptop, come back
+              to it.</small
+            >
+          </div>
+          <div class="tag tag--live">In service</div>
+        </div>
+        <div class="serv__row">
+          <div class="serv__ttl">
+            Two &mdash; Two of you in one terminal<small
+              >Hand a colleague a live link to a session and both be in
+              it.</small
+            >
+          </div>
+          <div class="tag tag--planned">Planned</div>
+        </div>
+        <div class="serv__row">
+          <div class="serv__ttl">
+            Three &mdash; The whole company on one page<small
+              >Every agent session in the organisation, and every subagent under
+              them.</small
+            >
+          </div>
+          <div class="tag tag--planned">Planned</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <figure class="plate">
+    <img
+      src="{{D2_MACHINES}}"
+      alt="A steel shelf of mismatched computers — a small desktop machine, a bare single-board computer, a slim server chassis — wired together, lit from one side by a work torch."
+    />
+    <figcaption>
+      <span class="plate__n">Plate 2</span>
+      <span class="plate__t"
+        >Placement is a parameter, not an architecture. The same command and the
+        same list, whether the work runs on your own disk, on a box you can ssh
+        to, or in a container werk built ten seconds ago.</span
+      >
+    </figcaption>
+  </figure>
+
+  <section class="part">
+    <div class="rail">
+      <div class="partno">Part One</div>
+      <div class="stamp stamp--live">In service</div>
+      <p class="note">
+        <b>Note</b>Bare <span class="k">werk</span> is the most-typed command in
+        the product. It prints and exits, like <span class="k">ls</span>. Its
+        latency budget is the tightest constraint in the design.
+      </p>
+      <p class="note note--caution">
+        <b>Caution</b>A workspace destroyed with unpushed commits inside it is a
+        catastrophic bug, not an edge case.
+        <span class="k">werk rm</span> refuses when work would be lost.
+      </p>
+    </div>
+    <div class="col">
+      <p class="deck">Operation one &mdash; single operator</p>
+      <h2>Send it somewhere and walk away</h2>
+      <p class="lead">
+        The first time, you are on your own, and it takes one command.
+      </p>
+      <p>
+        <span class="k">werk create</span> picks a placement, builds it if it is
+        not there, seeds your repository onto a fresh branch and drops you into
+        a terminal on the far side. The prompt you land on is not your laptop's.
+      </p>
+
+      <div class="term">
+        <div class="term__bar">
+          <span>Local terminal &mdash; your laptop</span><span>1 of 3</span>
+        </div>
+        <div class="term__body">
+          <pre><span class="pr">$</span> <span class="hi">werk create --on bigbox</span>
+<span class="cm">  Created workspace 'affectionate-badgers-writing'</span>
+<span class="cm">  · ssh:bigbox</span>
+<span class="cm">  · branch werk/affectionate-badgers-writing off main</span>
+<span class="cm">  · 1.2 GiB repository seeded in 3.4s</span>
+<span class="cm">  · attaching…</span></pre>
+        </div>
+      </div>
+
+      <p>
+        Then you start the agent. werk has no opinion about which one: Claude
+        Code, Codex, Gemini CLI, Aider. They are command-line programs, and
+        holding command-line programs is the entire trick.
+      </p>
+
+      <div class="term">
+        <div class="term__bar">
+          <span>Inside the session &mdash; bigbox</span><span>2 of 3</span>
+        </div>
+        <div class="term__body">
+          <pre><span class="pr">badgers ~/repo</span> <span class="hi">$ claude</span>
+<span class="ok">&gt;</span> pull the billing module apart so payments and invoices
+  stop sharing state, then make the tests pass
+
+<span class="cm">  Reading src/billing/… (114 files)</span>
+<span class="cm">  ^\ detached — session still running</span></pre>
+        </div>
+      </div>
+
+      <p>
+        <strong>Ctrl-\ and you are out.</strong> Not stopped, out. The agent
+        carries on talking to a terminal that is still there; you are somewhere
+        else.
+      </p>
+      <p>
+        Now shut the lid. Get on a train. The wifi drops, the router reboots,
+        the laptop sleeps for four hours in a bag. None of that reaches the
+        process, because none of it is where the process is.
+      </p>
+    </div>
+  </section>
+
+  <figure class="plate">
+    <img
+      src="{{P1_DISPATCH}}"
+      alt="Over the shoulder of someone at a desk at dusk, hands on a keyboard in front of a terminal-filled laptop, with a small machine glowing on a shelf across the room."
+    />
+    <figcaption>
+      <span class="plate__n">Plate 3</span>
+      <span class="plate__t"
+        >Dispatch. You type on the laptop; the work happens on the shelf across
+        the room, on a branch of its own, in a terminal that belongs to neither
+        of you.</span
+      >
+    </figcaption>
+  </figure>
+
+  <figure class="plate">
+    <img
+      src="{{P2_UNATTENDED}}"
+      alt="A closed laptop on a dark kitchen table at night, chair pushed back, with a single machine still glowing through a doorway in the background."
+    />
+    <figcaption>
+      <span class="plate__n">Plate 4</span>
+      <span class="plate__t"
+        >Four hours later. Nothing is attached to the session and the session
+        does not care. This is the promise the whole product is built on, and
+        the one that must never regress.</span
+      >
+    </figcaption>
+  </figure>
+
+  <section class="part">
+    <div class="rail">
+      <div class="partno">
+        Part One <span style="color: var(--ink-3)">cont.</span>
+      </div>
+      <p class="note">
+        <b>Note</b>Prefix matching throughout.
+        <span class="k">werk attach affec</span> is enough; nobody types the
+        whole name.
+      </p>
+      <p class="note">
+        <b>Note</b><span class="k">werk create --no-repo</span> for a scratch
+        box with no branch and no seeding. The repository is a strong default,
+        not a requirement.
+      </p>
+    </div>
+    <div class="col">
+      <h3>Coming back</h3>
+      <p>
+        Open the laptop and type <span class="k">werk</span>. One line per
+        session, across every machine you have told it about, sorted so the ones
+        that want you are at the top.
+      </p>
+
+      <div class="fleet">
+        <div class="fleet__in">
+          <div class="fleet__r fleet__h">
+            <div>STATUS</div>
+            <div>WORKSPACE</div>
+            <div>WHERE</div>
+            <div>DOING</div>
+          </div>
+          <div class="fleet__r is-attn">
+            <div class="dot dot--attn">◆</div>
+            <div class="fleet__nm">sleepy-otters-counting</div>
+            <div>ssh:bigbox</div>
+            <div class="fleet__st">claude &mdash; asked a question</div>
+          </div>
+          <div class="fleet__r">
+            <div class="dot dot--run">●</div>
+            <div class="fleet__nm">affectionate-badgers-writing</div>
+            <div>ssh:bigbox</div>
+            <div class="fleet__st">claude &mdash; running 4h 12m</div>
+          </div>
+          <div class="fleet__r">
+            <div class="dot dot--run">●</div>
+            <div class="fleet__nm">brave-herons-planning</div>
+            <div>docker:local</div>
+            <div class="fleet__st">codex &mdash; running 26m</div>
+          </div>
+          <div class="fleet__r">
+            <div class="dot dot--idle">○</div>
+            <div class="fleet__nm">quiet-martens-reading</div>
+            <div>local</div>
+            <div class="fleet__st">zsh &mdash; idle 2h</div>
+          </div>
+          <div class="fleet__r">
+            <div class="dot dot--run">●</div>
+            <div class="fleet__nm">scratch</div>
+            <div>ssh:bigbox</div>
+            <div class="fleet__st">tail -f &mdash; running 3d</div>
+          </div>
+        </div>
+      </div>
+
+      <p>
+        Two questions, and the list answers only those two:
+        <strong>which of these needs me</strong>, and
+        <strong>what is that one doing right now</strong>.
+      </p>
+
+      <div class="term">
+        <div class="term__bar">
+          <span>Local terminal &mdash; back at your desk</span
+          ><span>3 of 3</span>
+        </div>
+        <div class="term__body">
+          <pre><span class="pr">$</span> <span class="hi">werk attach affec</span>
+<span class="cm">  … 4h 12m of scrollback, exactly as you left it</span>
+<span class="ok">&gt;</span> tests pass. 41 files changed on werk/affectionate-badgers-writing.
+  want me to open the PR?
+<span class="cur"></span></pre>
+        </div>
+      </div>
+
+      <p>
+        Not a redraw. The real terminal state, colours, cursor position and
+        scrollback, restored from a snapshot of what the screen actually was.
+        Nothing about the last four hours is missing.
+      </p>
+      <p>
+        Then <span class="k">werk pull affec</span> and the commits are in your
+        local repository. werk made the branch, werk got the code out there,
+        werk brings the work back. You never
+        <span class="k">git remote add</span> a container.
+      </p>
+
+      <h3>Or do all of that in a browser</h3>
+      <p>
+        <span class="k">werk serve</span> runs on your own machine, aggregates
+        every placement and serves one page: every session on every machine,
+        live, as a grid of terminals you can type into. It is on your phone if
+        your phone is on the same wifi. It is opt-in, loopback by default, and
+        it prints a one-time token when it starts.
+      </p>
+      <p>
+        That is the product as it stands. Everything above this line works
+        today.
+      </p>
+    </div>
+  </section>
+
+  <figure class="plate">
+    <img
+      src="{{D3_PLATE}}"
+      alt="An exploded ink diagram of an armoured cable and its connector, printed on aged paper with a faint second impression, leader lines running out into blank margin."
+    />
+    <figcaption>
+      <span class="plate__n">Plate 5</span>
+      <span class="plate__t"
+        >The remaining two sections cover work that is specified and not yet
+        built.</span
+      >
+    </figcaption>
+  </figure>
+
+  <section class="part">
+    <div class="rail">
+      <div class="partno">Part Two</div>
+      <div class="stamp stamp--planned">Planned</div>
+      <p class="note">
+        <b>Note</b>Read-only viewing of your own sessions exists today:
+        <span class="k">werk attach --read-only</span>. What is missing is a
+        link that reaches someone who is not you.
+      </p>
+    </div>
+    <div class="col">
+      <p class="deck">Operation two &mdash; two operators, one terminal</p>
+      <h2>Hand someone the live one</h2>
+      <p class="lead">
+        Everything so far assumes one person's fleet. The next thing werk should
+        do is let there be two of you in it.
+      </p>
+      <p>
+        A session has got somewhere interesting, or somewhere bad. You want a
+        colleague in there — not a screenshot, not the last forty lines pasted
+        into a channel, and not a recording. The live terminal, moving, with a
+        cursor they can put their hands on.
+      </p>
+
+      <div class="term">
+        <div class="term__bar">
+          <span>Planned &mdash; not yet built</span><span>Sharing</span>
+        </div>
+        <div class="term__body">
+          <pre><span class="pr">$</span> <span class="hi">werk share sleepy-otters --write</span>
+<span class="cm">  https://werk.link/s/7Q2H-KDVN</span>
+<span class="cm">  writable · expires in 2h · revoke with `werk unshare sleepy-otters`</span></pre>
+        </div>
+      </div>
+
+      <p>
+        You send the link. They open it and they are in, in a browser, on the
+        same screen you are looking at, watching the same output arrive.
+        Read-only unless you say otherwise, revoked the moment you are done, and
+        gone on its own if you forget.
+      </p>
+      <p>
+        This is the point at which werk needs somewhere a link can point — a
+        rendezvous both of you can reach, rather than a port on your laptop.
+        That same piece is what puts the fleet on your phone from another
+        continent, which is why the two are drawn together and built together.
+      </p>
+    </div>
+  </section>
+
+  <figure class="plate">
+    <img
+      src="{{P3_SHARED}}"
+      alt="Two desks in two rooms seen through a partition, each with a screen showing the same dense terminal; one person types, the other leans in and watches."
+    />
+    <figcaption>
+      <span class="plate__n">Plate 6</span>
+      <span class="plate__t"
+        >Two rooms, one session. <strong>Planned, not yet built</strong> &mdash;
+        the sharing link and the hosted rendezvous behind it are specified and
+        unwritten.</span
+      >
+    </figcaption>
+  </figure>
+
+  <section class="part">
+    <div class="rail">
+      <div class="partno">Part Three</div>
+      <div class="stamp stamp--planned">Planned</div>
+      <p class="note">
+        <b>Note</b>An agent that dispatches five more of itself is five more
+        terminals. Today nobody in the building can see them, including the
+        person who started it.
+      </p>
+    </div>
+    <div class="col">
+      <p class="deck">Operation three &mdash; the organisation</p>
+      <h2>Every session in the building</h2>
+      <p class="lead">
+        Once a session can be shared, the fleet stops belonging to one person.
+      </p>
+      <p>
+        The third operation is a single view of every agent session in the
+        organisation. Each person, the sessions they have running, and the
+        subagents those sessions have spawned — down as many levels as they go.
+        Open any row and you are on its live terminal.
+      </p>
+
+      <div class="tree">
+        <div class="tree__in">
+          <div class="tree__hdr">
+            <span>Organisation &mdash; live sessions</span
+            ><span>Planned view</span>
+          </div>
+
+          <div class="tree__who">
+            <span>dana.k</span><span>4 sessions · 3 subagents</span>
+          </div>
+          <div class="tree__s">
+            <span class="dot dot--attn">◆</span
+            ><span class="fleet__nm">checkout-rewrite</span
+            ><span>ssh:bigbox</span
+            ><span class="fleet__st" style="color: var(--spot)"
+              >claude &mdash; needs you</span
+            >
+          </div>
+          <div class="tree__sub">
+            <div class="tree__s">
+              <span class="dot dot--run">●</span><span>migration-writer</span
+              ><span>subagent</span><span class="fleet__st">running 9m</span>
+            </div>
+            <div class="tree__s">
+              <span class="dot dot--run">●</span><span>test-runner</span
+              ><span>subagent</span><span class="fleet__st">running 4m</span>
+            </div>
+          </div>
+          <div class="tree__s">
+            <span class="dot dot--run">●</span
+            ><span class="fleet__nm">invoice-backfill</span
+            ><span>docker:local</span
+            ><span class="fleet__st">codex &mdash; running 1h 03m</span>
+          </div>
+
+          <div class="tree__who">
+            <span>mo.a</span><span>2 sessions · 1 subagent</span>
+          </div>
+          <div class="tree__s">
+            <span class="dot dot--run">●</span
+            ><span class="fleet__nm">search-reindex</span
+            ><span>k8s:eu-west</span
+            ><span class="fleet__st">claude &mdash; running 22m</span>
+          </div>
+          <div class="tree__sub">
+            <div class="tree__s">
+              <span class="dot dot--run">●</span><span>corpus-splitter</span
+              ><span>subagent</span><span class="fleet__st">running 18m</span>
+            </div>
+          </div>
+          <div class="tree__s">
+            <span class="dot dot--idle">○</span
+            ><span class="fleet__nm">flaky-e2e-hunt</span
+            ><span>ssh:runner-04</span
+            ><span class="fleet__st">zsh &mdash; idle 40m</span>
+          </div>
+
+          <div class="tree__who">
+            <span>priya.n</span><span>5 sessions · 9 subagents</span>
+          </div>
+          <div class="tree__s">
+            <span class="dot dot--run">●</span
+            ><span class="fleet__nm">android-release-cut</span
+            ><span>ssh:mac-mini-2</span
+            ><span class="fleet__st">aider &mdash; running 3h 44m</span>
+          </div>
+          <div class="tree__s">
+            <span class="dot dot--attn">◆</span
+            ><span class="fleet__nm">schema-audit</span
+            ><span>docker@build-01</span
+            ><span class="fleet__st" style="color: var(--spot)"
+              >claude &mdash; needs you</span
+            >
+          </div>
+
+          <div class="tree__foot">
+            41 sessions live · 12 people · 6 placements · 4 waiting on a person
+          </div>
+        </div>
+      </div>
+
+      <p>
+        What that answers, and nothing currently answers: how much is actually
+        running right now, which of it is stuck waiting on a human, where the
+        compute went, and what the agent three levels down is doing in your
+        repository.
+      </p>
+      <p>
+        And it answers it the same way as everything else in werk — by opening
+        the terminal. Not a log shipped somewhere and parsed after the fact. The
+        session, as it is this second, at whatever depth it sits.
+      </p>
+    </div>
+  </section>
+
+  <figure class="plate">
+    <img
+      src="{{P4_FLEET}}"
+      alt="A dim operations room with a large wall display covered edge to edge in a dense grid of small live terminal panes, a person standing small in front of it."
+    />
+    <figcaption>
+      <span class="plate__n">Plate 7</span>
+      <span class="plate__t"
+        >The organisation's fleet on one board, every pane a terminal you can
+        open. <strong>Planned, not yet built.</strong></span
+      >
+    </figcaption>
+  </figure>
+
+  <hr class="brk" />
+
+  <section class="part">
+    <div class="rail">
+      <div class="partno">Appendix</div>
+      <p class="note">
+        <b>Note</b>Meaning is built on structured signals, never on scraping the
+        rendered screen. Anything heuristic is labelled heuristic.
+      </p>
+    </div>
+    <div class="col">
+      <p class="deck">Reference</p>
+      <h2>How it holds any agent</h2>
+      <p>
+        There is no per-agent integration and no plugin per vendor. werk reads
+        the signals a well-behaved terminal program already emits, which means
+        an agent released next month works on the day you install it, with no
+        werk release in between.
+      </p>
+      <div class="tblwrap">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Signal</th>
+              <th>What werk takes from it</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>BEL</td>
+              <td>
+                The program rang. Oldest attention signal there is, and still
+                the most common.
+              </td>
+            </tr>
+            <tr>
+              <td>OSC 9 · OSC 777</td>
+              <td>
+                A desktop notification with a body. This is how &ldquo;needs
+                you&rdquo; usually arrives.
+              </td>
+            </tr>
+            <tr>
+              <td>OSC 9;4</td>
+              <td>
+                Progress state and percentage, for the ones that report it.
+              </td>
+            </tr>
+            <tr>
+              <td>OSC 133</td>
+              <td>
+                Command boundaries and exit status. Where one command ended and
+                whether it worked.
+              </td>
+            </tr>
+            <tr>
+              <td>OSC 7</td>
+              <td>
+                The working directory, so werk knows where the session actually
+                is.
+              </td>
+            </tr>
+            <tr>
+              <td>Process exit</td>
+              <td>It finished, and with what code.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The same floor means
+        <span class="k">werk create --run 'npm run dev'</span> is as good a
+        citizen as <span class="k">werk create --run claude</span>.
+      </p>
+
+      <h3>Where work can run</h3>
+      <div class="tblwrap">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Placement</th>
+              <th>What it is</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>local</td>
+              <td>Your own disk, in the repository or a worktree of it.</td>
+            </tr>
+            <tr>
+              <td>ssh:&lt;host&gt;</td>
+              <td>Any machine in your ssh config. werk puts itself there.</td>
+            </tr>
+            <tr>
+              <td>docker</td>
+              <td>A container werk builds on your machine.</td>
+            </tr>
+            <tr>
+              <td>docker@host</td>
+              <td>A container werk builds on someone else's.</td>
+            </tr>
+            <tr>
+              <td>k8s, cloud</td>
+              <td>
+                The cluster you already run, and provider sandboxes. Later.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Change the default in config and every subsequent
+        <span class="k">werk create</span> lands somewhere else, without
+        changing a single habit. Start local, get serious, move it to a big box.
+      </p>
+
+      <h3>The commands you will actually type</h3>
+      <div class="tblwrap">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Command</th>
+              <th>Does</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>werk</td>
+              <td>Print the fleet and exit.</td>
+            </tr>
+            <tr>
+              <td>werk create</td>
+              <td>
+                Provision, seed, branch, attach. Everything else is a flag on
+                this.
+              </td>
+            </tr>
+            <tr>
+              <td>werk attach &lt;name&gt;</td>
+              <td>
+                Get inside a session. <span class="k">--read-only</span> to
+                watch without the risk.
+              </td>
+            </tr>
+            <tr>
+              <td>werk ui</td>
+              <td>The fleet as a terminal UI, with live previews.</td>
+            </tr>
+            <tr>
+              <td>werk serve</td>
+              <td>The fleet as a web page, on your own machine.</td>
+            </tr>
+            <tr>
+              <td>werk diff · pull</td>
+              <td>What has this workspace done, and bring its branch home.</td>
+            </tr>
+            <tr>
+              <td>werk watch</td>
+              <td>
+                Block until something needs you. The scriptable notification.
+              </td>
+            </tr>
+            <tr>
+              <td>werk ls --json</td>
+              <td>
+                Every read command has one. werk composes with what you already
+                have.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <hr class="brk" />
+
+  <section class="part ask">
+    <div class="rail">
+      <div class="partno">Closing</div>
+    </div>
+    <div class="col">
+      <h2>What is being asked for</h2>
+      <p class="lead">
+        Part One is real and you can put an agent on another machine with it
+        this afternoon.
+      </p>
+      <p>
+        It is also the hard part. A detachable terminal session that survives
+        the laptop closing, the network dropping and the client dying — on a
+        machine nobody is sitting at, with the repository on its own branch and
+        the commits coming home — is most of the engineering, and it is done.
+      </p>
+      <p>
+        Parts Two and Three are the same piece of work twice: somewhere a link
+        can point. Give a session a public address and a permission on it, and
+        sharing is a link you send to one person and the company view is the
+        same list with more than one name in it. The sessions, the fleet, the
+        terminals and the machine-spanning are already built.
+      </p>
+      <p>
+        <strong>That address is what is being asked for.</strong> Everything on
+        this page after it follows.
+      </p>
+    </div>
+  </section>
+
+  <figure class="plate">
+    <img
+      src="{{D4_CLOSING}}"
+      alt="A thin stapled booklet lying closed on a scuffed workbench with an oily thumbprint on the cover, a switched-off torch beside it, one shaft of warm light across it."
+    />
+    <figcaption>
+      <span class="plate__n">Plate 8</span>
+      <span class="plate__t">End of manual.</span>
+    </figcaption>
+  </figure>
+
+  <div class="colophon">
+    <span>Form WK-1 · Issue One</span>
+    <span>Sections in service: 1 of 3</span>
+    <span>Set in IBM Plex</span>
+    <span>British spelling throughout</span>
+  </div>
+</div>
