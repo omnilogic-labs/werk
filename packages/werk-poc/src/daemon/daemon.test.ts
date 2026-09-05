@@ -137,6 +137,113 @@ test("two clients attached at once both receive output; read-only input is ignor
   await client.kill(id, "SIGKILL");
 });
 
+test("two writers share one input stream and both see the resulting screen", async () => {
+  const { id } = await client.run({
+    argv: [
+      process.execPath,
+      "-e",
+      `
+      process.stdin.setRawMode(true);
+      let input = "";
+      process.stdin.on("data", bytes => {
+        input += bytes.toString();
+        if (input.length === 8) console.log("received:" + input);
+      });
+      console.log("READY");
+    `,
+    ],
+  });
+  const a = new Capture(client);
+  const b = new Capture(await another());
+  try {
+    await a.attach(id);
+    await b.attach(id);
+    expect(
+      await waitFor(
+        () => a.all.includes("READY") && b.all.includes("READY"),
+        3000,
+      ),
+    ).toBe(true);
+    // No ownership handoff or lock. The daemon orders the two connections;
+    // either ordering is valid, but each writer's bytes must arrive once.
+    a.att.input("left");
+    b.att.input("rite");
+    expect(
+      await waitFor(() => {
+        const first = gridOfCapture(a).rows.find((row) =>
+          row.startsWith("received:"),
+        );
+        const second = gridOfCapture(b).rows.find((row) =>
+          row.startsWith("received:"),
+        );
+        return (
+          (first === "received:leftrite" || first === "received:riteleft") &&
+          first === second
+        );
+      }, 3000),
+    ).toBe(true);
+    expect((await agreesWithDaemon(client, id, a)).detail).toBe("");
+    expect((await agreesWithDaemon(client, id, b)).detail).toBe("");
+  } finally {
+    await a.att?.detach();
+    await b.att?.detach();
+    await client.kill(id, "SIGKILL");
+  }
+});
+
+test("invalid dimensions are rejected without changing a session or its attachment", async () => {
+  const { id } = await client.run({
+    argv: [
+      process.execPath,
+      "-e",
+      'console.log("still here"); setInterval(() => {}, 1000)',
+    ],
+  });
+  const cap = new Capture(client);
+  await cap.attach(id);
+  const other = await another();
+  const badSizes = [
+    [0, 24],
+    [-1, 24],
+    [80, 0],
+    [80, 1.5],
+    [NaN, 24],
+    [Infinity, 24],
+    [65535, 65535],
+    [4097, 1],
+    [1024, 1024],
+  ];
+  try {
+    for (const [cols, rows] of badSizes) {
+      await expect(cap.att.resize(cols!, rows!)).rejects.toMatchObject({
+        code: "bad-request",
+      });
+      await expect(
+        other.attach(id, { cols: cols!, rows: rows! }),
+      ).rejects.toMatchObject({ code: "bad-request" });
+      await expect(
+        other.run({ argv: [process.execPath, "-e", ""], cols, rows }),
+      ).rejects.toMatchObject({ code: "bad-request" });
+    }
+    expect(
+      await waitFor(
+        async () => (await client.screen(id)).text.includes("still here"),
+        3000,
+      ),
+    ).toBe(true);
+    expect(await client.screen(id)).toMatchObject({ cols: 80, rows: 24 });
+    expect((await client.ls()).find((s) => s.id === id)?.attachedClients).toBe(
+      1,
+    );
+    await cap.att.resize(100, 30);
+    expect(await client.screen(id)).toMatchObject({ cols: 100, rows: 30 });
+    expect(client.daemon.pid).toBe(pid);
+  } finally {
+    await cap.att.detach();
+    await client.kill(id, "SIGKILL");
+  }
+});
+
 test("ls shows the title after an OSC 2, and the pwd after an OSC 7", async () => {
   const { id } = await client.run({
     argv: sh(

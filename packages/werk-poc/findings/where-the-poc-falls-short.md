@@ -6,7 +6,8 @@ pseudo-terminal, keeping it alive, and letting a person come back to it from a
 terminal or a browser. Workspaces, git and machine provisioning are not part of
 the proof of concept and are not treated as gaps here.
 
-Every claim below was re-checked on 2026-09-03 by running the code. The results
+The broad verification below was run on 2026-09-03. Focused persistence and
+dimension checks are recorded in [library-readiness.md](./library-readiness.md). The results
 are in [How this was checked](#how-this-was-checked). The rest of `findings/`
 records what each milestone measured; this file records what is missing, what is
 broken, and what nobody has measured yet.
@@ -132,7 +133,7 @@ for comparison testing. Or refuse to start a session on an engine that cannot
 save, unless the caller asks for that. Or record such a session in the list as
 explicitly unsaveable, so that its disappearance is not silent.
 
-### 3. Saved state can be up to thirty seconds old, and only a clean shutdown is tested
+### 3. Saved state can be up to thirty seconds old
 
 **What happens.** Snapshots are written on a thirty-second timer, when the child
 exits, and during a graceful shutdown. A daemon killed with `SIGKILL`, stopped
@@ -141,8 +142,10 @@ to thirty seconds stale. There is no log of raw output behind the snapshot to
 fill the gap.
 
 **Evidence.** `server.ts` sets `DEFAULT_SNAPSHOT_INTERVAL_MS` to 30,000. The
-tests exercise the timer, the child exit and `SIGTERM`. No test kills the daemon
-abruptly.
+tests exercise the timer, the child exit and graceful shutdown.
+`snapshot-recovery.test.ts` also forcibly terminates the daemon and checks the
+last checkpoint returns unchanged as a read-only corpse. A power cut and lost
+output between checkpoints remain unmeasured.
 
 **Why it matters.** For a coding agent that has been running for an hour, thirty
 seconds of lost screen is usually harmless. For the last thirty seconds before a
@@ -175,8 +178,9 @@ such bug takes down every session on the machine.
 **Options.** Give each session its own instance, which the proposal costed at
 about 450 KiB each and which the memory measurements say there is room for. Or
 run the engine in a worker that can be restarted. Either would also remove the
-memory residue described next. Clamping the size a client is allowed to ask for
-is a small, separate fix worth making regardless.
+memory residue described next. The daemon rejects malformed dimensions and
+grids above 262,144 cells before creation, attachment or resize; this limits
+client-requested allocations but does not isolate internal handle faults.
 
 ### 5. Repeatedly creating and destroying sessions leaks a small amount of memory
 
