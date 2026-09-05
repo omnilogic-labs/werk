@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="bridge-token" content="__BRIDGE_TOKEN__" />
+    <meta name="daemon-credential" content="__DAEMON_CREDENTIAL__" />
+    <title>werk sessions</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main>
+      <h1>werk sessions</h1>
+      <p>Local owner view. Sessions continue when you close this page.</p>
+      <section>
+        <label
+          >Command argv
+          <input id="argv" value='["/bin/sh"]' spellcheck="false" /></label
+        ><label
+          >Name <input id="name" placeholder="Optional session name" /></label
+        ><button id="create">Create</button>
+      </section>
+      <section>
+        <label
+          >Sessions
+          <select id="sessions" aria-label="Sessions"></select></label
+        ><button id="attach">Attach</button><button id="detach">Detach</button
+        ><button id="terminate">Terminate</button>
+      </section>
+      <section>
+        <label
+          >Renderer
+          <select id="renderer">
+            <option value="dom">DOM</option>
+            <option value="beamterm">Beamterm (WebGL2)</option>
+          </select></label
+        ><label
+          >Columns
+          <input id="cols" type="number" min="1" max="1000" value="80" /></label
+        ><label
+          >Rows
+          <input id="rows" type="number" min="1" max="1000" value="24" /></label
+        ><button id="resize">Resize</button>
+      </section>
+      <p id="status" role="status">Connecting…</p>
+      <div id="screen" tabindex="0" aria-label="Session terminal"></div>
+    </main>
+    <script type="module" src="./client.js"></script>
+  </body>
+</html>

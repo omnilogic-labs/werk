@@ -1,0 +1,40 @@
+import { mkdir, copyFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+const root = import.meta.dir;
+const outdir = join(root, "dist");
+await mkdir(outdir, { recursive: true });
+for (const [name, target] of [
+  ["client", "browser"],
+  ["server", "bun"],
+] as const) {
+  const result = await Bun.build({
+    entrypoints: [join(root, `src/${name}.ts`)],
+    outdir,
+    target,
+    splitting: target === "browser",
+    minify: target === "browser",
+    naming: "[name].[ext]",
+    external: target === "bun" ? ["@werk/session-daemon", "@werk/session"] : [],
+  });
+  if (!result.success)
+    throw new AggregateError(result.logs, `${name} bundle failed`);
+}
+for (const name of ["index.html", "style.css"])
+  await copyFile(join(root, "src", name), join(outdir, name));
+await copyFile(
+  fileURLToPath(import.meta.resolve("@werk/terminal/assets/terminal.wasm")),
+  join(outdir, "terminal.wasm"),
+);
+// The upstream web module references this adjacent pinned WASM. Its package has
+// no WASM export, so resolve its public entry and copy the shipped sibling.
+const beamPackage = import.meta.resolve("@werk/terminal-beamterm");
+const beamWeb = Bun.resolveSync(
+  "@beamterm/renderer/web",
+  dirname(fileURLToPath(beamPackage)),
+);
+await copyFile(
+  join(dirname(beamWeb), "beamterm_renderer_bg.wasm"),
+  join(outdir, "beamterm_renderer_bg.wasm"),
+);
+console.log(`Browser and bridge assets built in ${outdir}`);

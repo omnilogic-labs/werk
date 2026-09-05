@@ -1,0 +1,70 @@
+:root {
+  color-scheme: dark;
+  font:
+    16px system-ui,
+    sans-serif;
+  background: #11151c;
+  color: #e6edf3;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 1200px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+h1 {
+  letter-spacing: -0.04em;
+}
+section {
+  display: flex;
+  gap: 0.75rem;
+  align-items: end;
+  flex-wrap: wrap;
+  margin: 1rem 0;
+}
+label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+button,
+input,
+select {
+  font: inherit;
+  border: 1px solid #465367;
+  border-radius: 0.3rem;
+  padding: 0.5rem;
+  background: #202938;
+  color: inherit;
+}
+button {
+  cursor: pointer;
+}
+button:hover {
+  background: #33445a;
+}
+#cols,
+#rows {
+  width: 5rem;
+}
+#argv {
+  width: 20rem;
+}
+#sessions {
+  min-width: 20rem;
+}
+#status {
+  min-height: 1.5rem;
+  color: #adc0d6;
+}
+#screen {
+  background: #000;
+  width: 100%;
+  min-height: 420px;
+  height: 65vh;
+  overflow: auto;
+  outline-offset: 3px;
+  position: relative;
+}
