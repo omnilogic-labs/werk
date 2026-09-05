@@ -10,7 +10,7 @@ differences. The remaining findings do not justify replacing that architecture.
 
 The recommended next step is three private workspace packages in this repository:
 terminal state/emulation, a portable session client and contracts, and the Bun
-session host. The [packaging proposal](../../../docs/proposals/02-session-library.md)
+session daemon. The [packaging proposal](../../../docs/proposals/02-session-library.md)
 sets out their dependencies, illustrative API, and the order of implementation.
 It treats the PoC as reference material rather than a finished library API.
 
@@ -145,7 +145,7 @@ hosted run.
 | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | Does a failed attach preserve the previous subscription? | No: attaching an unknown ID is rejected and the server still has one attachment, but the previous render callback receives no repaint.               | Make attachment replacement transactional and expose its lifetime.                                                          |
 | Can an old handle affect its replacement?                | Yes: reattach to the same session, then the old handle resizes the new attachment to 93×27 and detaches it.                                          | Give handles an attachment generation, not just a session ID; reject/no-op stale operations.                                |
-| Do failed spawns disrupt another session?                | Ten invalid executable requests are rejected; the existing session stays running and there are no phantom session records.                           | The host/client boundary already contains this request failure.                                                             |
+| Do failed spawns disrupt another session?                | Ten invalid executable requests are rejected; the existing session stays running and there are no phantom session records.                           | The daemon/client boundary already contains this request failure.                                                           |
 | Is engine allocation unwound on failed spawn?            | A counting engine allocates one terminal and receives zero disposal calls when the real spawn fails.                                                 | Define ownership/cleanup during partial startup. This check measures cleanup calls, not leaked byte size.                   |
 | Does hello timeout close its socket?                     | The request times out, but the accepting TCP peer sees no closure within another 500 ms; the probe explicitly terminates it.                         | Cancellation/deadline handling must release the transport.                                                                  |
 | Does per-session WASM memory require a new terminal API? | No: two engines expose separate memories and independent screens through the existing interface. Each memory is 1,703,936 bytes in this small probe. | A session-scoped factory fits the proposed split. This is not a measurement of incremental RSS or complete fault isolation. |

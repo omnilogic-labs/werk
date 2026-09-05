@@ -167,11 +167,18 @@ previews at the same time, and lets you tab or page through the active sessions,
 is close to what you'd actually want, and is likely to get built. Where that
 stops short of being a window manager is not worked out.
 
-**Sharing and handoff.** Passing a workspace to a coworker, or two people
-watching one run. Everything currently written assumes one human's fleet —
-everything werk can reach, it reaches as _you_ — which is a convenient
-simplifying assumption for the security model rather than a position anyone has
-taken.
+**Sharing and handoff.** A live link to one of your sessions, handed to a
+colleague who sees what you see and can type if you let them; and further out,
+a team-wide view in which someone with the standing to look opens any running
+terminal. Both are wanted, both are seen through the browser, and neither is
+scheduled. What they seem to need is fairly clear already: access per session
+rather than per person, with seeing that a session exists, reading it and typing
+into it as three different permissions; a grant that can be taken back; one
+person holding the size of a shared terminal at a time, able to pass it on; and
+nobody watched silently. Everything else currently written assumes one human's
+fleet — everything werk can reach, it reaches as _you_ — and the security model
+for going beyond that is
+[open](04-open-questions.md#17-what-is-the-web-uis-honest-threat-model).
 
 **Being the terminal you live in.** Depending on how you work, werk could end up
 being where every terminal is, rather than something you open alongside the
