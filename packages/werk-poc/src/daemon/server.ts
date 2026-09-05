@@ -68,6 +68,28 @@ export interface ServerOptions {
 
 export const DEFAULT_SNAPSHOT_INTERVAL_MS = 30_000;
 
+// PoC allocation budget, not a PTY or emulator capability limit. Validate
+// before touching either: every session currently shares the WASM allocator.
+const MAX_TERMINAL_DIMENSION = 4096;
+const MAX_TERMINAL_CELLS = 262_144;
+
+function validateSize(cols: number, rows: number): void {
+  if (
+    !Number.isInteger(cols) ||
+    !Number.isInteger(rows) ||
+    cols < 1 ||
+    rows < 1 ||
+    cols > MAX_TERMINAL_DIMENSION ||
+    rows > MAX_TERMINAL_DIMENSION ||
+    cols * rows > MAX_TERMINAL_CELLS
+  ) {
+    throw new ProtocolError(
+      "bad-request",
+      `terminal dimensions must be positive integers up to ${MAX_TERMINAL_DIMENSION}, with at most ${MAX_TERMINAL_CELLS} cells`,
+    );
+  }
+}
+
 export function helloInfo(): HelloInfo {
   return { protocol: PROTOCOL_VERSION, wp: WP_VERSION, engine: GHOSTTY_COMMIT };
 }
@@ -120,15 +142,27 @@ export async function startServer(
   function snapshot(s: Session, why: keyof SnapshotStats["written"]): boolean {
     if (s.status === "corpse") return false;
     const at = Date.now();
-    const snap = s.snapshot();
+    const snap = s.encode();
     if (!snap) return false;
     const t0 = performance.now();
-    const size = writeSnapshot(
-      paths.state,
-      s.snapshotHeader(GHOSTTY_COMMIT, at),
-      snap.bytes,
-    );
+    let size: number;
+    try {
+      size = writeSnapshot(
+        paths.state,
+        s.snapshotHeader(GHOSTTY_COMMIT, at),
+        snap.bytes,
+      );
+    } catch (e) {
+      // Keep the previous checkpoint and retry even if no more output comes.
+      // One failed write must not interrupt other sessions or shutdown cleanup.
+      s.dirty = true;
+      log(
+        `snapshot ${s.id} (${why}): write failed, pending retry: ${String(e)}`,
+      );
+      return false;
+    }
     const writeMs = performance.now() - t0;
+    s.dirty = false;
     s.snapshotAt = at;
     snapStats.written[why]++;
     if (!snapStats.slowest || snap.encodeMs > snapStats.slowest.encodeMs)
@@ -232,6 +266,7 @@ export async function startServer(
   ): Promise<unknown> {
     switch (msg.t) {
       case "run": {
+        validateSize(msg.cols, msg.rows);
         // Loaded on demand; an engine that cannot load (the ffi library
         // failing to open, say) is reported with its own reason.
         const engine: VtEngine = await getEngine(msg.engine).catch((e) => {
@@ -262,6 +297,8 @@ export async function startServer(
         return { id } satisfies RunResult;
       }
       case "attach": {
+        // Reject before detaching: a bad request must preserve the current attachment.
+        validateSize(msg.cols, msg.rows);
         const s = session(msg.id);
         detach(conn);
         s.attach(conn, msg.cols, msg.rows, msg.readOnly, msg.mode ?? "vt");
@@ -291,6 +328,7 @@ export async function startServer(
         return {};
       }
       case "resize": {
+        validateSize(msg.cols, msg.rows);
         if (!conn.attached)
           throw new ProtocolError(
             "not-attached",

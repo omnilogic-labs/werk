@@ -47,8 +47,9 @@ interactive commands on top are in [`../cli/`](../cli).
   `SIGTERM`/`SIGINT`/`SIGHUP` on a POSIX system, none on Windows — they
   trigger the same graceful shutdown: every session is snapshotted to the
   state directory, then the children are killed and the process exits.
-- **Snapshot on a timer, restore on start.** Every 30 s each session whose
-  emulator has taken bytes since its last snapshot is encoded and written;
+- **Snapshot on a timer, restore on start.** Every 30 s each new session, or
+  session whose output or size has changed since its last successful snapshot,
+  is encoded and written. Failed writes are logged and retried on later ticks;
   a session is written once more when its child exits. On start every file
   in the state directory becomes a read-only `corpse` session, decoded in
   two stages (`ready()`, then history), or listed undecoded when its

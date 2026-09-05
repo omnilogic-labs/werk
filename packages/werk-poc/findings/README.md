@@ -2,7 +2,9 @@
 
 One file per milestone recording what was run and what happened, in the
 present tense. These are the PoC's output; the code is only how they were
-obtained. Three files cut across the milestones:
+obtained. Four files cut across the milestones:
+[library-readiness.md](./library-readiness.md), the local/native assessment of whether the package boundaries and rough API
+are ready, linked to the workspace-library proposal;
 [platforms.md](./platforms.md), the same suites on macOS, Windows and every
 other target Bun compiles for;
 [where-the-poc-falls-short.md](./where-the-poc-falls-short.md), what the PoC

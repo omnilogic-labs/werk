@@ -80,8 +80,8 @@ export class Session {
   rows: number;
   /** When this session's snapshot file was last written. */
   snapshotAt: number | null = null;
-  /** The emulator has consumed bytes since the last snapshot. */
-  dirty = false;
+  /** State needs saving: initially, after output, or after a resize. */
+  dirty = true;
   corpse: CorpseInfo | null = null;
   restore: RestoreStats | null = null;
   /** The last kill this session was asked for; what came of it is `status`. */
@@ -389,6 +389,7 @@ export class Session {
     this.cols = cols;
     this.rows = rows;
     this.vt?.resize(cols, rows);
+    this.dirty = true;
     if (this.status === "running") this.terminal?.resize(cols, rows);
   }
 
@@ -560,13 +561,6 @@ export class Session {
       return null;
     }
     return { bytes, encodeMs: performance.now() - t0 };
-  }
-
-  /** `encode()` as a checkpoint: clears `dirty`; the caller writes the file and sets `snapshotAt`. */
-  snapshot(): { bytes: Uint8Array; encodeMs: number } | null {
-    const snap = this.encode();
-    if (snap) this.dirty = false;
-    return snap;
   }
 
   /** The header for this session's snapshot file. */

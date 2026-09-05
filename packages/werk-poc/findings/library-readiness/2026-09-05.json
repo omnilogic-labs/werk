@@ -1,0 +1,1172 @@
+{
+  "assessed_at": "2026-09-05",
+  "assessment": "Enough evidence to begin workspace package organisation and rough API design; not a release-readiness verdict.",
+  "candidate_commit": "3c31ab7e1989a7f75acd46e67d0190a94b0f009a",
+  "local": {
+    "environment": {
+      "date": "2026-09-05T08:10:21Z",
+      "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+      "bun": "1.3.14",
+      "head": "583cad79ffa9f43639ba0387cc6623d05fa78f7e",
+      "working_tree": "Includes pre-existing uncommitted daemon and snapshot recovery changes."
+    },
+    "checks": [
+      {
+        "check": "typecheck",
+        "command": "bun run typecheck",
+        "exit_code": 0,
+        "seconds": 1.77,
+        "log": "typecheck.log"
+      },
+      {
+        "check": "test",
+        "command": "bun test",
+        "exit_code": 0,
+        "seconds": 52.41,
+        "log": "test.log"
+      },
+      {
+        "check": "build",
+        "command": "bun run build",
+        "exit_code": 0,
+        "seconds": 0.16,
+        "log": "build.log"
+      },
+      {
+        "check": "m0",
+        "command": "bun run m0",
+        "exit_code": 0,
+        "seconds": 46.98,
+        "log": "m0.log"
+      },
+      {
+        "check": "m2",
+        "command": "bun run m2",
+        "exit_code": 0,
+        "seconds": 13.63,
+        "log": "m2.log"
+      },
+      {
+        "check": "m3",
+        "command": "bun run m3",
+        "exit_code": 0,
+        "seconds": 0.82,
+        "log": "m3.log"
+      },
+      {
+        "check": "differential",
+        "command": "./dist/wp bench diff --fuzz 50",
+        "exit_code": 0,
+        "seconds": 5.99,
+        "log": "differential.log",
+        "interpretation": "Incomplete: exit zero but all 23 corpus assets missing; fuzz only."
+      },
+      {
+        "check": "perf",
+        "command": "./dist/wp bench perf --json",
+        "exit_code": 1,
+        "seconds": 0.11,
+        "log": "perf.log",
+        "interpretation": "Failed: compiled corpus asset vim.cast absent."
+      },
+      {
+        "check": "ops",
+        "command": "bun run bench/ops.ts --json",
+        "exit_code": 0,
+        "seconds": 5.84,
+        "log": "ops.log"
+      },
+      {
+        "check": "soak",
+        "command": "./dist/wp bench soak --duration 5m --interval 10s --out /tmp/werk-readiness-20260905/soak.jsonl",
+        "exit_code": 0,
+        "seconds": 300.3,
+        "log": "soak.log",
+        "interpretation": "Short smoke soak only, not 24-hour endurance or sustained session churn."
+      },
+      {
+        "check": "differential-source",
+        "command": "bun run bench/differential.ts --fuzz 50",
+        "exit_code": 0,
+        "seconds": 6.63,
+        "log": "differential-source.log"
+      },
+      {
+        "check": "perf-source",
+        "command": "bun run bench/perf.ts --json",
+        "exit_code": 0,
+        "seconds": 28.13,
+        "log": "perf-source.log"
+      }
+    ]
+  },
+  "api_boundaries": {
+    "bun": "1.3.14",
+    "platform": "linux",
+    "arch": "x64",
+    "observations": [
+      {
+        "contract": "failed attachment preserves previous subscription",
+        "holds": false,
+        "evidence": {
+          "rejected": true,
+          "receivesPaint": false,
+          "serverAttachedClients": 1
+        }
+      },
+      {
+        "contract": "stale attachment cannot mutate or detach its replacement",
+        "holds": false,
+        "evidence": {
+          "staleResizeRejected": false,
+          "cols": 93,
+          "rows": 27,
+          "remainingAttachments": 0
+        }
+      },
+      {
+        "contract": "failed spawns leave another session running and no phantom sessions",
+        "holds": true,
+        "evidence": {
+          "failed": 10,
+          "sessions": 1,
+          "status": "running"
+        }
+      },
+      {
+        "contract": "failed spawn disposes the engine terminal it allocated",
+        "holds": false,
+        "evidence": {
+          "spawnRejected": true,
+          "created": 1,
+          "disposed": 0
+        }
+      },
+      {
+        "contract": "hello timeout closes the abandoned connection",
+        "holds": false,
+        "evidence": {
+          "timedOut": true,
+          "opened": 1,
+          "closed": 0
+        }
+      },
+      {
+        "contract": "per-session engine memory fits the existing engine interface",
+        "holds": true,
+        "evidence": {
+          "separateMemory": true,
+          "memoryBytes": [1703936, 1703936]
+        }
+      }
+    ]
+  },
+  "performance_source": {
+    "bun": "1.3.14",
+    "kernel": "6.18.33.2-microsoft-standard-WSL2",
+    "cpu": "Intel(R) Core(TM) i9-14900HX",
+    "quick": false,
+    "engines": ["ghostty-wasm", "ghostty-ffi", "xterm-oracle"],
+    "loadErrors": {},
+    "throughput": [
+      {
+        "stream": "corpus (23 cases, tiled)",
+        "bytes": 4316540,
+        "size": "80×24",
+        "engine": "ghostty-wasm",
+        "best": 175.48301232955546,
+        "median": 172.38628722147848,
+        "runs": 5
+      },
+      {
+        "stream": "corpus (23 cases, tiled)",
+        "bytes": 4316540,
+        "size": "80×24",
+        "engine": "ghostty-ffi",
+        "best": 112.33825166098782,
+        "median": 111.93707439524493,
+        "runs": 5
+      },
+      {
+        "stream": "corpus (23 cases, tiled)",
+        "bytes": 4316540,
+        "size": "80×24",
+        "engine": "xterm-oracle",
+        "best": 27.548170654977586,
+        "median": 26.155882008316322,
+        "runs": 5
+      },
+      {
+        "stream": "corpus (23 cases, tiled)",
+        "bytes": 4316540,
+        "size": "200×50",
+        "engine": "ghostty-wasm",
+        "best": 176.10495855672556,
+        "median": 164.17229459686988,
+        "runs": 5
+      },
+      {
+        "stream": "corpus (23 cases, tiled)",
+        "bytes": 4316540,
+        "size": "200×50",
+        "engine": "ghostty-ffi",
+        "best": 106.78313158361127,
+        "median": 101.33137014507928,
+        "runs": 5
+      },
+      {
+        "stream": "corpus (23 cases, tiled)",
+        "bytes": 4316540,
+        "size": "200×50",
+        "engine": "xterm-oracle",
+        "best": 28.16162255765798,
+        "median": 26.936860278486854,
+        "runs": 5
+      },
+      {
+        "stream": "plain text",
+        "bytes": 4266000,
+        "size": "80×24",
+        "engine": "ghostty-wasm",
+        "best": 712.4001249893499,
+        "median": 632.2125906238049,
+        "runs": 5
+      },
+      {
+        "stream": "plain text",
+        "bytes": 4266000,
+        "size": "80×24",
+        "engine": "ghostty-ffi",
+        "best": 153.43962513599396,
+        "median": 146.25638914181104,
+        "runs": 5
+      },
+      {
+        "stream": "plain text",
+        "bytes": 4266000,
+        "size": "80×24",
+        "engine": "xterm-oracle",
+        "best": 32.06340727108148,
+        "median": 31.71602281017933,
+        "runs": 5
+      },
+      {
+        "stream": "plain text",
+        "bytes": 4266000,
+        "size": "200×50",
+        "engine": "ghostty-wasm",
+        "best": 514.4660830504511,
+        "median": 501.0026067209859,
+        "runs": 5
+      },
+      {
+        "stream": "plain text",
+        "bytes": 4266000,
+        "size": "200×50",
+        "engine": "ghostty-ffi",
+        "best": 145.80560189550832,
+        "median": 135.19922881688538,
+        "runs": 5
+      },
+      {
+        "stream": "plain text",
+        "bytes": 4266000,
+        "size": "200×50",
+        "engine": "xterm-oracle",
+        "best": 29.63123754523099,
+        "median": 29.12487358666588,
+        "runs": 5
+      },
+      {
+        "stream": "SGR-heavy",
+        "bytes": 4761820,
+        "size": "80×24",
+        "engine": "ghostty-wasm",
+        "best": 124.08332043241235,
+        "median": 114.41956428919391,
+        "runs": 5
+      },
+      {
+        "stream": "SGR-heavy",
+        "bytes": 4761820,
+        "size": "80×24",
+        "engine": "ghostty-ffi",
+        "best": 82.55607673275675,
+        "median": 81.03229833018672,
+        "runs": 5
+      },
+      {
+        "stream": "SGR-heavy",
+        "bytes": 4761820,
+        "size": "80×24",
+        "engine": "xterm-oracle",
+        "best": 29.43959239675771,
+        "median": 27.264850199421037,
+        "runs": 5
+      },
+      {
+        "stream": "SGR-heavy",
+        "bytes": 4761820,
+        "size": "200×50",
+        "engine": "ghostty-wasm",
+        "best": 125.9097556432161,
+        "median": 125.55277896491285,
+        "runs": 5
+      },
+      {
+        "stream": "SGR-heavy",
+        "bytes": 4761820,
+        "size": "200×50",
+        "engine": "ghostty-ffi",
+        "best": 52.68647217722267,
+        "median": 51.02990832725382,
+        "runs": 5
+      },
+      {
+        "stream": "SGR-heavy",
+        "bytes": 4761820,
+        "size": "200×50",
+        "engine": "xterm-oracle",
+        "best": 30.431063418582788,
+        "median": 29.397085500694434,
+        "runs": 5
+      }
+    ],
+    "latency": {
+      "iterations": 2000,
+      "bare": {
+        "n": 1800,
+        "p50": 53.667,
+        "p90": 69.384,
+        "p99": 170.044,
+        "max": 1090.317
+      },
+      "daemon": {
+        "n": 1800,
+        "p50": 92.905,
+        "p90": 117.578,
+        "p99": 837.487,
+        "max": 1471.034
+      },
+      "dtach": "not installed, and not installed for this run; the bare-PTY row is the floor"
+    },
+    "snapshot": [
+      {
+        "session": "idle shell",
+        "rows": 24,
+        "bytes": 1191,
+        "encodeMinMs": 0.030711999999766704,
+        "encodeMedianMs": 0.2406620000001567,
+        "readyMs": 2.8445199999996476,
+        "readyRows": 24,
+        "fullDecodeMs": 2.972088999999869,
+        "pages": 0,
+        "roundTrip": true
+      },
+      {
+        "session": "3,000 plain lines",
+        "rows": 1653,
+        "bytes": 12720,
+        "encodeMinMs": 0.1400999999996202,
+        "encodeMedianMs": 0.1799879999998666,
+        "readyMs": 1.147103000000243,
+        "readyRows": 1653,
+        "fullDecodeMs": 1.959711000000425,
+        "pages": 2,
+        "roundTrip": true
+      },
+      {
+        "session": "3,000 per-cell-styled lines",
+        "rows": 1653,
+        "bytes": 1077216,
+        "encodeMinMs": 0.6150119999992967,
+        "encodeMedianMs": 0.8369309999998222,
+        "readyMs": 2.107495000000199,
+        "readyRows": 1653,
+        "fullDecodeMs": 4.563310000000456,
+        "pages": 2,
+        "roundTrip": true
+      }
+    ],
+    "memory": {
+      "baseline": {
+        "rss": 65429504,
+        "wasm": null
+      },
+      "idle": [
+        {
+          "label": "1 idle sh",
+          "sessions": 1,
+          "rss": 76660736,
+          "wasm": 1769472,
+          "heapUsed": 13416485,
+          "perSession": null
+        },
+        {
+          "label": "10 idle sh",
+          "sessions": 10,
+          "rss": 82927616,
+          "wasm": 7208960,
+          "heapUsed": 18463223,
+          "perSession": 696320
+        },
+        {
+          "label": "50 idle sh",
+          "sessions": 50,
+          "rss": 118407168,
+          "wasm": 31850496,
+          "heapUsed": 68376059,
+          "perSession": 886988.8
+        }
+      ],
+      "scrollback": [
+        {
+          "label": "1 × seq (~1.0 MiB)",
+          "sessions": 1,
+          "rss": 125030400,
+          "wasm": 31850496,
+          "heapUsed": 71315081,
+          "perSession": null
+        },
+        {
+          "label": "10 × seq (~1.0 MiB)",
+          "sessions": 10,
+          "rss": 121372672,
+          "wasm": 32636928,
+          "heapUsed": 75921620,
+          "perSession": -406414.22222222225
+        },
+        {
+          "label": "50 × seq (~1.0 MiB)",
+          "sessions": 50,
+          "rss": 162967552,
+          "wasm": 82378752,
+          "heapUsed": 172807890,
+          "perSession": 1039872
+        }
+      ],
+      "scrollbackBytesPerSession": 1050000,
+      "churn": [
+        {
+          "round": 1,
+          "rss": 165732352,
+          "rssAfterGc": 165892096,
+          "wasm": 86245376,
+          "heapUsed": 183792849
+        },
+        {
+          "round": 2,
+          "rss": 167972864,
+          "rssAfterGc": 168054784,
+          "wasm": 89980928,
+          "heapUsed": 190244303
+        },
+        {
+          "round": 3,
+          "rss": 168722432,
+          "rssAfterGc": 168787968,
+          "wasm": 93257728,
+          "heapUsed": 206464591
+        }
+      ],
+      "counts": [1, 10, 50]
+    },
+    "slow": {
+      "queueBound": 262144,
+      "floodBytes": 12582912,
+      "fastReceived": 12582912,
+      "fastLags": 0,
+      "slow": {
+        "maxQueuedBytes": 261347,
+        "droppedBytes": 12386880,
+        "lagCount": 1,
+        "shortWrites": 1,
+        "drains": 1,
+        "firstShortWriteAfterBytes": 203058,
+        "lastDrainLatencyMs": 2383.156285,
+        "bytesSent": 203302
+      },
+      "slowRenders": 2,
+      "slowResumed": 1,
+      "rss": {
+        "before": 78159872,
+        "peakDuring": 97800192,
+        "after": 82894848
+      },
+      "ms": 3408.0623750000013
+    },
+    "trap": {
+      "steps": [
+        {
+          "what": "vt_write, handle far outside memory (0xFFFFF000)",
+          "outcome": "RuntimeError: Out of bounds memory access (evaluating 'f(...args)')",
+          "ms": 0.11984399999710149,
+          "otherOk": true,
+          "freshOk": true,
+          "memoryBytes": 4653056
+        },
+        {
+          "what": "vt_write on a live terminal, input pointer past memory",
+          "outcome": "RuntimeError: Out of bounds memory access (evaluating 'f(...args)')",
+          "ms": 0.15299899999808986,
+          "otherOk": true,
+          "freshOk": true,
+          "memoryBytes": 4653056
+        },
+        {
+          "what": "resize to 0x0",
+          "outcome": "returned -2 (INVALID_VALUE)",
+          "ms": 0.11082099999839556,
+          "otherOk": true,
+          "freshOk": true,
+          "memoryBytes": 4653056
+        },
+        {
+          "what": "vt_write on a freed handle (use after free)",
+          "outcome": "RuntimeError: Out of bounds memory access (evaluating 'f(...args)')",
+          "ms": 0.6393820000012056,
+          "otherOk": true,
+          "freshOk": true,
+          "memoryBytes": 4653056
+        },
+        {
+          "what": "terminal_free on a freed handle (double free)",
+          "outcome": "returned 0 (SUCCESS)",
+          "ms": 0.6748359999983222,
+          "otherOk": true,
+          "freshOk": false,
+          "memoryBytes": 3997696
+        }
+      ],
+      "poisonAfterRepeats": 7,
+      "poisonRepeatCap": 20000,
+      "hugeResize": {
+        "outcome": "returned -1 (OUT_OF_MEMORY)",
+        "ms": 1428.4918220000002,
+        "peakRss": 3446378496,
+        "timeoutMs": 30000
+      },
+      "daemonCatches": true
+    }
+  },
+  "short_soak": {
+    "duration_ms": 300003,
+    "samples": 31,
+    "end": {
+      "kind": "end",
+      "t": 1788596249013,
+      "reason": "duration"
+    },
+    "sessions_at_end": {
+      "running": 20,
+      "total": 20
+    },
+    "rss_start": 90087424,
+    "rss_end": 118906880,
+    "rss_peak": 120778752,
+    "replica_at_end": {
+      "snapshots": 1,
+      "bytes": 14793683,
+      "lags": 0
+    },
+    "scope": "10 idle + 10 noisy sessions, roaming attachment; some lightweight local diagnostic work overlaps; no sustained process churn or deliberately stopped viewer."
+  },
+  "native": {
+    "url": "https://github.com/omnilogic-labs/werk/actions/runs/33954599641",
+    "branch": "ci/library-readiness-20260905",
+    "lanes_input": "poc",
+    "attempts": [
+      {
+        "attempt": 1,
+        "conclusion": "failure",
+        "lanes": [
+          {
+            "lane": "linux-x64-glibc",
+            "os": "linux",
+            "target": "bun-linux-x64",
+            "bun": "1.3.14",
+            "commit": "3c31ab7e1989a7f75acd46e67d0190a94b0f009a",
+            "runner": "Linux 6.17.0-1022-azure x86_64, image ubuntu24/20260831.293.1, runner arch X64",
+            "suites": [
+              {
+                "id": "install",
+                "name": "bun install --frozen-lockfile (repo root)",
+                "status": "pass",
+                "ms": 417,
+                "detail": "40 packages installed [405.00ms]"
+              },
+              {
+                "id": "format",
+                "name": "bun run format:check (prettier, repo root)",
+                "status": "pass",
+                "ms": 9471,
+                "detail": "all matched files use Prettier code style"
+              },
+              {
+                "id": "typecheck",
+                "name": "bun run typecheck (tsc, package + web client)",
+                "status": "pass",
+                "ms": 4204,
+                "detail": "tsc --noEmit clean for both tsconfigs"
+              },
+              {
+                "id": "test-pure",
+                "name": "bun test src/engine src/protocol",
+                "status": "pass",
+                "ms": 1291,
+                "detail": "Ran 113 tests across 10 files. [1263.00ms]"
+              },
+              {
+                "id": "build-web",
+                "name": "bun run build:web",
+                "status": "pass",
+                "ms": 48,
+                "detail": "src/web/bundle/app.js is 238077 bytes"
+              },
+              {
+                "id": "build",
+                "name": "bun run build, then wp --help and wp caps",
+                "status": "pass",
+                "ms": 472,
+                "detail": "dist/wp is 106576000 bytes; caps lists 13 matrix rows"
+              },
+              {
+                "id": "test-full",
+                "name": "bun test (whole package; runs build --compile transitively)",
+                "status": "fail",
+                "ms": 57442,
+                "detail": "Ran 182 tests across 24 files. [57.41s] — failing: (fail) reattach fidelity: every scenario passes (spikes/m2/run-all.ts) [15231.15ms]"
+              },
+              {
+                "id": "m0",
+                "name": "bun run m0 (PTY probes, interpreted and compiled)",
+                "status": "pass",
+                "ms": 24289,
+                "detail": "14/14 probe cells pass across 1.3.14 interpreted, 1.3.14 compiled"
+              },
+              {
+                "id": "m2",
+                "name": "bun run m2 (reattach fidelity scenarios)",
+                "status": "fail",
+                "ms": 15253,
+                "detail": "8 scenarios pass, 1 fail — slow client: one wp attach SIGSTOPped under yes | head -c 4M"
+              },
+              {
+                "id": "m3",
+                "name": "bun run m3 (snapshot cost, cross-commit decode)",
+                "status": "pass",
+                "ms": 786,
+                "detail": "snapshot-cost and cross-commit ran; 3 ghostty tip builds not on disk (only the pinned one is committed)"
+              },
+              {
+                "id": "ops",
+                "name": "bun run bench/ops.ts --quick --no-compile",
+                "status": "pass",
+                "ms": 785,
+                "detail": "toolchain, platform matrix and cold start reported; ghostty-ffi prebuilds: darwin-arm64, linux-arm64-glibc, linux-arm64-musl, linux-x64-glibc, linux-x64-musl, win32-x64 (vendored)"
+              },
+              {
+                "id": "diff",
+                "name": "bun run bench/differential.ts (24-case corpus, three engines)",
+                "status": "pass",
+                "ms": 1501,
+                "detail": "23 corpus cases, three engines: 49 of 69 pairwise cells agree, 20 differ (reported, never scored)"
+              },
+              {
+                "id": "x-help",
+                "name": "cross-compiled wp --help",
+                "status": "pass",
+                "ms": 72,
+                "exit": 0,
+                "detail": "usage printed, 35 lines; binary is 106576000 bytes"
+              },
+              {
+                "id": "x-caps",
+                "name": "cross-compiled wp caps",
+                "status": "pass",
+                "ms": 117,
+                "exit": 0,
+                "detail": "caps lists 11 matrix rows; engines: ghostty-wasm,ghostty-ffi,xterm-oracle"
+              },
+              {
+                "id": "x-ls",
+                "name": "cross-compiled wp ls (autostarts a daemon)",
+                "status": "pass",
+                "ms": 135,
+                "exit": 0,
+                "detail": "daemon started; ls printed: ID COMMAND ENGINE STATUS TITLE AGE SNAPSHOT CLIENTS; listening on /home/runner/work/_temp/matrix-out/xrt/werk-poc/wp.sock (pid 5425, bun 1.3.14)"
+              },
+              {
+                "id": "cross-diff",
+                "name": "differential corpus + fuzz 200/seed 11, normalised summary diffed against linux-x64",
+                "status": "pass",
+                "ms": 12942,
+                "exit": 0,
+                "detail": "identical to linux-x64: 23 cases, engines ghostty-wasm+ghostty-ffi+xterm-oracle"
+              }
+            ]
+          },
+          {
+            "lane": "darwin-arm64",
+            "os": "darwin",
+            "target": "bun-darwin-arm64",
+            "bun": "1.3.14",
+            "commit": "3c31ab7e1989a7f75acd46e67d0190a94b0f009a",
+            "runner": "arm64/macOS-26.6.2",
+            "suites": [
+              {
+                "id": "install",
+                "name": "install",
+                "status": "pass",
+                "ms": 448,
+                "detail": "40 packages installed [414.00ms]"
+              },
+              {
+                "id": "typecheck",
+                "name": "typecheck",
+                "status": "pass",
+                "ms": 2635,
+                "detail": "$ tsc --noEmit && tsc --noEmit -p src/web/client"
+              },
+              {
+                "id": "test-pure",
+                "name": "test-pure",
+                "status": "pass",
+                "ms": 1193,
+                "detail": " 113 pass 0 fail"
+              },
+              {
+                "id": "build-web",
+                "name": "build-web",
+                "status": "pass",
+                "ms": 56,
+                "detail": "web bundle: 238077 B in 11 ms -> /Users/runner/work/werk/werk/packages/werk-poc/src/web/bundle/app.js"
+              },
+              {
+                "id": "build",
+                "name": "build",
+                "status": "pass",
+                "ms": 593,
+                "detail": "| `encodeMouse`    | yes            | no            | no             |"
+              },
+              {
+                "id": "codesign",
+                "name": "codesign",
+                "status": "pass",
+                "ms": 74,
+                "detail": "CodeDirectory v=20400 size=146596 flags=0x2(adhoc) hashes=4575+2 location=embedded; ./dist/wp: valid on disk"
+              },
+              {
+                "id": "test-full",
+                "name": "test-full",
+                "status": "fail",
+                "ms": 64592,
+                "detail": " 181 pass 1 fail - failing: (fail) reattach fidelity: every scenario passes (spikes/m2/run-all.ts) [16759.80ms] | ffi-raw: LibraryNotFoundError: Bundled libghostty-vt missing at /$bunfs/prebuilds/darwin-arm64/libghostty-vt.dylib. This usually means the package tarball is incomplete — reinstall ts-libghostty, or override via GHOSTTY_VT_LIB / setLibraryPath()."
+              },
+              {
+                "id": "m0",
+                "name": "m0",
+                "status": "pass",
+                "ms": 25430,
+                "detail": "01-pty-basic= pass pass 02-sigint= pass pass 03-sigwinch= pass pass 04-exit-contract= pass pass 05-daemon-survives= pass pass 06-raw-mode= pass pass 07-latency= pass pass "
+              },
+              {
+                "id": "m2",
+                "name": "m2",
+                "status": "fail",
+                "ms": 18819,
+                "detail": " 1 FAIL 8 pass | FAIL  slow client: one wp attach SIGSTOPped under yes | head -c 4M"
+              },
+              {
+                "id": "m3",
+                "name": "m3",
+                "status": "pass",
+                "ms": 663,
+                "detail": "| 3c1ef5b3 | 3c1ef5b3 (same bytes) | **identical** | 1092 | 0.19 ms | 0.01 ms, 0 pages |  |"
+              },
+              {
+                "id": "ops",
+                "name": "ops",
+                "status": "pass",
+                "ms": 659,
+                "detail": "| interpreted (bun run src/cli/main.ts): wp ls, daemon up                 | 3 | 32.4 ms | 38.8 ms | 42.6 ms |"
+              },
+              {
+                "id": "diff",
+                "name": "diff",
+                "status": "pass",
+                "ms": 1380,
+                "detail": "engine-pair verdicts: 49 agree, 20 differ"
+              },
+              {
+                "id": "x-help",
+                "name": "cross-compiled wp --help",
+                "status": "pass",
+                "ms": 255,
+                "exit": 0,
+                "detail": "usage printed, 35 lines; binary is 75532898 bytes"
+              },
+              {
+                "id": "x-caps",
+                "name": "cross-compiled wp caps",
+                "status": "pass",
+                "ms": 121,
+                "exit": 0,
+                "detail": "caps lists 11 matrix rows; engines: ghostty-wasm,ghostty-ffi,xterm-oracle"
+              },
+              {
+                "id": "x-ls",
+                "name": "cross-compiled wp ls (autostarts a daemon)",
+                "status": "pass",
+                "ms": 108,
+                "exit": 0,
+                "detail": "daemon started; ls printed: ID COMMAND ENGINE STATUS TITLE AGE SNAPSHOT CLIENTS; listening on /Users/runner/work/_temp/matrix-out/xrt/werk-poc/wp.sock (pid 10042, bun 1.3.14)"
+              },
+              {
+                "id": "x-codesign",
+                "name": "ad-hoc re-sign of the cross-compiled wp, then codesign --verify",
+                "status": "pass",
+                "ms": 295,
+                "exit": 0,
+                "detail": "adhoc signature (CodeDirectory v=20400 size=585630 flags=0x20002(adhoc,linker-signed) hashes=1829); verify: /Users/runner/work/_temp/xbin/wp: valid on disk"
+              },
+              {
+                "id": "cross-diff",
+                "name": "differential corpus + fuzz 200/seed 11, normalised summary diffed against linux-x64",
+                "status": "pass",
+                "ms": 12916,
+                "exit": 0,
+                "detail": "identical to linux-x64: 23 cases, engines ghostty-wasm+ghostty-ffi+xterm-oracle"
+              }
+            ]
+          },
+          {
+            "lane": "win32-x64",
+            "os": "win32",
+            "target": "bun-windows-x64",
+            "bun": "1.3.14",
+            "commit": "3c31ab7e1989a7f75acd46e67d0190a94b0f009a",
+            "runner": "X64/Windows win25-vs2026 20260824.214.3 nt-10.0.26100",
+            "suites": [
+              {
+                "id": "install",
+                "name": "install",
+                "status": "pass",
+                "ms": 2367,
+                "detail": "40 packages installed [2.25s]"
+              },
+              {
+                "id": "typecheck",
+                "name": "typecheck",
+                "status": "pass",
+                "ms": 8377,
+                "detail": "$ tsc --noEmit && tsc --noEmit -p src/web/client"
+              },
+              {
+                "id": "test-pure",
+                "name": "test-pure",
+                "status": "pass",
+                "ms": 2348,
+                "detail": "Ran 113 tests across 10 files. [2.24s]"
+              },
+              {
+                "id": "build-web",
+                "name": "build-web",
+                "status": "pass",
+                "ms": 205,
+                "detail": "web bundle: 238077 B in 24 ms -> D:\\a\\werk\\werk\\packages\\werk-poc\\src\\web\\bundle\\app.js"
+              },
+              {
+                "id": "build",
+                "name": "build",
+                "status": "pass",
+                "ms": 1173,
+                "detail": "| `encodeMouse`    | yes            | no            | no             |"
+              },
+              {
+                "id": "diff",
+                "name": "diff",
+                "status": "pass",
+                "ms": 34912,
+                "detail": "| sequences | xterm-oracle | 200/200         |"
+              },
+              {
+                "id": "ops",
+                "name": "ops",
+                "status": "pass",
+                "ms": 1478,
+                "detail": "| interpreted (bun run src/cli/main.ts): wp ls, daemon up                 | 3 | 94.4 ms  | 95.2 ms  | 100.7 ms |"
+              },
+              {
+                "id": "probes",
+                "name": "probes",
+                "status": "pass",
+                "ms": 74318,
+                "detail": "30 probe verdicts, 1 fail: readiness-pipe-read — all on the known-fail list"
+              },
+              {
+                "id": "m0-probes",
+                "name": "m0-probes",
+                "status": "fail",
+                "ms": 26656,
+                "detail": "m0 probes not passing: 01-pty-basic 02-sigint 06-raw-mode "
+              },
+              {
+                "id": "daemon",
+                "name": "daemon",
+                "status": "pass",
+                "ms": 469,
+                "detail": "pid 5776: hello at 138 ms, ls 0 sessions at 141 ms, exited 104 ms after shutdown"
+              },
+              {
+                "id": "wp-cli",
+                "name": "wp-cli",
+                "status": "pass",
+                "ms": 306,
+                "detail": "ID  COMMAND  ENGINE  STATUS  TITLE  AGE  SNAPSHOT  CLIENTS"
+              },
+              {
+                "id": "kill",
+                "name": "kill",
+                "status": "pass",
+                "ms": 480,
+                "detail": "Ran 1 test across 1 file. [382.00ms]"
+              },
+              {
+                "id": "test-full",
+                "name": "test-full",
+                "status": "fail",
+                "ms": 194425,
+                "detail": "173 pass 9 fail across 24 files; failing: src/daemon/daemon.test.ts; passed but did not exit: none; no verdict: none"
+              },
+              {
+                "id": "m2",
+                "name": "m2",
+                "status": "pass",
+                "ms": 18370,
+                "detail": "| unknown id: clear error, exit 1 | pass | 0.7 s |"
+              },
+              {
+                "id": "m3",
+                "name": "m3",
+                "status": "pass",
+                "ms": 5622,
+                "detail": "| 3c1ef5b3 | 3c1ef5b3 (same bytes) | **identical** | 1092 | 1.23 ms | 0.02 ms, 0 pages |  |"
+              },
+              {
+                "id": "x-help",
+                "name": "cross-compiled wp --help",
+                "status": "pass",
+                "ms": 231,
+                "exit": 0,
+                "detail": "usage printed, 35 lines; binary is 110468096 bytes"
+              },
+              {
+                "id": "x-caps",
+                "name": "cross-compiled wp caps",
+                "status": "pass",
+                "ms": 257,
+                "exit": 0,
+                "detail": "caps lists 11 matrix rows; engines: ghostty-wasm,ghostty-ffi,xterm-oracle"
+              },
+              {
+                "id": "x-ls",
+                "name": "cross-compiled wp ls (autostarts a daemon)",
+                "status": "pass",
+                "ms": 385,
+                "exit": 0,
+                "detail": "daemon started; ls printed: ID COMMAND ENGINE STATUS TITLE AGE SNAPSHOT CLIENTS; listening on D:\\a\\_temp\\matrix-out\\xrt\\werk-poc\\wp.sock (pid 3368, bun 1.3.14)"
+              },
+              {
+                "id": "lock",
+                "name": "a second wp __daemon is refused while the first holds the lock",
+                "status": "pass",
+                "ms": 1629,
+                "exit": 0,
+                "detail": "dlopen opens kernel32, so the lock is LockFileEx; 3 of 3 second daemons refused"
+              },
+              {
+                "id": "cross-diff",
+                "name": "differential corpus + fuzz 200/seed 11, normalised summary diffed against linux-x64",
+                "status": "pass",
+                "ms": 32316,
+                "exit": 0,
+                "detail": "identical to linux-x64: 23 cases, engines ghostty-wasm+ghostty-ffi+xterm-oracle"
+              }
+            ]
+          }
+        ],
+        "interpretation": "Linux/macOS gates allow known M2 slow-client failure. Windows gate fails: invalid-dimensions test times out, followed by eight connection-closed failures. Recovery tests 4/4 and M2 9/9 pass. Windows M0 remains partly unsupported; no test process exit hangs."
+      },
+      {
+        "attempt": 2,
+        "scope": "Rerun failed Windows lane only, same candidate commit.",
+        "conclusion": "failure",
+        "lanes": [
+          {
+            "lane": "win32-x64",
+            "os": "win32",
+            "target": "bun-windows-x64",
+            "bun": "1.3.14",
+            "commit": "3c31ab7e1989a7f75acd46e67d0190a94b0f009a",
+            "runner": "X64/Windows win25-vs2026 20260824.214.3 nt-10.0.26100",
+            "suites": [
+              {
+                "id": "install",
+                "name": "install",
+                "status": "pass",
+                "ms": 2974,
+                "detail": "40 packages installed [2.87s]"
+              },
+              {
+                "id": "typecheck",
+                "name": "typecheck",
+                "status": "pass",
+                "ms": 8737,
+                "detail": "$ tsc --noEmit && tsc --noEmit -p src/web/client"
+              },
+              {
+                "id": "test-pure",
+                "name": "test-pure",
+                "status": "pass",
+                "ms": 1900,
+                "detail": "Ran 113 tests across 10 files. [1.79s]"
+              },
+              {
+                "id": "build-web",
+                "name": "build-web",
+                "status": "pass",
+                "ms": 178,
+                "detail": "web bundle: 238077 B in 21 ms -> D:\\a\\werk\\werk\\packages\\werk-poc\\src\\web\\bundle\\app.js"
+              },
+              {
+                "id": "build",
+                "name": "build",
+                "status": "pass",
+                "ms": 1094,
+                "detail": "| `encodeMouse`    | yes            | no            | no             |"
+              },
+              {
+                "id": "diff",
+                "name": "diff",
+                "status": "pass",
+                "ms": 34058,
+                "detail": "| sequences | xterm-oracle | 200/200         |"
+              },
+              {
+                "id": "ops",
+                "name": "ops",
+                "status": "pass",
+                "ms": 1412,
+                "detail": "| interpreted (bun run src/cli/main.ts): wp ls, daemon up                 | 3 | 91.8 ms  | 92.4 ms  | 97.6 ms  |"
+              },
+              {
+                "id": "probes",
+                "name": "probes",
+                "status": "pass",
+                "ms": 74131,
+                "detail": "30 probe verdicts, 1 fail: readiness-pipe-read — all on the known-fail list"
+              },
+              {
+                "id": "m0-probes",
+                "name": "m0-probes",
+                "status": "fail",
+                "ms": 26595,
+                "detail": "m0 probes not passing: 01-pty-basic 02-sigint 06-raw-mode "
+              },
+              {
+                "id": "daemon",
+                "name": "daemon",
+                "status": "pass",
+                "ms": 452,
+                "detail": "pid 2184: hello at 136 ms, ls 0 sessions at 138 ms, exited 98 ms after shutdown"
+              },
+              {
+                "id": "wp-cli",
+                "name": "wp-cli",
+                "status": "pass",
+                "ms": 282,
+                "detail": "ID  COMMAND  ENGINE  STATUS  TITLE  AGE  SNAPSHOT  CLIENTS"
+              },
+              {
+                "id": "kill",
+                "name": "kill",
+                "status": "pass",
+                "ms": 453,
+                "detail": "Ran 1 test across 1 file. [363.00ms]"
+              },
+              {
+                "id": "test-full",
+                "name": "test-full",
+                "status": "fail",
+                "ms": 195678,
+                "detail": "173 pass 9 fail across 24 files; failing: src/daemon/daemon.test.ts; passed but did not exit: none; no verdict: none"
+              },
+              {
+                "id": "m2",
+                "name": "m2",
+                "status": "pass",
+                "ms": 16538,
+                "detail": "| unknown id: clear error, exit 1 | pass | 0.6 s |"
+              },
+              {
+                "id": "m3",
+                "name": "m3",
+                "status": "pass",
+                "ms": 5345,
+                "detail": "| 3c1ef5b3 | 3c1ef5b3 (same bytes) | **identical** | 1092 | 1.35 ms | 0.02 ms, 0 pages |  |"
+              },
+              {
+                "id": "x-help",
+                "name": "cross-compiled wp --help",
+                "status": "pass",
+                "ms": 233,
+                "exit": 0,
+                "detail": "usage printed, 35 lines; binary is 110468096 bytes"
+              },
+              {
+                "id": "x-caps",
+                "name": "cross-compiled wp caps",
+                "status": "pass",
+                "ms": 265,
+                "exit": 0,
+                "detail": "caps lists 11 matrix rows; engines: ghostty-wasm,ghostty-ffi,xterm-oracle"
+              },
+              {
+                "id": "x-ls",
+                "name": "cross-compiled wp ls (autostarts a daemon)",
+                "status": "pass",
+                "ms": 338,
+                "exit": 0,
+                "detail": "daemon started; ls printed: ID COMMAND ENGINE STATUS TITLE AGE SNAPSHOT CLIENTS; listening on D:\\a\\_temp\\matrix-out\\xrt\\werk-poc\\wp.sock (pid 5468, bun 1.3.14)"
+              },
+              {
+                "id": "lock",
+                "name": "a second wp __daemon is refused while the first holds the lock",
+                "status": "pass",
+                "ms": 1543,
+                "exit": 0,
+                "detail": "dlopen opens kernel32, so the lock is LockFileEx; 3 of 3 second daemons refused"
+              },
+              {
+                "id": "cross-diff",
+                "name": "differential corpus + fuzz 200/seed 11, normalised summary diffed against linux-x64",
+                "status": "pass",
+                "ms": 32449,
+                "exit": 0,
+                "detail": "identical to linux-x64: 23 cases, engines ghostty-wasm+ghostty-ffi+xterm-oracle"
+              }
+            ]
+          }
+        ],
+        "interpretation": "Reproduces attempt 1: invalid-dimensions timeout followed by eight connection-closed failures, 173 pass/9 fail. Recovery tests 4/4 and M2 9/9 pass. Root cause of timeout is not isolated; not classified as a transient flake."
+      }
+    ]
+  },
+  "validation": {
+    "typecheck_after_diagnostic_added": "Both TypeScript configurations pass.",
+    "format_bun": "bun run format:check terminates with SIGSEGV locally; native Linux candidate format check passed.",
+    "format_node": "node node_modules/prettier/bin/prettier.cjs --check . passes; final edited files also checked with Node.",
+    "runtime_changes_this_assessment": "None; pre-existing runtime/test changes preserved and captured on the CI candidate branch."
+  }
+}

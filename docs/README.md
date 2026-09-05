@@ -9,11 +9,11 @@ machine — in one list you can open from a terminal or a browser.
 
 Nothing here is a product design yet. There are three parts:
 
-|                              |                                                                                                                                                                                            |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **[product/](product/)**     | What werk _does_. Scope, the object model, worked journeys, the surfaces, and the decisions still open.                                                                                    |
-| **[research/](research/)**   | What we found out before deciding anything. Thirteen dossiers, from terminal internals to the competitive landscape.                                                                       |
-| **[proposals/](proposals/)** | Technical specifications for what to build. Currently two: the proof of concept that tests whether the stack holds up, and how one binary from that stack runs on three operating systems. |
+|                              |                                                                                                                                                                           |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **[product/](product/)**     | What werk _does_. Scope, the object model, worked journeys, the surfaces, and the decisions still open.                                                                   |
+| **[research/](research/)**   | What we found out before deciding anything. Thirteen dossiers, from terminal internals to the competitive landscape.                                                      |
+| **[proposals/](proposals/)** | Technical specifications for what to build. The stack proof of concept, its cross-platform execution, and the proposed session workspace libraries for the early product. |
 
 ## Start here
 
@@ -24,5 +24,6 @@ Nothing here is a product design yet. There are three parts:
   [research/README.md](research/README.md) for the three spikes behind it, and
   [proposals/01-cross-platform.md](proposals/01-cross-platform.md) for what
   changes per operating system
+- About to package the session library → [proposals/02-session-library.md](proposals/02-session-library.md)
 - Want to know what the proof of concept found →
   [`../packages/werk-poc/findings/README.md`](../packages/werk-poc/findings/README.md)
