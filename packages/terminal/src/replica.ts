@@ -4,6 +4,7 @@ import type {
   Size,
   Renderer,
   Frame,
+  InputModes,
 } from "./types.js";
 export interface ReplicaEvent {
   type: string;
@@ -74,6 +75,9 @@ export class TerminalReplica {
     this.position = e.position;
     if (this.terminal && this.renderer)
       this.renderer.paint(this.terminal.frame());
+  }
+  inputModes(): InputModes | undefined {
+    return this.terminal?.inputModes();
   }
   readScreen() {
     return this.terminal?.readScreen() ?? "";

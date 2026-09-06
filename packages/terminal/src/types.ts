@@ -44,6 +44,19 @@ export interface TerminalCapabilities {
   selection: boolean;
   inputModes: boolean;
 }
+export interface InputModes {
+  applicationCursor: boolean;
+  applicationKeypad: boolean;
+  bracketedPaste: boolean;
+  focusEvents: boolean;
+  mouseTracking: "none" | "x10" | "normal" | "button" | "any";
+  kittyKeyboardFlags: number;
+}
+export interface Viewport {
+  totalRows: number;
+  offset: number;
+  visibleRows: number;
+}
 export interface TerminalHandle {
   readonly size: Size;
   write(bytes: Uint8Array): TerminalEffect[];
@@ -51,6 +64,11 @@ export interface TerminalHandle {
   snapshot(): SnapshotEnvelope;
   readScreen(): string;
   readHistory(): string;
+  inputModes(): InputModes;
+  viewport(): Viewport;
+  scrollViewport(delta: number | "top" | "bottom"): void;
+  /** Cell coordinates relative to the visible viewport, inclusive. */
+  readSelection(selection: Selection): string;
   frame(): Frame;
   dispose(): void;
 }

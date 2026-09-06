@@ -81,6 +81,7 @@ export interface RequestOptions {
   timeoutMs?: number;
 }
 export type Representation = "snapshot" | "vt" | "preview";
+/** signal owns the attachment lifetime, including after attach resolves. */
 export interface AttachOptions extends RequestOptions {
   representation?: Representation;
   permissions?: Permissions;

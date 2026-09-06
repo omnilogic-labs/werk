@@ -7,6 +7,7 @@ import {
   createTerminalEngine,
   createTerminalReplica,
   encodeKey,
+  encodePaste,
   type RendererFactory,
   type TerminalReplica,
 } from "@werk/terminal";
@@ -164,7 +165,7 @@ screen.addEventListener("keydown", (event) => {
   const bytes =
     event.ctrlKey && event.key.length === 1
       ? new Uint8Array([event.key.toUpperCase().charCodeAt(0) & 31])
-      : encodeKey(event.key);
+      : encodeKey(event.key, replica?.inputModes()?.applicationCursor);
   run(() => attachment!.writeInput(bytes));
 });
 screen.addEventListener("paste", (event) => {
@@ -172,7 +173,10 @@ screen.addEventListener("paste", (event) => {
   event.preventDefault();
   run(() =>
     attachment!.writeInput(
-      new TextEncoder().encode(event.clipboardData?.getData("text") ?? ""),
+      encodePaste(
+        event.clipboardData?.getData("text") ?? "",
+        replica?.inputModes()?.bracketedPaste,
+      ),
     ),
   );
 });

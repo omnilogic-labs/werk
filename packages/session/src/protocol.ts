@@ -37,9 +37,13 @@ export function encodeFrame(
   maxFrameBytes = 8 * 1024 * 1024,
 ): Uint8Array {
   const body = encoder.encode(
-    JSON.stringify(message, (_key, value) =>
-      value instanceof Uint8Array ? { $bytes: Array.from(value) } : value,
-    ),
+    JSON.stringify(message, function (key, value) {
+      // JSON calls toJSON before its replacer (notably for Node Buffer).
+      const original = this[key];
+      return original instanceof Uint8Array
+        ? { $bytes: Array.from(original) }
+        : value;
+    }),
   );
   if (body.length > maxFrameBytes)
     throw new SessionError("LIMIT", "Frame exceeds limit");

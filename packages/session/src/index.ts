@@ -29,6 +29,16 @@ export interface ConnectOptions extends RequestOptions {
   maxPendingRequests?: number;
   onCallbackError?: (error: unknown) => void;
 }
+type Immutable<T> = T extends object
+  ? { readonly [K in keyof T]: Immutable<T[K]> }
+  : T;
+function immutable<T>(value: T): T {
+  if (value && typeof value === "object") {
+    for (const child of Object.values(value)) immutable(child);
+    Object.freeze(value);
+  }
+  return value;
+}
 type Pending = {
   resolve: (value: unknown) => void;
   reject: (error: unknown) => void;
@@ -37,11 +47,37 @@ type Pending = {
 export class Attachment {
   private ended = false;
   private position = -1;
+  private state: AttachmentInfo;
+  private removeAbort?: () => void;
   constructor(
     private client: SessionClient,
-    public readonly info: AttachmentInfo,
+    info: AttachmentInfo,
     private listener: (event: AttachmentEvent) => void,
-  ) {}
+  ) {
+    this.state = immutable(structuredClone(info));
+  }
+  get info(): Immutable<AttachmentInfo> {
+    return this.state;
+  }
+  bindLifetime(signal?: AbortSignal): void {
+    if (!signal) return;
+    const abort = () => {
+      if (this.ended) return;
+      this.deliver({
+        type: "ended",
+        attachmentId: this.id,
+        generation: this.generation,
+        position: this.position + 1,
+        reason: "detached",
+      });
+      void this.client
+        .request("detach", { attachmentId: this.id })
+        .catch((error) => this.client.close(error));
+    };
+    this.removeAbort = () => signal.removeEventListener("abort", abort);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+  }
   get id() {
     return this.info.id;
   }
@@ -88,9 +124,11 @@ export class Attachment {
         "Attachment stream gap requires resynchronisation",
       );
     this.position = event.position;
-    if (event.type === "size-holder") this.info.holdsSize = event.holdsSize;
+    if (event.type === "size-holder")
+      this.state = immutable({ ...this.state, holdsSize: event.holdsSize });
     if (event.type === "ended") {
       this.ended = true;
+      this.removeAbort?.();
       this.client.forget(this.id);
     }
     this.client.invoke(() => this.listener(event));
@@ -165,6 +203,8 @@ export class SessionClient {
     public readonly principal: Principal,
     private options: ConnectOptions,
   ) {
+    immutable(daemon);
+    immutable(principal);
     this.closed = new Promise((resolve) => {
       this.resolveClosed = resolve;
     });
@@ -345,22 +385,26 @@ export class SessionClient {
       (info) => {
         attachment = new Attachment(this, info, options.onEvent);
         this.attachments.set(info.id, attachment);
+        attachment.bindLifetime(options.signal);
       },
     );
     return attachment;
   }
   watch(callback: (event: DaemonEvent) => void): WatchSubscription {
     const first = this.watchers.size === 0;
-    this.watchers.add(callback);
+    const listener = (event: DaemonEvent) => callback(event);
+    this.watchers.add(listener);
     let stopped = false;
     const ready = first
-      ? this.watchChain.then(() => this.request<void>("watch", {}))
+      ? this.watchChain
+          .catch(() => {})
+          .then(() => this.request<void>("watch", {}))
       : this.watchChain.then(() => {});
     this.watchChain = ready;
     const stop = (() => {
       if (stopped) return;
       stopped = true;
-      this.watchers.delete(callback);
+      this.watchers.delete(listener);
       if (!this.watchers.size)
         this.watchChain = this.watchChain
           .catch(() => {})
@@ -369,7 +413,7 @@ export class SessionClient {
     }) as WatchSubscription;
     stop.ready = ready;
     void ready.catch(() => {
-      this.watchers.delete(callback);
+      this.watchers.delete(listener);
     });
     return stop;
   }
@@ -432,7 +476,21 @@ export async function connectSessionClient(
       next.value.type !== "hello" ||
       next.value.protocolVersion !== PROTOCOL_VERSION ||
       !next.value.daemon ||
-      !next.value.principal
+      !next.value.principal ||
+      typeof next.value.principal.id !== "string" ||
+      !next.value.principal.id ||
+      typeof next.value.daemon.id !== "string" ||
+      !next.value.daemon.id ||
+      typeof next.value.daemon.version !== "string" ||
+      next.value.daemon.protocolVersion !== PROTOCOL_VERSION ||
+      typeof next.value.daemon.engine?.buildId !== "string" ||
+      !Number.isSafeInteger(next.value.daemon.engine?.snapshotFormatVersion) ||
+      next.value.daemon.engine.snapshotFormatVersion < 1 ||
+      typeof next.value.daemon.capabilities?.snapshots !== "boolean" ||
+      !Array.isArray(next.value.daemon.capabilities?.termination) ||
+      !next.value.daemon.capabilities.termination.every((value) =>
+        ["interrupt", "terminate", "force"].includes(value),
+      )
     )
       throw new SessionError("PROTOCOL", "Incompatible or malformed hello");
     const client = new SessionClient(

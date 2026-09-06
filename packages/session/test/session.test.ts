@@ -217,3 +217,148 @@ test("cancelled attach closes connection so late grants cannot become orphaned",
   await m.client.closed;
   await m.close();
 });
+
+test("framing normalises Uint8Array subclasses before toJSON", () => {
+  class Bytes extends Uint8Array {
+    toJSON() {
+      return { bad: true };
+    }
+  }
+  const decoder = new FrameDecoder();
+  const [message] = decoder.push(
+    encodeFrame({
+      type: "request",
+      id: "b",
+      method: "input",
+      params: { data: new Bytes([1, 255]) },
+    }),
+  );
+  expect((message as any).params.data).toEqual(new Uint8Array([1, 255]));
+});
+
+test("refused watch can retry and identical callbacks own independent subscriptions", async () => {
+  let attempts = 0,
+    calls = 0;
+  const methods: string[] = [];
+  const m = await mock(async (request, server) => {
+    methods.push(request.method);
+    if (request.method === "watch" && ++attempts === 1) {
+      await server.send({
+        type: "response",
+        id: request.id,
+        error: { code: "PERMISSION_DENIED", message: "denied" },
+      });
+    } else {
+      await server.send({ type: "response", id: request.id });
+      if (request.method === "get")
+        await server.send({
+          type: "daemon-event",
+          event: { type: "removed", sessionId: "s" },
+        });
+    }
+  });
+  try {
+    const denied = m.client.watch(() => {});
+    await expect(denied.ready).rejects.toMatchObject({
+      code: "PERMISSION_DENIED",
+    });
+    const callback = () => {
+      calls++;
+    };
+    const a = m.client.watch(callback),
+      b = m.client.watch(callback);
+    await Promise.all([a.ready, b.ready]);
+    await m.client.get("s");
+    await Bun.sleep(0);
+    expect(calls).toBe(2);
+    a();
+    await m.client.get("s");
+    await Bun.sleep(0);
+    expect(calls).toBe(3);
+    expect(methods).not.toContain("unwatch");
+    b();
+    await Bun.sleep(0);
+    expect(methods.filter((method) => method === "unwatch")).toHaveLength(1);
+    expect(attempts).toBe(2);
+  } finally {
+    await m.close();
+  }
+});
+
+test("attachment lifetime abort invalidates handle and detaches only its grant", async () => {
+  const methods: string[] = [];
+  const m = await mock(async (request, server) => {
+    methods.push(request.method);
+    await server.send({
+      type: "response",
+      id: request.id,
+      result:
+        request.method === "attach"
+          ? {
+              id: "a",
+              sessionId: "s",
+              generation: 1,
+              principal,
+              permissions: { read: true, input: false },
+              holdsSize: false,
+            }
+          : undefined,
+    });
+  });
+  try {
+    const controller = new AbortController();
+    const events: string[] = [];
+    const attachment = await m.client.attach("s", {
+      signal: controller.signal,
+      onEvent: (e) => events.push(e.type),
+    });
+    expect(() => {
+      (attachment.info as any).id = "hijacked";
+    }).toThrow();
+    expect(() => {
+      (attachment.permissions as any).input = true;
+    }).toThrow();
+    expect(() => {
+      (attachment.principal as any).id = "other";
+    }).toThrow();
+    expect(() => {
+      (m.client.daemon as any).id = "other";
+    }).toThrow();
+    controller.abort();
+    await expect(
+      attachment.writeInput(new Uint8Array([1])),
+    ).rejects.toMatchObject({ code: "CLOSED" });
+    await m.client.get("s");
+    expect(events).toEqual(["ended"]);
+    expect(methods.filter((x) => x === "detach")).toHaveLength(1);
+    expect(methods).not.toContain("input");
+  } finally {
+    await m.close();
+  }
+});
+
+test("malformed hello metadata is refused before exposing client", async () => {
+  for (const metadata of [
+    {},
+    { ...daemon, engine: {} },
+    { ...daemon, capabilities: { snapshots: true, termination: ["invented"] } },
+  ]) {
+    const [a, b] = pair();
+    const server = new FramedTransport(b);
+    const task = (async () => {
+      for await (const m of server.messages())
+        if (m.type === "hello")
+          await server.send({
+            type: "hello",
+            protocolVersion: 1,
+            daemon: metadata as any,
+            principal,
+          });
+    })().catch(() => {});
+    await expect(connectSessionClient({ transport: a })).rejects.toMatchObject({
+      code: "PROTOCOL",
+    });
+    await server.close();
+    await task;
+  }
+});

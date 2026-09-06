@@ -9,6 +9,8 @@ import {
   type TerminalEngineFactory,
   type Frame,
   type Cell,
+  type Selection,
+  type InputModes,
 } from "./types.js";
 export const ENGINE_BUILD = "ghostty-3c1ef5b32fc5ea6b93d28493fabf193f595139cf";
 export const SNAPSHOT_FORMAT_VERSION = 1;
@@ -27,9 +29,9 @@ export async function createTerminalEngine(
       screen: true,
       history: true,
       cursor: true,
-      viewport: false,
-      selection: false,
-      inputModes: false,
+      viewport: true,
+      selection: true,
+      inputModes: true,
     },
     async create(size) {
       validateSize(size);
@@ -258,6 +260,113 @@ class Terminal implements TerminalHandle {
         a.call("ghostty_formatter_free", f);
       }
     });
+  }
+  inputModes(): InputModes {
+    this.live();
+    const mode = (number: number) =>
+      this.a.object("GhosttyTerminalModeConfig", (p) => {
+        this.a.write(p, "GhosttyTerminalModeConfig", { mode: number });
+        this.a.check(
+          "ghostty_terminal_get",
+          this.h,
+          this.a.enum("GhosttyTerminalData", "MODE"),
+          p,
+        );
+        return this.a.read(p, "GhosttyTerminalModeConfig").value as boolean;
+      });
+    return {
+      applicationCursor: mode(1),
+      applicationKeypad: mode(66),
+      bracketedPaste: mode(2004),
+      focusEvents: mode(1004),
+      mouseTracking: mode(1003)
+        ? "any"
+        : mode(1002)
+          ? "button"
+          : mode(1000)
+            ? "normal"
+            : mode(9)
+              ? "x10"
+              : "none",
+      kittyKeyboardFlags: this.number("KITTY_KEYBOARD_FLAGS"),
+    };
+  }
+  viewport() {
+    this.live();
+    return this.a.object("GhosttyTerminalScrollbar", (p) => {
+      this.a.check(
+        "ghostty_terminal_get",
+        this.h,
+        this.a.enum("GhosttyTerminalData", "SCROLLBAR"),
+        p,
+      );
+      const value = this.a.read(p, "GhosttyTerminalScrollbar");
+      return {
+        totalRows: Number(value.total),
+        offset: Number(value.offset),
+        visibleRows: Number(value.len),
+      };
+    });
+  }
+  scrollViewport(delta: number | "top" | "bottom") {
+    this.live();
+    if (
+      typeof delta === "number" &&
+      (!Number.isInteger(delta) || Math.abs(delta) > 2147483647)
+    )
+      throw new RangeError("Invalid scroll delta");
+    this.a.object("GhosttyTerminalScrollViewport", (p) => {
+      this.a.write(
+        p,
+        "GhosttyTerminalScrollViewport",
+        typeof delta === "number"
+          ? { tag: "DELTA", value: delta }
+          : { tag: delta.toUpperCase() },
+      );
+      this.a.call("ghostty_terminal_scroll_viewport", this.h, p);
+    });
+    this.previous = [];
+  }
+  readSelection(selection: Selection) {
+    this.live();
+    let { start, end } = selection;
+    for (const point of [start, end])
+      if (
+        !Number.isInteger(point.x) ||
+        !Number.isInteger(point.y) ||
+        point.x < 0 ||
+        point.x >= this.grid.cols ||
+        point.y < 0 ||
+        point.y >= this.grid.rows
+      )
+        throw new RangeError("Selection outside viewport");
+    if (start.y > end.y || (start.y === end.y && start.x > end.x))
+      [start, end] = [end, start];
+    return this.selected(start, end, "VIEWPORT");
+  }
+  private selected(
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+    tag: string,
+  ) {
+    const a = this.a;
+    return a.object("GhosttySelection", (s) =>
+      a.object("GhosttyPoint", (p) => {
+        for (const [key, point] of [
+          ["start", start],
+          ["end", end],
+        ] as const) {
+          a.write(p, "GhosttyPoint", { tag, value: point });
+          a.check(
+            "ghostty_terminal_grid_ref",
+            this.h,
+            p,
+            s + a.types.GhosttySelection!.fields![key]!.offset,
+          );
+        }
+        return this.format(s);
+      }),
+    );
   }
   readHistory() {
     this.live();

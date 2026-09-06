@@ -113,3 +113,65 @@ test("replica ignores stale events, rejects gaps, recovers with resync", async (
     t.dispose();
   }
 });
+
+test("input mode queries survive snapshots and encode application input", async () => {
+  const { encodeKey, encodePaste } = await import("../src/index.js");
+  const factory = await loadTerminalEngine();
+  const t = await factory.create({ cols: 20, rows: 4 });
+  let restored;
+  try {
+    expect(t.inputModes().bracketedPaste).toBe(false);
+    t.write(bytes("\x1b[?1h\x1b[?66h\x1b[?2004h\x1b[?1004h\x1b[?1003h"));
+    restored = await factory.restore(t.snapshot());
+    expect(restored.inputModes()).toEqual(t.inputModes());
+    expect(restored.inputModes()).toMatchObject({
+      applicationCursor: true,
+      applicationKeypad: true,
+      bracketedPaste: true,
+      focusEvents: true,
+      mouseTracking: "any",
+    });
+    expect(
+      new TextDecoder().decode(
+        encodeKey("ArrowUp", restored.inputModes().applicationCursor),
+      ),
+    ).toBe("\x1bOA");
+    expect(
+      new TextDecoder().decode(
+        encodePaste("hello", restored.inputModes().bracketedPaste),
+      ),
+    ).toBe("\x1b[200~hello\x1b[201~");
+    restored.write(bytes("\x1b[?1l\x1b[?2004l"));
+    expect(restored.inputModes().applicationCursor).toBe(false);
+    expect(restored.inputModes().bracketedPaste).toBe(false);
+  } finally {
+    t.dispose();
+    restored?.dispose();
+  }
+});
+
+test("viewport scrolling and cell selections preserve wide graphemes", async () => {
+  const factory = await loadTerminalEngine();
+  const t = await factory.create({ cols: 12, rows: 3 });
+  try {
+    t.write(bytes("first\r\nsecond\r\nthird\r\nfourth"));
+    expect(t.viewport().totalRows).toBeGreaterThan(3);
+    t.scrollViewport("top");
+    expect(t.viewport().offset).toBe(0);
+    expect(
+      t.readSelection({ start: { x: 0, y: 0 }, end: { x: 4, y: 0 } }),
+    ).toBe("first");
+    t.scrollViewport(1);
+    expect(t.viewport().offset).toBe(1);
+    t.scrollViewport("bottom");
+    t.write(bytes("\r\nA界B"));
+    expect(
+      t.readSelection({ start: { x: 3, y: 2 }, end: { x: 1, y: 2 } }),
+    ).toBe("界B");
+    expect(() =>
+      t.readSelection({ start: { x: -1, y: 0 }, end: { x: 1, y: 0 } }),
+    ).toThrow();
+  } finally {
+    t.dispose();
+  }
+});

@@ -19,8 +19,17 @@ has no DOM, runtime or session dependencies. `@werk/terminal/dom` exports
 `createWtermRenderer({ mount })`, backed by pinned Apache-2.0 `@wterm/dom` and
 `@wterm/core` 0.4.1. Those packages include their upstream licences.
 
-The initial adapter reports viewport, engine selection and input mode queries
-as unavailable. Input encoding accepts explicit mode choices. Selection helpers
-operate on supplied text. Snapshot bytes contain parser continuation and retained
+`inputModes()` queries application cursor/keypad, bracketed paste, focus,
+mouse tracking and kitty keyboard state from the engine, including restored
+snapshots. `encodeKey` and `encodePaste` accept the queried cursor/paste modes.
+`viewport()` reports scrollback position; `scrollViewport()` moves by rows or
+to either end. `readSelection()` uses inclusive viewport cell coordinates and
+preserves wide graphemes. The standalone `selectionText` helper operates on
+supplied text with code-point indices. Snapshot bytes contain parser continuation and retained
 history; screen recovery does not recover a process. Defaults retain upstream's
 bounded scrollback. Dimensions and snapshot input have explicit limits.
+
+The pinned engine can reflow a restored long wrapped line differently after
+subsequent output and a resize. Session owners therefore send authoritative
+state after resizing; replicas must apply that resynchronisation before later
+output. A resize-only replay is insufficient for this engine build.
