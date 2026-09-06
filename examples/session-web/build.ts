@@ -7,6 +7,7 @@ await mkdir(outdir, { recursive: true });
 for (const [name, target] of [
   ["client", "browser"],
   ["server", "bun"],
+  ["bridge", "bun"],
 ] as const) {
   const result = await Bun.build({
     entrypoints: [join(root, `src/${name}.ts`)],
@@ -33,8 +34,33 @@ const beamWeb = Bun.resolveSync(
   "@beamterm/renderer/web",
   dirname(fileURLToPath(beamPackage)),
 );
-await copyFile(
-  join(dirname(beamWeb), "beamterm_renderer_bg.wasm"),
-  join(outdir, "beamterm_renderer_bg.wasm"),
-);
+const beamWasm = join(dirname(beamWeb), "beamterm_renderer_bg.wasm");
+const beamDigest = new Bun.CryptoHasher("sha256")
+  .update(await Bun.file(beamWasm).arrayBuffer())
+  .digest("hex");
+if (
+  beamDigest !==
+  "0f5e9f04ba2fbcfcc8dac30523ef692bfc6bf84fbb61d545deeb4fb6138d6d36"
+)
+  throw new Error("beamterm WASM digest differs from PROVENANCE.md");
+await copyFile(beamWasm, join(outdir, "beamterm_renderer_bg.wasm"));
 console.log(`Browser and bridge assets built in ${outdir}`);
+
+const terminalAssets = dirname(
+  fileURLToPath(import.meta.resolve("@werk/terminal/assets/terminal.wasm")),
+);
+for (const name of ["LICENSE", "PROVENANCE.md"])
+  await copyFile(join(terminalAssets, name), join(outdir, `terminal.${name}`));
+const adapterRoot = dirname(dirname(fileURLToPath(beamPackage)));
+for (const name of ["LICENSE.beamterm", "PROVENANCE.md"])
+  await copyFile(
+    join(adapterRoot, name),
+    join(outdir, name === "PROVENANCE.md" ? "beamterm.PROVENANCE.md" : name),
+  );
+// DOM renderer code is bundled too; preserve its upstream licence in the output.
+const terminalDom = fileURLToPath(import.meta.resolve("@werk/terminal/dom"));
+const wtermDom = Bun.resolveSync("@wterm/dom", dirname(terminalDom));
+await copyFile(
+  join(dirname(dirname(wtermDom)), "LICENSE"),
+  join(outdir, "LICENSE.wterm-dom"),
+);

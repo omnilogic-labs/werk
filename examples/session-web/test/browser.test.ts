@@ -3,13 +3,33 @@ import { chromium } from "playwright";
 import { serveSessionDaemon, openLocalTransport } from "@werk/session-daemon";
 import { loadTerminalEngine } from "@werk/terminal/bun";
 import { connectSessionClient } from "@werk/session";
-import { startWebBridge } from "../src/bridge.js";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, cp, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const executablePath = process.env.CHROMIUM_PATH;
 test("built browser paints DOM, reconnects, resizes and lazily swaps to beamterm", async () => {
   const root = await mkdtemp(join(tmpdir(), "werk-browser-"));
+  // Reproduce the package file allowlists outside the checkout. In particular,
+  // neither the bridge nor its runtime dependencies can resolve source files.
+  const assetsDir = join(root, "web");
+  await cp(join(import.meta.dir, "../dist"), assetsDir, { recursive: true });
+  for (const name of ["session", "session-daemon", "terminal"]) {
+    const source = join(import.meta.dir, "../../../packages", name);
+    const target = join(root, "node_modules/@werk", name);
+    await mkdir(target, { recursive: true });
+    const manifest = await Bun.file(join(source, "package.json")).json();
+    for (const entry of ["package.json", ...manifest.files])
+      await cp(join(source, entry), join(target, entry), { recursive: true });
+  }
+  const { startWebBridge } = await import(join(assetsDir, "bridge.js"));
+  for (const asset of [
+    "terminal.LICENSE",
+    "terminal.PROVENANCE.md",
+    "LICENSE.beamterm",
+    "beamterm.PROVENANCE.md",
+    "LICENSE.wterm-dom",
+  ])
+    expect(await Bun.file(join(assetsDir, asset)).exists()).toBe(true);
   const daemon = await serveSessionDaemon({
     runtimeDir: join(root, "run"),
     stateDir: join(root, "state"),
@@ -18,9 +38,9 @@ test("built browser paints DOM, reconnects, resizes and lazily swaps to beamterm
   const client = await connectSessionClient({
     transport: await openLocalTransport(daemon.endpoint),
   });
-  const bridge = await startWebBridge({
+  let bridge = await startWebBridge({
     endpoint: daemon.endpoint,
-    assetsDir: join(import.meta.dir, "../dist"),
+    assetsDir,
     port: 0,
   });
   const browser = await chromium.launch({
@@ -40,9 +60,9 @@ test("built browser paints DOM, reconnects, resizes and lazily swaps to beamterm
     page.on("request", (request) => assets.push(request.url()));
     const session = await client.create({
       argv: [
-        "/bin/sh",
-        "-c",
-        "printf '\\033[31mRED-MARKER\\033[0m\\r\\n'; exec cat",
+        process.execPath,
+        "-e",
+        `process.stdin.setRawMode(true); process.stdout.write("\\x1b[31mRED-MARKER\\x1b[0m\\r\\n\\x1b[?1h\\x1b[?2004h"); process.stdin.on("data", bytes => process.stdout.write("HEX:" + bytes.toString("hex") + "\\r\\n"));`,
       ],
       size: { cols: 80, rows: 24 },
       name: "browser-check",
@@ -74,6 +94,24 @@ test("built browser paints DOM, reconnects, resizes and lazily swaps to beamterm
     expect(styled.rowHeight).toBeGreaterThan(10);
     expect(styled.cellWidth).toBeGreaterThan(5);
     expect(styled.color).not.toBe("rgb(216, 222, 233)");
+    await page.locator("#screen").press("ArrowUp");
+    await page.waitForFunction(() =>
+      document.querySelector("#screen")?.textContent?.includes("HEX:1b4f41"),
+    );
+    await page.locator("#screen").evaluate((screen) => {
+      const clipboardData = new DataTransfer();
+      clipboardData.setData("text/plain", "paste-test");
+      screen.dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData, bubbles: true }),
+      );
+    });
+    await page.waitForFunction(() =>
+      document
+        .querySelector("#screen")
+        ?.textContent?.includes(
+          "HEX:1b5b3230307e70617374652d746573741b5b3230317e",
+        ),
+    );
     const before = await page.locator(".term-row").allTextContents();
     await page.click("#detach");
     await page.click("#attach");
@@ -89,6 +127,19 @@ test("built browser paints DOM, reconnects, resizes and lazily swaps to beamterm
     );
     expect((await client.get(session.id)).size).toEqual({ cols: 92, rows: 28 });
     const resized = await page.locator(".term-row").allTextContents();
+    const port = bridge.port;
+    bridge.stop();
+    await page.waitForFunction(() =>
+      document
+        .querySelector("#status")
+        ?.textContent?.includes("Connection closed"),
+    );
+    expect((await client.get(session.id)).state).toBe("running");
+    bridge = await startWebBridge({
+      endpoint: daemon.endpoint,
+      assetsDir,
+      port,
+    });
     await page.reload();
     await page.waitForFunction(
       () => document.querySelectorAll("#sessions option").length === 1,
@@ -129,6 +180,13 @@ test("built browser paints DOM, reconnects, resizes and lazily swaps to beamterm
       return red;
     }, pixels);
     expect(redPixels).toBeGreaterThan(20);
+    // A renderer swap must not resize or alter the authoritative terminal.
+    expect((await client.get(session.id)).size).toEqual({ cols: 92, rows: 28 });
+    await page.selectOption("#renderer", "dom");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".term-row").length === 28,
+    );
+    expect(await page.locator(".term-row").allTextContents()).toEqual(resized);
     expect(failures).toEqual([]);
     await page.close();
     expect((await client.get(session.id)).state).toBe("running");

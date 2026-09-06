@@ -5,7 +5,9 @@
   "type": "module",
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "PROVENANCE.md",
+    "LICENSE.beamterm"
   ],
   "exports": {
     ".": {

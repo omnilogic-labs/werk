@@ -27,8 +27,18 @@ the authenticated local page when needed. Keep the endpoint file private.
 `dist` contains the browser bundle, HTML/CSS, terminal WASM and optional beamterm
 WASM; server static assets are resolved beside the built server. The bridge's Bun
 bundle uses installed public daemon/session package dependencies. No asset lookup
-falls back to source or the PoC. Asset pins and licences live with their packages.
+falls back to source or the PoC. The output includes `terminal.PROVENANCE.md`, `terminal.LICENSE`,
+`beamterm.PROVENANCE.md`, `LICENSE.beamterm`, and `LICENSE.wterm-dom`; the build
+verifies the beamterm WASM digest against its pin. Keep these beside copied assets.
+To deploy the built bridge outside the checkout, install the built public
+`@werk/session-daemon`, `@werk/session`, and `@werk/terminal` packages with their
+runtime dependencies. The browser assets themselves are self-contained.
 
-`bun run --cwd examples/session-web test` checks origin/token refusal and a real
-WebSocket-to-local-socket session protocol exchange. Browser visual validation is
-covered by the workspace packaged-consumer checks when a browser is available.
+`bun run test:browser` from the root builds the assets and checks origin/token
+refusal, a real WebSocket-to-local-socket exchange, and Chromium visual behavior.
+Install Playwright Chromium (`bunx playwright install chromium` from this example)
+or set `CHROMIUM_PATH` to a Chromium executable. The browser test copies the built
+assets and runtime package allowlists to a temporary directory outside the checkout.
+It verifies attachment, application cursor keys, bracketed paste, resize, bridge
+connection loss followed by reload recovery, and DOM → beamterm → DOM swaps,
+including actual coloured canvas pixels and preserved shared screen and size.

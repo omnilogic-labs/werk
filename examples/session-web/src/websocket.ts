@@ -71,7 +71,7 @@ export async function openWebSocketTransport(
           throw new Error("WebSocket closed");
         if (socket.bufferedAmount + bytes.byteLength > 16 * 1024 * 1024)
           throw new Error("WebSocket send queue exceeded limit");
-        socket.send(bytes);
+        socket.send(new Uint8Array(bytes));
       },
       abort() {
         socket.close();
