@@ -13,7 +13,8 @@
     "typecheck": "bun scripts/typecheck.ts",
     "test": "bun test packages/terminal/test packages/session/test packages/session-daemon/test",
     "test:artefacts": "bun scripts/check-artefacts.ts",
-    "test:browser": "bun run --cwd examples/session-web test"
+    "test:browser": "bun run build && bun run --cwd examples/session-web test",
+    "test:soak": "bun scripts/session-soak.ts"
   },
   "devDependencies": {
     "prettier": "^3.9.6"

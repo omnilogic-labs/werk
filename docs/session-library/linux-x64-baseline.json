@@ -1,0 +1,28 @@
+{
+  "platform": "linux",
+  "architecture": "x64",
+  "bun": "1.3.14",
+  "requestedSeconds": 60,
+  "elapsedSeconds": 60.312083587000004,
+  "churnSessions": 168,
+  "slowViewerResyncs": 242,
+  "rssStartBytes": 86257664,
+  "rssPeakBytes": 191111168,
+  "rssEndBytes": 160800768,
+  "eventLoopP99Ms": 79.94115399999646,
+  "attachP99Ms": 130.10470899999927,
+  "maxOutputQueueBytes": 49933,
+  "maxControlQueueBytes": 4041,
+  "outputLimitPerConnectionBytes": 32768,
+  "initialHandles": 13,
+  "finalHandles": 13,
+  "cleanup": {
+    "sessions": 0,
+    "attachments": 0,
+    "connections": 0,
+    "pendingCheckpoints": 0,
+    "checkpointWriting": false,
+    "outputQueueBytes": 0,
+    "controlQueueBytes": 0
+  }
+}

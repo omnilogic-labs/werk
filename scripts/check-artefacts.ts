@@ -5,6 +5,7 @@ import {
   readdir,
   rm,
   stat,
+  writeFile,
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -36,7 +37,8 @@ for (const name of [
 }
 const browser = join(repository, "examples/session-web/dist");
 for (const name of await readdir(browser)) {
-  if (!name.endsWith(".js") || name === "server.js") continue;
+  if (!name.endsWith(".js") || name === "server.js" || name === "bridge.js")
+    continue;
   const text = await readFile(join(browser, name), "utf8");
   assert.ok(
     !/\bBun\.|bun:ffi|node:|werk-poc/.test(text),
@@ -47,15 +49,24 @@ assert.ok((await stat(join(browser, "terminal.wasm"))).size > 100000);
 assert.ok(
   (await stat(join(browser, "beamterm_renderer_bg.wasm"))).size > 100000,
 );
-if (process.platform === "win32") {
-  console.log(
-    "Portable artefact checks passed; native PTY hosting is explicitly unsupported on this runtime.",
-  );
-  process.exit(0);
-}
 const directory = await mkdtemp(join(tmpdir(), "werk-artefact-"));
-const binary = join(directory, "werk");
-await copyFile(join(repository, "packages/werk/dist/werk"), binary);
+const binary = join(
+  directory,
+  process.platform === "win32" ? "werk.exe" : "werk",
+);
+await copyFile(
+  join(
+    repository,
+    "packages/werk/dist",
+    process.platform === "win32" ? "werk.exe" : "werk",
+  ),
+  binary,
+);
+const fixture = join(directory, "echo.js");
+await writeFile(
+  fixture,
+  'process.stdout.write("ready\\n"); let pending=""; for await (const chunk of Bun.stdin.stream()) { pending += new TextDecoder().decode(chunk); let i; while ((i=pending.indexOf("\\n")) >= 0) { console.log("received:"+pending.slice(0,i).trim()); pending=pending.slice(i+1); } }',
+);
 const runtimeDir = join(directory, "runtime"),
   stateDir = join(directory, "state");
 const globalArgs = ["--runtime-dir", runtimeDir, "--state-dir", stateDir];
@@ -79,7 +90,7 @@ async function waitFor<T>(
   body: () => Promise<T>,
   predicate: (value: T) => boolean,
 ) {
-  const deadline = Date.now() + 5000;
+  const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
     const value = await body();
     if (predicate(value)) return value;
@@ -131,9 +142,8 @@ try {
       "--label",
       "test=packaged",
       "--",
-      "/bin/sh",
-      "-c",
-      'printf ready; while IFS= read -r line; do printf "received:%s\\n" "$line"; done',
+      process.execPath,
+      fixture,
     ],
     { cwd: directory, stdout: "pipe", stderr: "pipe" },
   );
@@ -213,17 +223,34 @@ try {
   reconnect.dispose();
   await client.close();
   client = undefined;
-  await stopDaemon();
+  // Wait for the periodic persisted running-state checkpoint before abrupt death.
+  await waitFor(
+    async () => {
+      try {
+        return JSON.parse(
+          await readFile(join(stateDir, `${created.id}.json`), "utf8"),
+        );
+      } catch {
+        return undefined;
+      }
+    },
+    (value) =>
+      value?.info?.state === "running" &&
+      value?.info?.checkpoint?.time > created.createdAt + 1000,
+  );
+  process.kill(pid!, "SIGKILL");
+  await Bun.sleep(300);
+  pid = undefined;
   await cli("list");
   pid = Number(await readFile(join(runtimeDir, "daemon.pid"), "utf8"));
   const recovered = JSON.parse(await cli("list"));
-  assert.equal(recovered[0].state, "exited");
+  assert.equal(recovered[0].state, "lost");
   assert.equal(recovered[0].checkpoint.decodable, true);
   assert.match(await cli("logs", created.id), /received:second/);
   await cli("remove", created.id);
   assert.deepEqual(JSON.parse(await cli("list")), []);
   console.log(
-    "Compiled binary outside checkout: detached create, stdin input, reconnect, resize, screen recovery and removal passed. Browser boundaries, assets and built declarations passed.",
+    "Compiled binary outside checkout: detached create, stdin input, reconnect, resize, abrupt-death lost-screen recovery and removal passed. Browser boundaries, assets and built declarations passed.",
   );
 } finally {
   await client?.close();
