@@ -1,3 +1,9 @@
+import {
+  shellArgv,
+  printCommand,
+  floodCommand,
+  endpointCredential,
+} from "./commands.js";
 import { test, expect } from "bun:test";
 import { mkdtemp, rm, readFile, writeFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -131,7 +137,7 @@ test("real snapshots recover a blocked viewer while fast viewer and input contin
     resyncs = 0;
   try {
     const session = await t.client.create({
-      argv: ["/bin/sh"],
+      argv: shellArgv,
       size: { cols: 80, rows: 24 },
     });
     const fast = await t.client.attach(session.id, {
@@ -152,18 +158,14 @@ test("real snapshots recover a blocked viewer while fast viewer and input contin
     });
     await slowApply;
     slow.block();
-    await fast.writeInput(
-      encode(
-        "head -c 150000 /dev/zero | tr '\\000' x; printf '\\nfinished-stream\\n'\n",
-      ),
-    );
+    await fast.writeInput(encode(floodCommand()));
     await until(async () =>
       (await t.client.readScreen(session.id))
         .split("\n")
         .some((line) => line.trim() === "finished-stream"),
     );
     await fast.resize({ cols: 93, rows: 27 });
-    await fast.writeInput(encode("printf 'after-resize\\n'\n"));
+    await fast.writeInput(encode(printCommand("after-resize\n")));
     await until(async () =>
       (await t.client.readScreen(session.id))
         .split("\n")
@@ -210,7 +212,7 @@ test("effects remain ordered and replies are consumed inside daemon", async () =
   let applied = Promise.resolve();
   try {
     const session = await t.client.create({
-      argv: ["/bin/sh"],
+      argv: shellArgv,
       size: { cols: 70, rows: 20 },
     });
     const a = await t.client.attach(session.id, {
@@ -226,7 +228,7 @@ test("effects remain ordered and replies are consumed inside daemon", async () =
     const stop = t.client.watch((e) => daemonEvents.push(e));
     await stop.ready;
     await a.writeInput(
-      encode("printf '\\033]0;daemon-title\\007\\007hello-effect\\n'\n"),
+      encode(printCommand("\x1b]0;daemon-title\x07\x07hello-effect\n")),
     );
     await until(() =>
       events.some((e) => e.type === "effect" && e.effect.kind === "title"),
@@ -291,11 +293,11 @@ test("engine write and snapshot faults end only their session; failed attach ret
   const t = await fixture({ engineFactory: factory });
   try {
     const bad = await t.client.create({
-      argv: ["/bin/sh"],
+      argv: shellArgv,
       size: { cols: 80, rows: 24 },
     });
     const good = await t.client.create({
-      argv: ["/bin/sh"],
+      argv: shellArgv,
       size: { cols: 80, rows: 24 },
     });
     let ended = false;
@@ -315,10 +317,10 @@ test("engine write and snapshot faults end only their session; failed attach ret
     ).rejects.toThrow("snapshot fault");
     failNextSnapshot = false;
     expect((await t.client.get(good.id)).attachments).toHaveLength(1);
-    await a.writeInput(encode("printf 'trigger-fault\\n'\n"));
+    await a.writeInput(encode(printCommand("trigger-fault\n")));
     await until(() => ended);
     expect((await t.client.get(bad.id)).state).toBe("failed");
-    await b.writeInput(encode("printf 'healthy-session\\n'\n"));
+    await b.writeInput(encode(printCommand("healthy-session\n")));
     await until(async () =>
       (await t.client.readScreen(good.id)).includes("healthy-session"),
     );
@@ -331,7 +333,7 @@ test("engine write and snapshot faults end only their session; failed attach ret
 test("mismatched and corrupt checkpoints remain byte-for-byte preserved with lost metadata", async () => {
   const t = await fixture();
   const session = await t.client.create({
-    argv: ["/bin/sh"],
+    argv: shellArgv,
     size: { cols: 80, rows: 24 },
     name: "saved-name",
     labels: { project: "saved" },
@@ -378,18 +380,18 @@ test("invalid sizes and metadata refuse before allocation; cancelled attach keep
       { cols: NaN, rows: 20 },
     ])
       await expect(
-        t.client.create({ argv: ["/bin/sh"], size }),
+        t.client.create({ argv: shellArgv, size }),
       ).rejects.toThrow();
     await expect(
       t.client.create({
-        argv: ["/bin/sh"],
+        argv: shellArgv,
         size: { cols: 80, rows: 24 },
         labels: { invalid: 42 } as any,
       }),
     ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
     expect(await t.client.list()).toEqual([]);
     const session = await t.client.create({
-      argv: ["/bin/sh"],
+      argv: shellArgv,
       size: { cols: 80, rows: 24 },
     });
     await expect(
@@ -436,6 +438,7 @@ test("kernel lock rejects concurrent ownership and failed startup releases it", 
     await expect(serveSessionDaemon(config)).rejects.toThrow("already running");
     const client = await connectSessionClient({
       transport: await openLocalTransport(first.endpoint),
+      credential: endpointCredential(first.endpoint),
     });
     expect((await client.daemonInfo()).id).toBe(first.info.id);
     await client.close();
@@ -444,7 +447,11 @@ test("kernel lock rejects concurrent ownership and failed startup releases it", 
   }
   const second = await serveSessionDaemon(config);
   await second.close();
-  const broken = { ...config, runtimeDir: join(dir, "x".repeat(120)) };
+  const broken = {
+    ...config,
+    runtimeDir: join(dir, "failed-start"),
+    limits: { sessions: 0 },
+  };
   await expect(serveSessionDaemon(broken)).rejects.toThrow();
   const paths = resolveSessionDaemonPaths(broken);
   expect(
@@ -466,7 +473,7 @@ test("bounded controls close a stalled connection and preserve its session", asy
   const client = await connectSessionClient({ transport: stalled.client });
   try {
     const session = await t.client.create({
-      argv: ["/bin/sh"],
+      argv: shellArgv,
       size: { cols: 80, rows: 24 },
     });
     stalled.block();
@@ -489,7 +496,7 @@ test("wire snapshot limits refuse attachment before granting it", async () => {
   const t = await fixture({ limits: { maxFrameBytes: 2048 } });
   try {
     const session = await t.client.create({
-      argv: ["/bin/sh"],
+      argv: shellArgv,
       size: { cols: 80, rows: 24 },
     });
     await expect(

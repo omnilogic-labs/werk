@@ -1,9 +1,9 @@
 import { openSync, closeSync } from "node:fs";
 import { dlopen, FFIType } from "bun:ffi";
+import { acquireWindowsLock } from "./win32.js";
 /** Kernel ownership survives stale socket paths and ends automatically on process death. */
 export function acquireDaemonLock(file: string): () => void {
-  if (process.platform === "win32")
-    throw new Error("Windows daemon locking is unavailable");
+  if (process.platform === "win32") return acquireWindowsLock(file);
   const library = dlopen(
     process.platform === "darwin" ? "libSystem.B.dylib" : "libc.so.6",
     { flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 } },

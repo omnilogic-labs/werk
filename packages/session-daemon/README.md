@@ -25,7 +25,29 @@ metadata and versioned snapshots; recovery never restores a live process.
 Unreadable checkpoints are preserved. Snapshot decode failures remain visible
 in retained session listings.
 
-Native POSIX PTYs and group termination are implemented. Windows hosting and
-richer process-tree inspection are follow-up work; capabilities report the
-available operations. This package does not promise survival across daemon
-replacement, complete output retention or a CPU/OOM isolation boundary.
+Native Linux and macOS use Bun PTYs, foreground Ctrl-C, and descendant process
+and job-control group termination. Linux and macOS report cached process-tree
+summaries. Windows x64 uses Bun 1.3.14 inline ConPTY, Ctrl-C, and a Job Object
+with kill-on-close ownership; both terminate and force end the job. Windows
+ARM64 hosting is explicitly unsupported because the required Bun FFI is
+unavailable. Capabilities expose those differences.
+
+Windows local endpoints bind only to 127.0.0.1 and require a random per-start
+credential; `ensureSessionDaemon` supplies it automatically. Direct clients must
+pass the TCP endpoint's credential to `connectSessionClient`. Runtime and state
+directories receive a current-user-only Windows ACL. A kernel file handle on
+Windows and flock on POSIX keep launcher ownership exclusive across crashes.
+
+Windows job adoption follows Bun spawn synchronously, but Bun's terminal API
+does not expose suspended creation: a very fast child can start a descendant
+before adoption. On macOS, a descendant that has already reparented cannot
+always be attributed to its original shell. These are process-tree containment
+limits, not security isolation guarantees. Explicit daemon shutdown ends owned
+processes; this package does not promise survival across daemon replacement,
+complete output retention or a CPU/OOM isolation boundary.
+
+Run `bun test packages/session-daemon/test` from the workspace for native and
+contract checks. Native fixtures cover PTY input/resize/exit, exclusive ownership,
+detached descendant termination, POSIX foreground interruption, and Windows
+job cleanup after abrupt owner death and TCP credential refusal. Linux execution
+is verified locally; Windows and macOS require their native CI runners.

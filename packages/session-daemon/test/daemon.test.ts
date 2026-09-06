@@ -1,3 +1,9 @@
+import {
+  shellArgv,
+  printCommand,
+  floodCommand,
+  endpointCredential,
+} from "./commands.js";
 import { test, expect } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -74,6 +80,7 @@ async function setup(authorize?: any) {
   const daemon = await serveSessionDaemon(config);
   const client = await connectSessionClient({
     transport: await openLocalTransport(daemon.endpoint),
+    credential: endpointCredential(daemon.endpoint),
   });
   return {
     dir,
@@ -102,7 +109,7 @@ test("PTY survives clients, grants, size ownership, watch and retained recovery"
     const stop = t.client.watch((event) => events.push(event));
     await stop.ready;
     const session = await t.client.create({
-      argv: ["/bin/sh"],
+      argv: shellArgv,
       size: { cols: 80, rows: 24 },
       name: "durable",
       labels: { project: "example" },
@@ -123,7 +130,7 @@ test("PTY survives clients, grants, size ownership, watch and retained recovery"
     });
     await a.transferSize(b.id);
     await b.resize({ cols: 90, rows: 25 });
-    await a.writeInput(encoder.encode("printf 'survival-marker\\n'\n"));
+    await a.writeInput(encoder.encode(printCommand("survival-marker\n")));
     await until(async () =>
       (await t.client.readScreen(session.id)).includes("survival-marker"),
     );
@@ -132,6 +139,7 @@ test("PTY survives clients, grants, size ownership, watch and retained recovery"
     await t.client.close();
     const other = await connectSessionClient({
       transport: await openLocalTransport(t.daemon.endpoint),
+      credential: endpointCredential(t.daemon.endpoint),
     });
     expect(
       (await other.list({ labels: { project: "example" } }))[0]?.state,
@@ -159,7 +167,7 @@ test("failed spawn releases terminal and refused attachment creates no grant", a
     ).rejects.toThrow();
     expect((t.config.engineFactory as any).allocated()).toBe(0);
     const session = await t.client.create({
-      argv: ["/bin/sh"],
+      argv: shellArgv,
       size: { cols: 80, rows: 24 },
     });
     await expect(
@@ -174,7 +182,7 @@ test("ending another attachment revokes it without ending process", async () => 
   const t = await setup();
   try {
     const session = await t.client.create({
-      argv: ["/bin/sh"],
+      argv: shellArgv,
       size: { cols: 80, rows: 24 },
     });
     const events: any[] = [];

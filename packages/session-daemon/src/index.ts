@@ -30,6 +30,7 @@ import {
   socketTransport,
   type LocalEndpoint,
 } from "./local.js";
+import { privateWindowsDirectory } from "./platform/win32.js";
 import { acquireDaemonLock } from "./platform/lock.js";
 export * from "./local.js";
 export interface DaemonConfig {
@@ -124,6 +125,7 @@ export async function createSessionDaemon(config: DaemonConfig) {
     if (!Number.isFinite(value) || value <= 0)
       throw new Error(`Invalid limit ${key}`);
   await fs.mkdir(config.stateDir, { recursive: true, mode: 0o700 });
+  if (process.platform === "win32") privateWindowsDirectory(config.stateDir);
   const identityPath = path.join(config.stateDir, "identity");
   let id: string;
   try {
@@ -924,24 +926,47 @@ export async function serveSessionDaemon(config: DaemonConfig) {
   const stat = await fs.stat(paths.runtimeDir);
   if (process.getuid && stat.uid !== process.getuid())
     throw new Error("Runtime directory belongs to another user");
-  await fs.chmod(paths.runtimeDir, 0o700);
+  if (process.platform === "win32") privateWindowsDirectory(paths.runtimeDir);
+  else await fs.chmod(paths.runtimeDir, 0o700);
   const releaseLock = acquireDaemonLock(paths.lock);
   let daemon: Awaited<ReturnType<typeof createSessionDaemon>> | undefined;
   let server: net.Server | undefined;
   try {
-    if (Buffer.byteLength(paths.socket) > 103)
+    if (process.platform !== "win32" && Buffer.byteLength(paths.socket) > 103)
       throw new Error("Unix socket path exceeds portable length limit");
-    daemon = await createSessionDaemon(config);
-    await fs.rm(paths.socket, { force: true });
-    const endpoint: LocalEndpoint = { kind: "unix", path: paths.socket };
+    const credential =
+      process.platform === "win32" ? randomUUID() + randomUUID() : undefined;
+    daemon = await createSessionDaemon(
+      credential
+        ? {
+            ...config,
+            authenticate: async (supplied) => {
+              if (supplied !== credential)
+                throw new Error("Invalid local credential");
+              return owner();
+            },
+          }
+        : config,
+    );
+    if (process.platform !== "win32")
+      await fs.rm(paths.socket, { force: true });
+    let endpoint: LocalEndpoint = { kind: "unix", path: paths.socket };
     server = net.createServer((socket) =>
       daemon!.accept(socketTransport(socket), owner()),
     );
     await new Promise<void>((resolve, reject) => {
       server!.once("error", reject);
-      server!.listen(paths.socket, resolve);
+      if (credential) server!.listen(0, "127.0.0.1", resolve);
+      else server!.listen(paths.socket, resolve);
     });
-    await fs.chmod(paths.socket, 0o600);
+    if (credential) {
+      endpoint = {
+        kind: "tcp",
+        host: "127.0.0.1",
+        port: (server.address() as net.AddressInfo).port,
+        credential,
+      };
+    } else await fs.chmod(paths.socket, 0o600);
     await fs.writeFile(paths.endpoint, JSON.stringify(endpoint), {
       mode: 0o600,
     });
