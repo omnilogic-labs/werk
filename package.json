@@ -3,11 +3,17 @@
   "version": "0.0.0",
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "examples/*"
   ],
   "scripts": {
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "build": "bun scripts/build.ts",
+    "typecheck": "bun scripts/typecheck.ts",
+    "test": "bun test packages/terminal/test packages/session/test packages/session-daemon/test",
+    "test:artefacts": "bun scripts/check-artefacts.ts",
+    "test:browser": "bun run --cwd examples/session-web test"
   },
   "devDependencies": {
     "prettier": "^3.9.6"

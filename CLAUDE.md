@@ -9,19 +9,17 @@ list you can open from a terminal or a browser.
 
 ## What this repo is right now
 
-**Documentation, plus one proof of concept.** There is no product code yet.
-The repo is a Bun workspace with Prettier on defaults; the design lives in
-`docs/`, and `packages/werk-poc/` holds the experiment that tested the stack.
+The Bun workspace contains private session libraries and two consumers. The
+portable `@werk/terminal` and `@werk/session` packages provide terminal replicas
+and the transport-injected client. `@werk/session-daemon` owns PTYs, persistence
+and local daemon startup. `@werk/terminal-beamterm` proves the renderer seam beside
+the bundled DOM renderer. `packages/werk` is the session CLI and
+`examples/session-web` is the local browser consumer.
 
-| Path                 | What's in it                                                                                                                                         |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docs/product/`      | What werk does. Scope and promises, the object model, worked journeys, surfaces, open questions.                                                     |
-| `docs/research/`     | What we found out before deciding anything. Thirteen dossiers, terminal internals through competitive landscape.                                     |
-| `docs/proposals/`    | Technical specifications for what to build. Currently the proof of concept that tests the stack, and how one binary runs on three operating systems. |
-| `packages/werk-poc/` | The proof of concept: reference material, not product code. Its `findings/` are the output; start at `findings/README.md` there.                     |
-
-Start at `docs/README.md`. The proof of concept is reference material for
-building the product; nothing in it is migrated across directly.
+See [docs/session-library.md](docs/session-library.md) for build, validation and
+consumer commands. Product direction lives in `docs/product`, research in
+`docs/research`, and technical plans in `docs/proposals`. `packages/werk-poc` is
+reference material; product packages do not import its source.
 
 ## Project rules
 

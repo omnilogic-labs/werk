@@ -1,0 +1,26 @@
+{
+  "name": "@werk/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "bin": {
+    "werk": "./dist/werk"
+  },
+  "scripts": {
+    "build": "bun build.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@werk/session": "workspace:*",
+    "@werk/session-daemon": "workspace:*",
+    "@werk/terminal": "workspace:*"
+  },
+  "devDependencies": {
+    "bun-types": "1.3.14",
+    "typescript": "^5.9.3"
+  }
+}
