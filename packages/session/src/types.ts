@@ -116,7 +116,11 @@ export interface DaemonEvent {
     | "effect"
     | "activity"
     | "attached"
-    | "detached";
+    | "detached"
+    | "attachments-updated"
+    | "resized"
+    | "checkpoint"
+    | "removed";
   sessionId: string;
   session?: SessionInfo;
   effect?: Effect;

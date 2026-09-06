@@ -12,6 +12,13 @@ grants permissions; requested grants are never treated as authority by the clien
 `create`, `list`, `get`, `readScreen`, `readHistory`, `terminate`, `remove`,
 `daemonInfo` and `endAttachment` work without attachment. `watch(callback)` returns
 an idempotent stop function with a `ready` promise for subscription acceptance.
+Watch events contain the current session metadata, including principals, grants
+and size ownership. `attachments-updated`, `resized` and `checkpoint` report
+changes without requiring a terminal attachment; `removed` deletes the row and
+carries its final metadata. Per-session list authorization also gates events.
+Apply list label/state filters to incoming metadata when maintaining a filtered
+view. Await `watch().ready` before loading the initial list to avoid a subscription
+gap, and reconcile events received during that request.
 Watch and attachment callback errors are isolated and optionally reported via
 `onCallbackError`.
 

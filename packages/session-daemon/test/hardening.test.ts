@@ -507,3 +507,111 @@ test("wire snapshot limits refuse attachment before granting it", async () => {
     await t.close();
   }
 });
+
+test("fleet watch tracks grants, size ownership, resize and removal without attaching", async () => {
+  const t = await fixture({
+    authorize(principal, action, session) {
+      if (principal.id === "fleet")
+        return action === "list" && session?.labels.visibility !== "private";
+      if (principal.id === "reader" && action === "attach")
+        return { read: true, input: false };
+      return true;
+    },
+  });
+  const fleetPipe = duplex(),
+    readerPipe = duplex();
+  t.daemon.accept(fleetPipe.server, { id: "fleet" });
+  t.daemon.accept(readerPipe.server, {
+    id: "reader",
+    displayName: "Read Only",
+  });
+  const fleet = await connectSessionClient({ transport: fleetPipe.client });
+  const reader = await connectSessionClient({ transport: readerPipe.client });
+  const events: import("@werk/session").DaemonEvent[] = [];
+  const rows = new Map<string, import("@werk/session").SessionInfo>();
+  const runningRows = new Map<string, import("@werk/session").SessionInfo>();
+  // A fleet may apply the same label/state predicates used for its initial list.
+  for (const row of await fleet.list({ labels: { team: "alpha" } }))
+    rows.set(row.id, row);
+  const stop = fleet.watch((event) => {
+    events.push(event);
+    if (event.type === "removed" || event.session?.labels.team !== "alpha") {
+      rows.delete(event.sessionId);
+      runningRows.delete(event.sessionId);
+    } else if (event.session) {
+      rows.set(event.sessionId, event.session);
+      if (event.session.state === "running")
+        runningRows.set(event.sessionId, event.session);
+      else runningRows.delete(event.sessionId);
+    }
+  });
+  try {
+    await stop.ready;
+    const hidden = await t.client.create({
+      argv: shellArgv,
+      size: { cols: 40, rows: 10 },
+      labels: { team: "alpha", visibility: "private" },
+    });
+    const other = await t.client.create({
+      argv: shellArgv,
+      size: { cols: 40, rows: 10 },
+      labels: { team: "beta" },
+    });
+    const session = await t.client.create({
+      argv: shellArgv,
+      size: { cols: 40, rows: 10 },
+      labels: { team: "alpha" },
+    });
+    await until(() => rows.has(session.id));
+    expect(rows.size).toBe(1);
+    expect(events.some((e) => e.sessionId === hidden.id)).toBe(false);
+    expect(rows.has(other.id)).toBe(false);
+    await expect(fleet.get(hidden.id)).rejects.toThrow("refused");
+    const a = await t.client.attach(session.id, {
+      permissions: { read: true, input: true },
+      onEvent() {},
+    });
+    const b = await reader.attach(session.id, { onEvent() {} });
+    await until(() => rows.get(session.id)?.attachments.length === 2);
+    expect(
+      rows.get(session.id)!.attachments.find((x) => x.id === b.id),
+    ).toMatchObject({
+      principal: { id: "reader", displayName: "Read Only" },
+      permissions: { read: true, input: false },
+      holdsSize: false,
+    });
+    await a.transferSize(b.id);
+    await until(() =>
+      events.some(
+        (e) =>
+          e.type === "attachments-updated" &&
+          e.session?.attachments.some((x) => x.id === b.id && x.holdsSize),
+      ),
+    );
+    expect(
+      rows.get(session.id)!.attachments.find((x) => x.id === a.id)!.holdsSize,
+    ).toBe(false);
+    await b.resize({ cols: 61, rows: 17 });
+    await until(() => rows.get(session.id)?.size.cols === 61);
+    await b.detach();
+    await until(() => rows.get(session.id)?.attachments.length === 1);
+    expect(rows.get(session.id)!.attachments[0]!.holdsSize).toBe(true);
+    await a.detach();
+    await until(() => rows.get(session.id)?.attachments.length === 0);
+    await t.client.terminate(session.id, "force");
+    await until(() => rows.get(session.id)?.state === "exited");
+    expect(runningRows.has(session.id)).toBe(false);
+    await t.client.remove(session.id);
+    await until(() => !rows.has(session.id));
+    expect(
+      events.some((e) => e.type === "removed" && e.sessionId === session.id),
+    ).toBe(true);
+    expect(events.some((e) => e.sessionId === hidden.id)).toBe(false);
+    expect((await fleet.list({ labels: { team: "alpha" } })).length).toBe(0);
+  } finally {
+    stop();
+    await reader.close();
+    await fleet.close();
+    await t.close();
+  }
+});

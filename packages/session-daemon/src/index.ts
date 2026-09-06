@@ -16,6 +16,7 @@ import {
   type Permissions,
   type AttachmentInfo,
   type DaemonInfo,
+  type DaemonEvent,
   type Size,
   type EndReason,
 } from "@werk/session";
@@ -306,7 +307,11 @@ export async function createSessionDaemon(config: DaemonConfig) {
     for (const v of viewers.values())
       if (v.record === r) emit(v, event, droppable);
   }
-  function notify(type: any, r: RecordState, extra: any = {}) {
+  function notify(
+    type: DaemonEvent["type"],
+    r: RecordState,
+    extra: Partial<DaemonEvent> = {},
+  ) {
     for (const c of connections)
       if (c.watch) {
         try {
@@ -418,6 +423,7 @@ export async function createSessionDaemon(config: DaemonConfig) {
             reason: String(error),
           };
         }
+        if (!r.removed) notify("checkpoint", r);
       }
     })().finally(() => {
       checkpointRunning = false;
@@ -672,6 +678,7 @@ export async function createSessionDaemon(config: DaemonConfig) {
         // all of the engine's scrollback reflow context. Resizing a replica alone
         // can therefore disagree with the daemon even with an ordered stream.
         broadcast(v.record, { type: "resize", size: p.size }, false);
+        notify("resized", v.record);
       } else {
         const target = viewers.get(p.targetAttachmentId);
         if (!target || target.record !== v.record)
@@ -683,6 +690,7 @@ export async function createSessionDaemon(config: DaemonConfig) {
         target.info.holdsSize = true;
         emit(v, { type: "size-holder", holdsSize: false });
         emit(target, { type: "size-holder", holdsSize: true });
+        notify("attachments-updated", v.record);
       }
       return { result: null };
     }
@@ -740,6 +748,7 @@ export async function createSessionDaemon(config: DaemonConfig) {
         r.terminal?.dispose();
       } catch {}
       records.delete(r.info.id);
+      notify("removed", r);
       return { result: null };
     }
     if (method === "attach") {
