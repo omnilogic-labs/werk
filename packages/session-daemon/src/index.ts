@@ -4,6 +4,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   FramedTransport,
+  encodeFrame,
   PROTOCOL_VERSION,
   type Transport,
   type WireMessage,
@@ -29,6 +30,7 @@ import {
   socketTransport,
   type LocalEndpoint,
 } from "./local.js";
+import { acquireDaemonLock } from "./platform/lock.js";
 export * from "./local.js";
 export interface DaemonConfig {
   runtimeDir: string;
@@ -39,8 +41,12 @@ export interface DaemonConfig {
     attachments?: number;
     outputQueueBytes?: number;
     controlQueueMessages?: number;
+    controlQueueBytes?: number;
+    maxFrameBytes?: number;
     helloTimeoutMs?: number;
     checkpointIntervalMs?: number;
+    shutdownTimeoutMs?: number;
+    checkpointMaxBytes?: number;
   };
   authorize?: (
     principal: Principal,
@@ -59,6 +65,8 @@ type RecordState = {
   child?: Child;
   position: number;
   checkpoint?: SnapshotEnvelope;
+  preserveCheckpoint?: boolean;
+  removed?: boolean;
 };
 type Viewer = {
   info: AttachmentInfo;
@@ -72,7 +80,8 @@ type Connection = {
   principal: Principal;
   watch: boolean;
   closed: boolean;
-  control: WireMessage[];
+  control: { message: WireMessage; bytes: number }[];
+  controlBytes: number;
   output: Map<string, { message: WireMessage; bytes: number }[]>;
   bytes: number;
   writing: boolean;
@@ -103,8 +112,12 @@ export async function createSessionDaemon(config: DaemonConfig) {
     attachments: 128,
     outputQueueBytes: 256 * 1024,
     controlQueueMessages: 1024,
+    controlQueueBytes: 16 * 1024 * 1024,
+    maxFrameBytes: 8 * 1024 * 1024,
     helloTimeoutMs: 5000,
     checkpointIntervalMs: 5000,
+    shutdownTimeoutMs: 5000,
+    checkpointMaxBytes: 32 * 1024 * 1024,
     ...config.limits,
   };
   for (const [key, value] of Object.entries(limits))
@@ -138,9 +151,11 @@ export async function createSessionDaemon(config: DaemonConfig) {
   const records = new Map<string, RecordState>(),
     viewers = new Map<string, Viewer>(),
     connections = new Set<Connection>();
+  let pendingCreates = 0;
   let closing = false,
     generation = 0;
   function publicInfo(record: RecordState): SessionInfo {
+    if (record.child) record.info.processTree = record.child.summary();
     return structuredClone(record.info);
   }
   function permission(
@@ -162,9 +177,10 @@ export async function createSessionDaemon(config: DaemonConfig) {
     for (const v of [...viewers.values()])
       if (v.connection === c) end(v, "connection-closed");
     c.control = [];
+    c.controlBytes = 0;
     c.output.clear();
     c.dirty.clear();
-    void c.wire.close();
+    void c.wire.close().catch(() => {});
   }
   function queue(
     c: Connection,
@@ -173,6 +189,12 @@ export async function createSessionDaemon(config: DaemonConfig) {
     bytes = 0,
   ) {
     if (c.closed) return;
+    try {
+      bytes = encodeFrame(message, limits.maxFrameBytes).byteLength;
+    } catch {
+      dropConnection(c);
+      return;
+    }
     if (attachmentId) {
       if (c.dirty.has(attachmentId)) return;
       if (c.bytes + bytes > limits.outputQueueBytes) {
@@ -187,11 +209,15 @@ export async function createSessionDaemon(config: DaemonConfig) {
         c.bytes += bytes;
       }
     } else {
-      if (c.control.length >= limits.controlQueueMessages) {
+      if (
+        c.control.length >= limits.controlQueueMessages ||
+        c.controlBytes + bytes > limits.controlQueueBytes
+      ) {
         dropConnection(c);
         return;
       }
-      c.control.push(message);
+      c.control.push({ message, bytes });
+      c.controlBytes += bytes;
     }
     void flush(c);
   }
@@ -218,7 +244,9 @@ export async function createSessionDaemon(config: DaemonConfig) {
     c.writing = true;
     try {
       while (!c.closed) {
-        let message = c.control.shift();
+        const control = c.control.shift();
+        if (control) c.controlBytes -= control.bytes;
+        let message = control?.message;
         if (!message) {
           const dirty = c.dirty.values().next().value;
           if (dirty) {
@@ -251,7 +279,11 @@ export async function createSessionDaemon(config: DaemonConfig) {
       v.connection.bytes -= old.reduce((sum, x) => sum + x.bytes, 0);
       v.connection.output.delete(v.info.id);
       v.connection.dirty.delete(v.info.id);
-      queue(v.connection, stateEvent(v, "resync"));
+      try {
+        queue(v.connection, stateEvent(v, "resync"));
+      } catch {
+        /* The final ended event still closes an invalid engine stream. */
+      }
     }
     queue(
       v.connection,
@@ -299,8 +331,12 @@ export async function createSessionDaemon(config: DaemonConfig) {
     v.connection.bytes -= queued.reduce((sum, x) => sum + x.bytes, 0);
     v.connection.output.delete(v.info.id);
     v.connection.dirty.delete(v.info.id);
-    if (reason === "session-ended") {
-      queue(v.connection, stateEvent(v, "resync"));
+    if (reason === "session-ended" && v.record.terminal) {
+      try {
+        queue(v.connection, stateEvent(v, "resync"));
+      } catch {
+        /* The final ended event still closes an invalid engine stream. */
+      }
       if (v.record.info.exit)
         emit(v, { type: "exit", exit: v.record.info.exit });
     }
@@ -330,42 +366,83 @@ export async function createSessionDaemon(config: DaemonConfig) {
     return v;
   }
   let checkpointChain = Promise.resolve();
+  let checkpointRunning = false;
+  const checkpointPending = new Set<RecordState>();
   function checkpoint(r: RecordState) {
-    checkpointChain = checkpointChain.then(async () => {
-      try {
-        const snapshot = r.terminal?.snapshot() ?? r.checkpoint;
-        r.info.checkpoint = { time: Date.now(), decodable: !!snapshot };
-        const payload = {
-          info: r.info,
-          snapshot: snapshot
-            ? {
-                ...snapshot,
-                bytes: Buffer.from(snapshot.bytes).toString("base64"),
-              }
-            : undefined,
-        };
-        const file = path.join(config.stateDir, `${r.info.id}.json`);
-        await fs.writeFile(`${file}.tmp`, JSON.stringify(payload), {
-          mode: 0o600,
-        });
-        await fs.rename(`${file}.tmp`, file);
-      } catch (error) {
-        r.info.checkpoint = {
-          time: Date.now(),
-          decodable: false,
-          reason: String(error),
-        };
+    if (r.removed || r.preserveCheckpoint) return checkpointChain;
+    checkpointPending.add(r);
+    if (checkpointRunning) return checkpointChain;
+    checkpointRunning = true;
+    checkpointChain = (async () => {
+      while (checkpointPending.size) {
+        const r = checkpointPending.values().next().value!;
+        checkpointPending.delete(r);
+        if (r.removed) continue;
+        try {
+          let snapshot = r.checkpoint;
+          let snapshotError: unknown;
+          try {
+            snapshot = r.terminal?.snapshot() ?? snapshot;
+          } catch (error) {
+            snapshotError = error;
+          }
+          if (snapshot) r.checkpoint = snapshot;
+          r.info.checkpoint = {
+            time: Date.now(),
+            decodable: !!snapshot && !snapshotError,
+            ...(snapshotError ? { reason: String(snapshotError) } : {}),
+          };
+          const payload = {
+            info: r.info,
+            snapshot: snapshot
+              ? {
+                  ...snapshot,
+                  bytes: Buffer.from(snapshot.bytes).toString("base64"),
+                }
+              : undefined,
+          };
+          const file = path.join(config.stateDir, `${r.info.id}.json`);
+          const json = JSON.stringify(payload);
+          if (Buffer.byteLength(json) > limits.checkpointMaxBytes)
+            throw new Error("Checkpoint exceeds byte limit");
+          await fs.writeFile(`${file}.tmp`, json, {
+            mode: 0o600,
+          });
+          await fs.rename(`${file}.tmp`, file);
+        } catch (error) {
+          r.info.checkpoint = {
+            time: Date.now(),
+            decodable: false,
+            reason: String(error),
+          };
+        }
       }
+    })().finally(() => {
+      checkpointRunning = false;
     });
     return checkpointChain;
   }
   for (const file of await fs.readdir(config.stateDir)) {
     if (!file.endsWith(".json")) continue;
     try {
+      if (records.size >= limits.sessions) continue;
+      if (
+        (await fs.stat(path.join(config.stateDir, file))).size >
+        limits.checkpointMaxBytes
+      )
+        continue;
       const saved = JSON.parse(
         await fs.readFile(path.join(config.stateDir, file), "utf8"),
       );
       if (!saved.info?.id || file !== `${saved.info.id}.json`) continue;
+      if (
+        typeof saved.info.id !== "string" ||
+        !Array.isArray(saved.info.argv) ||
+        !saved.info.labels ||
+        typeof saved.info.labels !== "object"
+      )
+        continue;
+      sizeValid(saved.info.size);
       const r: RecordState = { info: saved.info, position: 0 };
       r.info.attachments = [];
       r.info.processTree = { children: 0 };
@@ -383,6 +460,7 @@ export async function createSessionDaemon(config: DaemonConfig) {
             decodable: true,
           };
         } catch (e) {
+          r.preserveCheckpoint = true;
           r.info.checkpoint = {
             time: r.info.checkpoint?.time ?? 0,
             decodable: false,
@@ -428,7 +506,7 @@ export async function createSessionDaemon(config: DaemonConfig) {
     }
     if (method === "create") {
       permission(c, "create");
-      if (records.size >= limits.sessions)
+      if (records.size + pendingCreates >= limits.sessions)
         throw new SessionError("LIMIT", "Session limit reached");
       sizeValid(p.size);
       if (
@@ -440,7 +518,38 @@ export async function createSessionDaemon(config: DaemonConfig) {
           "INVALID_ARGUMENT",
           "argv must be a nonempty string array",
         );
-      const terminal = await config.engineFactory.create(p.size);
+      if (
+        (p.name !== undefined && typeof p.name !== "string") ||
+        (p.cwd !== undefined && typeof p.cwd !== "string") ||
+        [p.labels, p.env].some(
+          (value) =>
+            value !== undefined &&
+            (!value ||
+              typeof value !== "object" ||
+              Array.isArray(value) ||
+              Object.values(value).some((x) => typeof x !== "string")),
+        )
+      )
+        throw new SessionError("INVALID_ARGUMENT", "Invalid session metadata");
+      if (
+        (p.name?.length ?? 0) > 256 ||
+        Object.entries(p.labels ?? {}).length > 128 ||
+        Object.entries(p.labels ?? {}).some(
+          ([key, value]) => key.length > 256 || (value as string).length > 1024,
+        )
+      )
+        throw new SessionError("LIMIT", "Session metadata exceeds limits");
+      pendingCreates++;
+      let terminal: TerminalHandle;
+      try {
+        terminal = await config.engineFactory.create(p.size);
+      } finally {
+        pendingCreates--;
+      }
+      if (closing || c.closed) {
+        terminal.dispose();
+        throw new SessionError("CLOSED", "Connection closed during creation");
+      }
       const r: RecordState = {
         terminal,
         position: 0,
@@ -491,7 +600,16 @@ export async function createSessionDaemon(config: DaemonConfig) {
                 code: null,
                 reason: `Engine fault: ${String(e)}`,
               };
-              r.child?.terminate("force");
+              try {
+                r.child?.terminate("force");
+              } catch {}
+              const broken = r.terminal;
+              r.terminal = undefined;
+              try {
+                broken?.dispose();
+              } catch {}
+              for (const viewer of [...viewers.values()])
+                if (viewer.record === r) end(viewer, "session-ended");
               notify("state", r);
             }
           },
@@ -548,7 +666,10 @@ export async function createSessionDaemon(config: DaemonConfig) {
         v.record.child?.resize(p.size);
         v.record.terminal?.resize(p.size);
         v.record.info.size = p.size;
-        broadcast(v.record, { type: "resize", size: p.size });
+        // Restore authoritative post-resize state: snapshot restore does not retain
+        // all of the engine's scrollback reflow context. Resizing a replica alone
+        // can therefore disagree with the daemon even with an ordered stream.
+        broadcast(v.record, { type: "resize", size: p.size }, false);
       } else {
         const target = viewers.get(p.targetAttachmentId);
         if (!target || target.record !== v.record)
@@ -607,18 +728,22 @@ export async function createSessionDaemon(config: DaemonConfig) {
         );
       for (const v of [...viewers.values()])
         if (v.record === r) end(v, "session-ended");
+      r.removed = true;
+      checkpointPending.delete(r);
       await checkpointChain;
       await fs.rm(path.join(config.stateDir, `${r.info.id}.json`), {
         force: true,
       });
-      r.terminal?.dispose();
+      try {
+        r.terminal?.dispose();
+      } catch {}
       records.delete(r.info.id);
       return { result: null };
     }
     if (method === "attach") {
       if (viewers.size >= limits.attachments)
         throw new SessionError("LIMIT", "Attachment limit reached");
-      if (!r.terminal)
+      if (!r.terminal || !config.engineFactory.capabilities.snapshot)
         throw new SessionError("UNSUPPORTED", "Saved screen cannot be decoded");
       if (
         p.representation &&
@@ -648,12 +773,18 @@ export async function createSessionDaemon(config: DaemonConfig) {
         position: 0,
         representation: p.representation ?? "snapshot",
       };
+      const initial = stateEvent(v, "snapshot");
+      encodeFrame(initial, limits.maxFrameBytes);
       viewers.set(v.info.id, v);
       r.info.attachments.push(v.info);
       return {
         result: v.info,
         after() {
-          queue(c, stateEvent(v, "snapshot"));
+          if (c.closed) {
+            end(v, "connection-closed");
+            return;
+          }
+          queue(c, initial);
           notify("attached", r, { attachment: v.info });
         },
       };
@@ -666,11 +797,12 @@ export async function createSessionDaemon(config: DaemonConfig) {
       return;
     }
     const c: Connection = {
-      wire: new FramedTransport(transport),
+      wire: new FramedTransport(transport, limits.maxFrameBytes),
       principal: principal ?? owner(),
       watch: false,
       closed: false,
       control: [],
+      controlBytes: 0,
       output: new Map(),
       bytes: 0,
       writing: false,
@@ -740,17 +872,51 @@ export async function createSessionDaemon(config: DaemonConfig) {
       clearInterval(interval);
       for (const c of [...connections]) dropConnection(c);
       for (const r of records.values()) {
-        r.child?.terminate("force");
+        try {
+          r.child?.terminate("force");
+        } catch {}
       }
-      await Promise.all([...records.values()].map((r) => r.child?.exited));
+      let timer: ReturnType<typeof setTimeout>;
+      await Promise.race([
+        Promise.allSettled([...records.values()].map((r) => r.child?.exited)),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, limits.shutdownTimeoutMs);
+        }),
+      ]);
+      clearTimeout(timer!);
+      for (const r of records.values()) {
+        try {
+          r.child?.close();
+        } catch {}
+      }
       for (const r of records.values()) {
         await checkpoint(r);
-        r.terminal?.dispose();
+        try {
+          r.terminal?.dispose();
+        } catch {}
       }
       await checkpointChain;
     })());
   }
-  return { info, accept, close };
+  return {
+    info,
+    accept,
+    close,
+    diagnostics() {
+      return {
+        sessions: records.size,
+        attachments: viewers.size,
+        connections: connections.size,
+        pendingCheckpoints: checkpointPending.size,
+        checkpointWriting: checkpointRunning,
+        outputQueueBytes: [...connections].reduce((sum, c) => sum + c.bytes, 0),
+        controlQueueBytes: [...connections].reduce(
+          (sum, c) => sum + c.controlBytes,
+          0,
+        ),
+      };
+    },
+  };
 }
 export async function serveSessionDaemon(config: DaemonConfig) {
   const paths = resolveSessionDaemonPaths(config);
@@ -759,25 +925,12 @@ export async function serveSessionDaemon(config: DaemonConfig) {
   if (process.getuid && stat.uid !== process.getuid())
     throw new Error("Runtime directory belongs to another user");
   await fs.chmod(paths.runtimeDir, 0o700);
-  let lock: Awaited<ReturnType<typeof fs.open>>;
-  try {
-    lock = await fs.open(paths.lock, "wx", 0o600);
-  } catch {
-    let pid = 0;
-    try {
-      pid = Number(await fs.readFile(paths.lock, "utf8"));
-      process.kill(pid, 0);
-      throw new Error("Daemon already running");
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e;
-    }
-    await fs.unlink(paths.lock);
-    lock = await fs.open(paths.lock, "wx", 0o600);
-  }
-  await lock.writeFile(String(process.pid));
+  const releaseLock = acquireDaemonLock(paths.lock);
   let daemon: Awaited<ReturnType<typeof createSessionDaemon>> | undefined;
   let server: net.Server | undefined;
   try {
+    if (Buffer.byteLength(paths.socket) > 103)
+      throw new Error("Unix socket path exceeds portable length limit");
     daemon = await createSessionDaemon(config);
     await fs.rm(paths.socket, { force: true });
     const endpoint: LocalEndpoint = { kind: "unix", path: paths.socket };
@@ -792,25 +945,26 @@ export async function serveSessionDaemon(config: DaemonConfig) {
     await fs.writeFile(paths.endpoint, JSON.stringify(endpoint), {
       mode: 0o600,
     });
-    let closed = false;
-    const close = async () => {
-      if (closed) return;
-      closed = true;
-      server!.close();
-      await daemon!.close();
-      await lock.close();
-      await Promise.all([
-        fs.rm(paths.lock, { force: true }),
-        fs.rm(paths.endpoint, { force: true }),
-        fs.rm(paths.socket, { force: true }),
-      ]);
-    };
+    let closePromise: Promise<void> | undefined;
+    const close = () =>
+      (closePromise ??= (async () => {
+        server!.close();
+        await daemon!.close();
+        await Promise.all([
+          fs.rm(paths.endpoint, { force: true }),
+          fs.rm(paths.socket, { force: true }),
+        ]);
+        releaseLock();
+      })());
     return { ...daemon, endpoint, close };
   } catch (e) {
     server?.close();
     await daemon?.close();
-    await lock.close();
-    await fs.rm(paths.lock, { force: true });
+    await Promise.all([
+      fs.rm(paths.socket, { force: true }),
+      fs.rm(paths.endpoint, { force: true }),
+    ]).catch(() => {});
+    releaseLock();
     throw e;
   }
 }

@@ -16,7 +16,7 @@ function engine(): TerminalEngineFactory {
   const factory: any = {
     buildId: "test",
     snapshotFormatVersion: 1,
-    capabilities: { snapshots: true },
+    capabilities: { snapshot: true },
     allocated: () => allocated,
     async create(size: any) {
       allocated++;

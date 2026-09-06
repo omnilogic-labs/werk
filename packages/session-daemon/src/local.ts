@@ -19,12 +19,10 @@ export function resolveSessionDaemonPaths(options: {
   };
 }
 export function socketTransport(socket: net.Socket): Transport {
-  let controller: ReadableStreamDefaultController<Uint8Array>;
   let ended = false;
   const readable = new ReadableStream<Uint8Array>(
     {
       start(c) {
-        controller = c;
         socket.on("data", (data) => {
           if (!ended) {
             c.enqueue(
@@ -88,12 +86,18 @@ export async function openLocalTransport(
   endpoint: LocalEndpoint,
   timeoutMs = 5000,
 ): Promise<Transport> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+    throw new Error("Invalid connection deadline");
   if (
     !endpoint ||
     (endpoint.kind !== "unix" && endpoint.kind !== "tcp") ||
     (endpoint.kind === "unix" && typeof endpoint.path !== "string") ||
     (endpoint.kind === "tcp" &&
-      (endpoint.host !== "127.0.0.1" || !Number.isInteger(endpoint.port)))
+      (endpoint.host !== "127.0.0.1" ||
+        !Number.isInteger(endpoint.port) ||
+        endpoint.port < 1 ||
+        endpoint.port > 65535 ||
+        typeof endpoint.credential !== "string"))
   )
     throw new Error("Invalid local endpoint");
   const socket = net.createConnection(
@@ -124,14 +128,21 @@ export async function ensureSessionDaemon(options: {
   startupTimeoutMs?: number;
 }) {
   const paths = resolveSessionDaemonPaths(options);
+  const startupTimeoutMs = options.startupTimeoutMs ?? 10000;
+  if (!Number.isFinite(startupTimeoutMs) || startupTimeoutMs <= 0)
+    throw new Error("Invalid startup deadline");
+  const deadline = Date.now() + startupTimeoutMs;
   async function probe() {
     const endpoint = JSON.parse(
       await fs.readFile(paths.endpoint, "utf8"),
     ) as LocalEndpoint;
     const client = await connectSessionClient({
-      transport: await openLocalTransport(endpoint, 500),
+      transport: await openLocalTransport(
+        endpoint,
+        Math.max(1, Math.min(500, deadline - Date.now())),
+      ),
       credential: endpoint.kind === "tcp" ? endpoint.credential : undefined,
-      requestTimeoutMs: 500,
+      requestTimeoutMs: Math.max(1, Math.min(500, deadline - Date.now())),
     });
     try {
       return { endpoint, version: (await client.daemonInfo()).version };
@@ -155,7 +166,6 @@ export async function ensureSessionDaemon(options: {
     { detached: true, stdio: ["ignore", "ignore", "ignore"] },
   );
   child.unref();
-  const deadline = Date.now() + (options.startupTimeoutMs ?? 10000);
   while (Date.now() < deadline) {
     try {
       return await probe();
