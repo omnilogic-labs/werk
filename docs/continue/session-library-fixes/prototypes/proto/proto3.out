@@ -1,0 +1,22 @@
+
+== title-and-cwd-per-line x200 (317 ms)
+viewer events        {"snapshot":1,"output":2,"effect":400,"exit":1,"ended":1}
+viewer bytes         {"output":8476,"snapshotPayload":1210,"wire":113781,"frames":407}
+watch events         {"created":1,"attached":1,"checkpoint":2,"effect":3,"activity":2,"detached":1,"exited":1}
+watch order          "created attached checkpoint effect activity detached effect effect activity exited checkpoint"
+watch bytes          {"wire":11002,"frames":11}
+final                {"state":"exited","exit":{"code":0},"title":"title 200","cwd":"file:///tmp/200","replicaMatches":true,"replicaErrors":[]}
+
+== seq 1 200000 flood (802 ms)
+viewer events        {"snapshot":1,"output":1,"resync":59,"exit":1,"ended":1}
+viewer bytes         {"output":10047,"snapshotPayload":414586,"wire":1179395,"frames":65}
+watch events         {"created":1,"attached":1,"checkpoint":2,"activity":3,"detached":1,"exited":1}
+watch order          "created attached checkpoint activity activity detached activity exited checkpoint"
+watch bytes          {"wire":7130,"frames":9}
+final                {"state":"exited","exit":{"code":0},"replicaMatches":true,"replicaErrors":[]}
+
+== 5500 ms idle with 2 exited sessions
+watch events         {}
+watch bytes          {"wire":0}
+
+done; diagnostics {"sessions":2,"attachments":0,"connections":0,"pendingCheckpoints":0,"checkpointWriting":false,"outputQueueBytes":0,"controlQueueBytes":0}
