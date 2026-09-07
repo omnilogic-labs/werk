@@ -19,7 +19,10 @@ import { COMMANDS, HIDDEN_COMMANDS } from "./commands/index.js";
 import { GLOBAL_FLAGS } from "./runtime/argv.js";
 import { errorPayload, UsageError, usageMessage } from "./runtime/exit.js";
 
-export const DETACH_HINT = "Ctrl-] detaches";
+// Defined beside the chrome that shows it: the render path cannot import this
+// module without closing a cycle back through the command table.
+export { DETACH_HINT } from "./view.js";
+import { DETACH_HINT } from "./view.js";
 
 /**
  * `addCommand` does not copy the parent's settings the way `.command()` does, so

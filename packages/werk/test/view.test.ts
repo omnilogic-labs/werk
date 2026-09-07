@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
 import type { Cell, Frame } from "@werk/terminal";
 import {
+  chromeRows,
   createViewRenderer,
   planView,
+  sessionArea,
   statusText,
   type ViewSize,
   type ViewState,
@@ -118,14 +120,23 @@ test("a wide cell straddling the right edge is dropped rather than half painted"
   expect(h.last()).toContain("e");
   expect(h.last()).not.toContain("あ");
 });
-test("the status row names both grids and disappears once they match", () => {
+test("the chrome names both grids while they differ and keeps the hint once they match", () => {
   const h = harness({ cols: 120, rows: 40 });
   h.view.paint(frame({ cols: 160, rows: 50 }));
-  expect(h.last()).toContain("session 160x50 · window 120x40");
-  h.view.paint(frame({ cols: 120, rows: 40 }));
-  expect(h.last()).not.toContain("session 120x40");
-  // The row the status occupied is now free for the fortieth session row.
-  expect(painted(h.last()).get(40)).toBe(120);
+  expect(h.last()).toContain("session 160x50 · view 120x39");
+  // Thirty-nine rows is the whole window less the chrome, so this grid matches.
+  h.view.paint(frame({ cols: 120, rows: 39 }));
+  expect(h.last()).not.toContain("session 120x39");
+  expect(h.last()).not.toContain("view 120x39");
+  expect(h.last()).toContain("Ctrl-] detaches");
+  // The chrome keeps the fortieth row whether or not the grids agree.
+  expect(painted(h.last()).get(40)).toBe(0);
+  expect(painted(h.last()).get(39)).toBe(120);
+});
+test("the chrome carries the session identity", () => {
+  const h = harness({ cols: 120, rows: 40 }, state({ name: "demo" }));
+  h.view.paint(frame({ cols: 120, rows: 39 }));
+  expect(h.last()).toContain("demo · Ctrl-] detaches");
 });
 test("a grid change clears before repainting so no cell of the old grid lingers", () => {
   const h = harness({ cols: 120, rows: 40 });
@@ -141,13 +152,18 @@ test("a window change repaints the known grid without a new frame", () => {
   const h = harness({ cols: 120, rows: 40 });
   h.view.paint(frame({ cols: 160, rows: 50 }));
   h.writes.length = 0;
-  h.resize({ cols: 40, rows: 10 });
+  h.resize({ cols: 60, rows: 10 });
   h.view.refresh();
   expect(h.last()).toContain("\x1b[2J");
-  expect(h.last()).toContain("window 40x10");
+  expect(h.last()).toContain("session 160x50 · view 60x9");
   const rows = painted(h.last());
   expect([...rows.keys()].filter((y) => y <= 9).length).toBe(9);
-  for (const [y, count] of rows) if (y <= 9) expect(count).toBe(40);
+  for (const [y, count] of rows) if (y <= 9) expect(count).toBe(60);
+  // Too narrow for the grid pair beside the hint, the hint is what survives.
+  h.resize({ cols: 40, rows: 10 });
+  h.view.refresh();
+  expect(h.last()).toContain("Ctrl-] detaches");
+  expect(h.last()).not.toContain("view 40x9");
 });
 test("a session grid smaller than the window is painted top left and padded", () => {
   const h = harness({ cols: 120, rows: 40 });
@@ -155,7 +171,7 @@ test("a session grid smaller than the window is painted top left and padded", ()
   const rows = painted(h.last());
   expect([...rows.keys()].filter((y) => y <= 24)).toHaveLength(24);
   expect(h.last()).toContain("\x1b[0m\x1b[K");
-  expect(h.last()).toContain("session 80x24 · window 120x40");
+  expect(h.last()).toContain("session 80x24 · view 120x39");
 });
 test("the cursor is homed inside the window and hidden outside it", () => {
   const inside = harness({ cols: 120, rows: 40 });
@@ -169,42 +185,102 @@ test("the cursor is homed inside the window and hidden outside it", () => {
     expect(col).toBeLessThanOrEqual(120);
   }
 });
-test("holding the size suppresses the status row while a resize is in flight", () => {
+test("holding the size drops the grid sizes while a resize is in flight, and keeps the hint", () => {
   const h = harness({ cols: 120, rows: 40 }, state({ holdsSize: true }));
   h.view.paint(frame({ cols: 160, rows: 50 }));
-  expect(h.last()).not.toContain("window 120x40");
-  expect(painted(h.last()).size).toBe(40);
+  expect(h.last()).not.toContain("view 120x39");
+  expect(h.last()).not.toContain("session 160x50");
+  expect(h.last()).toContain("Ctrl-] detaches");
+  // The chrome costs its row whoever holds the size.
+  const rows = painted(h.last());
+  expect([...rows.keys()].filter((y) => y <= 39).length).toBe(39);
+  expect(rows.get(40)).toBe(0);
   h.set({ holdsSize: false });
   h.view.refresh();
-  expect(h.last()).toContain("session 160x50 · window 120x40");
+  expect(h.last()).toContain("session 160x50 · view 120x39");
 });
-test("the status row says why the grid is not this attachment's to set", () => {
+test("the chrome says which session this is, how to leave, and why the grid is not this attachment's to set", () => {
   const session = { cols: 160, rows: 50 },
-    window = { cols: 120, rows: 40 };
-  expect(statusText(session, window, state())).toBe(
-    "session 160x50 · window 120x40 · --claim-size to take it · Ctrl-] detaches",
+    area = { cols: 120, rows: 39 },
+    named = (o: Partial<ViewState> = {}) => state({ name: "demo", ...o });
+  expect(statusText(session, area, named())).toBe(
+    "demo · Ctrl-] detaches · session 160x50 · view 120x39 · --claim-size to take it",
   );
-  expect(statusText(session, window, state({ writable: false }))).toContain(
-    "read-only",
+  // No name yet, so the line opens on the hint rather than on an empty part.
+  expect(statusText(session, area, state())).toBe(
+    "Ctrl-] detaches · session 160x50 · view 120x39 · --claim-size to take it",
   );
-  expect(statusText(session, window, state({ follow: true }))).toContain(
-    "following",
+  // A read-only attachment asked for no input, so it is not offered the size.
+  expect(statusText(session, area, named({ writable: false }))).toBe(
+    "demo · Ctrl-] detaches · read-only · session 160x50 · view 120x39",
   );
-  expect(statusText(session, window, state({ claimed: true }))).toContain(
-    "size claim refused",
+  expect(statusText(session, area, named({ follow: true }))).toEndWith(
+    "· following",
+  );
+  expect(statusText(session, area, named({ claimed: true }))).toEndWith(
+    "· size claim refused",
   );
 });
-test("a narrow window keeps the grid sizes and drops the rest of the status", () => {
+test("a narrow window keeps the identity and the hint and drops the grid sizes", () => {
+  const session = { cols: 160, rows: 50 };
+  const line = statusText(
+    session,
+    { cols: 34, rows: 12 },
+    state({ name: "demo" }),
+  );
+  expect(line).toBe("demo · Ctrl-] detaches");
+  expect(line.length).toBeLessThanOrEqual(34);
+  // Narrower than the hint, the hint is what the row spends itself on.
+  const tiny = statusText(
+    session,
+    { cols: 8, rows: 12 },
+    state({ name: "demo" }),
+  );
+  expect(tiny.length).toBeLessThanOrEqual(8);
+  expect("Ctrl-] detaches").toStartWith(tiny);
+});
+test("a long name is truncated rather than crowding the hint out", () => {
   const line = statusText(
     { cols: 160, rows: 50 },
     { cols: 34, rows: 12 },
-    state(),
+    state({ name: "a-session-with-a-very-long-name-indeed" }),
   );
-  expect(line).toBe("session 160x50 · window 34x12");
   expect(line.length).toBeLessThanOrEqual(34);
-  expect(
-    statusText({ cols: 160, rows: 50 }, { cols: 8, rows: 12 }, state()).length,
-  ).toBeLessThanOrEqual(8);
+  expect(line).toContain("Ctrl-] detaches");
+  expect(line).toStartWith("a-session-with-");
+  expect(line.split(" · ")[0]).toEndWith("…");
+});
+test("the chrome takes the bottom row of every window with a row to spare", () => {
+  expect(chromeRows({ cols: 120, rows: 40 })).toBe(1);
+  expect(chromeRows({ cols: 120, rows: 2 })).toBe(1);
+  expect(chromeRows({ cols: 120, rows: 1 })).toBe(0);
+  expect(chromeRows({ cols: 120, rows: 0 })).toBe(0);
+  expect(sessionArea({ cols: 120, rows: 40 })).toEqual({
+    cols: 120,
+    rows: 39,
+  });
+  expect(sessionArea({ cols: 120, rows: 2 })).toEqual({ cols: 120, rows: 1 });
+  expect(sessionArea({ cols: 120, rows: 1 })).toEqual({ cols: 120, rows: 1 });
+});
+test("a grid no frame has arrived for yet is not reported as a mismatch", () => {
+  // The view opens on a session of no size; reporting it would flash a 0x0
+  // grid across the chrome on every attach.
+  const line = statusText(
+    { cols: 0, rows: 0 },
+    { cols: 120, rows: 39 },
+    state({ name: "demo" }),
+  );
+  expect(line).toBe("demo · Ctrl-] detaches");
+});
+test("a grid that fills the area is not reported as a mismatch", () => {
+  const plan = planView(
+    { cols: 120, rows: 39 },
+    { cols: 120, rows: 40 },
+    state({ name: "demo" }),
+  );
+  expect(plan.status).toBe("demo · Ctrl-] detaches");
+  expect(plan.statusRow).toBe(39);
+  expect(plan.rows).toBe(39);
 });
 test("a one row window spends it on the session rather than the status", () => {
   const plan = planView(

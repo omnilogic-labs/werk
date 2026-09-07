@@ -1,16 +1,28 @@
 /**
  * Painting a session grid into a local window that need not match it.
  *
+ * werk frames the terminal it renders with one row of chrome on the bottom of
+ * the local window: which session this is, and the key that ends the
+ * attachment. That row is werk's, so the session grid gets the window minus it,
+ * and an attachment that sets the grid asks for that smaller size rather than
+ * the whole window. Only a window with a single row keeps it, because a
+ * one row terminal has nothing left to frame.
+ *
  * An attachment that does not hold the size sees whatever grid the holder set,
  * or the grid the session was created at when nobody holds it at all. The view
- * clips that grid to the window rather than letting a wider row wrap or a taller
- * grid scroll the local terminal, clears whenever the two grids change relative
- * to each other so cells from a larger grid cannot linger, and spends the bottom
- * local row on a status line for as long as the grids differ.
+ * clips that grid to the area it has, rather than letting a wider row wrap or a
+ * taller grid scroll the local terminal, and clears whenever the two grids
+ * change relative to each other so cells from a larger grid cannot linger. The
+ * chrome names both sizes for as long as they differ, alongside the identity
+ * and the hint it always carries.
  *
  * The planning half is pure so it can be exercised without a daemon or a TTY.
  */
 import type { Cell, Frame, Renderer } from "@werk/terminal";
+
+/** Ctrl-] — the key that ends an attachment, said the way the chrome says it. */
+export const DETACH_HINT = "Ctrl-] detaches";
+
 export interface ViewSize {
   cols: number;
   rows: number;
@@ -24,6 +36,8 @@ export interface ViewState {
   claimed: boolean;
   /** `--follow` declined the size outright. */
   follow: boolean;
+  /** What the chrome calls this session: its name, or its id until one is known. */
+  name?: string;
 }
 export interface ViewPlan {
   session: ViewSize;
@@ -32,15 +46,34 @@ export interface ViewPlan {
   rows: number;
   /** Session columns painted, left-aligned in each row. */
   cols: number;
-  /** Zero-based local row carrying the status line, when one is shown. */
+  /** Zero-based local row carrying the chrome, when there is one. */
   statusRow?: number;
   status?: string;
 }
 const same = (a: ViewSize, b: ViewSize) =>
   a.cols === b.cols && a.rows === b.rows;
+/** A grid the view has been told about. Before the first frame there is none. */
+const known = (a: ViewSize) => a.cols > 0 && a.rows > 0;
+/** Local rows the chrome takes. A single row window has none to spare. */
+export function chromeRows(window: ViewSize): number {
+  return window.rows > 1 ? 1 : 0;
+}
+/**
+ * The window less the chrome: the grid a session should be at to fill what is
+ * left. It is a function of the window alone, deliberately. Were the row
+ * reserved only while the grids differ, a size holding attachment would resize
+ * to fill the window, find the grids matching, get the row back, no longer fit,
+ * and resize again for as long as it stayed attached.
+ */
+export function sessionArea(window: ViewSize): ViewSize {
+  return {
+    cols: window.cols,
+    rows: Math.max(1, window.rows - chromeRows(window)),
+  };
+}
 /**
  * Joins as many parts as the width allows, in order, so the widest terminal
- * shows the hint and the narrowest still shows the two grid sizes.
+ * shows everything and the narrowest still shows the identity and the hint.
  */
 function fit(parts: string[], cols: number): string {
   let line = "";
@@ -52,47 +85,72 @@ function fit(parts: string[], cols: number): string {
   return line || (parts[0] ?? "").slice(0, cols);
 }
 /**
- * What the status line says. It reports both grids and why this one is not in
- * charge of the session's; it never names a holder, because a `size-holder`
- * event does not carry one.
+ * The identity, clamped so that the hint beside it always fits whole. Below the
+ * width that leaves a legible name there is no identity at all, because a
+ * session named down to one letter says less than the key that gets you out.
+ */
+function identity(name: string | undefined, cols: number): string | undefined {
+  if (!name) return undefined;
+  const budget = cols - DETACH_HINT.length - 3;
+  if (budget < 4) return undefined;
+  return name.length <= budget ? name : `${name.slice(0, budget - 1)}…`;
+}
+/**
+ * What the chrome says. The identity and the detach hint are unconditional; the
+ * rest reports the grids and why this attachment is not in charge of the
+ * session's, for as long as they differ. It never names a size holder, because
+ * a `size-holder` event does not carry one.
+ *
+ * `area` is what the session grid is measured against and clipped to, which is
+ * the window less the chrome rather than the window itself.
  */
 export function statusText(
   session: ViewSize,
-  window: ViewSize,
+  area: ViewSize,
   state: ViewState,
 ): string {
-  const parts = [
-    `session ${session.cols}x${session.rows}`,
-    `window ${window.cols}x${window.rows}`,
-  ];
+  const parts: string[] = [];
+  const who = identity(state.name, area.cols);
+  if (who) parts.push(who);
+  parts.push(DETACH_HINT);
   if (!state.writable) parts.push("read-only");
-  if (state.follow) parts.push("following");
-  else if (state.claimed) parts.push("size claim refused");
-  else parts.push("--claim-size to take it");
-  parts.push("Ctrl-] detaches");
-  return fit(parts, window.cols);
+  // A holder's mismatch is its own pending resize and corrects itself within a
+  // frame or two, so only somebody else's grid is worth reporting. A grid of no
+  // size is one no frame has arrived for yet, which is not a mismatch either.
+  if (known(session) && !same(session, area) && !state.holdsSize) {
+    // One part, so a narrow window can never show a grid with nothing to
+    // compare it to.
+    parts.push(
+      `session ${session.cols}x${session.rows} · view ${area.cols}x${area.rows}`,
+    );
+    // A read-only attachment asked for no input, so `--claim-size` is not
+    // something it could act on and the size policy is not its business.
+    if (state.writable) {
+      if (state.follow) parts.push("following");
+      else if (state.claimed) parts.push("size claim refused");
+      else parts.push("--claim-size to take it");
+    }
+  }
+  return fit(parts, area.cols);
 }
 /**
- * The status line exists only while the grids differ and this attachment is not
- * the one setting them: a holder's mismatch is its own pending resize and
- * corrects itself within a frame or two.
+ * Where everything goes: the chrome on the bottom local row, the session grid
+ * clipped into what is left.
  */
 export function planView(
   session: ViewSize,
   window: ViewSize,
   state: ViewState,
 ): ViewPlan {
-  const differ = !same(session, window);
-  const status =
-    differ && !state.holdsSize && window.rows > 1
-      ? statusText(session, window, state)
-      : undefined;
-  const height = Math.max(0, window.rows - (status === undefined ? 0 : 1));
+  const chrome = chromeRows(window);
+  const area = sessionArea(window);
+  const status = chrome > 0 ? statusText(session, area, state) : undefined;
+  const height = Math.max(0, window.rows - chrome);
   return {
     session,
     window,
     rows: Math.min(session.rows, height),
-    cols: Math.min(session.cols, window.cols),
+    cols: Math.min(session.cols, area.cols),
     statusRow: status === undefined ? undefined : window.rows - 1,
     status,
   };

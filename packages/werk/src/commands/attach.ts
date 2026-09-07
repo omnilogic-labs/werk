@@ -34,6 +34,7 @@ import {
 } from "../input.js";
 import {
   createViewRenderer,
+  sessionArea,
   type ViewRenderer,
   type ViewState,
 } from "../view.js";
@@ -87,11 +88,19 @@ export async function attachSession(
 ): Promise<void> {
   const tty = ctx.stdoutTTY;
   const window = () => windowSize(flags);
+  // The chrome costs the bottom local row, so the grid this attachment asks the
+  // session for is the window less that row. Without a terminal there is no
+  // chrome to make room for and the session gets the whole window, which is what
+  // keeps a piped attachment carrying every row it was going to.
+  const target = () => (tty ? sessionArea(window()) : window());
   const state: ViewState = {
     writable: !flags.readOnly,
     holdsSize: false,
     claimed: flags.claimSize === true,
     follow: flags.follow === true,
+    // The id is what the chrome shows until the name arrives, and what it keeps
+    // showing if the name never does.
+    name: id,
   };
   const view: ViewRenderer | undefined = tty
     ? createViewRenderer({
@@ -125,7 +134,7 @@ export async function attachSession(
   };
   const fitSession = () => {
     if (!attachment?.holdsSize) return;
-    void attachment.resize(window()).catch((e) => {
+    void attachment.resize(target()).catch((e) => {
       error = e;
       finish();
     });
@@ -142,6 +151,19 @@ export async function attachSession(
   const stop = () => finish();
   try {
     if (tty) ctx.write("\x1b[?1049h\x1b[2J");
+    // The name is chrome, not a precondition. The lookup runs alongside the
+    // attach rather than before it, a failure leaves the id in place, and a
+    // reply that arrives after the screen is gone repaints nothing.
+    if (tty)
+      void client.get(id).then(
+        (info) => {
+          if (info.name) {
+            state.name = info.name;
+            view?.refresh();
+          }
+        },
+        () => {},
+      );
     attachment = await client.attach(id, {
       representation: "snapshot",
       permissions: { read: true, input: state.writable },
@@ -182,7 +204,7 @@ export async function attachSession(
     // grid wherever it was, which is exactly the case the view clips.
     state.holdsSize = attachment.holdsSize;
     view?.refresh();
-    if (attachment.holdsSize) await attachment.resize(window());
+    if (attachment.holdsSize) await attachment.resize(target());
     // Clamp the slice so one slice is one request; see inputSliceBytes. A frame
     // budget too small to carry input raises LIMIT here rather than swallowing
     // the first keystroke, and read-only attachments never ask.
