@@ -15,9 +15,15 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@clack/prompts": "^1.8.0",
+    "@commander-js/extra-typings": "^15.0.0",
     "@werk/session": "workspace:*",
     "@werk/session-daemon": "workspace:*",
-    "@werk/terminal": "workspace:*"
+    "@werk/terminal": "workspace:*",
+    "c12": "4.0.0-rc.1",
+    "chalk": "^6.0.0",
+    "chokidar": "^5.0.0",
+    "commander": "^15.0.0"
   },
   "devDependencies": {
     "bun-types": "1.3.14",
