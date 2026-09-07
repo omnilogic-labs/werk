@@ -202,11 +202,11 @@ test("an empty log says so rather than showing nothing", () => {
     ),
   ).toContain("the log is empty");
 });
-test("create refuses to start nothing", async () => {
+test("create refuses to start nothing, and says what it needs", async () => {
   setChildArgv([]);
   await expect(
     buildCreate().parseAsync(["--name", "demo"], { from: "user" }),
-  ).rejects.toThrow("create requires -- COMMAND [ARGS...]");
+  ).rejects.toThrow("command to run");
 });
 test("following and claiming the size are refused together, before connecting", async () => {
   await expect(

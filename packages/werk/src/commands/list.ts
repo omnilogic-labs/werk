@@ -5,12 +5,16 @@
  * of JSON unconditionally. A person now gets columns, and `--json` gives back the
  * records that scripts and agents were relying on.
  */
-import { Command, Option } from "@commander-js/extra-typings";
+import {
+  Command,
+  InvalidArgumentError,
+  Option,
+} from "@commander-js/extra-typings";
 import type { SessionInfo, SessionState } from "@werk/session";
 import { withContext } from "./shared.js";
+import { defineCommand } from "./define.js";
 import { tableResult } from "../runtime/output.js";
 import { connectDaemon } from "../runtime/daemon.js";
-import { UsageError } from "../runtime/exit.js";
 import { completes } from "../completion/hooks.js";
 import { labelCandidates } from "../completion/candidates.js";
 
@@ -25,7 +29,10 @@ const STATES: SessionState[] = [
 /** `KEY=VALUE`, repeatable, collected into the record the daemon filters on. */
 export function collectLabel(value: string, previous: Record<string, string>) {
   const at = value.indexOf("=");
-  if (at < 1) throw new UsageError("--label takes KEY=VALUE");
+  // Commander's own error class, so the flag and the value it could not read
+  // are named alongside this sentence and the usage follows; anything else
+  // thrown from an option parser escapes the parse unexplained.
+  if (at < 1) throw new InvalidArgumentError("--label takes KEY=VALUE");
   return { ...previous, [value.slice(0, at)]: value.slice(at + 1) };
 }
 /** Coarse enough to read at a glance; the exact times are in `--json`. */
@@ -43,9 +50,22 @@ export function stateText(
   return colour(info.state, info.state);
 }
 export function buildList(): Command {
-  return new Command("list")
-    .alias("ls")
-    .description("List sessions")
+  return defineCommand({
+    name: "list",
+    aliases: ["ls"],
+    summary: "List sessions",
+    description:
+      "Show the sessions this daemon holds, running or finished, as a table " +
+      "for a person and as records for anything else.",
+    examples: [
+      { run: "werk list" },
+      { run: "werk list --state running" },
+      { run: "werk list --label project=werk" },
+      { run: "werk list --json | jq '.[].id'" },
+    ],
+    notes:
+      "A finished session stays listed until it is removed, so its outcome is\nstill readable.",
+  })
     .addOption(
       completes(
         new Option("--label <KEY=VALUE>", "only sessions carrying this label")
@@ -58,10 +78,6 @@ export function buildList(): Command {
       new Option("--state <STATE>", "only sessions in this state").choices(
         STATES,
       ),
-    )
-    .addHelpText(
-      "after",
-      "\nExamples:\n  $ werk list\n  $ werk list --state running\n  $ werk list --json | jq '.[].id'",
     )
     .action(
       withContext(

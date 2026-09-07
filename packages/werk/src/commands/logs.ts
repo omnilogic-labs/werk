@@ -11,25 +11,28 @@
  */
 import { Command } from "@commander-js/extra-typings";
 import { withContext } from "./shared.js";
+import { defineCommand } from "./define.js";
 import { sessionArgument, withSession } from "./session-argument.js";
 import { result } from "../runtime/output.js";
 
 export function buildLogs(): Command {
-  const logs: Command = new Command("logs");
+  const logs: Command = defineCommand({
+    name: "logs",
+    summary: "Print a session's retained screen, or its history",
+    description:
+      "Read what a session has on screen now, or what it has kept. The value " +
+      "is text, so --json gives back a JSON string carrying the same bytes.",
+    examples: [
+      { run: "werk logs 8f2c1b04e9d1" },
+      { run: "werk logs 8f2c1b04e9d1 --history" },
+      { run: "werk logs", note: "pick from a list" },
+    ],
+    notes:
+      "History is the daemon's scrollback budget, not a complete output log.",
+  });
   logs
-    .description("Print a session's retained screen, or its history")
     .addArgument(sessionArgument())
     .option("--history", "read the retained history rather than the screen")
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ werk logs 8f2c1b04e9d1
-  $ werk logs 8f2c1b04e9d1 --history
-  $ werk logs                               pick from a list
-
-History is the daemon's scrollback budget, not a complete output log.`,
-    )
     .action(
       withContext(async (ctx, opts: { history?: boolean }, given?: string) => {
         return await withSession(

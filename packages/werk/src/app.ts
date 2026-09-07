@@ -1,16 +1,23 @@
 /**
  * The command tree.
  *
- * Commands live one per file under `commands/` and are registered here. Help
- * styling is wired to werk's own colour gate rather than to commander's: the gate
- * has to answer before parsing begins, because commander prints help during the
- * parse, so it reads the environment and the raw argv rather than parsed flags.
+ * Commands live one per file under `commands/` and are registered here. Each is
+ * built by `defineCommand` from a spec, so what a command is for and what it
+ * needs is declared rather than remembered; see `commands/define.ts`.
+ *
+ * Help styling is wired to werk's own colour gate rather than to commander's:
+ * the gate has to answer before parsing begins, because commander prints help
+ * during the parse, so it reads the environment and the raw argv rather than
+ * parsed flags. `--json` is read the same way and for the same reason — a
+ * failure during the parse has to know which register to answer in before any
+ * flag has been parsed.
  */
 import { Command } from "@commander-js/extra-typings";
 import { colourLevelFromArgv } from "./runtime/colour.js";
 import { Chalk } from "chalk";
 import { COMMANDS, HIDDEN_COMMANDS } from "./commands/index.js";
 import { GLOBAL_FLAGS } from "./runtime/argv.js";
+import { errorPayload, UsageError, usageMessage } from "./runtime/exit.js";
 
 export const DETACH_HINT = "Ctrl-] detaches";
 
@@ -25,6 +32,15 @@ function inherit(command: Command, parent: Command): Command {
   return command;
 }
 
+/**
+ * Only the tokens before a bare `--` count: after it, `--json` belongs to the
+ * child process. The same rule the colour gate uses.
+ */
+function jsonRequested(argv: readonly string[]): boolean {
+  const end = argv.indexOf("--");
+  return (end === -1 ? argv : argv.slice(0, end)).includes("--json");
+}
+
 export function buildProgram(
   argv: readonly string[],
   env = process.env,
@@ -34,6 +50,7 @@ export function buildProgram(
     env,
   });
   const c = new Chalk({ level });
+  const json = jsonRequested(argv);
   const program = new Command("werk")
     .description("Start a process somewhere and come back to it later.")
     .version("0.0.0", "-V, --version", "print the version and exit")
@@ -53,9 +70,21 @@ export function buildProgram(
     .configureOutput({
       getOutHasColors: () => level > 0,
       getErrHasColors: () => level > 0,
-      outputError: (str, write) => write(c.red(str)),
+      // A usage failure answers in whichever register was asked for, like every
+      // other output werk produces. `--json` gets the one object the contract
+      // promises; without it, the rules broken in red and the help below them.
+      outputError: json
+        ? (str, write) =>
+            write(
+              JSON.stringify(errorPayload(new UsageError(usageMessage(str)))) +
+                "\n",
+            )
+        : (str, write) => write(c.red(str)),
     })
-    .showHelpAfterError("(run `werk --help` for usage)")
+    // Someone who typed it wrong is shown what right looks like: the failing
+    // command's own usage, its options, the global flags and its examples. The
+    // machine register says the same thing in one object instead.
+    .showHelpAfterError(!json)
     // Commander would exit 1 for a mistyped flag, which is the code werk uses
     // for a failure the daemon reported. Throwing instead lets `main.ts` give
     // usage mistakes their own status; see `exitCodeFor`.

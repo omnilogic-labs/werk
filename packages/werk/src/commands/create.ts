@@ -8,13 +8,13 @@
  * it.
  */
 import path from "node:path";
-import { Command } from "@commander-js/extra-typings";
+import { Command, InvalidArgumentError } from "@commander-js/extra-typings";
 import type { SessionInfo } from "@werk/session";
 import { childCommand, withContext } from "./shared.js";
+import { defineCommand } from "./define.js";
 import { collectLabel } from "./list.js";
 import { result } from "../runtime/output.js";
 import { connectDaemon } from "../runtime/daemon.js";
-import { UsageError } from "../runtime/exit.js";
 import type { WerkContext } from "../runtime/context.js";
 import { clientEnvironment } from "../environment.js";
 
@@ -22,12 +22,17 @@ import { clientEnvironment } from "../environment.js";
  * A count, rejected here rather than by the daemon so the message names the flag
  * the caller typed. `Number` is deliberate: it takes `0x40` and `1e3` as well as
  * decimal, and everything it cannot read becomes NaN, which is not an integer.
+ *
+ * `InvalidArgumentError` is the one commander catches. Anything else thrown from
+ * an option parser is rethrown raw out of `_callParseArg`, escaping the parse
+ * with no usage and no help attached; as commander's own error the flag, the
+ * value it could not read and this sentence are reported together.
  */
 export function wholeNumber(flag: string, unit = "") {
   return (raw: string): number => {
     const value = Number(raw);
     if (!Number.isInteger(value) || value < 0)
-      throw new UsageError(`${flag} must be a whole number${unit}`);
+      throw new InvalidArgumentError(`${flag} must be a whole number${unit}`);
     return value;
   };
 }
@@ -52,8 +57,27 @@ export function renderCreated(info: SessionInfo, ctx: WerkContext): string {
   ].join("\n");
 }
 export function buildCreate(): Command {
-  return new Command("create")
-    .description("Start a session running a command")
+  return defineCommand({
+    name: "create",
+    summary: "Start a session running a command",
+    description:
+      "Start a command under the daemon and leave it running. The command " +
+      "comes after --, and werk does not parse it, so the child keeps its own " +
+      "flags. Nothing is attached to: the session outlives the terminal that " +
+      "started it and `werk attach` goes back to it.",
+    usage: "[options] -- COMMAND [ARGS...]",
+    examples: [
+      { run: "werk create -- /bin/sh", note: "a shell, named for you" },
+      { run: "werk create --name demo --label project=werk -- claude" },
+      { run: "werk create --scrollback 2000000 -- npm run dev" },
+    ],
+    requires: [
+      {
+        need: "create needs a command to run, after --",
+        met: () => childCommand().length > 0,
+      },
+    ],
+  })
     .option(
       "--name <NAME>",
       "name the session instead of taking a generated one",
@@ -72,14 +96,6 @@ export function buildCreate(): Command {
       wholeNumber("--scrollback", " of bytes"),
     )
     .option("--cwd <PATH>", "working directory for the command")
-    .addHelpText(
-      "after",
-      `
-The command comes after --, and werk does not parse it:
-  $ werk create -- /bin/sh
-  $ werk create --name demo --label project=werk -- claude
-  $ werk create --scrollback 2000000 -- npm run dev`,
-    )
     .action(
       withContext(
         async (
@@ -93,9 +109,10 @@ The command comes after --, and werk does not parse it:
             cwd?: string;
           },
         ) => {
+          // That there is a command to run is declared on the spec rather than
+          // checked here, so it is reported with everything else wrong with the
+          // invocation and the caller sees the usage line and an example.
           const argv = childCommand();
-          if (!argv.length)
-            throw new UsageError("create requires -- COMMAND [ARGS...]");
           const client = await connectDaemon(ctx);
           try {
             const info = await client.create({

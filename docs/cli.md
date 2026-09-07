@@ -36,11 +36,19 @@ spawned by an earlier binary still starts.
 Help drills down: `werk --help` lists the commands, `werk config --help` lists
 that command's subcommands, and `werk config get --help` describes one leaf.
 Every node repeats the global flags under a **Global Options** heading, because
-they are accepted after a command name as well as before it. Most commands end
-their help with worked examples.
+they are accepted after a command name as well as before it. Every command ends
+its help with worked examples.
 
-`packages/werk/test/help.golden.txt` is a snapshot of every node's help. It is
-checked in CI, so a command that gains an undocumented flag fails the build.
+A command is built from a spec rather than a chain of calls — see
+`packages/werk/src/commands/define.ts`. The spec carries the one-line summary
+that appears in the parent's list, the fuller description at the top of the
+command's own help, the worked examples, and any rule about the invocation that
+commander has no notation for. Summary, description and at least one example are
+required fields, so a command that omits one does not compile, and the tests
+check that every command in the tree was built this way and that the examples it
+declares are examples a person is shown. What none of them do is pin the
+wording: the prose moves with the product, and a test that has to be regenerated
+after every edit to it stops being read.
 
 ### Global flags
 
@@ -129,6 +137,37 @@ Errors always go to stderr, in both registers, so anything reading stdout sees
 only the command's output. Under `--json` a failure is
 `{"error":{"code":"...","message":"..."}}`.
 
+## Usage errors
+
+Typing a command wrong is answered with what right looks like. The rules broken
+come first, one `error:` line each, and then the failing command's own help: its
+usage line, its description, its options, the global flags and its examples.
+Someone meeting a command for the first time is shown the shape of a working
+invocation at the point they got it wrong, rather than being told which clause
+of the grammar they missed.
+
+Everything wrong with an invocation is reported together rather than one run at
+a time. Commander stops at the first fault it finds; werk asks the command what
+else it declared — required arguments still absent, mandatory options with no
+value, and the rules commander cannot express, such as `create` needing a
+command after `--`. So `werk create --name` is told both that `--name` wants a
+value and that there is still no command to run.
+
+Those extra rules are only gathered for faults raised once the operand list has
+been assigned. An option that is missing its own value fails while options are
+still being parsed, and a missing positional derived at that moment would be
+invented rather than observed, so nothing is derived there. A rule held back
+costs a second run; a rule invented from a half-parsed command line costs the
+reader's trust in the whole message.
+
+A usage mistake that only becomes apparent once the command is running — no
+terminal to pick a session in, a name matching no session — is rendered the same
+way, because it is the same kind of mistake. Exit status is 2 throughout.
+
+Under `--json` the whole of that is replaced by the single object the output
+contract promises, with code `USAGE` and the rules broken as its message. A
+machine reading stderr gets one line to parse rather than a page of help.
+
 A CI lane runs every non-streaming command against a real daemon and requires
 exactly one parseable value on stdout. It is exhaustive over the tree: a new
 command fails the lane until it is either exercised or explicitly exempted, so
@@ -138,7 +177,7 @@ an exemption is a decision someone wrote down.
 
 | Code | Meaning                                                                     |
 | ---- | --------------------------------------------------------------------------- |
-| 0    | Success, `--help` and `--version` included                                  |
+| 0    | Success, an asked-for `--help` and `--version` included                     |
 | 1    | A failure with no more specific code: `PROTOCOL`, `INTERNAL`, `UNSUPPORTED` |
 | 2    | A usage mistake: a bad flag, an unknown command, `INVALID_ARGUMENT`         |
 | 3    | `NOT_FOUND` — no such session                                               |
@@ -152,6 +191,11 @@ an exemption is a decision someone wrote down.
 judged, so "the session is gone" and "the daemon never answered" are different
 answers to a script. 7 covers both timeout and a closed connection, which a
 caller retries differently from a refusal the daemon actually gave.
+
+Commander reports a `--help` somebody asked for and a parent command given no
+subcommand under the same code, separating them by exit status, so the status is
+what werk reads. `werk config` on its own prints help and exits 2: nothing ran,
+and a script that tested for success would otherwise be told it succeeded.
 
 ## Colour
 
@@ -361,6 +405,19 @@ reported. Left alone, commander exits 1 for a mistyped flag, which is the code
 werk uses for a refusal; throwing instead lets the entry point give usage
 mistakes their own status. `--help` and `--version` arrive the same way and are
 mapped back to 0.
+
+`showHelpAfterError` and `addHelpText` are what carry the explanation, so there
+is one help renderer rather than a second one to keep in step with it. Werk's
+own rules reach the same path by wrapping `Command#error`, which is also where
+the further faults are gathered onto the one commander noticed. An option value
+werk rejects is raised as commander's `InvalidArgumentError`; anything else
+thrown from an option parser is rethrown raw out of `_callParseArg` and escapes
+the parse with no usage attached.
+
+`addHelpText` is implemented as `beforeHelp` and `afterHelp` listeners that only
+`outputHelp()` fires. `helpInformation()` returns the same page without them, so
+anything asserting on help has to render it the way a person receives it or it
+silently misses every examples block.
 
 `addCommand` does not copy the parent's settings the way `.command()` does, so
 help styling, the colour gate and `showGlobalOptions` are copied down the tree

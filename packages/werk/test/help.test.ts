@@ -1,24 +1,23 @@
 /**
- * Every command's help, held against a committed golden file.
+ * That every command explains itself, held as properties rather than as text.
  *
- * Help is the only description of werk that a person is guaranteed to read, so
- * an option that arrives without one, or a command whose summary quietly
- * changes, should fail the build rather than ship. The golden file is the plain
- * help text of every node in the tree, so a diff of it reads as the change to
- * the documentation itself.
+ * Help is the only description of werk that a person is guaranteed to read, so a
+ * command that arrives without a summary, without a description, without an
+ * option description or without a worked example should fail the build rather
+ * than ship. What none of these tests do is pin the wording: the prose moves
+ * with the product, and a test that has to be regenerated after every edit to it
+ * stops being read and starts being reset.
  *
- * Regenerate after a deliberate change:
- *
- *   UPDATE_HELP_GOLDEN=1 bun test packages/werk/test/help.test.ts
+ * The one thing asserted about rendered text is that a command's declared
+ * examples reach the page. `addHelpText` is implemented as `beforeHelp` and
+ * `afterHelp` listeners that only `outputHelp()` fires — `helpInformation()`
+ * returns a string without them — so this is the check that the examples a
+ * command declares are examples a person is shown.
  */
 import { expect, test } from "bun:test";
-import { readFile, writeFile } from "node:fs/promises";
 import type { Command } from "@commander-js/extra-typings";
 import { buildProgram } from "../src/app.js";
-
-const GOLDEN = new URL("./help.golden.txt", import.meta.url);
-const HEADER = `werk help, one section per command in the order the tree declares them.
-Regenerate with: UPDATE_HELP_GOLDEN=1 bun test packages/werk/test/help.test.ts`;
+import { specFor } from "../src/commands/define.js";
 
 interface Node {
   /** How the command is typed, e.g. `werk daemon serve`. */
@@ -39,26 +38,22 @@ function walk(command: Command, path = "werk"): Node[] {
 }
 /**
  * `--no-color` settles the colour gate before anything reads the environment or
- * asks about a terminal, and pinning the help width stops the snapshot moving
- * with the width of whatever window the suite is run in.
+ * asks about a terminal, and pinning the help width keeps a rendered assertion
+ * from moving with the width of whatever window the suite is run in.
  */
-function tree(): Node[] {
-  const nodes = walk(buildProgram(["--no-color"]));
-  for (const { command } of nodes)
-    command.configureOutput({
-      getOutHelpWidth: () => 80,
-      getErrHelpWidth: () => 80,
-    });
-  return nodes;
+const tree = (): Node[] => walk(buildProgram(["--no-color"]));
+
+/** What a person sees, which is not what `helpInformation()` returns. */
+function rendered(command: Command): string {
+  let text = "";
+  command.configureOutput({
+    getOutHelpWidth: () => 80,
+    getErrHelpWidth: () => 80,
+    writeOut: (str) => void (text += str),
+  });
+  command.outputHelp();
+  return text;
 }
-const document = () =>
-  [
-    HEADER,
-    ...tree().map(
-      ({ path, command }) =>
-        `${"=".repeat(72)}\n$ ${path} --help\n\n${command.helpInformation().trimEnd()}`,
-    ),
-  ].join("\n\n") + "\n";
 
 test("every command and option describes itself", () => {
   for (const { path, command } of tree()) {
@@ -68,6 +63,27 @@ test("every command and option describes itself", () => {
         option.description,
         `${path} ${option.flags} has no description`,
       ).not.toBe("");
+  }
+});
+
+test("every command declares a summary, a description and an example", () => {
+  // The root is the program itself and is configured in `app.ts`; everything
+  // below it is a command and goes through `defineCommand`, which is what makes
+  // the explanation a required field rather than something to remember.
+  for (const { path, command } of tree().slice(1)) {
+    const spec = specFor(command);
+    expect(spec, `${path} was not built with defineCommand`).toBeDefined();
+    expect(spec!.summary, `${path} has no summary`).not.toBe("");
+    expect(spec!.description, `${path} has no description`).not.toBe("");
+    expect(spec!.examples.length, `${path} has no example`).toBeGreaterThan(0);
+  }
+});
+
+test("the examples a command declares are examples a person is shown", () => {
+  for (const { path, command } of tree().slice(1)) {
+    const help = rendered(command);
+    for (const example of specFor(command)!.examples)
+      expect(help, `${path} help omits: ${example.run}`).toContain(example.run);
   }
 });
 
@@ -99,10 +115,4 @@ test("the tree still holds the commands werk documents", () => {
     "werk complete",
     "werk session-daemon",
   ]);
-});
-
-test("the help of every command matches the golden file", async () => {
-  const rendered = document();
-  if (process.env.UPDATE_HELP_GOLDEN) await writeFile(GOLDEN, rendered);
-  expect(rendered).toBe(await readFile(GOLDEN, "utf8"));
 });

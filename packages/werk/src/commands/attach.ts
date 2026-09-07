@@ -22,9 +22,9 @@ import {
 import { createTerminalReplica } from "@werk/terminal";
 import { loadTerminalEngine } from "@werk/terminal/bun";
 import { withContext } from "./shared.js";
+import { defineCommand } from "./define.js";
 import { wholeNumber, windowSize } from "./create.js";
 import { sessionArgument, withSession } from "./session-argument.js";
-import { UsageError } from "../runtime/exit.js";
 import type { WerkContext } from "../runtime/context.js";
 import {
   createInputPump,
@@ -240,9 +240,37 @@ export function buildAttach(): Command {
   // Typed as the widened `Command` the command table holds: declaring a
   // positional puts it in commander's generics, and every method here mutates
   // and returns the same object, so the chain need not carry the type back.
-  const attach: Command = new Command("attach");
+  const attach: Command = defineCommand({
+    name: "attach",
+    summary: "Attach to a session; Ctrl-] detaches",
+    description:
+      "Go back to a running session and take its screen and keyboard. " +
+      "Detaching leaves the session running; a session that has already " +
+      "finished paints its saved screen and returns, reporting the outcome.",
+    examples: [
+      { run: "werk attach 8f2c1b04e9d1" },
+      {
+        run: "werk attach 8f2c1b04e9d1 --read-only",
+        note: "watch, do not type",
+      },
+      { run: "werk attach 8f2c1b04e9d1 --claim-size", note: "take the grid" },
+      { run: "werk attach", note: "pick from a list" },
+    ],
+    notes: "Ctrl-] detaches and leaves the session running.",
+    requires: [
+      {
+        need: "--follow and --claim-size ask for opposite things",
+        met: (command) => {
+          const opts = command.opts() as {
+            follow?: boolean;
+            claimSize?: boolean;
+          };
+          return !(opts.follow && opts.claimSize);
+        },
+      },
+    ],
+  });
   attach
-    .description("Attach to a session; Ctrl-] detaches")
     .addArgument(sessionArgument())
     .option("--read-only", "watch without asking for input")
     .option("--follow", "decline the session grid and clip to this window")
@@ -257,24 +285,11 @@ export function buildAttach(): Command {
       "assume this window height instead of the terminal's",
       wholeNumber("--rows"),
     )
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ werk attach 8f2c1b04e9d1
-  $ werk attach 8f2c1b04e9d1 --read-only
-  $ werk attach 8f2c1b04e9d1 --claim-size
-  $ werk attach                             pick from a list
-
-A session that has already finished paints its saved screen and returns,
-reporting the outcome on stderr.`,
-    )
     .action(
       withContext(async (ctx, opts: AttachFlags, given?: string) => {
-        if (opts.follow && opts.claimSize)
-          throw new UsageError(
-            "--follow and --claim-size ask for opposite things",
-          );
+        // That --follow and --claim-size are exclusive is declared on the spec,
+        // so it is reported with anything else wrong with the invocation and
+        // still before a daemon is reached.
         await withSession(
           ctx,
           given,

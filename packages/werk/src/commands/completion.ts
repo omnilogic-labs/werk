@@ -9,7 +9,7 @@
  *
  * `complete` is hidden because it is not for people: it is a wire format.
  */
-import { Command } from "@commander-js/extra-typings";
+import type { Command } from "@commander-js/extra-typings";
 import bash from "../completion/scripts/bash.sh" with { type: "text" };
 import zsh from "../completion/scripts/zsh.sh" with { type: "text" };
 import fish from "../completion/scripts/fish.sh" with { type: "text" };
@@ -22,6 +22,7 @@ const CONFIG_BUDGET_MS = 50;
 import { NOTHING, writeReply } from "../completion/protocol.js";
 import { createContext, type GlobalFlags } from "../runtime/context.js";
 import { childCommand, withContext } from "./shared.js";
+import { defineCommand } from "./define.js";
 
 const SCRIPTS: Record<string, { source: string; install: string }> = {
   bash: {
@@ -36,13 +37,28 @@ const SCRIPTS: Record<string, { source: string; install: string }> = {
 };
 
 export function buildCompletion(): Command {
-  const command = new Command("completion").description(
-    "Print a shell completion script",
-  );
+  const command = defineCommand({
+    name: "completion",
+    summary: "Print a shell completion script",
+    description:
+      "Print the script a shell installs once. That script then asks werk on " +
+      "every TAB, so a candidate is looked up rather than baked in and the " +
+      "answers stay right without the script being regenerated.",
+    examples: Object.values(SCRIPTS).map((script) => ({
+      run: script.install,
+    })) as [{ run: string }, ...{ run: string }[]],
+  });
   for (const [shell, script] of Object.entries(SCRIPTS))
     command.addCommand(
-      new Command(shell)
-        .description(`Completion script for ${shell}`)
+      defineCommand({
+        name: shell,
+        summary: `Completion script for ${shell}`,
+        description: `Print the ${shell} completion script.`,
+        examples: [
+          { run: script.install, note: "install it" },
+          { run: `werk completion ${shell}`, note: "print it" },
+        ],
+      })
         // Returns a result rather than writing, so `--json` is answered here
         // like everywhere else. `eval "$(werk completion bash)"` still works
         // because the human rendering is the bare script and nothing else.
@@ -55,13 +71,6 @@ export function buildCompletion(): Command {
           ),
         ),
     );
-  command.addHelpText(
-    "after",
-    "\nExamples:\n" +
-      Object.values(SCRIPTS)
-        .map((script) => `  $ ${script.install}`)
-        .join("\n"),
-  );
   return command;
 }
 
@@ -73,9 +82,16 @@ export function buildCompletion(): Command {
  */
 export function buildComplete(): Command {
   return (
-    new Command("complete")
-      .description("Emit completion candidates for a partly typed command line")
-      .usage("-- <words...>")
+    defineCommand({
+      name: "complete",
+      summary: "Emit completion candidates for a partly typed command line",
+      description:
+        "The machine side of completion: the installed shell script calls " +
+        "this on every TAB and it answers in cobra's __complete protocol. " +
+        "It is a wire format rather than something a person types.",
+      usage: "-- <words...>",
+      examples: [{ run: "werk complete -- werk attach ''" }],
+    })
       // The words are another command line, so none of it is werk's to reject:
       // whatever the user has typed so far is data to be described, not parsed.
       .allowUnknownOption()

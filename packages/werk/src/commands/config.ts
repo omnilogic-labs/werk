@@ -7,10 +7,10 @@
  * is quietly beating the log level they exported.
  */
 import { existsSync } from "node:fs";
-import { Command } from "@commander-js/extra-typings";
+import { Argument, type Command } from "@commander-js/extra-typings";
 import { withContext } from "./shared.js";
+import { defineCommand } from "./define.js";
 import { result, tableResult } from "../runtime/output.js";
-import { UsageError } from "../runtime/exit.js";
 import type { GlobalFlags } from "../runtime/context.js";
 import { envVariablesInUse } from "../config/env.js";
 import {
@@ -19,7 +19,7 @@ import {
   type LayerName,
   type MergedConfig,
 } from "../config/load.js";
-import { CONFIG_KEYS, isConfigKey } from "../config/schema.js";
+import { CONFIG_KEYS, type ConfigKey } from "../config/schema.js";
 
 /**
  * Commander records a global option on the command it was declared on and
@@ -47,17 +47,34 @@ const LAYER_LABEL: Record<LayerName, string> = {
 };
 
 export function buildConfig(): Command {
-  const config = new Command("config").description(
-    "Show the resolved configuration and where it came from",
-  );
+  const config = defineCommand({
+    name: "config",
+    summary: "Show the resolved configuration and where it came from",
+    description:
+      "What werk thinks it has been told, and who told it. Six layers can " +
+      "supply a value, so every subcommand here carries the layer beside it.",
+    examples: [
+      { run: "werk config list", note: "every setting and its layer" },
+      { run: "werk config get runtimeDir" },
+      { run: "werk config sources", note: "which layers are in play" },
+    ],
+  });
 
-  const list = config
-    .command("list")
-    .description("Every setting, its value, and the layer it came from")
-    .addHelpText(
-      "after",
-      "\nExamples:\n  $ werk config list\n  $ werk config list --json | jq '.[] | select(.layer != \"defaults\")'",
-    );
+  const list = defineCommand({
+    name: "list",
+    summary: "Every setting, its value, and the layer it came from",
+    description:
+      "Every setting werk has, its resolved value, and which of the six " +
+      "layers supplied it. This is how a repository config file quietly " +
+      "beating an exported variable becomes visible.",
+    examples: [
+      { run: "werk config list" },
+      {
+        run: "werk config list --json | jq '.[] | select(.layer != \"defaults\")'",
+      },
+    ],
+  });
+  config.addCommand(list);
   list.action(
     withContext(async (ctx) => {
       const { config: values, from } = await load(list);
@@ -81,16 +98,25 @@ export function buildConfig(): Command {
     }),
   );
 
-  const get = config
-    .command("get")
-    .description("One setting's value")
-    .argument("<key>", `one of ${CONFIG_KEYS.join(", ")}`);
+  const get = defineCommand({
+    name: "get",
+    summary: "One setting's value",
+    description:
+      "Print one setting's resolved value. A person piping this wants the " +
+      "value alone, so the layer it came from stays in the machine shape.",
+    examples: [
+      { run: "werk config get runtimeDir" },
+      { run: "werk config get scrollbackBytes --json | jq .layer" },
+    ],
+  });
+  // Declared as choices rather than checked in the action: commander rejects an
+  // unknown key with the list of real ones and the usage, and the completion
+  // walker reads the same declaration, so TAB offers exactly what is accepted.
+  get.addArgument(new Argument("<key>", "which setting").choices(CONFIG_KEYS));
+  config.addCommand(get);
   get.action(
-    withContext(async (_ctx, _opts, key: string) => {
-      if (!isConfigKey(key))
-        throw new UsageError(
-          `Unknown setting ${key}; werk has ${CONFIG_KEYS.join(", ")}`,
-        );
+    withContext(async (_ctx, _opts, raw: string) => {
+      const key = raw as ConfigKey;
       const { config: values, from } = await load(get);
       // A person piping this wants the value alone, so the layer stays in the
       // machine shape where it costs nothing to carry.
@@ -100,9 +126,19 @@ export function buildConfig(): Command {
     }),
   );
 
-  const sources = config
-    .command("sources")
-    .description("Every layer werk consults, lowest precedence first");
+  const sources = defineCommand({
+    name: "sources",
+    summary: "Every layer werk consults, lowest precedence first",
+    description:
+      "Every layer werk consults, lowest precedence first, and whether it is " +
+      "in use. Why a layer is empty is the useful half: a file that is not " +
+      "there reads very differently from one that lost every key.",
+    examples: [
+      { run: "werk config sources" },
+      { run: "werk config sources --json" },
+    ],
+  });
+  config.addCommand(sources);
   sources.action(
     withContext(async (ctx) => {
       const merged = await load(sources);
@@ -150,9 +186,18 @@ export function buildConfig(): Command {
     }),
   );
 
-  const paths = config
-    .command("path")
-    .description("The config files werk reads, whether or not they exist");
+  const paths = defineCommand({
+    name: "path",
+    summary: "The config files werk reads, whether or not they exist",
+    description:
+      "The config files werk reads, whether or not they exist, so there is " +
+      "somewhere to create one.",
+    examples: [
+      { run: "werk config path" },
+      { run: "$EDITOR \"$(werk config path --json | jq -r '.[0].path')\"" },
+    ],
+  });
+  config.addCommand(paths);
   paths.action(
     withContext(async (ctx) => {
       const found = configPaths({});

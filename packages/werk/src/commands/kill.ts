@@ -8,6 +8,7 @@
 import { Command, Option } from "@commander-js/extra-typings";
 import type { TerminationIntent, TerminationResult } from "@werk/session";
 import { withContext } from "./shared.js";
+import { defineCommand } from "./define.js";
 import { outcomeNote } from "./attach.js";
 import { sessionArgument, withSession } from "./session-argument.js";
 import { confirm } from "../runtime/interactive.js";
@@ -35,25 +36,28 @@ export function renderTermination(
     : delivery;
 }
 export function buildKill(): Command {
-  const kill: Command = new Command("kill");
+  const kill: Command = defineCommand({
+    name: "kill",
+    summary: "Ask a session's process to stop",
+    description:
+      "Ask a session's process to stop. The three intents are the daemon's " +
+      "vocabulary rather than signal names: what each means on a platform is " +
+      "the daemon's business, and a daemon advertises which it supports.",
+    examples: [
+      { run: "werk kill 8f2c1b04e9d1" },
+      { run: "werk kill 8f2c1b04e9d1 --intent interrupt", note: "ask nicely" },
+      { run: "werk kill 8f2c1b04e9d1 --intent force", note: "stop asking" },
+      { run: "werk kill", note: "pick from a list" },
+    ],
+    notes:
+      "The record stays until it is removed; kill stops the process, not the\nsession.",
+  });
   kill
-    .description("Ask a session's process to stop")
     .addArgument(sessionArgument())
     .addOption(
       new Option("--intent <INTENT>", "how hard to ask")
         .choices(INTENTS)
         .default("terminate"),
-    )
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ werk kill 8f2c1b04e9d1
-  $ werk kill 8f2c1b04e9d1 --intent interrupt
-  $ werk kill 8f2c1b04e9d1 --intent force
-  $ werk kill                               pick from a list
-
-The record stays until it is removed; kill stops the process, not the session.`,
     )
     .action(
       withContext(async (ctx, opts: { intent: string }, given?: string) => {

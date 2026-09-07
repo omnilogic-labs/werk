@@ -20,6 +20,7 @@ import {
 } from "@werk/session-daemon";
 import { loadTerminalEngine } from "@werk/terminal/bun";
 import { withContext } from "./shared.js";
+import { defineCommand } from "./define.js";
 import type { WerkContext } from "../runtime/context.js";
 
 async function serve(ctx: WerkContext): Promise<void> {
@@ -70,23 +71,42 @@ async function serve(ctx: WerkContext): Promise<void> {
 }
 
 export function buildDaemon(): Command {
-  const daemon = new Command("daemon").description(
-    "Run and inspect the session daemon",
+  const daemon = defineCommand({
+    name: "daemon",
+    summary: "Run and inspect the session daemon",
+    description:
+      "The daemon that owns the PTYs. The CLI starts one for you when a " +
+      "command needs it, so this is here for an operator who would rather " +
+      "supervise it themselves.",
+    examples: [{ run: "werk daemon serve", note: "run it in this process" }],
+  });
+  daemon.addCommand(
+    defineCommand({
+      name: "serve",
+      summary: "Serve the daemon in this process until it is signalled",
+      description:
+        "Serve the daemon in this process, in the foreground, until it is " +
+        "signalled. This is what systemd or launchd is pointed at.",
+      examples: [
+        { run: "werk daemon serve" },
+        { run: "werk daemon serve --log-level debug" },
+      ],
+      notes: "The CLI starts this for you when a command needs a daemon.",
+    }).action(withContext(async (ctx) => void (await serve(ctx)))),
   );
-  daemon
-    .command("serve")
-    .description("Serve the daemon in this process until it is signalled")
-    .addHelpText(
-      "after",
-      "\nThe CLI starts this for you when a command needs a daemon.\nRun it directly to supervise it yourself.",
-    )
-    .action(withContext(async (ctx) => void (await serve(ctx))));
   return daemon;
 }
 
 /** The pre-`daemon serve` spelling, hidden but still accepted. */
 export function buildLegacyDaemon(): Command {
-  return new Command("session-daemon")
-    .description("Serve the daemon in this process")
-    .action(withContext(async (ctx) => void (await serve(ctx))));
+  return defineCommand({
+    name: "session-daemon",
+    summary: "Serve the daemon in this process",
+    description:
+      "The pre-`daemon serve` spelling, accepted so a daemon spawned by an " +
+      "earlier binary still starts. `werk daemon serve` is the same thing.",
+    examples: [
+      { run: "werk session-daemon", note: "prefer werk daemon serve" },
+    ],
+  }).action(withContext(async (ctx) => void (await serve(ctx))));
 }

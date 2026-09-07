@@ -13,7 +13,14 @@ export const EXIT_FAILURE = 1;
 export const EXIT_USAGE = 2;
 export const EXIT_CANCELLED = 130;
 
-/** Raised for anything the caller typed wrong; never for a daemon refusal. */
+/**
+ * Raised for anything the caller typed wrong; never for a daemon refusal.
+ *
+ * A command raises one from wherever the mistake becomes apparent, including
+ * after the parse. `withContext` catches it and hands it to commander's own
+ * error path, so a rule commander could not express is still reported with the
+ * usage line, the command's options and its examples behind it.
+ */
 export class UsageError extends Error {
   readonly name = "UsageError";
 }
@@ -44,6 +51,11 @@ const BY_CODE: Record<ErrorCode, number> = {
  * itself commander exits 1, which would make "you typed it wrong" indist-
  * inguishable from "the daemon refused". `--help` and `--version` arrive here
  * too, because `exitOverride` throws for them as well, and they succeeded.
+ *
+ * The code alone does not settle it. Commander raises `commander.help` both for
+ * a `--help` somebody asked for and for a parent command given no subcommand,
+ * which is a usage mistake it answers by printing help to stderr. It separates
+ * the two by exit code, so this reads that rather than the code alone.
  */
 const COMMANDER_SUCCESS = new Set([
   "commander.help",
@@ -62,11 +74,28 @@ export function isCommanderError(
 }
 export function exitCodeFor(error: unknown): number {
   if (isCommanderError(error))
-    return COMMANDER_SUCCESS.has(error.code) ? EXIT_OK : EXIT_USAGE;
+    return COMMANDER_SUCCESS.has(error.code) && error.exitCode === 0
+      ? EXIT_OK
+      : EXIT_USAGE;
   if (error instanceof UsageError) return EXIT_USAGE;
   if (error instanceof CancelledError) return EXIT_CANCELLED;
   if (error instanceof SessionError) return BY_CODE[error.code] ?? EXIT_FAILURE;
   return EXIT_FAILURE;
+}
+
+/**
+ * One `error:` line per rule broken, as the message of a single failure.
+ *
+ * Commander renders its own prefix into the text it hands to `outputError`, and
+ * werk appends a line per further rule the invocation broke. The machine
+ * register wants the sentences rather than the prefixes.
+ */
+export function usageMessage(rendered: string): string {
+  return rendered
+    .split("\n")
+    .map((line) => line.replace(/^error: /, "").trim())
+    .filter((line) => line.length > 0)
+    .join("\n");
 }
 
 /** The machine shape of a failure, written to stderr so stdout stays clean. */

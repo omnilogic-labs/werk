@@ -13,6 +13,7 @@ import { Command } from "@commander-js/extra-typings";
 import { inspectSessionDaemon } from "@werk/session-daemon";
 import type { DaemonInfo } from "@werk/session";
 import { withContext } from "./shared.js";
+import { defineCommand } from "./define.js";
 import { result } from "../runtime/output.js";
 import type { WerkContext } from "../runtime/context.js";
 
@@ -128,30 +129,32 @@ async function inspect(ctx: WerkContext, doctor: boolean) {
   return result(report, (c) => renderInspection(report as Inspection, c));
 }
 export function buildInfo(): Command {
-  return new Command("info")
-    .description("Print the resolved paths and what the daemon reports")
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ werk info
-  $ werk info --json | jq -r .lockMechanism
-
-Read-only: it reports a daemon that is listening and never starts one.`,
-    )
-    .action(withContext((ctx) => inspect(ctx, false)));
+  return defineCommand({
+    name: "info",
+    summary: "Print the resolved paths and what the daemon reports",
+    description:
+      "Where werk keeps things, and what a daemon that is already listening " +
+      "says about itself.",
+    examples: [
+      { run: "werk info" },
+      { run: "werk info --json | jq -r .lockMechanism" },
+    ],
+    notes:
+      "Read-only: it reports a daemon that is listening and never starts one.",
+  }).action(withContext((ctx) => inspect(ctx, false)));
 }
 export function buildDoctor(): Command {
-  return new Command("doctor")
-    .description("Check the local daemon's health and show the log tail")
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ werk doctor
-  $ werk doctor --json > report.json
-
-Read-only: it takes no lock it does not immediately release.`,
-    )
-    .action(withContext((ctx) => inspect(ctx, true)));
+  return defineCommand({
+    name: "doctor",
+    summary: "Check the local daemon's health and show the log tail",
+    description:
+      "info plus the checks that cost something — a lock probe, a free-space " +
+      "call, a terminfo lookup — and the tail of the daemon log. This is the " +
+      "one to paste into a bug report.",
+    examples: [
+      { run: "werk doctor" },
+      { run: "werk doctor --json > report.json" },
+    ],
+    notes: "Read-only: it takes no lock it does not immediately release.",
+  }).action(withContext((ctx) => inspect(ctx, true)));
 }
