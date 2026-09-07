@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { connectSessionClient, SessionError } from "../src/index.js";
 import {
+  PROTOCOL_VERSION,
   FrameDecoder,
   encodeFrame,
   FramedTransport,
@@ -18,7 +19,7 @@ function pair(): [Transport, Transport] {
 const daemon = {
   id: "d",
   version: "test",
-  protocolVersion: 1,
+  protocolVersion: PROTOCOL_VERSION,
   engine: { buildId: "different-build", snapshotFormatVersion: 1 },
   capabilities: { termination: ["force" as const], snapshots: true },
 };
@@ -29,6 +30,7 @@ async function mock(
     server: FramedTransport,
   ) => Promise<void>,
   timeout = 1000,
+  maxFrameBytes?: number,
 ) {
   const [a, b] = pair();
   const server = new FramedTransport(b);
@@ -37,9 +39,10 @@ async function mock(
       if (message.type === "hello")
         await server.send({
           type: "hello",
-          protocolVersion: 1,
+          protocolVersion: PROTOCOL_VERSION,
           daemon,
           principal,
+          maxFrameBytes,
         });
       else if (message.type === "request") await handler(message, server);
     }
@@ -188,6 +191,75 @@ test("attachment routing, callback isolation, old handles and failed attach", as
   expect(seen).toContain("2");
   expect(requests.filter((x) => x === "input")).toHaveLength(1);
   await m.close();
+});
+test("size intent travels with attach and claims route to the daemon", async () => {
+  const methods: string[] = [];
+  const attaches: any[] = [];
+  const m = await mock(async (message, server) => {
+    methods.push(message.method);
+    const params = message.params as any;
+    if (message.method === "attach") attaches.push(params);
+    await server.send({
+      type: "response",
+      id: message.id,
+      result:
+        message.method === "attach"
+          ? {
+              id: params.permissions.input ? "writer" : "reader",
+              sessionId: "s",
+              generation: attaches.length,
+              principal,
+              permissions: params.permissions,
+              representation: params.representation,
+              holdSize:
+                params.holdSize ??
+                (params.permissions.input ? "if-free" : "never"),
+              holdsSize: false,
+            }
+          : null,
+    });
+  });
+  try {
+    const writer = await m.client.attach("s", {
+      permissions: { read: true, input: true },
+      holdSize: "claim",
+      onEvent() {},
+    });
+    expect(attaches[0].holdSize).toBe("claim");
+    expect([writer.holdSize, writer.representation, writer.holdsSize]).toEqual([
+      "claim",
+      "snapshot",
+      false,
+    ]);
+    await writer.claimSize();
+    expect(methods.filter((x) => x === "claimSize")).toHaveLength(1);
+    writer.deliver({
+      type: "snapshot",
+      attachmentId: "writer",
+      generation: 1,
+      position: 1,
+      size: { cols: 2, rows: 2 },
+      snapshot: new Uint8Array([1]),
+    });
+    writer.deliver({
+      type: "size-holder",
+      attachmentId: "writer",
+      generation: 1,
+      position: 2,
+      holdsSize: true,
+    });
+    expect(writer.holdsSize).toBe(true);
+    // A watcher's default asks for nothing and cannot claim without a round trip.
+    const reader = await m.client.attach("s", { onEvent() {} });
+    expect(attaches[1].holdSize).toBeUndefined();
+    expect([reader.holdSize, reader.holdsSize]).toEqual(["never", false]);
+    await expect(reader.claimSize()).rejects.toMatchObject({
+      code: "PERMISSION_DENIED",
+    });
+    expect(methods.filter((x) => x === "claimSize")).toHaveLength(1);
+  } finally {
+    await m.close();
+  }
 });
 test("watch registers without attachments and exposes refusal", async () => {
   const m = await mock(async (message, server) => {
@@ -350,7 +422,7 @@ test("malformed hello metadata is refused before exposing client", async () => {
         if (m.type === "hello")
           await server.send({
             type: "hello",
-            protocolVersion: 1,
+            protocolVersion: PROTOCOL_VERSION,
             daemon: metadata as any,
             principal,
           });
@@ -360,5 +432,185 @@ test("malformed hello metadata is refused before exposing client", async () => {
     });
     await server.close();
     await task;
+  }
+});
+
+test("input pastes respect the daemon-advertised raw body cap and preserve bytes", async () => {
+  const received: Uint8Array[] = [];
+  const m = await mock(
+    async (message, server) => {
+      if (message.method === "input") {
+        expect(encodeFrame(message).byteLength - 4).toBeLessThanOrEqual(1024);
+        received.push((message.params as { data: Uint8Array }).data);
+      }
+      await server.send({
+        type: "response",
+        id: message.id,
+        result:
+          message.method === "attach"
+            ? {
+                id: "attachment",
+                sessionId: "s",
+                generation: 1,
+                principal,
+                permissions: { read: true, input: true },
+                holdsSize: true,
+              }
+            : null,
+      });
+    },
+    1000,
+    1024,
+  );
+  try {
+    const attachment = await m.client.attach("s", {
+      onEvent() {},
+      permissions: { read: true, input: true },
+    });
+    const paste = Uint8Array.from({ length: 10000 }, (_, i) => i % 251);
+    await attachment.writeInput(paste);
+    expect(received.length).toBeGreaterThan(1);
+    const combined = new Uint8Array(paste.length);
+    let offset = 0;
+    for (const chunk of received) {
+      combined.set(chunk, offset);
+      offset += chunk.length;
+    }
+    expect(combined).toEqual(paste);
+  } finally {
+    await m.close();
+  }
+});
+test("attachment to a session with no live process ends after its saved screen", async () => {
+  const seen: any[] = [];
+  const requests: string[] = [];
+  const m = await mock(async (message, server) => {
+    requests.push(message.method);
+    if (message.method !== "attach") {
+      await server.send({ type: "response", id: message.id });
+      return;
+    }
+    await server.send({
+      type: "response",
+      id: message.id,
+      result: {
+        id: "a",
+        sessionId: "s",
+        generation: 1,
+        principal,
+        permissions: { read: true, input: true },
+        holdsSize: false,
+      },
+    });
+    const head = { attachmentId: "a", generation: 1 } as const;
+    await server.send({
+      type: "event",
+      event: {
+        ...head,
+        type: "snapshot",
+        position: 1,
+        size: { cols: 2, rows: 2 },
+        snapshot: new Uint8Array([1]),
+      },
+    });
+    await server.send({
+      type: "event",
+      event: { ...head, type: "exit", position: 2, exit: { code: 0 } },
+    });
+    await server.send({
+      type: "event",
+      event: {
+        ...head,
+        type: "ended",
+        position: 3,
+        reason: "session-ended",
+      },
+    });
+  });
+  const attachment = await m.client.attach("s", {
+    onEvent: (event) => seen.push(event),
+  });
+  expect(attachment.holdsSize).toBe(false);
+  // The wire is ordered, so a completed round trip proves the three frames landed.
+  await m.client.get("s");
+  expect(seen.map((e) => e.type)).toEqual(["snapshot", "exit", "ended"]);
+  expect(seen[1].exit).toEqual({ code: 0 });
+  expect(seen[2].reason).toBe("session-ended");
+  await expect(attachment.resize({ cols: 4, rows: 4 })).rejects.toMatchObject({
+    code: "CLOSED",
+  });
+  await attachment.detach();
+  expect(requests).toEqual(["attach", "get"]);
+  await m.close();
+});
+
+test("a preview attachment opens on a frame and carries its rate to the daemon", async () => {
+  const attaches: any[] = [];
+  const m = await mock(async (message, server) => {
+    const params = message.params as any;
+    if (message.method === "attach") attaches.push(params);
+    await server.send({
+      type: "response",
+      id: message.id,
+      result: {
+        id: "tile",
+        sessionId: "s",
+        generation: 1,
+        principal,
+        permissions: { read: true, input: false },
+        representation: params.representation,
+        holdSize: "never",
+        holdsSize: false,
+      },
+    });
+  });
+  try {
+    const events: any[] = [];
+    const tile = await m.client.attach("s", {
+      representation: "preview",
+      preview: { intervalMs: 250, format: "plain" },
+      onEvent: (event) => events.push(event),
+    });
+    expect(attaches[0].preview).toEqual({ intervalMs: 250, format: "plain" });
+    // A tile has no replica to restore, so its first authoritative state is a
+    // picture rather than a snapshot.
+    tile.deliver({
+      type: "preview",
+      attachmentId: "tile",
+      generation: 1,
+      position: 0,
+      size: { cols: 4, rows: 1 },
+      format: "plain",
+      text: "one",
+      cursor: { x: 3, y: 0, visible: true },
+      changedAt: 1,
+    });
+    tile.deliver({
+      type: "preview",
+      attachmentId: "tile",
+      generation: 1,
+      position: 1,
+      size: { cols: 4, rows: 1 },
+      format: "plain",
+      text: "two",
+      changedAt: 2,
+    });
+    expect(events.map((event) => event.text)).toEqual(["one", "two"]);
+    await expect(tile.writeInput(new Uint8Array([1]))).rejects.toMatchObject({
+      code: "PERMISSION_DENIED",
+    });
+    await expect(tile.resize({ cols: 2, rows: 2 })).rejects.toMatchObject({
+      code: "PERMISSION_DENIED",
+    });
+    tile.deliver({
+      type: "ended",
+      attachmentId: "tile",
+      generation: 1,
+      position: 2,
+      reason: "session-ended",
+    });
+    expect(events.at(-1).type).toBe("ended");
+  } finally {
+    await m.close();
   }
 });

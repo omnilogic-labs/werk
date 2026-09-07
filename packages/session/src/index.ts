@@ -1,6 +1,10 @@
 import {
   FramedTransport,
   PROTOCOL_VERSION,
+  CLIENT_MAX_FRAME_BYTES,
+  DAEMON_MAX_FRAME_BYTES,
+  DAEMON_MAX_QUEUED_BYTES,
+  encodeFrame,
   type Transport,
   type WireMessage,
 } from "./protocol.js";
@@ -27,6 +31,8 @@ export interface ConnectOptions extends RequestOptions {
   credential?: string;
   requestTimeoutMs?: number;
   maxPendingRequests?: number;
+  /** Maximum raw frame body bytes accepted by this client. */
+  maxFrameBytes?: number;
   onCallbackError?: (error: unknown) => void;
 }
 type Immutable<T> = T extends object
@@ -90,6 +96,12 @@ export class Attachment {
   get holdsSize() {
     return this.info.holdsSize;
   }
+  get holdSize() {
+    return this.info.holdSize;
+  }
+  get representation() {
+    return this.info.representation;
+  }
   get generation() {
     return this.info.generation;
   }
@@ -108,6 +120,7 @@ export class Attachment {
       this.position < 0 &&
       event.type !== "snapshot" &&
       event.type !== "resync" &&
+      event.type !== "preview" &&
       event.type !== "ended"
     )
       throw new SessionError(
@@ -152,11 +165,15 @@ export class Attachment {
         "PERMISSION_DENIED",
         "Attachment cannot send input",
       );
-    await this.client.request(
-      "input",
-      { attachmentId: this.id, data },
-      options,
-    );
+    const size = this.client.inputChunkBytes(this.id);
+    for (let offset = 0; offset < data.byteLength; offset += size) {
+      this.active();
+      await this.client.request(
+        "input",
+        { attachmentId: this.id, data: data.subarray(offset, offset + size) },
+        options,
+      );
+    }
   }
   async resize(size: Size, options?: RequestOptions): Promise<void> {
     this.active();
@@ -181,6 +198,21 @@ export class Attachment {
       { attachmentId: this.id, targetAttachmentId },
       options,
     );
+  }
+  /**
+   * Takes the size: immediately when nobody holds it, otherwise from the
+   * holder when the daemon authorises the takeover. A `size-holder` event
+   * carries the result to both attachments.
+   */
+  async claimSize(options?: RequestOptions): Promise<void> {
+    this.active();
+    if (!this.permissions.input)
+      throw new SessionError(
+        "PERMISSION_DENIED",
+        "Attachment cannot claim the size",
+      );
+    await this.client.request("claimSize", { attachmentId: this.id }, options);
+    this.state = immutable({ ...this.state, holdSize: "claim" });
   }
   async detach(options?: RequestOptions): Promise<void> {
     if (this.ended) return;
@@ -255,6 +287,19 @@ export class SessionClient {
       return;
     }
     await this.close();
+  }
+  inputChunkBytes(attachmentId: string): number {
+    const overhead =
+      encodeFrame({
+        type: "request",
+        id: "9007199254740991",
+        method: "input",
+        params: { attachmentId, data: new Uint8Array() },
+      }).byteLength - 4;
+    const bytes = this.wire.maxSendFrameBytes - overhead;
+    if (bytes < 1)
+      throw new SessionError("LIMIT", "Frame limit cannot carry input");
+    return Math.min(64 * 1024, bytes);
   }
   request<T = unknown>(
     method: string,
@@ -380,6 +425,8 @@ export class SessionClient {
         sessionId,
         representation: options.representation ?? "snapshot",
         permissions: options.permissions ?? { read: true, input: false },
+        holdSize: options.holdSize,
+        preview: options.preview,
       },
       options,
       (info) => {
@@ -440,7 +487,12 @@ export class SessionClient {
 export async function connectSessionClient(
   options: ConnectOptions,
 ): Promise<SessionClient> {
-  const wire = new FramedTransport(options.transport);
+  const wire = new FramedTransport(
+    options.transport,
+    options.maxFrameBytes ?? CLIENT_MAX_FRAME_BYTES,
+    DAEMON_MAX_QUEUED_BYTES,
+    DAEMON_MAX_FRAME_BYTES,
+  );
   const messages = wire.messages();
   const timeout = options.timeoutMs ?? options.requestTimeoutMs ?? 5000;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -466,6 +518,7 @@ export async function connectSessionClient(
       await wire.send({
         type: "hello",
         protocolVersion: PROTOCOL_VERSION,
+        maxFrameBytes: options.maxFrameBytes ?? CLIENT_MAX_FRAME_BYTES,
         credential: options.credential,
       });
       return messages.next();
@@ -493,6 +546,7 @@ export async function connectSessionClient(
       )
     )
       throw new SessionError("PROTOCOL", "Incompatible or malformed hello");
+    wire.setSendLimit(next.value.maxFrameBytes ?? DAEMON_MAX_FRAME_BYTES);
     const client = new SessionClient(
       wire,
       next.value.daemon,

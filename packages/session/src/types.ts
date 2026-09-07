@@ -31,6 +31,9 @@ export interface AttachmentInfo {
   generation: number;
   principal: Principal;
   permissions: Permissions;
+  representation: Representation;
+  /** What the attachment asked to do about the size, not what it got. */
+  holdSize: HoldSize;
   holdsSize: boolean;
 }
 export interface SessionInfo {
@@ -40,6 +43,8 @@ export interface SessionInfo {
   argv: string[];
   cwd: string;
   size: Size;
+  /** Page-memory budget the daemon gave this session's scrollback. */
+  scrollbackBytes: number;
   createdAt: number;
   name: string;
   labels: Record<string, string>;
@@ -58,6 +63,11 @@ export interface CreateSessionOptions {
   cwd?: string;
   env?: Record<string, string>;
   size: Size;
+  /**
+   * Page-memory budget for scrollback. Omitted takes the daemon's cap; above
+   * the cap is a `LIMIT` error rather than a silent clamp.
+   */
+  scrollbackBytes?: number;
   name?: string;
   labels?: Record<string, string>;
 }
@@ -73,6 +83,8 @@ export interface DaemonInfo {
   capabilities: {
     termination: TerminationIntent[];
     snapshots: boolean;
+    /** The largest `CreateSessionOptions.scrollbackBytes` this daemon takes. */
+    scrollbackMaxBytes: number;
     [key: string]: unknown;
   };
 }
@@ -81,10 +93,29 @@ export interface RequestOptions {
   timeoutMs?: number;
 }
 export type Representation = "snapshot" | "vt" | "preview";
+/**
+ * `never` never takes the size and is never a successor; `if-free` takes it
+ * when nobody holds it; `claim` also takes it from the current holder when the
+ * daemon allows the takeover. Defaults to `if-free` when input is granted and
+ * `never` otherwise.
+ */
+export type HoldSize = "never" | "if-free" | "claim";
+export type PreviewFormat = "vt" | "plain";
+/**
+ * Only meaningful with `representation: "preview"`. `intervalMs` is the fastest
+ * rate this viewer wants frames at; the daemon clamps it and a record ticks at
+ * the fastest its preview viewers asked for.
+ */
+export interface PreviewOptions {
+  intervalMs?: number;
+  format?: PreviewFormat;
+}
 /** signal owns the attachment lifetime, including after attach resolves. */
 export interface AttachOptions extends RequestOptions {
   representation?: Representation;
   permissions?: Permissions;
+  holdSize?: HoldSize;
+  preview?: PreviewOptions;
   onEvent: (event: AttachmentEvent) => void;
 }
 export type EndReason =
@@ -102,6 +133,15 @@ export type AttachmentEvent = {
       snapshotFormatVersion?: number;
     }
   | { type: "output"; data: Uint8Array }
+  | {
+      /** The whole active screen as text; it replaces whatever came before. */
+      type: "preview";
+      size: Size;
+      format: PreviewFormat;
+      text: string;
+      cursor?: { x: number; y: number; visible: boolean };
+      changedAt: number;
+    }
   | { type: "resize"; size: Size }
   | { type: "effect"; effect: Effect }
   | { type: "exit"; exit: ExitOutcome }
