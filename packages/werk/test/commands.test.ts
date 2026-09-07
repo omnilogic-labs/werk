@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import path from "node:path";
 import { Chalk } from "chalk";
 import type { SessionInfo, TerminationResult } from "@werk/session";
 import type { WerkContext } from "../src/runtime/context.js";
@@ -8,6 +9,8 @@ import {
   renderCreated,
   wholeNumber,
   windowSize,
+  workspaceHostFor,
+  workspaceRoot,
 } from "../src/commands/create.js";
 import {
   buildAttach,
@@ -250,4 +253,31 @@ test("a session that is not there says so", () => {
   expect(() => resolveSession([{ id: "a1", name: "x" }], "nope")).toThrow(
     /no session called nope/,
   );
+});
+
+test("a created session says which workspace it landed in, when it has one", () => {
+  const info = session({
+    cwd: "/state/werk/workspaces/werk-1a2b3c4d/fix-login",
+  });
+  const plain = renderCreated(info, context());
+  expect(plain).not.toContain("on branch");
+  expect(plain.split("\n")).toHaveLength(3);
+  const withWorkspace = renderCreated(info, context(), {
+    name: "fix-login",
+    directory: info.cwd,
+    branch: "fix-login",
+    from: { kind: "local-checkout", path: "/home/mike/werk" },
+  });
+  expect(withWorkspace).toContain("workspace fix-login on branch fix-login");
+  expect(withWorkspace).toContain("created 8f2c1b04e9d1 demo");
+  expect(withWorkspace).toContain("werk attach 8f2c1b04e9d1");
+});
+test("workspaces live under the state directory, not a setting of their own", () => {
+  const ctx = context({ stateDir: "/state/werk" });
+  expect(workspaceRoot(ctx)).toBe(path.join("/state/werk", "workspaces"));
+  // Moving the state directory moves them, which is why no config key was added.
+  expect(workspaceRoot(context({ stateDir: "/elsewhere" }))).toBe(
+    path.join("/elsewhere", "workspaces"),
+  );
+  expect(workspaceHostFor(ctx).kind).toBe("local-worktree");
 });

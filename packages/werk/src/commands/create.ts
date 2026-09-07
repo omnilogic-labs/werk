@@ -10,6 +10,11 @@
 import path from "node:path";
 import { Command, InvalidArgumentError } from "@commander-js/extra-typings";
 import type { SessionInfo } from "@werk/session";
+import {
+  createLocalWorktreeHost,
+  type Workspace,
+  type WorkspaceHost,
+} from "@werk/workspace";
 import { childCommand, withContext } from "./shared.js";
 import { defineCommand } from "./define.js";
 import { collectLabel } from "./list.js";
@@ -47,11 +52,35 @@ export function windowSize(opts: { cols?: number; rows?: number }) {
     rows: opts.rows ?? process.stdout.rows ?? 24,
   };
 }
+/**
+ * Where werk puts the workspaces it makes. It hangs off the state directory
+ * rather than off a setting of its own, so `--state-dir` and a `stateDir` in a
+ * config file already move it and no configuration key has to be invented for
+ * a package that is still finding its shape.
+ */
+export const workspaceRoot = (ctx: WerkContext): string =>
+  path.join(ctx.stateDir, "workspaces");
+
+/** The one kind of workspace werk can make today. */
+export const workspaceHostFor = (ctx: WerkContext): WorkspaceHost =>
+  createLocalWorktreeHost({ root: workspaceRoot(ctx) });
+
 /** What a person is told once the daemon has the session. */
-export function renderCreated(info: SessionInfo, ctx: WerkContext): string {
+export function renderCreated(
+  info: SessionInfo,
+  ctx: WerkContext,
+  workspace?: Workspace,
+): string {
   const where = `${info.size.cols}x${info.size.rows} in ${info.cwd}`;
   return [
     `${ctx.colour.green("created")} ${info.id} ${ctx.colour.bold(info.name)}`,
+    ...(workspace
+      ? [
+          ctx.colour.dim(
+            `workspace ${workspace.name} on branch ${workspace.branch}`,
+          ),
+        ]
+      : []),
     ctx.colour.dim(`${info.argv.join(" ")} · ${where}`),
     `werk attach ${info.id}`,
   ].join("\n");
@@ -70,6 +99,10 @@ export function buildCreate(): Command {
       { run: "werk create -- /bin/sh", note: "a shell, named for you" },
       { run: "werk create --name demo --label project=werk -- claude" },
       { run: "werk create --scrollback 2000000 -- npm run dev" },
+      {
+        run: "werk create --workspace fix-login -- claude",
+        note: "a git worktree of its own, branched from where you are",
+      },
     ],
     requires: [
       {
@@ -96,6 +129,10 @@ export function buildCreate(): Command {
       wholeNumber("--scrollback", " of bytes"),
     )
     .option("--cwd <PATH>", "working directory for the command")
+    .option(
+      "--workspace <NAME>",
+      "make a git worktree of this name and run the command in it",
+    )
     .action(
       withContext(
         async (
@@ -107,24 +144,54 @@ export function buildCreate(): Command {
             rows?: number;
             scrollback?: number;
             cwd?: string;
+            workspace?: string;
           },
         ) => {
           // That there is a command to run is declared on the spec rather than
           // checked here, so it is reported with everything else wrong with the
           // invocation and the caller sees the usage line and an example.
           const argv = childCommand();
+          // Where the caller is standing. With `--workspace` this is the
+          // checkout the new branch comes from; without it, it is where the
+          // command runs, which is what it has always meant.
+          const here = path.resolve(opts.cwd ?? process.cwd());
+          // Before the daemon, deliberately: a workspace that cannot be made is
+          // a failure that should not have started a daemon on its way to being
+          // reported. Nothing removes the worktree if the session then fails to
+          // start — rolling a half-made workspace back is one of the things
+          // `docs/workspaces-and-git.md` leaves open.
+          const workspace = opts.workspace
+            ? await workspaceHostFor(ctx).create({
+                name: opts.workspace,
+                from: { kind: "local-checkout", path: here },
+              })
+            : undefined;
           const client = await connectDaemon(ctx);
           try {
             const info = await client.create({
               argv: [...argv],
               env: clientEnvironment(),
-              cwd: path.resolve(opts.cwd ?? process.cwd()),
+              cwd: workspace ? workspace.directory : here,
               size: windowSize(opts),
               scrollbackBytes: opts.scrollback,
               name: opts.name,
               labels: opts.label,
             });
-            return result(info, (c) => renderCreated(info, c));
+            // The machine shape gains a key only when there is a workspace, so
+            // what anything already parsing `create --json` reads is untouched.
+            return result(
+              workspace
+                ? {
+                    ...info,
+                    workspace: {
+                      name: workspace.name,
+                      directory: workspace.directory,
+                      branch: workspace.branch,
+                    },
+                  }
+                : info,
+              (c) => renderCreated(info, c, workspace),
+            );
           } finally {
             await client.close();
           }

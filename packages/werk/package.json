@@ -20,6 +20,7 @@
     "@werk/session": "workspace:*",
     "@werk/session-daemon": "workspace:*",
     "@werk/terminal": "workspace:*",
+    "@werk/workspace": "workspace:*",
     "c12": "4.0.0-rc.1",
     "chalk": "^6.0.0",
     "chokidar": "^5.0.0",

@@ -9,13 +9,16 @@ This chapter is the reference for the client as it behaves today. What the
 command surface should become for the product is not settled — the capabilities
 in [product/client.md](product/client.md) are deliberately written as
 capabilities rather than commands, and nothing below should be read as a
-commitment about workspaces, hosts, providers or landing, none of which exist.
+commitment about hosts, providers or landing, none of which exist. `create`
+takes a `--workspace` flag that makes a git worktree, which is the smallest
+corner of what a workspace is meant to be; its spelling is no more settled than
+the rest.
 
 ## The command tree
 
 | Command                 | What it does                                                     |
 | ----------------------- | ---------------------------------------------------------------- |
-| `create -- COMMAND ...` | Start a session running a command                                |
+| `create -- COMMAND ...` | Start a session running a command, optionally in a new workspace |
 | `list` (`ls`)           | List sessions                                                    |
 | `attach [session]`      | Attach to a session; Ctrl-] detaches                             |
 | `logs [session]`        | Print a session's retained screen, or its history                |
@@ -84,6 +87,35 @@ werk create --name demo -- claude --dangerously-skip-permissions
 
 `create` reads its command from there and takes no positional of its own.
 Completion stops at the same boundary and offers nothing past it.
+
+### Making a workspace
+
+`create --workspace NAME` makes a git worktree and starts the command in it,
+rather than in the directory werk was run from. The branch is the workspace
+name, taken from the `HEAD` of the repository `--cwd` is inside — so with the
+flag `--cwd` says which checkout to branch from, and without it `--cwd` keeps
+its usual meaning of where the command runs. Nothing is created without the
+flag, and `werk create` outside a repository behaves as it always has.
+
+The worktree goes under `$stateDir/workspaces`, in a directory per repository
+named after the repository and the digest of its path, so two checkouts of the
+same project do not collide. `--state-dir` and a `stateDir` in a config file
+move them; there is no setting of their own.
+
+Under `--json` the record gains a `workspace` object — `name`, `directory` and
+`branch` — beside the session's own fields, and has no such key without the
+flag.
+
+The workspace is made before a daemon is asked for anything, so a repository
+that cannot be branched fails without starting one. Nothing removes the worktree
+if the session then fails to start.
+
+A workspace name is also a branch name and a directory name, so it is limited to
+letters, digits, dot, dash and underscore, starting with a letter or a digit.
+That turns away branch names containing `/`. What werk should eventually record
+about a workspace, and what more it should be able to do with one, is worked
+through in [workspaces-and-git.md](workspaces-and-git.md); `@werk/workspace` is
+explicitly under development and this flag is the whole of what it does today.
 
 ### Choosing a session
 
@@ -182,7 +214,7 @@ an exemption is a decision someone wrote down.
 | 2    | A usage mistake: a bad flag, an unknown command, `INVALID_ARGUMENT`         |
 | 3    | `NOT_FOUND` — no such session                                               |
 | 4    | `PERMISSION_DENIED`                                                         |
-| 5    | `CONFLICT` — the daemon refused in this state                               |
+| 5    | `CONFLICT`, or a workspace name that is already taken                       |
 | 6    | `LIMIT` — a cap was exceeded                                                |
 | 7    | `TIMEOUT` or `CLOSED` — the daemon is not answering                         |
 | 130  | Cancelled: SIGINT, or a prompt nobody answered                              |
@@ -196,6 +228,14 @@ Commander reports a `--help` somebody asked for and a parent command given no
 subcommand under the same code, separating them by exit status, so the status is
 what werk reads. `werk config` on its own prints help and exits 2: nothing ran,
 and a script that tested for success would otherwise be told it succeeded.
+
+`@werk/workspace`'s reasons are mapped into the same vocabulary. A workspace
+that cannot be made because of what was asked for — an unusable name, a
+directory that is not a repository, a repository with no commits — exits 2. One
+refused because something is already there — the branch, or a non-empty
+directory — exits 5. git being absent, or refusing for an unanticipated reason,
+exits 1. Under `--json` the error code on stderr is the workspace reason itself,
+so `NOT_A_REPOSITORY` and `BRANCH_EXISTS` reach a script as themselves.
 
 ## Colour
 

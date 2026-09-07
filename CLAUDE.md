@@ -13,7 +13,9 @@ The Bun workspace contains private session libraries and two consumers. The
 portable `@werk/terminal` and `@werk/session` packages provide terminal replicas
 and the transport-injected client. `@werk/session-daemon` owns PTYs, persistence
 and local daemon startup. `@werk/terminal-beamterm` proves the renderer seam beside
-the bundled DOM renderer. `packages/werk` is the session CLI and
+the bundled DOM renderer. `@werk/workspace` puts creating a workspace behind an
+interface and makes local git worktrees behind it; it is under development and
+expected to change shape. `packages/werk` is the session CLI and
 `examples/session-web` is the local browser consumer.
 
 See [docs/session-library.md](docs/session-library.md) for build, validation and

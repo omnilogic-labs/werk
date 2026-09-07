@@ -3,6 +3,7 @@ const packages = [
   "session",
   "terminal-beamterm",
   "session-daemon",
+  "workspace",
   "werk",
 ];
 for (const name of packages) {

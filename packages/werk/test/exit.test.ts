@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { SessionError, type ErrorCode } from "@werk/session";
+import { WorkspaceError, type WorkspaceErrorCode } from "@werk/workspace";
 import {
   CancelledError,
   UsageError,
@@ -79,4 +80,33 @@ test("a commander failure reports as a usage failure in JSON", () => {
     }),
   );
   expect(payload.error.code).toBe("USAGE");
+});
+
+test("a workspace failure is told apart from a daemon refusal", () => {
+  // Without this mapping "you are not in a git repository" would arrive as
+  // INTERNAL and exit 1, which is the status a daemon refusal uses.
+  const expected: Record<string, number> = {
+    INVALID_NAME: 2,
+    NOT_A_REPOSITORY: 2,
+    NO_COMMITS: 2,
+    BRANCH_EXISTS: 5,
+    DIRECTORY_EXISTS: 5,
+    GIT_MISSING: 1,
+    GIT_FAILED: 1,
+  };
+  for (const [code, status] of Object.entries(expected))
+    expect(
+      exitCodeFor(new WorkspaceError(code as WorkspaceErrorCode, "x")),
+      code,
+    ).toBe(status);
+});
+test("the machine shape carries the workspace code and what git said", () => {
+  expect(
+    errorPayload(new WorkspaceError("NOT_A_REPOSITORY", "/tmp is not a repo")),
+  ).toEqual({
+    error: { code: "NOT_A_REPOSITORY", message: "/tmp is not a repo" },
+  });
+  const failed = new WorkspaceError("GIT_FAILED", "add failed", "fatal: told");
+  expect(failed.detail).toBe("fatal: told");
+  expect(errorPayload(failed).error.message).toBe("add failed: fatal: told");
 });

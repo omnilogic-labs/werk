@@ -7,6 +7,7 @@
  * rather than a judgement, and it is pure so it can be asserted directly.
  */
 import { SessionError, type ErrorCode } from "@werk/session";
+import { WorkspaceError, type WorkspaceErrorCode } from "@werk/workspace";
 
 export const EXIT_OK = 0;
 export const EXIT_FAILURE = 1;
@@ -46,6 +47,26 @@ const BY_CODE: Record<ErrorCode, number> = {
 };
 
 /**
+ * A workspace that could not be made, in the same three registers the daemon's
+ * refusals already use: what the caller asked for is wrong, something is
+ * already there, or the machine could not do it. Without this a person standing
+ * outside a repository would be told `INTERNAL` and given exit 1, which is the
+ * status a daemon refusal uses — exactly the collision this file exists to
+ * prevent.
+ */
+const BY_WORKSPACE_CODE: Record<WorkspaceErrorCode, number> = {
+  INVALID_NAME: EXIT_USAGE,
+  NOT_A_REPOSITORY: EXIT_USAGE,
+  NO_COMMITS: EXIT_USAGE,
+  // The same status a daemon uses for CONFLICT, because it is the same fact:
+  // the name is taken.
+  BRANCH_EXISTS: 5,
+  DIRECTORY_EXISTS: 5,
+  GIT_MISSING: EXIT_FAILURE,
+  GIT_FAILED: EXIT_FAILURE,
+};
+
+/**
  * Commander's own parse failures — an unknown command, a bad `--intent` — are
  * the same class of mistake as a `UsageError` and get the same status. Left to
  * itself commander exits 1, which would make "you typed it wrong" indist-
@@ -80,6 +101,8 @@ export function exitCodeFor(error: unknown): number {
   if (error instanceof UsageError) return EXIT_USAGE;
   if (error instanceof CancelledError) return EXIT_CANCELLED;
   if (error instanceof SessionError) return BY_CODE[error.code] ?? EXIT_FAILURE;
+  if (error instanceof WorkspaceError)
+    return BY_WORKSPACE_CODE[error.code] ?? EXIT_FAILURE;
   return EXIT_FAILURE;
 }
 
@@ -104,7 +127,7 @@ export function errorPayload(error: unknown): {
 } {
   const code = isCommanderError(error)
     ? "USAGE"
-    : error instanceof SessionError
+    : error instanceof SessionError || error instanceof WorkspaceError
       ? error.code
       : error instanceof UsageError
         ? "USAGE"

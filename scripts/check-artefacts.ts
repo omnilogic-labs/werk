@@ -20,6 +20,7 @@ for (const name of [
   "terminal-beamterm",
   "session",
   "session-daemon",
+  "workspace",
 ]) {
   const manifest = JSON.parse(
     await readFile(join(repository, "packages", name, "package.json"), "utf8"),

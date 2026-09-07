@@ -3,6 +3,7 @@ for (const name of [
   "session",
   "terminal-beamterm",
   "session-daemon",
+  "workspace",
   "werk",
 ]) {
   const child = Bun.spawn(
