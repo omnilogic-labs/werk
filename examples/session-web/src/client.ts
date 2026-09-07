@@ -13,10 +13,12 @@ import {
 } from "@werk/terminal";
 import { createWtermRenderer } from "@werk/terminal/dom";
 import { openWebSocketTransport } from "./websocket.js";
+import { previewMarkup } from "./preview.js";
 const element = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 const status = element("status"),
-  screen = element("screen");
+  screen = element("screen"),
+  tiles = element("tiles");
 const report = (error: unknown) => {
   status.textContent = error instanceof Error ? error.message : String(error);
 };
@@ -64,6 +66,73 @@ async function refresh() {
     }),
   );
   if (sessions.some((session) => session.id === prior)) list.value = prior;
+  syncStrip();
+}
+// The strip holds one `preview` attachment per session: read-only, no size, no
+// output stream, and a text frame at most twice a second whatever the session
+// is doing. Nothing here builds a replica, so the tiles cost the page almost
+// nothing beyond the markup they paint.
+type Tile = {
+  node: HTMLElement;
+  screen: HTMLElement;
+  caption: HTMLElement;
+  attachment?: Attachment;
+  attaching?: boolean;
+  ended?: boolean;
+};
+const strip = new Map<string, Tile>();
+const tileLimit = 12;
+function tileFor(sessionId: string): Tile {
+  const existing = strip.get(sessionId);
+  if (existing) return existing;
+  const node = document.createElement("figure");
+  node.className = "tile";
+  const preview = document.createElement("pre");
+  preview.className = "tile-screen";
+  const caption = document.createElement("figcaption");
+  node.append(preview, caption);
+  node.onclick = () => run(() => attach(sessionId));
+  const tile: Tile = { node, screen: preview, caption };
+  strip.set(sessionId, tile);
+  tiles.append(node);
+  return tile;
+}
+function syncStrip() {
+  const wanted = sessions.slice(0, tileLimit);
+  for (const [id, tile] of [...strip])
+    if (!wanted.some((session) => session.id === id)) {
+      void tile.attachment?.detach().catch(() => {});
+      tile.node.remove();
+      strip.delete(id);
+    }
+  for (const session of wanted) {
+    const tile = tileFor(session.id);
+    tile.caption.textContent = `${session.name} · ${session.state}`;
+    tile.node.classList.toggle("tile-live", session.state === "running");
+    if (tile.attachment || tile.attaching || tile.ended) continue;
+    tile.attaching = true;
+    run(async () => {
+      try {
+        tile.attachment = await client.attach(session.id, {
+          representation: "preview",
+          preview: { intervalMs: 500 },
+          onEvent(event) {
+            if (event.type === "preview")
+              tile.screen.innerHTML = previewMarkup(
+                event.text,
+                event.size.rows,
+              );
+            if (event.type === "ended") {
+              tile.ended = true;
+              tile.attachment = undefined;
+            }
+          },
+        });
+      } finally {
+        tile.attaching = false;
+      }
+    });
+  }
 }
 async function detach() {
   await attachment?.detach();

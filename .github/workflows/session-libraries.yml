@@ -36,6 +36,65 @@ jobs:
         with:
           name: soak-${{ matrix.os }}
           path: soak.json
+  # musl Linux x64, in an Alpine job container. The daemon lock is the reason
+  # this lane exists: `bun:ffi` has to find a libc there, and a compiled binary
+  # has to find one too. It says nothing about glibc, macOS or Windows, which
+  # the `native` matrix covers.
+  musl:
+    runs-on: ubuntu-24.04
+    container: alpine:3.22
+    timeout-minutes: 30
+    env:
+      BUN_VERSION: 1.3.14
+    steps:
+      # busybox only to start with. `libstdc++` and `libgcc` are not a
+      # convenience: the musl Bun and everything compiled from it link against
+      # `libstdc++.so.6` and `libgcc_s.so.1`. `procps` provides the `ps` the
+      # native tests read process state from.
+      - name: apk add
+        shell: sh
+        run: |
+          apk add --no-cache bash git coreutils procps libstdc++ libgcc \
+            musl-utils ncurses ncurses-terminfo-base jq curl unzip
+          cat /etc/alpine-release
+      - uses: actions/checkout@v4
+      # setup-bun picks the glibc build on Alpine; replace it with the musl zip
+      # when the one it installed cannot run.
+      - uses: oven-sh/setup-bun@v2
+        id: setup-bun
+        continue-on-error: true
+        with:
+          bun-version: 1.3.14
+      - name: bun (musl)
+        shell: bash
+        run: |
+          if bun --version 2>/dev/null | grep -qx "$BUN_VERSION" && bun -e 'process.exit(0)' 2>/dev/null; then
+            echo "using setup-bun (outcome ${{ steps.setup-bun.outcome }})"
+          else
+            curl -fsSL -o /tmp/bun.zip "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64-musl.zip"
+            unzip -q -o /tmp/bun.zip -d /tmp/bun
+            install -m 0755 /tmp/bun/*/bun /usr/local/bin/bun
+            echo "/usr/local/bin" >>"$GITHUB_PATH"
+          fi
+      - name: libc
+        shell: bash
+        run: |
+          command -v bun; bun --version
+          ldd "$(command -v bun)" || true
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test packages/session-daemon/test/native.test.ts
+      - run: bun test packages/session-daemon/test/hardening.test.ts
+      # The interpreted tests above load libc through `bun:ffi` in the Bun
+      # process. A compiled binary resolves it through the same system loader,
+      # which is the case the research note could not confirm, so ask the built
+      # CLI which mechanism it would use.
+      - run: bun run build
+      - name: compiled lock mechanism
+        shell: bash
+        run: |
+          packages/werk/dist/werk info | tee /tmp/info.json
+          test "$(jq -r .lockMechanism /tmp/info.json)" = flock
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 20

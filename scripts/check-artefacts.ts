@@ -41,7 +41,7 @@ for (const name of await readdir(browser)) {
     continue;
   const text = await readFile(join(browser, name), "utf8");
   assert.ok(
-    !/\bBun\.|bun:ffi|node:|werk-poc/.test(text),
+    !/\bBun\.|["']bun:|["']node:|werk-poc/.test(text),
     `Browser boundary violation in ${name}`,
   );
 }
@@ -89,6 +89,7 @@ async function cli(...args: string[]) {
 async function waitFor<T>(
   body: () => Promise<T>,
   predicate: (value: T) => boolean,
+  label = "",
 ) {
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
@@ -96,7 +97,26 @@ async function waitFor<T>(
     if (predicate(value)) return value;
     await Bun.sleep(20);
   }
-  throw new Error("Artefact condition timed out");
+  throw new Error(`Artefact condition timed out${label ? `: ${label}` : ""}`);
+}
+// $stateDir/daemon.json is the daemon's own record of itself, written after it starts
+// serving, so a fresh read may still show the previous daemon; wait for one that is neither
+// missing nor the pid we just killed.
+async function daemonPid(previous?: number) {
+  return waitFor(
+    async () => {
+      try {
+        const record = JSON.parse(
+          await readFile(join(stateDir, "daemon.json"), "utf8"),
+        );
+        return Number(record?.pid);
+      } catch {
+        return Number.NaN;
+      }
+    },
+    (value) => Number.isInteger(value) && value > 0 && value !== previous,
+    `daemon.json pid (not ${previous})`,
+  );
 }
 async function connect() {
   const endpoint = JSON.parse(
@@ -126,7 +146,7 @@ async function stopDaemon() {
 try {
   assert.match(await cli("help"), /create/);
   await cli("list");
-  pid = Number(await readFile(join(runtimeDir, "daemon.pid"), "utf8"));
+  pid = await daemonPid();
   // The copied binary starts a detached owner using only its embedded assets.
   const createdProcess = Bun.spawn(
     [
@@ -238,19 +258,75 @@ try {
       value?.info?.state === "running" &&
       value?.info?.checkpoint?.time > created.createdAt + 1000,
   );
-  process.kill(pid!, "SIGKILL");
+  const killed = pid!;
+  process.kill(killed, "SIGKILL");
   await Bun.sleep(300);
   pid = undefined;
   await cli("list");
-  pid = Number(await readFile(join(runtimeDir, "daemon.pid"), "utf8"));
+  pid = await daemonPid(killed);
   const recovered = JSON.parse(await cli("list"));
   assert.equal(recovered[0].state, "lost");
   assert.equal(recovered[0].checkpoint.decodable, true);
   assert.match(await cli("logs", created.id), /received:second/);
+  // Attaching to a record with no live process returns instead of hanging and reports the
+  // outcome on stderr; a lost record has none for the daemon to report. stdin stays open,
+  // as it is for a person at a terminal: EOF detaches, which would race the ended event.
+  const dead = Bun.spawn([binary, "attach", created.id, ...globalArgs], {
+    cwd: directory,
+    stdin: "pipe",
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+  const deadTimer = setTimeout(() => dead.kill(), 10000);
+  const deadError = await new Response(dead.stderr).text();
+  assert.equal(await dead.exited, 0, deadError);
+  clearTimeout(deadTimer);
+  assert.match(deadError, /was lost/);
+  // A record the daemon did see finish reports its status instead. The global flags go
+  // before `--`, or they become arguments to the session's own command.
+  const exiting = Bun.spawn(
+    [
+      binary,
+      "create",
+      ...globalArgs,
+      "--name",
+      "artefact-exit",
+      "--",
+      process.execPath,
+      "-e",
+      "process.exit(3)",
+    ],
+    { cwd: directory, stdout: "pipe", stderr: "pipe" },
+  );
+  const exitingOutput = await new Response(exiting.stdout).text();
+  assert.equal(
+    await exiting.exited,
+    0,
+    await new Response(exiting.stderr).text(),
+  );
+  const shortLived = JSON.parse(exitingOutput);
+  await waitFor(
+    async () => JSON.parse(await cli("list")),
+    (sessions: { id: string; state: string }[]) =>
+      sessions.some((s) => s.id === shortLived.id && s.state === "exited"),
+    "shortLived exited",
+  );
+  const finished = Bun.spawn([binary, "attach", shortLived.id, ...globalArgs], {
+    cwd: directory,
+    stdin: "pipe",
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+  const finishedTimer = setTimeout(() => finished.kill(), 10000);
+  const finishedError = await new Response(finished.stderr).text();
+  assert.equal(await finished.exited, 0, finishedError);
+  clearTimeout(finishedTimer);
+  assert.match(finishedError, /status 3/);
+  await cli("remove", shortLived.id);
   await cli("remove", created.id);
   assert.deepEqual(JSON.parse(await cli("list")), []);
   console.log(
-    "Compiled binary outside checkout: detached create, stdin input, reconnect, resize, abrupt-death lost-screen recovery and removal passed. Browser boundaries, assets and built declarations passed.",
+    "Compiled binary outside checkout: detached create, stdin input, reconnect, resize, abrupt-death lost-screen recovery, ended-session outcome reporting and removal passed. Browser boundaries, assets and built declarations passed.",
   );
 } finally {
   await client?.close();

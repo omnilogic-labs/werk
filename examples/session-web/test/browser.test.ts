@@ -112,6 +112,34 @@ test("built browser paints DOM, reconnects, resizes and lazily swaps to beamterm
           "HEX:1b5b3230307e70617374652d746573741b5b3230317e",
         ),
     );
+    // The preview strip is a text frame per session, not a replica: it paints
+    // colour without a second engine and takes no size from the terminal.
+    await page.waitForFunction(() =>
+      document
+        .querySelector("#tiles .tile-screen")
+        ?.textContent?.includes("RED-MARKER"),
+    );
+    await page.waitForFunction(() =>
+      document
+        .querySelector("#tiles .tile-screen")
+        ?.textContent?.includes("HEX:"),
+    );
+    expect(
+      await page.evaluate(() =>
+        [...document.querySelectorAll("#tiles .tile-screen span")].some(
+          (span) => getComputedStyle(span).color === "rgb(224, 108, 117)",
+        ),
+      ),
+    ).toBe(true);
+    expect(await page.locator("#tiles .tile").count()).toBe(1);
+    const attachments = (await client.get(session.id)).attachments;
+    expect(
+      attachments.filter((a) => a.representation === "preview"),
+    ).toHaveLength(1);
+    expect(attachments.filter((a) => a.holdsSize)).toHaveLength(1);
+    expect(
+      attachments.find((a) => a.representation === "preview")!.holdsSize,
+    ).toBe(false);
     const before = await page.locator(".term-row").allTextContents();
     await page.click("#detach");
     await page.click("#attach");

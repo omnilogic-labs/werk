@@ -14,6 +14,10 @@ bun examples/session-web/dist/server.js /absolute/runtime/endpoint.json 4319
 Open `http://127.0.0.1:4319`. Enter command argv as a JSON array (for example
 `["/bin/sh"]` on POSIX or `["powershell.exe"]` on Windows). Create or select a
 session, attach, type or paste in the focused terminal. The size holder may resize.
+The preview strip above holds one `preview` attachment per listed session: a text
+frame at most twice a second, turned into markup by a small SGR-to-span converter
+rather than a second replica, so a page of tiles costs neither a terminal engine
+nor a snapshot per update. Clicking a tile attaches the terminal to that session.
 Switching renderer detaches and reattaches with a fresh replica. DOM is the default;
 beamterm's JS and WASM load only when selected. Listing uses `list` and daemon-wide
 `watch` without opening terminal streams.
@@ -41,4 +45,5 @@ or set `CHROMIUM_PATH` to a Chromium executable. The browser test copies the bui
 assets and runtime package allowlists to a temporary directory outside the checkout.
 It verifies attachment, application cursor keys, bracketed paste, resize, bridge
 connection loss followed by reload recovery, and DOM → beamterm → DOM swaps,
-including actual coloured canvas pixels and preserved shared screen and size.
+including actual coloured canvas pixels and preserved shared screen and size, and
+that the preview strip paints a coloured tile while holding no size.

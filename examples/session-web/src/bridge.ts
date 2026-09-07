@@ -1,3 +1,8 @@
+import {
+  DAEMON_MAX_FRAME_BYTES,
+  DEFAULT_MAX_QUEUED_BYTES,
+  DAEMON_MAX_QUEUED_BYTES,
+} from "@werk/session/protocol";
 import type { Transport } from "@werk/session";
 import { openLocalTransport, type LocalEndpoint } from "@werk/session-daemon";
 export function authoriseUpgrade(request: Request, token: string): boolean {
@@ -76,8 +81,8 @@ export async function startWebBridge(options: {
       return new Response(file);
     },
     websocket: {
-      maxPayloadLength: 8 * 1024 * 1024 + 4,
-      backpressureLimit: 16 * 1024 * 1024,
+      maxPayloadLength: DAEMON_MAX_FRAME_BYTES + 4,
+      backpressureLimit: DEFAULT_MAX_QUEUED_BYTES,
       closeOnBackpressureLimit: true,
       open(socket) {
         void (async () => {
@@ -108,7 +113,7 @@ export async function startWebBridge(options: {
         }
         const bytes = new Uint8Array(message);
         socket.data.pending += bytes.byteLength;
-        if (socket.data.pending > 16 * 1024 * 1024) {
+        if (socket.data.pending > DAEMON_MAX_QUEUED_BYTES) {
           socket.close(1009, "Input queue exceeded limit");
           return;
         }

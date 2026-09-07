@@ -1,3 +1,8 @@
+import {
+  DAEMON_MAX_FRAME_BYTES,
+  DEFAULT_MAX_QUEUED_BYTES,
+  DAEMON_MAX_QUEUED_BYTES,
+} from "@werk/session/protocol";
 import type { Transport } from "@werk/session";
 /** Browser adapter with bounded receive buffering and explicit congestion errors. */
 export async function openWebSocketTransport(
@@ -59,7 +64,7 @@ export async function openWebSocketTransport(
       },
     },
     {
-      highWaterMark: 16 * 1024 * 1024,
+      highWaterMark: DEFAULT_MAX_QUEUED_BYTES,
       size: (chunk) => chunk?.byteLength ?? 0,
     },
   );
@@ -69,7 +74,7 @@ export async function openWebSocketTransport(
       write(bytes) {
         if (socket.readyState !== WebSocket.OPEN)
           throw new Error("WebSocket closed");
-        if (socket.bufferedAmount + bytes.byteLength > 16 * 1024 * 1024)
+        if (socket.bufferedAmount + bytes.byteLength > DAEMON_MAX_QUEUED_BYTES)
           throw new Error("WebSocket send queue exceeded limit");
         socket.send(new Uint8Array(bytes));
       },

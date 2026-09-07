@@ -3,7 +3,10 @@ import { mkdtemp, rm, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectSessionClient } from "../packages/session/dist/index.js";
-import type { Transport } from "../packages/session/dist/protocol.js";
+import {
+  DEFAULT_MAX_QUEUED_BYTES,
+  type Transport,
+} from "../packages/session/dist/protocol.js";
 import { createSessionDaemon } from "../packages/session-daemon/dist/index.js";
 import { loadTerminalEngine } from "../packages/terminal/dist/bun/index.js";
 
@@ -28,7 +31,7 @@ function pair(delay: () => number): [Transport, Transport] {
       async write(bytes) {
         if (slow) await Bun.sleep(delay());
         for (let offset = 0; offset < bytes.length;) {
-          const size = offset < 4 ? 1 : 4096;
+          const size = offset < 8 ? 1 : 4096;
           await writer.write(bytes.slice(offset, offset + size));
           offset += size;
         }
@@ -84,7 +87,7 @@ const timer = setInterval(() => {
   maxControl = Math.max(maxControl, d.controlQueueBytes);
   if (
     d.outputQueueBytes > outputLimit * d.connections ||
-    d.controlQueueBytes > 16 * 1024 * 1024 * d.connections
+    d.controlQueueBytes > DEFAULT_MAX_QUEUED_BYTES * d.connections
   )
     queueViolation = true;
 }, 100);

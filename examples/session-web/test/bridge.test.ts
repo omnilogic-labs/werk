@@ -5,7 +5,7 @@ import { FramedTransport } from "@werk/session/protocol";
 import { socketTransport } from "@werk/session-daemon";
 import { openWebSocketTransport } from "../src/websocket.js";
 import net from "node:net";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 test("bridge requires exact origin and launch token", () => {
@@ -37,12 +37,12 @@ test("bridge carries the session protocol and disconnect preserves backend", asy
         if (message.type === "hello")
           await wire.send({
             type: "hello",
-            protocolVersion: 1,
+            protocolVersion: 2,
             principal: { id: "owner" },
             daemon: {
               id: "test",
               version: "1",
-              protocolVersion: 1,
+              protocolVersion: 2,
               engine: { buildId: "x", snapshotFormatVersion: 1 },
               capabilities: { termination: [], snapshots: true },
             },
@@ -57,6 +57,7 @@ test("bridge carries the session protocol and disconnect preserves backend", asy
   await new Promise<void>((resolve) =>
     listener.listen(join(root, "daemon.sock"), resolve),
   );
+  await chmod(join(root, "daemon.sock"), 0o600);
   const bridge = await startWebBridge({
     endpoint: { kind: "unix", path: join(root, "daemon.sock") },
     port: 0,
