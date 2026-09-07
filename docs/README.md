@@ -34,5 +34,3 @@ documentation set.
 - About to build on the session packages →
   [session-library.md](session-library.md)
 - Using or changing the `werk` command → [cli.md](cli.md)
-- Want to know what the proof of concept found →
-  [`../packages/werk-poc/findings/README.md`](../packages/werk-poc/findings/README.md)

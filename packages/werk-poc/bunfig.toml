@@ -1,3 +1,0 @@
-[test]
-# The vendored ghostty-web clone carries its own test suite, which needs its own environment.
-pathIgnorePatterns = ["vendor/ghostty-web/**"]

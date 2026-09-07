@@ -31,7 +31,7 @@ the authenticated local page when needed. Keep the endpoint file private.
 `dist` contains the browser bundle, HTML/CSS, terminal WASM and optional beamterm
 WASM; server static assets are resolved beside the built server. The bridge's Bun
 bundle uses installed public daemon/session package dependencies. No asset lookup
-falls back to source or the PoC. The output includes `terminal.PROVENANCE.md`, `terminal.LICENSE`,
+falls back to source. The output includes `terminal.PROVENANCE.md`, `terminal.LICENSE`,
 `beamterm.PROVENANCE.md`, `LICENSE.beamterm`, and `LICENSE.wterm-dom`; the build
 verifies the beamterm WASM digest against its pin. Keep these beside copied assets.
 To deploy the built bridge outside the checkout, install the built public

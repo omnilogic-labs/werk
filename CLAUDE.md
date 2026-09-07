@@ -18,8 +18,6 @@ the bundled DOM renderer. `packages/werk` is the session CLI and
 
 See [docs/session-library.md](docs/session-library.md) for build, validation and
 consumer commands. Product direction lives in `docs/product-specification.md`.
-`packages/werk-poc` is reference material; product packages do not import its
-source.
 
 ## Project rules
 

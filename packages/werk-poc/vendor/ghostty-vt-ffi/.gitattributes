@@ -1,2 +1,0 @@
-# The DLL must survive a Windows checkout unmangled.
-*.dll binary

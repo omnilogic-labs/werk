@@ -41,7 +41,7 @@ for (const name of await readdir(browser)) {
     continue;
   const text = await readFile(join(browser, name), "utf8");
   assert.ok(
-    !/\bBun\.|["']bun:|["']node:|werk-poc/.test(text),
+    !/\bBun\.|["']bun:|["']node:/.test(text),
     `Browser boundary violation in ${name}`,
   );
 }

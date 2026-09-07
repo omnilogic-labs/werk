@@ -326,7 +326,7 @@ Open `http://127.0.0.1:4319`. The example supports listing, attachment, input,
 a strip of `preview` tiles and renderer selection. Its bridge is a local owner
 surface; see the [browser README](../examples/session-web/README.md) for its
 access boundary. Package asset directories retain licence and provenance records
-beside their pins. No library or consumer imports PoC source.
+beside their pins.
 
 ## Operational measurements
 
