@@ -1,8 +1,10 @@
 # 02 — Session libraries for the early product
 
-> **Status:** proposed package boundaries and API direction. The PoC has learned
-> enough to begin this work; the names and signatures below are illustrative,
-> not an implemented API or a product scope decision.
+> **Status:** the package boundaries and API direction this work was built
+> against. The four packages exist and much of what follows is now their actual
+> shape; where a name or signature here differs from the code, the code is what
+> ships and [`../session-library.md`](../session-library.md) describes it. None
+> of this is a product scope decision.
 
 ## Recommendation
 
@@ -195,9 +197,10 @@ them in time and a program waiting on one hangs.
 `SessionInfo` should therefore carry, beside identity, state, argv, cwd, size
 and creation time: the name and labels; the last output and last input times;
 the last title, reported working directory and last effect with its time; the
-exit outcome; the attachments, each with its principal and permissions and
-whether it holds the size; the checkpoint time and whether it can be decoded;
-and the process-tree summary.
+exit outcome; the attachments, each with its principal, permissions,
+representation, what it asked to do about the size and whether it holds it; the
+checkpoint time and whether it can be decoded; the scrollback budget the session
+got; and the process-tree summary.
 
 ### Attachments and ordered state
 
@@ -227,9 +230,11 @@ Use bounded queues throughout. Control messages and input are never dropped and
 never wait behind output; output is droppable per attachment. A slow viewer may
 lose intermediate output and receive a new snapshot, without slowing the PTY or
 another viewer. Distinguish this recoverable viewing stream from any future
-complete output log. A `preview` representation — read-only, rate-limited,
-enough for a tile — is worth reserving as a discriminator beside `snapshot` and
-`vt` without designing it now. A request timeout also needs an explicit outcome:
+complete output log. A `preview` representation is a discriminator beside
+`snapshot` and `vt`: read-only, holding no size, outside the output stream and
+the resync machinery, receiving the whole active screen as text at a rate the
+daemon clamps. It is enough for a tile and costs neither a snapshot nor a
+terminal engine on the client. A request timeout also needs an explicit outcome:
 the operation may have completed remotely. Do not automatically retry process
 creation or input without an idempotency contract.
 
@@ -250,15 +255,23 @@ The PoC already does this. A consumer may end any attachment on a session it
 controls, which is how a grant is taken back; the attachment's last event says
 so.
 
-Size is different. Exactly one attachment on a session holds the size at a
-time. The holder may pass it to another attachment on the same session; the
+Size is different. At most one attachment on a session holds the size at a
+time, and while only watchers are attached nobody need hold it. An attachment
+says when it attaches whether it never takes the size, takes it when it is
+free, or claims it from whoever holds it; a claim is a takeover the daemon
+authorises, and one it refuses attaches without the size rather than failing.
+The holder may also pass it on to another attachment on the same session; the
 daemon applies only the holder's resizes, broadcasts the resulting grid in the
 same stream as terminal state, and every replica follows that grid, a browser
 letterboxing or scaling to the pixels it has. The contract does not care what
-kind of client holds the size. How a raw terminal client that does not hold it
-should present a grid unlike its own window — crop, pad, or carry a local
-replica — is open, and a browser-first answer is fine. Where the size goes when
-its holder's attachment ends is an implementation detail.
+kind of client holds the size. A raw terminal client that does not hold it
+clips: it paints the session grid into whatever window it has, clears on any
+change of either, and spends a row on saying what the two sizes are for as long
+as they differ. Padding and scaling remain open for clients that would rather
+letterbox. When a holder's
+attachment ends the size passes to an input-capable attachment, then to one
+that asked to claim, then to the most recent, and is free where nobody
+qualifies.
 
 What an additional attachment is granted by default — `read` only, as the
 product's
@@ -386,11 +399,12 @@ const attachment = await client.attach(session.id, {
   onEvent: (event) => replica.apply(event), // snapshot, output, resize, effect, resync, ended
 });
 attachment.principal; // who the daemon believes this connection is
-attachment.holdsSize; // exactly one attachment on a session does
+attachment.holdsSize; // at most one attachment on a session does
 
 await attachment.writeInput(bytes); // acknowledges acceptance, not execution
 await attachment.resize({ cols: 120, rows: 35 }); // applied only while this attachment holds the size
 await attachment.transferSize(otherAttachmentId); // the holder passes it on
+await attachment.claimSize(); // takes a free size, or the holder's where policy allows
 await client.endAttachment(otherAttachmentId); // a grant taken back; its last event says why
 await attachment.detach();
 stop();
@@ -419,11 +433,11 @@ authorised.
 | 4. Verify the packaged consumer    | Allowlisted package contents, built JS/types, pinned assets and provenance beside each pin.                                                                                                                                                                                                  | The compiled consumer binary and the browser bundle carry every asset they use, beamterm's included when it is selected, and run attachment and recovery checks from those artefacts without source-relative assets or benchmark dependencies.                                                                                                             |
 | 5. Harden under early product use  | Measured limits, diagnostics, long soak/churn and remote-path tests, upgrade policy.                                                                                                                                                                                                         | Track memory, event-loop/attach latency, process/handle cleanup and bounded queues; exercise sustained churn and slow clients as well as 24-hour steady sessions. Set budgets from the first library baseline and investigate regressions.                                                                                                                 |
 
-Stages 1 and 2 can start now. Stage 3 should establish the guarantees needed by
-the first consumer before it relies on them; stage 4 checks whether the proposed
-structure is genuinely consumable. Stage 5 can proceed alongside early product
-integration rather than delaying the package design. These are dependency-ordered
-steps, not delivery-date commitments.
+Stages 1 to 4 are done, and stage 5 has a short soak baseline with regression
+budgets rather than the 24-hour evidence it asks for; that needs a runner.
+Stage 5 can otherwise proceed alongside early product integration rather than
+delaying the package design. These are dependency-ordered steps, not
+delivery-date commitments.
 
 Keep packages `private: true` initially and use `workspace:*` dependencies. Start
 with coordinated changes/releases; independent versioning can follow a real

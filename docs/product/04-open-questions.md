@@ -153,6 +153,13 @@ Multiple clients can attach. Should the second one be able to type?
 what the agent is doing" is a core use case and two people typing into one agent
 is nobody's intent. The UI must show how many are attached either way.
 
+The same shape recurs for the terminal size: one attachment decides the
+dimensions the process actually sees, and taking that is a takeover of a
+smaller kind. Whether the notice that you lost it names who took it is open.
+Today the event carries no principal, so a client can say the size moved but
+not to whom; naming is cheap and friendlier, and it puts someone's identity on
+an event that currently shows none.
+
 ---
 
 ## Scope
@@ -329,3 +336,79 @@ shaping the architecture — because "free OSS core with an infra upsell" and
 Two unrelated tools are already both called "cmux". **Check that "werk" isn't
 claimed in this niche before committing publicly.** Cheap to check now,
 expensive later.
+
+---
+
+## Liveness and failure
+
+### 20. What does a viewer that cannot keep up see?
+
+Output can arrive faster than a viewer can be sent it — a phone on a bad
+network, a browser tab behind a tunnel, a terminal on the other side of the
+world. Two ways out: send everything and let the backlog grow, or drop the
+backlog and send the current screen instead, so the viewer sees where the
+session got to rather than everything it printed on the way. The second is the
+only one that bounds memory, and it means a slow viewer's scrollback has holes
+in it that a fast viewer's does not.
+
+The same trade-off sets how often the fleet list moves. Every keystroke of
+output is a "this session is active" signal; forwarding all of them is
+accurate and expensive, coalescing them to a few a second is cheap and makes
+the list very slightly stale.
+
+What the implementation currently does: a minimum of 250 ms between resends of
+the screen to any one viewer, exposed as a tunable limit, and no coalescing of
+activity notifications at all. Neither is a ratified answer. The product
+question underneath is whether a distant viewer is promised the same fidelity
+as a local one or explicitly a cheaper one, and whether that is something the
+user can see and choose.
+
+### 21. What does werk do when werk breaks?
+
+The thing holding the PTYs is a long-lived process, and when it goes the
+sessions on that machine go with it. So an internal error inside werk is not
+an ordinary crash — it is the first promise failing.
+
+- **Keep going.** One broken request is not a reason to lose a fleet. Log it,
+  write the state to disk, carry on serving everything that still works.
+- **Stop at the first one.** A daemon in an unknown state holding your agents
+  is worse than one that is plainly gone, and a loud failure gets fixed.
+- **A budget.** Continue, but give up if it keeps happening, on the grounds
+  that the second error is bad luck and the tenth is a broken build.
+
+The implementation currently takes the third: log, checkpoint and continue,
+then checkpoint, close and exit after ten uncaught exceptions in a minute.
+Nobody has ratified either the shape or the numbers. The part that needs a
+product answer rather than a code one is what the user is told — at the moment
+the only trace is a line in the daemon's log, and the sessions are simply gone
+next time they look.
+
+### 22. What does a fleet cost the machine it runs on?
+
+Scrollback is capped per session, which bounds one session and not the host.
+At the 10 MB cap, 128 full sessions measured about 1.4 GB resident in one
+process, none of it reclaimable while those sessions live — page compression,
+the usual escape hatch, is unsupported on wasm32. Restoring 128 retained
+records at startup measured 8.2 s and the same 1.4 GB; lazy restore is planned
+and would move the startup figure but not the steady-state one. Nor is the
+cost linear in the number of sessions: Bun gives the first eight WASM memories
+a fast 4 GiB reservation and the ninth onwards copy the whole buffer when they
+grow, so growth-heavy work runs roughly 6x slower from the ninth session at
+this size.
+
+So "workspaces are cheap and plural" has a price on one machine, and someone
+has to decide who pays it and who is told:
+
+- **A process-wide budget.** The daemon caps total scrollback and starts
+  refusing new sessions or evicting old ones when the fleet reaches it. A hard
+  answer, and it turns "cheap and plural" into a number the user runs into.
+- **Degrade instead.** Keep accepting sessions and lower the per-session cap
+  as the fleet grows, so a big fleet has shorter memories rather than a
+  ceiling. Nothing is refused; scrollback quietly stops being what it was.
+- **Stay uncapped.** Let the host's own memory pressure decide, and make the
+  cost visible — a fleet row that says what this machine is holding — rather
+  than policing it.
+
+The implementation has taken none of these: the daemon does not yet pass a
+scrollback limit at all, so sessions get the engine's own default and nothing
+bounds the process. That is an absence, not an answer.

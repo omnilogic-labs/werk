@@ -28,15 +28,18 @@ Three problems were confirmed against a real daemon:
 Two findings shape the preview design more than anything in the original
 questions:
 
-- **The wire encoding, not the snapshot, is the cost.** A 120x40 snapshot with
-  2,000 lines of scrollback is 278 KB and takes 0.27 ms to encode in the engine,
-  but 745 KB and 40 ms to JSON-encode with the protocol's `{"$bytes":[...]}`
-  representation. Even with no scrollback (18 KB) the JSON step is 2.3 ms.
-- **The formatter is two orders of magnitude cheaper.** Formatting the active
-  screen as VT (colours preserved) costs 0.1 ms and 5.8 KB on the wire; as plain
-  text 0.08 ms and 4.5 KB; as HTML 0.07 ms and 7.1 KB. On the client,
-  `frame()` on a restored 120x40 replica costs about 30 ms per call, so a
-  snapshot-driven tile would cost about 35 ms of main-thread time per update.
+- **The snapshot's size, not its encode time, is the cost.** A 120x40 snapshot
+  with 2,000 lines of scrollback is 278 KB and takes 0.27 ms to encode in the
+  engine; with binary framing (note 01) it reaches the wire at 287 KB for about
+  0.53 ms of daemon work in total. Under the JSON `{"$bytes":[...]}`
+  representation the same snapshot was 745 KB and 40 ms, which is why an earlier
+  reading of this made the encoding look like the whole problem.
+- **The formatter is far cheaper still.** Formatting the active screen as VT
+  (colours preserved) costs 0.11 ms and 6.7 KB on the wire; as plain text
+  0.08 ms and 4.5 KB; as HTML 0.07 ms and 7.1 KB. On the client, `frame()` on a
+  restored 120x40 replica costs about 30 ms per call before note 04's rebuild,
+  so a snapshot-driven tile pays a decode and a paint where a text tile pays a
+  string.
 
 Recommendations, in one paragraph each:
 
@@ -53,9 +56,9 @@ Recommendations, in one paragraph each:
   record per interval (on change, minimum interval 250 ms, default 500 ms) as a
   small `preview` event carrying VT text, cursor and size, and sends that one
   encoding to every preview viewer. Twenty busy 120x40 tiles at 500 ms cost the
-  daemon about 4 ms of CPU per second and about 230 KB/s on the wire; the same
-  tiles fed by snapshots would cost 50 ms to 800 ms of daemon CPU per second
-  and 2 MB/s to 30 MB/s, and about 1.4 s of client main thread per second.
+  daemon about 6 ms of CPU per second and about 240 KB/s on the wire; the same
+  tiles fed by snapshots would cost about four times the daemon CPU, 43 times
+  the wire and 37 times the client main thread.
 - **Late attach.** When the record has no live process, the daemon should send
   the initial snapshot, then `exit` when the outcome is known, then
   `ended: "session-ended"`, in the attach's `after()` hook, without registering
@@ -177,10 +180,10 @@ CONTINUATION:0 READY:0 HISTORY:6 PAGE:199943 FINISH:0` (tag values 1, 2, 3,
   is designed for that), not by slicing bytes. That is a possible later
   fast-first-paint improvement for full attachments and is not needed for
   previews.
-- Control events cost a resync each today (see `emit()` above): a `claimSize`
-  would cost two full snapshots (old holder and new) per claim, 40 ms of JSON
-  each on a session with scrollback, until the scheduler rewrite changes
-  `emit()`.
+- Control events cost a resync each under the reviewed `emit()` (see above), so
+  a `claimSize` would have cost two full snapshots per claim, one for the old
+  holder and one for the new. Note 02's ordered stream takes that away: only a
+  resize invalidates, and a claim drags no snapshot at all.
 
 ## Size ownership
 
@@ -360,16 +363,20 @@ a node) could live in `@werk/terminal` later, but the example can start with a
 Assume every session is busy (worst case), 500 ms interval, one browser
 connection through the bridge.
 
-| Cost                        | Text preview (recommended)                 | Snapshot preview, no scrollback            | Snapshot preview, 2,000 lines scrollback      |
-| --------------------------- | ------------------------------------------ | ------------------------------------------ | --------------------------------------------- |
-| Daemon CPU per second       | 20 x 2 x (0.1 + 0.05) ms = **6 ms**        | 20 x 2 x (0.33 + 2.3) ms = 105 ms          | 20 x 2 x (0.27 + 40) ms = 1.6 s (over budget) |
-| Wire per second             | 20 x 2 x 5.8 KB = **232 KB/s**             | 20 x 2 x 50 KB = 2 MB/s                    | 20 x 2 x 745 KB = 30 MB/s                     |
-| Client main thread per sec. | 20 x 2 x ~0.5 ms (ANSI to DOM) = **20 ms** | 20 x 2 x (5 + 30) ms = 1.4 s (over budget) | same                                          |
+| Cost                        | Text preview (recommended)                 | Snapshot preview, 2,000 lines scrollback |
+| --------------------------- | ------------------------------------------ | ---------------------------------------- |
+| Per update, daemon          | 0.11 ms to format, 0.05 ms to encode       | 0.53 ms to snapshot and frame            |
+| Per update, wire            | **6.7 KB**                                 | 287 KB                                   |
+| Daemon CPU per second       | 20 x 2 x 0.15 ms = **6 ms**                | about 4x                                 |
+| Wire per second             | 20 x 2 x 6.7 KB = **240 KB/s**             | 43x, about 11 MB/s                       |
+| Client main thread per sec. | 20 x 2 x ~0.5 ms (ANSI to DOM) = **20 ms** | 37x                                      |
 
 At 1 s intervals halve everything. Idle sessions cost nothing because frames go
 out only on change. Realistically a fleet of twenty has two or three sessions
 scrolling at once, so the text design is comfortably under 1% of a core on the
-daemon.
+daemon. The daemon column is the weakest of the three now that binary framing
+has taken the encoding out of the snapshot path; the wire and the client are
+what carry the design.
 
 ## Late attach
 

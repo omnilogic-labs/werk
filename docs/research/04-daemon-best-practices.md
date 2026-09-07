@@ -27,10 +27,10 @@ The principles here are language-agnostic and hold whatever
 conditional on Rust. §7 (keep running when things go wrong) and §8
 (backpressure) get harder with a network in the path, not easier.
 
-The item to promote in priority is **§11's `werk info` and `werk doctor`.** With
-one machine they save support time. With six machines, two container runtimes and
-a bastion in the middle they are the difference between a debuggable product and
-an unusable one.
+The item worth promoting in priority is **§11's `werk info` and `werk doctor`.**
+With one machine they save support time. With six machines, two container
+runtimes and a bastion in the middle they are the difference between a
+debuggable product and an unusable one.
 
 The single best general reference is Laurence Tratt's
 [Some Reflections on Writing Unix Daemons](https://tratt.net/laurie/blog/2024/some_reflections_on_writing_unix_daemons.html),
@@ -49,8 +49,12 @@ the start in his other daemons, and calls it the pattern he'd use for all of the
 can signal the wrong process after PID reuse), handlers run asynchronously so
 almost nothing is safe to do inside them, and programmers are systematically
 over-optimistic about what is signal-safe. `pizauth reload` sends a socket command
-instead of `kill -HUP`. Do the same: `werk reload`, `werk kill <id>`, `werk detach <id>`
-are all socket round-trips.
+instead of `kill -HUP`. Session control follows that: `werk kill <id>` and
+`werk detach <id>` are socket round-trips. The one signal werk gives a meaning
+to is `SIGUSR1`, which asks a running daemon to re-check its socket, endpoint
+and lock now rather than at its next five-second sweep (§5); it carries no
+argument and no reply, and the same check happens on a timer regardless, so a
+signal delivered to the wrong process after pid reuse costs nothing.
 
 Signals we _do_ handle, minimally, via `tokio::signal` or `signal-hook` (which
 turn signals into ordinary events rather than handler callbacks):
@@ -63,9 +67,13 @@ turn signals into ordinary events rather than handler callbacks):
   socket is a normal, expected event.
 - `SIGCHLD` → do not handle directly; use the runtime's child reaping.
 
-**Socket presence is the liveness check.** No PID files as the source of truth.
-"Presence of the socket file reliably indicates daemon status" — with the stale-
-socket caveat handled in §3.
+**Socket presence is the cheap liveness check** — "presence of the socket file
+reliably indicates daemon status", with the stale-socket caveat handled in §3 —
+but it is not sufficient on its own once the daemon can lose and rebuild its
+socket. A launcher whose probe fails needs to tell a dead daemon from a live one
+whose endpoint has gone, and only a record of the daemon can tell it that: §5
+pairs the socket probe with `$stateDir/daemon.json` (pid plus a boot identifier)
+and prefers signalling the recorded daemon over spawning a second one.
 
 ## 2. Do not `fork()` to daemonize. Re-exec yourself.
 
@@ -106,7 +114,9 @@ Two `werk` invocations start simultaneously and both find no socket. Handle it
 explicitly:
 
 1. **Lock before binding.** `open()` + `flock(LOCK_EX|LOCK_NB)` on
-   `$RUNTIME/werk/daemon.lock`. Winner spawns the daemon; loser skips to step 3.
+   `$STATE/daemon.lock`, so the exclusion follows the state directory whose
+   checkpoints and identity the daemon owns rather than a runtime path a cleaner
+   can remove under it. Winner spawns the daemon; loser skips to step 3.
    (`flock` releases automatically on process death — no stale-lock cleanup, which
    is exactly why it beats a PID file.)
 2. **Bind atomically.** `bind()` to a temp path in the same directory, then
@@ -137,27 +147,29 @@ form is the client polling `connect` and completing `hello` under a deadline,
 with the daemon writing its failure reason to a log the client prints on
 timeout; where the pipe works it is only a faster route to the same message.
 
-## 5. Filesystem layout: XDG, per-uid, 0700
+## 5. Filesystem layout: stable runtime directory, per-uid, 0700
 
-Follow zmx's hierarchy, which is the well-considered version:
+The CLI uses `--runtime-dir`, then `$WERK_RUNTIME_DIR`, then `/tmp/werk-$UID`
+on POSIX or `%LOCALAPPDATA%\werk\run` on Windows. It deliberately does not
+use `$XDG_RUNTIME_DIR`, which logind removes after the last logout, or macOS's
+`$TMPDIR`, whose cleanup policy is unsuitable for detached sessions.
 
-```
-$WERK_DIR                    explicit override
-$XDG_RUNTIME_DIR/werk        preferred: tmpfs, already 0700, cleaned on logout
-$TMPDIR/werk-$UID            multi-user safe fallback
-/tmp/werk-$UID               last resort
-```
+The POSIX runtime directory is private (`0700`) and the socket is `0600`.
+Clients verify directory ownership and mode before reading endpoint records or
+starting a daemon, reject symlink directories, and check the socket path's
+103-byte portable limit before connecting or spawning. Endpoint files and Unix
+sockets must also belong to the current user and have private permissions.
+Windows runtime and state directories receive a current-user-only ACL when the
+daemon creates them; POSIX uid and mode checks do not apply there.
 
-- Directory mode `0700`, socket mode `0600`, both configurable.
-- **Verify ownership before trusting anything in `/tmp`.** `stat` the directory
-  and socket and refuse if the owner isn't the current uid — otherwise another
-  local user can pre-create `/tmp/werk-1000` and you hand them your sessions.
-- On the daemon side, use `SO_PEERCRED` (Linux) / `LOCAL_PEERCRED` (macOS) to
-  verify the connecting uid rather than relying only on filesystem permissions.
-- Persisted snapshots and logs go under `$XDG_STATE_HOME/werk` (they must survive
-  reboot); runtime sockets do not.
-- **Ship `werk info`** that prints every path it will use. Tratt calls this out
-  specifically; it makes every support conversation shorter.
+Persisted snapshots and logs go under `$XDG_STATE_HOME/werk` (or
+`~/.local/state/werk`). Runtime sockets need not survive a reboot. A stable path
+alone does not protect a daemon from manual deletion or temporary-file cleanup,
+so the lock and the daemon's pid record live in the state directory, the daemon
+holds a shared lock on its runtime directory and rebuilds its socket and
+endpoint when they vanish, and a client that finds a live recorded daemon waits
+for it rather than starting a second one. The reasoning is in
+[note 05](../continue/session-library-fixes/05-daemon-operability.md).
 
 ## 6. Process lifecycle: own your children properly
 
@@ -259,15 +271,23 @@ supervisor later.
 
 ## 11. Logging and observability
 
-- The daemon has no terminal, so logs are the only window. `tracing` +
-  `tracing-subscriber` with JSON output to `$XDG_STATE_HOME/werk/werkd.log`,
-  per-session spans carrying the session id.
-- Rotate, or you will fill a disk during a runaway output loop.
+- The daemon has no terminal, so logs are the only window. werk writes
+  `time LEVEL event key=value` lines to `$stateDir/daemon.log`, at a level set
+  by `--log-level` or `WERK_LOG_LEVEL`, from a fixed event vocabulary that
+  carries the session id but never environment values, input bytes or
+  credentials. A structured format is the obvious alternative and nothing is
+  stopping one.
+- Rotate, or you will fill a disk during a runaway output loop. werk rotates at
+  5 MB and keeps three files.
 - Tratt's warning: daemon problems hide in logs users never check. **Surface
   errors to the user where they are** — `werk list` should show a session in a
   failed state, not just log it.
-- `werk info` (paths, versions, pinned ghostty commit) and `werk doctor` (socket
-  reachable, dirs writable, TERM/terminfo sane) pay for themselves.
+- `werk info` (paths, lock mechanism, the recorded daemon, versions and daemon
+  capabilities) and `werk doctor` (the same plus directory ownership and mode,
+  state-directory writability and free space, whether the lock is held,
+  TERM/terminfo, and the tail of the log with its last error) pay for
+  themselves. Both are read-only, so either can be run against a daemon
+  somebody else is using.
 
 ## 12. Testing
 
@@ -275,8 +295,9 @@ Tratt: "Just because automated testing is hard doesn't mean that one should avoi
 automated testing." He added test suites late to two daemons and both had been
 harbouring subtle bugs for years.
 
-- **Black-box tests that drive the real binary** with `XDG_RUNTIME_DIR` and
-  `XDG_STATE_HOME` pointed at a temp dir. Spawn, attach, detach, kill, assert.
+- **Black-box tests that drive the real binary** with its runtime and state
+  directories pointed at a temp dir — `--runtime-dir`/`WERK_RUNTIME_DIR` and
+  `--state-dir`/`XDG_STATE_HOME`. Spawn, attach, detach, kill, assert.
 - Accept `sleep`-based timing tests where necessary — imperfect tests beat none.
 - VT-specific: golden tests feeding recorded byte streams (asciicast files from
   real `claude`, `top`, `vim` sessions) into a terminal, snapshotting, restoring,

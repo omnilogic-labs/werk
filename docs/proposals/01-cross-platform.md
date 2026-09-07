@@ -113,8 +113,11 @@ no implementation yet are marked; they are what §8's later steps fill in:
 Two things the table does not say. The environment overrides that name a
 directory outright — `XDG_RUNTIME_DIR`, `XDG_STATE_HOME`, `WP_STATE_DIR`,
 `WP_SNDBUF` — are read once, portably, above the seam, so a directory named
-in the environment is honoured wherever werk runs and only the fallback is a
-row. And the two implementations are POSIX and Windows, so a difference
+in the environment is honoured on both platforms and only the fallback is a
+row. Which variables those are is a PoC choice: the product packages read
+`WERK_RUNTIME_DIR` and `XDG_STATE_HOME` and default the runtime directory to
+`/tmp/werk-$UID`, because `$XDG_RUNTIME_DIR` and `$TMPDIR` are cleaned out from
+under a detached session (see [`../session-library.md`](../session-library.md)). And the two implementations are POSIX and Windows, so a difference
 _within_ POSIX has no column: BSD against GNU `ps` keywords, `script(1)`'s
 flags, `/dev/pts/N` against `/dev/ttysNNN`. Those live inside whichever
 method needs them, and in the M0 probes, which exist to measure exactly those

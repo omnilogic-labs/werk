@@ -520,9 +520,12 @@ Two measurements already exist as a baseline, taken against the upstream WASM in
 Bun and Node: **VT parse throughput around 107 MiB/s in Bun**, and **100
 concurrent terminals in one instance at 47 MiB, with freeing and re-allocating
 100 more adding exactly zero further memory** across three rounds. A single
-120×40 terminal held flat at 1.94 MiB from 10,000 lines through 400,000 — the
-default scrollback cap holds. If those survive the PoC's own measurement, memory
-and throughput are not the constraint on this design.
+120×40 terminal held flat at 1.94 MiB from 10,000 lines through 400,000, which
+is the engine's own scrollback default doing its job rather than an absence of
+cost: the default retains a few hundred rows, and a session given a real
+scrollback budget grows with it. If those survive the PoC's own measurement,
+throughput is not the constraint on this design, and memory is a question of
+what scrollback each session is given.
 
 **Operational.** Does each adapter survive `bun build --compile`? What
 toolchain does a clean build need? What is the platform matrix? Binary size

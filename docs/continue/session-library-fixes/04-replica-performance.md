@@ -29,11 +29,16 @@ nor transcribed is labelled as such.
   viewport scroll, snapshot restore) at **0.013 ms** for one changed byte
   and **0.34 ms** for a whole-screen change at 120x40, against 24 ms today.
   An idle frame is 0.001 ms.
-- One upstream gap: appending a combining mark or ZWJ to an existing cell
-  does not mark the row dirty on the pinned build, and the persistent render
-  state re-copies only dirty rows. The prototype covers it by decoding the
+- One upstream gap: appending a combining mark or a lone ZWJ to an existing
+  cell does not mark the row dirty on the pinned build, and the persistent
+  render state re-copies only dirty rows. A ZWJ emoji sequence escapes the gap
+  only incidentally, because the codepoint after the joiner lands in new cells
+  and dirties the row that way. The prototype covers the gap by decoding the
   cursor row (and the one above) from a throwaway render state whenever a
-  write produced no dirty rows; that path costs 0.02 to 0.05 ms.
+  write produced no dirty rows; that path costs 0.02 to 0.05 ms. See
+  [upstream-grapheme-dirty.md](upstream-grapheme-dirty.md) for the
+  reproduction and for what is not established, including an appended U+FE0F
+  that reports `FALSE` while changing nothing.
 - `TerminalReplica` paints after every event. Coalescing to one paint per
   scheduler tick (rAF in browsers, `setTimeout(0)` elsewhere, injectable)
   turns a 50-chunk burst at 120x40 from 50 paints handing 1,951 rows to the
@@ -41,10 +46,11 @@ nor transcribed is labelled as such.
   takes 1.04 s of main-thread time; with the prototype and coalescing it
   takes 0.2 ms.
 - A resync could keep painting only rows that actually differ if the replica
-  kept a shadow of the last painted rows; the compare costs about 2 ms at
-  120x40 with a naive JSON compare and would be well under 0.5 ms with a
-  field compare. The restore itself (4.3 ms here, 10 to 20 ms once
-  snapshots carry more scrollback) dominates either way.
+  kept a shadow of the last painted rows, but the shadow does not survive a
+  resync — the replica rebuilds the terminal and disposes the old one — so it
+  would need a second full-grid copy taken on every paint. The restore itself
+  (4.3 ms here, 10 to 20 ms once snapshots carry more scrollback) dominates
+  either way. Not worth it; see "Snapshot and resync".
 
 ## Current state (file:line)
 
@@ -140,19 +146,19 @@ exactly (see the equivalence run).
 What the dirty flags report, on a 20x5 terminal **(pre-reboot, matches the
 POC's `findings/m1.md` table)**:
 
-| After                                       | `DIRTY`                          |
-| ------------------------------------------- | -------------------------------- |
-| first update of a new render state          | FULL                             |
-| a write on one row                          | PARTIAL, that row                |
-| CUP alone                                   | PARTIAL, old and new cursor rows |
-| cursor hide, SGR alone, title               | FALSE                            |
-| line feed that scrolls                      | FULL                             |
-| `CSI 2 J`, alt screen on or off             | FULL                             |
-| OSC 4 palette change                        | FULL                             |
-| resize                                      | FULL                             |
-| `scrollViewport`                            | FULL                             |
-| a fresh render state on a restored terminal | FULL                             |
-| combining mark or ZWJ appended to a cell    | **FALSE** (see Risks)            |
+| After                                         | `DIRTY`                          |
+| --------------------------------------------- | -------------------------------- |
+| first update of a new render state            | FULL                             |
+| a write on one row                            | PARTIAL, that row                |
+| CUP alone                                     | PARTIAL, old and new cursor rows |
+| cursor hide, SGR alone, title                 | FALSE                            |
+| line feed that scrolls                        | FULL                             |
+| `CSI 2 J`, alt screen on or off               | FULL                             |
+| OSC 4 palette change                          | FULL                             |
+| resize                                        | FULL                             |
+| `scrollViewport`                              | FULL                             |
+| a fresh render state on a restored terminal   | FULL                             |
+| combining mark or lone ZWJ appended to a cell | **FALSE** (see Risks)            |
 
 Two points from the header matter for the design. `update` "consumes
 terminal/screen dirty state", so there can be only one render state per
@@ -345,16 +351,17 @@ before painting. Measured **(post-reboot)** at 120x40: snapshot 7,006 bytes
 in 0.18 ms, restore 4.3 ms, first frame 0.23 ms, and a naive
 `JSON.stringify` compare of 40 rows against the shadow 1.7 to 2.1 ms with 0
 rows differing. A field compare like the engine's `same()` would be an
-order of magnitude cheaper. Either way the restore dominates, and the
-coordinator's note that snapshots will grow to a few MB (10 to 20 ms per
-restore) makes that more so. Whether this filter is worth its complexity
-probably depends on how often resyncs happen in practice; with the text
-`preview` path serving tiles, resyncs are per attached terminal after a
-gap, which sounds rare. This could stay a later step.
+order of magnitude cheaper. Either way the restore dominates.
 
-An alternative that avoids the shadow copy is to let `frame()` accept the
-previous terminal's shadow (`terminal.adoptShadow(old)`), but that widens
-`TerminalHandle` for one caller and is not obviously better.
+The filter is not worth its complexity as things stand. The replica's shadow
+does not survive a resync at all — it rebuilds the terminal through
+`factory.restore` and disposes the old one — so the filter would need a second
+full-grid shadow, deep-copied on every paint, to have anything to compare
+against. What it would buy is one avoidable full repaint per resync, in a case
+note 02's ordered stream already makes rare. An alternative that avoids the
+shadow copy is to let `frame()` accept the previous terminal's shadow
+(`terminal.adoptShadow(old)`), but that widens `TerminalHandle` for one caller
+and is not obviously better.
 
 ## Implementation plan
 

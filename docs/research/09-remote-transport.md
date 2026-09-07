@@ -13,7 +13,7 @@ just `host:port`. This has been true since OpenSSH 6.7 (2014) and it collapses
 werk's entire remote-transport problem into a one-line invocation.
 
 ```sh
-ssh -N -L /tmp/werk-bigbox.sock:/run/user/1000/werk/daemon.sock bigbox
+ssh -N -L /tmp/werk-bigbox.sock:/tmp/werk-1000/daemon.sock bigbox
 ```
 
 Forms, from [`ssh_config(5)`](https://man.openbsd.org/ssh_config) — the rule is

@@ -4,13 +4,16 @@ A handoff. The four session packages (`@werk/terminal`, `@werk/session`,
 `@werk/session-daemon`, `@werk/terminal-beamterm`) were reviewed on
 2026-09-05 against one question: is anything stopping an early werk being
 built on them? The boundaries, API shape and lifecycle contracts are right.
-Six problems would surface in the first week of real use, four of them
+Six problems would have surfaced in the first week of real use, four of them
 interlocking inside the terminal stream. Six research notes, one per problem
 cluster, worked out fixes with prototypes and measurements. This doc compiles
-them into one plan and a task list.
+them into one plan and a task list. §6 carries the state of each task; the
+packages now behave as described here, and `docs/session-library.md` is the
+reference for what they do rather than for why.
 
 > **Working material, not product doctrine.** Everything here is a lean unless
-> it says otherwise, and the decisions that need an owner are listed in §7.
+> it says otherwise, and §7 records where each decision landed and which two
+> are still open.
 > The notes and prototypes in [`session-library-fixes/`](session-library-fixes/)
 > were measured on one WSL2 machine on Bun 1.3.14; some numbers were
 > transcribed after a reboot wiped the scratch space and are labelled as such in
@@ -21,8 +24,9 @@ them into one plan and a task list.
 
 ## 1. What the review found
 
-Build, typecheck and the 33 unit tests pass. The problems are in what happens
-under a realistic workload rather than in what the tests cover.
+Build, typecheck and the 33 unit tests of the reviewed packages passed. The
+problems were in what happens under a realistic workload rather than in what
+the tests covered.
 
 | #   | Problem                                                                      | Measured                                                                                                        | Note                                                   |
 | --- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
@@ -129,7 +133,7 @@ heartbeat.
 **Limits.** `limits.sessions` counts live processes plus pending creates. A
 separate `retainedSessions` cap (prototype default 512) bounds exited, failed
 and lost records with oldest-first eviction through the same path as `remove`.
-The eviction policy needs an owner (§7).
+The eviction policy is D1 in §7.
 
 | Case                                    | Before                         | Prototype                 |
 | --------------------------------------- | ------------------------------ | ------------------------- |
@@ -348,8 +352,10 @@ ordered and the daemon is serial per connection. About 3 hours.
 - The musl lock concern does not hold (§3.6 B).
 - The resync after a resize is needed, not an ordering trick (§3.2).
 - The 1 MB scrollback "no-op" is page granularity, not a broken setter (§3.3).
-- The dominant snapshot cost is the wire encoding, not the engine: 0.27 ms to
-  encode in the engine against 40 ms to JSON-encode (§3.5).
+- The dominant snapshot cost under the reviewed protocol is the wire encoding,
+  not the engine: 0.27 ms to encode in the engine against 40 ms to JSON-encode.
+  Binary framing (§3.1) takes that away, which moves the case for previews off
+  the daemon column and onto the wire and the client (§3.5).
 - The review quoted 19 ms for a 120x40 frame; the profiled figure is 24 ms.
   Same conclusion.
 
@@ -383,55 +389,89 @@ under two for two.
 ## 6. Task list
 
 Estimates are from the notes and are hours of implementation including tests
-and docs. "Wave" is the earliest point a task can start.
+and docs. "Wave" is the earliest point a task can start. "State" is where each
+task stands: `built` is in the packages with tests, `declined` did not earn its
+place and the reason is below the table, `open` is still a judgement call.
 
-| ID  | Wave | Task                                                                                                                                                                                     | Depends on | Hours    | Note   |
-| --- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | -------- | ------ |
-| T01 | 0    | Late attach to a dead record emits snapshot, exit, ended and registers no viewer; resize on a dead record is `CONFLICT`                                                                  |            | 4 to 6   | 06     |
-| T02 | 0    | Cache `Uint8Array`/`DataView` views in `Abi`, add typed helpers                                                                                                                          |            | 0.5      | 04     |
-| T03 | 0    | CLI sends env minus denylist; daemon merges over a minimal base and sets owned vars; env limits; daemon spawned clean with `cwd: /`                                                      |            | 8        | 05 D   |
-| T04 | 0    | Runtime dir policy (`/tmp/werk-UID`, `%LOCALAPPDATA%\werk\run`, `WERK_RUNTIME_DIR`); client-side ownership, mode and socket-length checks                                                |            | 3        | 05 A   |
-| T05 | 0    | Daemon logger with rotation and levels; event vocabulary; uncaught-error policy; `werk info` and `werk doctor`; startup error carries log tail                                           |            | 14       | 05 C   |
-| T06 | 0    | Lock candidate list and abstract-socket fallback; log the mechanism; Alpine CI lane running the native lock tests                                                                        |            | 4        | 05 B   |
-| T07 | 0    | Bounded input pipelining in `werk attach` (32 requests or 64 KiB in flight)                                                                                                              |            | 3        | 05 E   |
-| T08 | 0    | Binary framing v2 with linear decoder, `sendFrame`, client cap option, validation reuse, tests                                                                                           |            | 4        | 01     |
-| T09 | 1    | Daemon encodes once and queues frames; cap made raw-byte and directional, advertised in hello; 16 MiB family moved together; bridge constant; soak fragmentation and re-baseline; README | T08        | 6        | 01     |
-| T10 | 2    | One ordered stream per attachment with pre-encoded frames, largest-backlog drop, lazy resync placeholder with reserved position, round-robin, `ended` always                             | T09        | 6 to 8   | 02     |
-| T11 | 3    | Coalesce `activity` and `effect` per session (250 ms, leading edge, drained before `exited`); `publicInfo` once per event; control queue message cap revisited                           | T10        | 2 to 3   | 02     |
-| T12 | 0    | Dirty-driven checkpoints: flag set on output, resize, effect, state; interval and shutdown checkpoint dirty records only; lost records never rewritten                                   |            | 1 to 2   | 02, 03 |
-| T13 | 0    | `sessions` counts live processes; `retainedSessions` cap with the chosen retention policy (§7 D1)                                                                                        | D1         | 2 to 3   | 02     |
-| T14 | 3    | Scheduler docs: both READMEs, `docs/session-library.md`, format, typecheck, soak baseline                                                                                                | T10 to T13 | 2 to 3   | 02     |
-| T15 | 1    | Rebuild `frame()` on persistent render state, dirty flags, `CELLS_RAW`, `COLORS`, per-row style cache, shadow diff, grapheme fallback; equivalence tests                                 | T02        | 4 to 6   | 04     |
-| T16 | 2    | Replica paint coalescing with injectable scheduler and `flush()`; README; browser test run                                                                                               | T15        | 2        | 04     |
-| T17 | 0    | `scrollbackBytes` option on `create` and `restore`, `scrollback()` reader, capability, README, tests                                                                                     |            | 4        | 03     |
-| T18 | 2    | `scrollbackBytes` through `CreateSessionOptions`, daemon cap and `LIMIT`, `SessionInfo` and capabilities, `--scrollback` on create, docs                                                 | T17, T09   | 5        | 03     |
-| T19 | 3    | Lazy startup restore: cheap header validation, checkpoint bytes sent on attach, decode on read, idle disposal                                                                            | T18        | 4        | 03     |
-| T20 | 0    | `formatScreen(format)` on the terminal handle and a `preview` capability                                                                                                                 |            | 2        | 06     |
-| T21 | 3    | Size ownership: `holdSize` on attach, `claimSize` request and authorize action, succession order, `representation` and `holdSize` on `AttachmentInfo`, CLI and browser flags, docs       | T01, T10   | 12 to 16 | 06     |
-| T22 | 4    | Preview representation: per-record dirty flag and timer, shared text frame, latest-frame slot on the stream, client acceptance, example strip, tests                                     | T20, T21   | 12 to 18 | 06     |
-| T23 | 4    | CLI clipping for non-holding attachments: clip, clear on change, status row, `--follow` and `--claim-size`; renderer unit test                                                           | T21        | 4 to 6   | 06     |
-| T24 | 1    | Daemon self-heal loop and `SIGUSR1`; lock in the state dir with fallback; `daemon.json` pid and `bootId`; orphan detection before spawn; directory flock and touch timer; tests          | T04, T05   | 12       | 05 A   |
-| T25 | 0    | Record the open questions in §7 in `docs/product/04-open-questions.md` and rewrite research doc 04 §5 if D4 is accepted                                                                  |            | 1        |        |
-| T26 | 5    | Optional: beamterm emits only changed rows if its batch keeps cells it is not given                                                                                                      | T16        | 1 to 2   | 04     |
-| T27 | 5    | Optional: resync shadow filter in the replica                                                                                                                                            | T16        | 1        | 04     |
-| T28 | 0    | Report the grapheme-append dirty gap upstream with the 12x8 reproduction                                                                                                                 |            | 0.5      | 04     |
-| T29 | 5    | Optional: in-queue replacement of unsent `activity`/`effect` frames per session                                                                                                          | T11        | 2        | 02     |
-| T30 | 5    | Optional: `prompt` effect from `CURSOR_AT_PROMPT` and `progress` on `SessionInfo`                                                                                                        | T17        | 2        | 03     |
+| ID  | State    | Wave | Task                                                                                                                                                                                     | Depends on | Hours    | Note   |
+| --- | -------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | -------- | ------ |
+| T01 | built    | 0    | Late attach to a dead record emits snapshot, exit, ended and registers no viewer; resize on a dead record is `CONFLICT`                                                                  |            | 4 to 6   | 06     |
+| T02 | built    | 0    | Cache `Uint8Array`/`DataView` views in `Abi`, add typed helpers                                                                                                                          |            | 0.5      | 04     |
+| T03 | built    | 0    | CLI sends env minus denylist; daemon merges over a minimal base and sets owned vars; env limits; daemon spawned clean with `cwd: /`                                                      |            | 8        | 05 D   |
+| T04 | built    | 0    | Runtime dir policy (`/tmp/werk-UID`, `%LOCALAPPDATA%\werk\run`, `WERK_RUNTIME_DIR`); client-side ownership, mode and socket-length checks                                                |            | 3        | 05 A   |
+| T05 | built    | 0    | Daemon logger with rotation and levels; event vocabulary; uncaught-error policy; `werk info` and `werk doctor`; startup error carries log tail                                           |            | 14       | 05 C   |
+| T06 | built    | 0    | Lock candidate list and abstract-socket fallback; log the mechanism; Alpine CI lane running the native lock tests                                                                        |            | 4        | 05 B   |
+| T07 | built    | 0    | Bounded input pipelining in `werk attach` (32 requests or 64 KiB in flight)                                                                                                              |            | 3        | 05 E   |
+| T08 | built    | 0    | Binary framing v2 with linear decoder, `sendFrame`, client cap option, validation reuse, tests                                                                                           |            | 4        | 01     |
+| T09 | built    | 1    | Daemon encodes once and queues frames; cap made raw-byte and directional, advertised in hello; 16 MiB family moved together; bridge constant; soak fragmentation and re-baseline; README | T08        | 6        | 01     |
+| T10 | built    | 2    | One ordered stream per attachment with pre-encoded frames, largest-backlog drop, lazy resync placeholder with reserved position, round-robin, `ended` always                             | T09        | 6 to 8   | 02     |
+| T11 | built    | 3    | Coalesce `activity` and `effect` per session (250 ms, leading edge, drained before `exited`); `publicInfo` once per event; control queue message cap revisited                           | T10        | 2 to 3   | 02     |
+| T12 | built    | 0    | Dirty-driven checkpoints: flag set on output, resize, effect, state; interval and shutdown checkpoint dirty records only; lost records never rewritten                                   |            | 1 to 2   | 02, 03 |
+| T13 | built    | 0    | `sessions` counts live processes; `retainedSessions` cap with the chosen retention policy (§7 D1)                                                                                        | D1         | 2 to 3   | 02     |
+| T14 | built    | 3    | Scheduler docs: both READMEs, `docs/session-library.md`, format, typecheck, soak baseline                                                                                                | T10 to T13 | 2 to 3   | 02     |
+| T15 | built    | 1    | Rebuild `frame()` on persistent render state, dirty flags, `CELLS_RAW`, `COLORS`, per-row style cache, shadow diff, grapheme fallback; equivalence tests                                 | T02        | 4 to 6   | 04     |
+| T16 | built    | 2    | Replica paint coalescing with injectable scheduler and `flush()`; README; browser test run                                                                                               | T15        | 2        | 04     |
+| T17 | built    | 0    | `scrollbackBytes` option on `create` and `restore`, `scrollback()` reader, capability, README, tests                                                                                     |            | 4        | 03     |
+| T18 | built    | 2    | `scrollbackBytes` through `CreateSessionOptions`, daemon cap and `LIMIT`, `SessionInfo` and capabilities, `--scrollback` on create, docs                                                 | T17, T09   | 5        | 03     |
+| T19 | built    | 3    | Lazy startup restore: cheap header validation, checkpoint bytes sent on attach, decode on read, idle disposal                                                                            | T18        | 4        | 03     |
+| T20 | built    | 0    | `formatScreen(format)` on the terminal handle and a `preview` capability                                                                                                                 |            | 2        | 06     |
+| T21 | built    | 3    | Size ownership: `holdSize` on attach, `claimSize` request and authorize action, succession order, `representation` and `holdSize` on `AttachmentInfo`, CLI and browser flags, docs       | T01, T10   | 12 to 16 | 06     |
+| T22 | built    | 4    | Preview representation: per-record dirty flag and timer, shared text frame, latest-frame slot on the stream, client acceptance, example strip, tests                                     | T20, T21   | 12 to 18 | 06     |
+| T23 | built    | 4    | CLI clipping for non-holding attachments: clip, clear on change, status row, `--follow` and `--claim-size`; renderer unit test                                                           | T21        | 4 to 6   | 06     |
+| T24 | built    | 1    | Daemon self-heal loop and `SIGUSR1`; lock in the state dir with fallback; `daemon.json` pid and `bootId`; orphan detection before spawn; directory flock and touch timer; tests          | T04, T05   | 12       | 05 A   |
+| T25 | built    | 0    | Record the open questions in §7 in `docs/product/04-open-questions.md` and rewrite research doc 04 §5 for the runtime directory policy                                                   |            | 1        |        |
+| T26 | built    | 5    | Optional: beamterm emits only changed rows if its batch keeps cells it is not given                                                                                                      | T16        | 1 to 2   | 04     |
+| T27 | declined | 5    | Optional: resync shadow filter in the replica                                                                                                                                            | T16        | 1        | 04     |
+| T28 | built    | 0    | Write the grapheme-append dirty gap up with the 12x8 reproduction, ready to file upstream                                                                                                |            | 0.5      | 04     |
+| T29 | open     | 5    | Optional: in-queue replacement of unsent `activity`/`effect` frames per session                                                                                                          | T11        | 2        | 02     |
+| T30 | declined | 5    | Optional: `prompt` effect from `CURSOR_AT_PROMPT` and `progress` on `SessionInfo`                                                                                                        | T17        | 2        | 03     |
 
-## 7. Decisions that need an owner
+The two declines, so that nobody reopens them blind:
 
-| ID  | Decision                                                                                                                 | Lean in the notes                                                               |
-| --- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
-| D1  | What happens to retained records above a cap: evict oldest, refuse `create`, or unbounded                                | Evict oldest at 512, through the `remove` path, with `removed` notified         |
-| D2  | Scrollback default and daemon cap; whether a process-wide budget is wanted; whether `@werk/terminal`'s own default moves | 10,000,000 both; budget open; engine default stays at upstream's 10,000         |
-| D3  | Frame cap size and direction                                                                                             | 32 MiB towards the client, 1 MiB towards the daemon, advertised in `hello`      |
-| D4  | Runtime dir default moves from `$XDG_RUNTIME_DIR` to `/tmp/werk-UID`, departing from research doc 04 §5                  | Yes; rewrite 04 §5 to match                                                     |
-| D5  | Log line format                                                                                                          | `time LEVEL event key=value`; JSON lines are the alternative                    |
-| D6  | Default `holdSize` for a read-only attach on one's own daemon                                                            | `never`, for consistency with sharing; `if-free` for the solo owner is arguable |
-| D7  | Whether `size-holder: false` names who took the size (`by`)                                                              | Cheap and friendly; adds a `Principal` to an event                              |
-| D8  | Notification interval                                                                                                    | 250 ms, as a limit consumers can tune                                           |
-| D9  | Uncaught exception policy                                                                                                | Log, checkpoint, continue; exit after ten in a minute                           |
-| D10 | Resync spacing for persistently slow viewers                                                                             | A per-stream minimum spacing; measure with the soak's 200 ms viewer             |
+- **T27, the resync shadow filter.** The replica's shadow does not survive a
+  resync — it rebuilds the terminal through `factory.restore` and disposes the
+  old one — so the filter would need a second full-grid shadow deep-copied on
+  every paint, to win a case T10's ordered stream already makes rare.
+- **T30, `prompt` and `progress` on `SessionInfo`.** It would assert a meaning
+  for OSC 133 and OSC 9;4 that nobody has established; note 03 records that
+  which agents emit either is not known. Cheap to add later, not cheap to
+  un-say.
+
+T29 stays open rather than declined. T22's latest-frame slot is preview-only and
+T11 coalesces with timers before queueing, so T29 would be replacing frames that
+are already queued and unsent — a narrower case than it looked, and marginal
+after T11, but not one anything else covers.
+
+A `werk doctor --repair` was considered alongside T05 and left out:
+`ensureSessionDaemon` already signals on any command and the supervisor
+self-heals within five seconds, so the flag would no-op off Linux or fire a
+process-killing signal at a pid plus boot id, and would make a read-only
+diagnosis mutating.
+
+## 7. Decisions
+
+The owner settled D1, D2, D4 and D6. The rest were carried by the
+implementation on the lean the notes recorded, and are settled only in the sense
+that something had to be chosen to build on; each is a limit or a default that
+can still move.
+
+| ID  | Decision                                                                                                                 | Where it landed                                                                                                   |
+| --- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| D1  | What happens to retained records above a cap: evict oldest, refuse `create`, or unbounded                                | Evict the oldest at `retainedSessions` 512, through the `remove` path, with `removed` notified                    |
+| D2  | Scrollback default and daemon cap; whether a process-wide budget is wanted; whether `@werk/terminal`'s own default moves | `scrollbackMaxBytes` 10,000,000 for both; `@werk/terminal` keeps upstream's 10,000; a process-wide budget is open |
+| D3  | Frame cap size and direction                                                                                             | 32 MiB towards the client, 1 MiB towards the daemon, each advertised in `hello`                                   |
+| D4  | Runtime dir default moves from `$XDG_RUNTIME_DIR` to `/tmp/werk-UID`, departing from research doc 04 §5                  | `/tmp/werk-UID`, `%LOCALAPPDATA%\werk\run`, `WERK_RUNTIME_DIR`; research doc 04 §5 says the same                  |
+| D5  | Log line format                                                                                                          | `time LEVEL event key=value`                                                                                      |
+| D6  | Default `holdSize` for a read-only attach on one's own daemon                                                            | `never`; `if-free` only where input was granted                                                                   |
+| D7  | Whether `size-holder: false` names who took the size (`by`)                                                              | Open. The event carries `attachmentId` and `holdsSize` and no principal                                           |
+| D8  | Notification interval                                                                                                    | `notifyIntervalMs` 250 ms, tunable per daemon                                                                     |
+| D9  | Uncaught exception policy                                                                                                | Log, checkpoint, continue; close and exit after ten in a minute. The CLI installs it; an embedder chooses         |
+| D10 | Resync spacing for persistently slow viewers                                                                             | `resyncIntervalMs` 250 ms as a per-stream minimum                                                                 |
+
+The process-wide scrollback budget (D2) and whether `size-holder` names the
+principal that took the size (D7) are the two that are still genuinely open.
+The first is in [`../product/04-open-questions.md`](../product/04-open-questions.md);
+the second is cheap either way and nobody has needed it.
 
 ## 8. What is in the folder
 
