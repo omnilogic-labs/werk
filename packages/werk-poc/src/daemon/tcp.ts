@@ -6,10 +6,9 @@
 // `WP_TCP_LISTEN` asks for it, and the socket is still the way in. Two
 // questions need it. Win32-OpenSSH forwards no Unix socket and no named
 // pipe on either side, so a Windows client of a remote daemon has nowhere
-// to land a forward but a loopback TCP port; and
-// `docs/proposals/01-cross-platform.md` §10 leaves open whether the Windows
-// daemon's own socket should be `AF_UNIX` or loopback TCP, which is a
-// question about numbers that only exist if both can be measured.
+// to land a forward but a loopback TCP port; and whether the Windows
+// daemon's own socket should be `AF_UNIX` or loopback TCP is open, which is
+// a question about numbers that only exist if both can be measured.
 //
 // A TCP port has no filesystem permissions, so what stands in for the
 // socket's 0600 is a token: the daemon writes the port and a random token

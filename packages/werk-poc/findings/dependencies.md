@@ -211,8 +211,6 @@ are optional. Shelling out to the system `ssh` — what the transport spike does
 — inherits the user's config, agent, jump hosts and hardware keys for free and
 stays current with OpenSSH's algorithms. Its behaviour under
 `bun build --compile` is unverified.
-[`../../../docs/research/09-remote-transport.md`](../../../docs/research/09-remote-transport.md)
-is where the transport question is set out.
 
 `dockerode`'s `docker-modem` transport reaches a container on a remote Docker
 host over SSH by running `docker system dial-stdio` on the far end. That is a

@@ -296,10 +296,9 @@ if (want("paths")) {
 // sessions, compared as bytes and as cells — and print what one session
 // actually emitted, so the shape is on the record rather than inferred.
 //
-// `conpty-*-grid-repeatable` is the watchdog for step 3 of
-// docs/proposals/01-cross-platform.md: a grid that differs between runs of
-// the same input is the result that says a Windows host cannot carry the
-// fidelity guarantee the proof of concept measures.
+// `conpty-*-grid-repeatable` is the watchdog: a grid that differs between
+// runs of the same input is the result that says a Windows host cannot carry
+// the fidelity guarantee the proof of concept measures.
 if (want("conpty")) {
   const dec = new TextDecoder();
 

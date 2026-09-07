@@ -371,9 +371,8 @@ test("logs returns scrollback beyond the viewport, as text or as VT", async () =
 test("resize from the attacher reaches the child", async () => {
   // The child prints its size on WINCH and, because a runtime is free not to
   // deliver that promptly — an MSYS one lets a resize wait until the process
-  // next reads input (§11 of docs/proposals/01-cross-platform.md) — polls it
-  // as well. Either way what is asserted is the same: the new size reached
-  // the child's terminal.
+  // next reads input — polls it as well. Either way what is asserted is the
+  // same: the new size reached the child's terminal.
   const { id } = await client.run({
     argv: [
       "bash",

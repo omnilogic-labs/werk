@@ -704,10 +704,10 @@ export const slowClient: Scenario = {
         "daemon: two attached connections, exactly one lagging while stopped",
         `daemon stats: ${JSON.stringify(attached)}`,
       );
-      // The figure step 6 of docs/proposals/01-cross-platform.md asks for,
-      // recorded whether the client lagged or not, and against the sink that
-      // actually carried the bytes: pty-cat falls back to a PTY where it
-      // cannot open a pair for the pipe sink.
+      // The figure the slow-client measurement asks for, recorded whether
+      // the client lagged or not, and against the sink that actually carried
+      // the bytes: pty-cat falls back to a PTY where it cannot open a pair
+      // for the pipe sink.
       r.note(
         `fast client, ${progress().sink ?? sink} sink: ${fastStats?.lagCount} lag episode(s), ${fastStats?.droppedBytes.toLocaleString()} B lost, ${fastStats?.bytesSent.toLocaleString()} B sent, max queue ${fastStats?.maxQueuedBytes.toLocaleString()} B, ${fastStats?.shortWrites} short writes / ${fastStats?.drains} drains`,
       );

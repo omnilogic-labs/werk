@@ -1,9 +1,6 @@
 # werk product specification
 
-This is the current specification of what werk does. It replaces
-[`product/`](product/) and most of [`research/`](research/), which record an
-earlier understanding of the product and are being retired. Where this file and
-those disagree, this file is right.
+This is the current specification of what werk does.
 
 Written 2026-09-06. It covers what a person can do with werk, what sharing and
 logging are for, and what a company installs. It does not cover how any of it is

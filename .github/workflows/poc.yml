@@ -664,7 +664,7 @@ jobs:
       # same non-exit hit `test-full`'s engine files about three lane runs
       # in fourteen; its harness runs without the thread too, and records a
       # process that still stays separately from the file's tally rather
-      # than as a failure (docs/proposals/01-cross-platform.md §3).
+      # than as a failure.
       EXPECTED_PASS: >-
         install typecheck test-pure build-web build diff ops probes daemon
         wp-cli kill test-full m2

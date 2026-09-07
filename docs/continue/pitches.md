@@ -7,9 +7,10 @@ session should do.
 
 > **This is working material, not product doctrine.** Everything in
 > `concepts/` and on the four pages is pitch copy: aspirational, written to
-> persuade, and deliberately confident in a way `docs/product/` is not allowed
-> to be. Nothing here has been decided. Do not migrate a sentence of it into
-> `docs/product/` without someone actually taking the decision it implies.
+> persuade, and deliberately confident in a way
+> `docs/product-specification.md` is not allowed to be. Nothing here has been
+> decided. Do not migrate a sentence of it into that specification without
+> someone actually taking the decision it implies.
 
 ---
 
@@ -81,11 +82,10 @@ vocabulary rather than a shared kit.
 | C       | Four benches, browser chrome                   | "Pull up a stool" — terminal, then Priya's browser          | "The floor" — tree with carets, detail pane                          |
 | D       | Fleet list (rung 1, terminal-native)           | Granting terminal beside the shared browser page            | Four people, nine sessions, twelve subagents; CSS-only row selection |
 
-The surface split, taken from `docs/product/03-surfaces.md`: rung 1 and the CLI
-are terminal-native, and the fleet list and reattach are drawn as shells. Rung 2
-and everything above it are browser surfaces, so the drilldown and the shared
-link are web applications with a live terminal embedded as a pane inside the
-page. That embedding is what `werk serve` already does.
+The surface split: rung 1 and the CLI are terminal-native, and the fleet list
+and reattach are drawn as shells. Rung 2 and everything above it are browser
+surfaces, so the drilldown and the shared link are web applications with a live
+terminal embedded as a pane inside the page. That embedding is what `werk serve` already does.
 
 ### The imagery
 
@@ -137,9 +137,9 @@ pages are the evidence.
 
 Whatever gets picked, none of it is a decision yet. If a position on this
 material survives contact with an actual discussion, the place for it is
-`docs/product/04-open-questions.md` §18, where the monetisation thesis is still
-open — and it goes there as a decision someone took, with a date and a name, not
-as prose lifted across.
+`docs/product-specification.md` question 15, where the monetisation thesis is
+still open — and it goes there as a decision someone took, with a date and a
+name, not as prose lifted across.
 
 ### The working method, for whoever runs the next round
 
@@ -151,9 +151,9 @@ through the middle. A coordinator that generates the images and builds the pages
 itself burns its context for no reason and becomes the bottleneck.
 
 Give each subagent: the product facts, the reach ladder with its built/roadmap
-split, the surface split from `docs/product/03-surfaces.md`, its lane, the path
-to `art`, the rebuild recipe in `tools/`, and the instruction to publish and
-return only a URL plus a few lines.
+split, the surface split above, its lane, the path to `art`, the rebuild recipe
+in `tools/`, and the instruction to publish and return only a URL plus a few
+lines.
 
 ### Generating imagery with `art`
 
@@ -243,5 +243,5 @@ or drawn in HTML and SVG.
 documentation set described in `docs/README.md`, and it should either be folded
 into a real doc or deleted once the pitch work lands. If any of this survives as
 a position the project actually takes, the place for it is
-`docs/product/04-open-questions.md` §18, which is where the monetisation thesis
-is still open.
+`docs/product-specification.md` question 15, which is where the monetisation
+thesis is still open.

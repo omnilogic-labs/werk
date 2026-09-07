@@ -26,7 +26,7 @@ The programmatic client that drives all of this is in [`../client/`](../client);
 the wire protocol they share is in [`../protocol/`](../protocol); the
 interactive commands on top are in [`../cli/`](../cli).
 
-## Lifecycle, as [`04-daemon-best-practices.md`](../../../../docs/research/04-daemon-best-practices.md) asks
+## Lifecycle
 
 - **Lock before bind.** `platform.lock()` on `wp.lock` —
   `flock(LOCK_EX|LOCK_NB)` on a POSIX system, `LockFileEx` or an exclusive

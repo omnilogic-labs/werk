@@ -1,9 +1,8 @@
 # werk-poc
 
-The proof of concept described in
-[`docs/proposals/00-stack-proof-of-concept.md`](../../docs/proposals/00-stack-proof-of-concept.md):
-a detachable process runner for the local machine, built to find out whether
-TypeScript on Bun reaching libghostty-vt holds up as the foundation for werk.
+The proof of concept: a detachable process runner for the local machine, built
+to find out whether TypeScript on Bun reaching libghostty-vt holds up as the
+foundation for werk.
 
 This is **reference material, not product code**. The package name and the
 `wp` binary name are disposable, and nothing here is meant to be migrated into

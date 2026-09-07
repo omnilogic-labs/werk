@@ -9,9 +9,9 @@
 // sequence of bytes put it there.
 //
 // It has to be the grid rather than the stream on Windows, where ConPTY
-// re-encodes what a child writes instead of passing the bytes through
-// (docs/proposals/01-cross-platform.md §3). The same `echo hi` reaches a
-// client as a different byte sequence there and leaves the same cells behind.
+// re-encodes what a child writes instead of passing the bytes through. The
+// same `echo hi` reaches a client as a different byte sequence there and
+// leaves the same cells behind.
 
 import type { Client } from "../client/index.ts";
 import { loadGhosttyWasmEngine } from "../engine/ghostty-wasm/bun.ts";

@@ -7,8 +7,7 @@
 // no mode bits, so "is the socket there" and "is it this user's alone" are
 // each a row of `../platform/` with one answer on every platform. A
 // rejection is caught and inspected rather than asserted through
-// `expect().rejects`, which hangs on Windows for some requests
-// (docs/proposals/01-cross-platform.md §11).
+// `expect().rejects`, which hangs on Windows for some requests.
 
 import { afterEach, expect, test } from "bun:test";
 import fs from "node:fs";

@@ -16,8 +16,6 @@ No decision is recorded here. Where a measurement suggests something about
 werk's design, the suggestion is left open and labelled as one. Several rows
 below are single observations on a single image, and a few are the first
 measurement anyone has taken of the thing at all.
-[`../../../docs/proposals/01-cross-platform.md`](../../../docs/proposals/01-cross-platform.md)
-is where the measurements are turned into a proposal.
 
 ## How it was run
 
@@ -414,9 +412,7 @@ not Bun's alone: Node's `stat` fails on the same path, which is why
 `actions/upload-artifact` refuses a directory with a live socket in it (run
 33696944598, below). The socket is reachable from Bun and from little else:
 Node and libuv reach only `\\.\pipe\` names, and Win32-OpenSSH forwards
-neither sockets nor pipes
-([`../../../docs/research/09-remote-transport.md`](../../../docs/research/09-remote-transport.md)
-§3).
+neither sockets nor pipes.
 
 **4. Readiness is a polled file, because the pipe cannot be read.** On POSIX
 `src/daemon/launch.ts` spawns the daemon with a fourth stdio pipe and reads

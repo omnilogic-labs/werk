@@ -10,9 +10,10 @@ differences. The remaining findings do not justify replacing that architecture.
 
 The recommended next step is three private workspace packages in this repository:
 terminal state/emulation, a portable session client and contracts, and the Bun
-session daemon. The [packaging proposal](../../../docs/proposals/02-session-library.md)
-sets out their dependencies, illustrative API, and the order of implementation.
-It treats the PoC as reference material rather than a finished library API.
+session daemon. They exist, and
+[`docs/session-library.md`](../../../docs/session-library.md) describes their
+boundaries and behaviour. The PoC is reference material rather than a finished
+library API.
 
 This is a judgement about architectural readiness. The existing client has
 attachment and cleanup defects, and the host has a shared engine fault boundary.
@@ -194,5 +195,5 @@ journalling, process recovery or per-session engine fault isolation.
   as confidence-building implementation tasks. A 24-hour soak and power-cut test
   were not performed here.
 
-The detailed sequence and suggested public surface are in the
-[session-library proposal](../../../docs/proposals/02-session-library.md).
+The packages those tasks belong to, and their public surface, are described in
+[`docs/session-library.md`](../../../docs/session-library.md).

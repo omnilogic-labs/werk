@@ -15,6 +15,35 @@ read-only records, not live processes. Protocol compatibility is separate from
 snapshot compatibility. Daemon capabilities report native operations available
 on the running platform.
 
+## Package boundaries
+
+The dependency direction runs one way. `@werk/terminal` is the terminal core: it
+takes WASM bytes or a compiled module explicitly, carries no DOM code, and knows
+nothing about daemons, sockets, PTYs or product state. `./dom` is its only entry
+that touches the DOM, and `@wterm/dom` is a dependency for that entry alone.
+`@werk/session` carries session identity, the client, ordered attachment events,
+the daemon-wide subscription and the framing, over an injected transport and
+with no Bun or native imports; it moves snapshot bytes without interpreting
+them. `@werk/session-daemon` is the only package that needs Bun, and it depends
+on the other two. Nothing depends from the session client back to the daemon,
+which is what lets a browser reach the same daemon through a different
+transport.
+
+A transport is a duplex byte stream with close and backpressure and nothing
+more, so a Unix socket, a named pipe, a loopback TCP connection with a token, a
+socket forwarded over ssh and a WebSocket all satisfy it; framing lives in
+`@werk/session/protocol` above it. The browser example speaks the protocol to
+the daemon over a WebSocket that its bridge relays onto the local transport,
+so there is no second wire between the bridge and the page. Something that fanned
+several daemons into one browser connection would be a client of each daemon
+and, towards the browser, an implementer of the daemon side of the same
+protocol, applying its access policy before relaying; nothing does that today.
+
+Workspace and repository management, remote placement, fleet aggregation,
+browser routes, presentation, sharing policy and attention heuristics live in
+consumers. They can use session labels, metadata and events without the session
+packages understanding git branches, accounts or invitations.
+
 ## Build and validate
 
 From the repository root:
@@ -109,7 +138,11 @@ At most one attachment holds a session's size, and the size may be free.
 `if-free` takes it when nobody holds it, `claim` also takes it from the current
 holder subject to the daemon's `claimSize` action, degrading to attaching
 without it rather than failing. The default is `if-free` where input was granted
-and `never` otherwise. `claimSize()` makes the same request after attach.
+and `never` otherwise. `claimSize()` makes the same request after attach, and a holder can pass the
+size to another attachment on the same session with `transferSize()`. When a
+holder's attachment ends the size goes to whichever remaining attachment is
+likeliest to be driving the terminal: one that can type, then one that asked to
+claim, then the most recent, and it becomes free where nobody qualifies.
 `AttachmentInfo` carries `representation` and `holdSize` beside `holdsSize`, so
 a listing can tell a tile from a terminal.
 
@@ -127,6 +160,103 @@ Replica paints are coalesced to one per scheduler tick —
 through `options.schedulePaint` — and `frame()` walks only the rows the engine's
 render state reports dirty, so an idle or one-cell frame costs a fraction of a
 millisecond at any grid size. `flush()` paints pending state synchronously.
+
+## Sessions, attachments and permissions
+
+A session carries a name and a set of string labels supplied by whoever created
+it, persisted in its record and its checkpoint envelope, returned on every
+listing and filtered on by `list`. The library stores them and never interprets
+them, so a workspace name, a placement, a checkout kind or a parent session are
+the consumer's to define, and a consumer that has lost track of a daemon can
+rebuild its view from what that daemon already holds without a second store
+beside it. `SessionInfo` also summarises the process tree the daemon owns — the
+foreground process and how many children it has — beside the last output and
+input times, the last title, the reported working directory, the last effect,
+the exit outcome, the attachments, the checkpoint and the scrollback budget the
+session got.
+
+Every connection has a principal, assigned by whoever accepted it: a local
+socket takes the owner, and a bridge presents whoever it authenticated. Every
+attachment inherits that principal and every listing shows it, so being watched
+is visible on the owner's screen while it happens. What an attachment may do —
+`list`, `read` and `input` — is requested by the client and granted or refused
+by the daemon through its `authorize` hook; the library records principals and
+permissions and does not decide them. Every attachment holding `input` feeds the
+one PTY in the order the daemon receives it and every attachment sees the same
+output, as if two people sat at one keyboard. A consumer may end an attachment
+it did not make with `endAttachment`, which is how a grant is taken back.
+
+Each attachment has its own identity and generation, even where it replaces an
+attachment to the same session, and every event carries the attachment id, that
+generation and a stream position, so a replica can reject a stale event and
+recognise a gap. An invalidated handle cannot send input, resize or detach its
+replacement. An attachment ends with a stated reason — `detached`,
+`session-ended`, `connection-closed` or `revoked` — as its last event.
+
+Effect kinds are open: an effect is a kind, a payload and a time, and a kind a
+consumer does not know is passed through rather than dropped, so a new OSC
+sequence is a terminal-package change rather than a protocol change. Effects
+reach both the ordered stream of an attachment and the daemon-wide watch.
+Sequences that demand a reply into the PTY, such as device attribute and status
+queries, are answered inside the daemon and never forwarded, because a consumer
+cannot answer them in time and a program waiting on one hangs.
+
+## Terminal engine and renderers
+
+Terminal interpretation is separate from painting. `@werk/terminal` holds the
+engine, the snapshot envelope, the replica and the render-consumer seam: a
+`Frame` of changed rows, a `Renderer` that paints it and a `RendererFactory`
+that mounts one. The bundled renderer behind `./dom` is a wterm adapter painting
+real DOM rows. `@werk/terminal-beamterm` sits behind the same factory over
+WebGL2 and fetches its own 1.4 MB of WASM only when a page selects it; it is
+maintained to keep the seam honest rather than offered as the default. The seam
+serves a consumer that is neither a browser nor the daemon just as well: a
+preview pane inside a TUI, or a terminal client carrying a replica, paints
+frames from the same core.
+
+Engine state is allocated through a session-scoped factory, so each session gets
+its own WASM instance and no consumer holds a raw WASM handle or shares
+allocator lifetime. Separate memories contain allocator corruption; they do not
+by themselves prevent a CPU stall or a process-wide OOM.
+
+### An appended grapheme does not dirty its row
+
+The pinned engine build has a defect. A combining mark or a zero width joiner
+that attaches to a cell already holding a codepoint changes that cell — its
+content tag becomes `CODEPOINT_GRAPHEME` and its grapheme list grows — but
+`ghostty_render_state_update` leaves the global dirty state at
+`GHOSTTY_RENDER_STATE_DIRTY_FALSE`, no row reports itself dirty, and the render
+state does not re-copy the row, so its own view of that cell stays at the old
+value until something else dirties the row. That last part is what makes it hard
+to handle from outside: the stale row is inside the render state, so a caller
+cannot notice the change by re-reading the state it already has. An ordinary
+write is the control and behaves as documented, dirtying the row it touched and
+the row the cursor left.
+
+The build is `ghostty-vt-small.wasm` from ghostty commit
+`3c1ef5b32fc5ea6b93d28493fabf193f595139cf`, which is
+`packages/terminal/assets/terminal.wasm` here. Only the render state C ABI is
+involved, so the behaviour restates against a native build or in Zig: write `e`,
+update and clean a long-lived render state, write U+0301, and the next update
+reports `FALSE` while a render state created fresh after that write shows both
+codepoints in the cell. What is established is that a combining mark and a zero
+width joiner appended to an existing cell each leave the row clean. Whether
+other cell mutations that do not move the cursor are affected is not, though
+scripts covering insert and delete of characters and lines, scroll regions, tabs
+and backspace, alt screen, hyperlinks, underline colours and OSC 4/10/11 found
+nothing else. Where the omission sits in the Zig source is unknown, and the
+behaviour has not been reported to
+<https://github.com/ghostty-org/ghostty/issues>, which is where it belongs.
+
+`packages/terminal/src/engine.ts` works around it with a `wrote` flag set on
+every `ghostty_terminal_vt_write`. Where a frame follows a write and the dirty
+walk did not deliver the cursor's row and the row above it — two rows, because a
+write can wrap the cursor — those rows are decoded from a throwaway render state
+created and freed for that frame alone. It costs 0.02 to 0.05 ms on the frames
+that need it and nothing on the rest, and a frame after a write that produced no
+dirty rows at all, an SGR-only write for instance, pays a render state
+allocation for nothing. The fallback and the flag can both go once the engine
+dirties those rows.
 
 ## Run the consumers
 
@@ -266,3 +396,21 @@ daemon beside a live one. The daemon compares its socket's inode with the one it
 bound every five seconds and on `SIGUSR1`, recreating the runtime directory, the
 socket, `endpoint.json` and the lock file when they vanish; running sessions and
 established connections are unaffected.
+
+## What could still change
+
+Two assumptions are worth naming, because changing either would move code
+between packages rather than inside one.
+
+The packages assume one daemon per machine owning many sessions, with fault
+containment coming from the session-scoped engine instance. One daemon per
+session, discovered by scanning a directory, remains possible; it would change
+discovery, which lives in the daemon package, more than it would change the
+client or the terminal core.
+
+A live process surviving replacement or failure of its owning daemon is the more
+consequential one. Nothing asks for it and nothing provides it. If it were
+wanted, a separate PTY owner or supervisor is the likely shape, and keeping
+daemon discovery, session identity, client transport and process ownership
+separate probably keeps that a daemon implementation change; uninterrupted
+attachment and upgrade semantics would still need design and proof.

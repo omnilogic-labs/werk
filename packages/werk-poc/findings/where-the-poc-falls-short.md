@@ -338,9 +338,7 @@ three, and the remote path is different in kind rather than in degree.
 
 **Options.** The TCP landing exists behind an environment variable and is
 protected by a token file. What that token file's permissions actually prevent
-has not been measured. See open question 4 in
-[`../../../docs/product/04-open-questions.md`](../../../docs/product/04-open-questions.md),
-which asks whether Windows is a host or only a client.
+has not been measured. Whether Windows is a host or only a client is open.
 
 ### 12. A remote session costs two round trips per keystroke on some paths
 
@@ -461,7 +459,7 @@ Whole proof of concept, for scale: 15,042 lines under `src/` excluding tests,
 These are choices nobody has made. They are listed here because several gaps
 above cannot be closed without answering one of them. Product-level questions
 live in
-[`../../../docs/product/04-open-questions.md`](../../../docs/product/04-open-questions.md).
+[`../../../docs/product-specification.md`](../../../docs/product-specification.md).
 
 1. Does the terminal client carry an emulator of its own? Answering yes fixes
    the re-emission losses and makes scrolling possible in the terminal. It also

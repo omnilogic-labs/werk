@@ -17,9 +17,9 @@ the bundled DOM renderer. `packages/werk` is the session CLI and
 `examples/session-web` is the local browser consumer.
 
 See [docs/session-library.md](docs/session-library.md) for build, validation and
-consumer commands. Product direction lives in `docs/product`, research in
-`docs/research`, and technical plans in `docs/proposals`. `packages/werk-poc` is
-reference material; product packages do not import its source.
+consumer commands. Product direction lives in `docs/product-specification.md`.
+`packages/werk-poc` is reference material; product packages do not import its
+source.
 
 ## Project rules
 
@@ -55,8 +55,9 @@ Nothing in `docs/` is settled unless someone said it was. Do not invent
 decisions, non-goals, scope exclusions, or roadmap commitments that were not
 actually stated.
 
-- A genuinely open question goes in `docs/product/04-open-questions.md`, with
-  the options laid out and any lean explicitly labelled as a lean.
+- A genuinely open question goes in the open questions of
+  `docs/product-specification.md`, with the options laid out and any lean
+  explicitly labelled as a lean.
 - A research finding is a finding. It informs a decision; it is not one. What
   another project chose is evidence, not our position.
 - If a doc needs a position in order to be coherent and nobody has taken one,
