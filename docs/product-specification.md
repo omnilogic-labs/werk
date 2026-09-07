@@ -2,28 +2,38 @@
 
 This is the current specification of what werk does.
 
-Written 2026-09-06. It covers what a person can do with werk, what sharing and
-logging are for, and what a company installs. It does not cover how any of it is
-built, beyond the two language decisions in
-[What is settled](#what-is-settled). Almost nothing else here is settled, and
-the words used are the words we are thinking with rather than words anyone has
-committed to.
+It covers what a person can do with werk, what sharing and logging are for, and
+what a company installs. It does not cover how any of it is built, beyond the
+two language decisions in [What is settled](#what-is-settled). Almost nothing
+else is settled, and the words used are the words we are thinking with rather
+than words anyone has committed to.
 
-## Words used in this file
+This file holds the vocabulary, the loop werk exists for, what is already true,
+and the open questions. The subjects have a document each in
+[`product/`](product/): [the client](product/client.md),
+[landing](product/landing.md), [sharing](product/sharing.md),
+[mappers](product/mappers.md) and [the portal](product/portal.md).
+[Workspaces and git](workspaces-and-git.md) works through the model the client's
+workspaces would sit on.
 
-| Word                 | What it means here                                                                                | Settled?                                   |
-| -------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| **workspace**        | A named, isolated place for work: somewhere to run, a copy of the repository, its own branch.     | The concept is. The word is not.           |
-| **terminal process** | One long-lived process with a terminal, inside a workspace. A workspace holds several.            | No. The code calls this a session.         |
-| **host**             | A machine a workspace runs on.                                                                    | No.                                        |
-| **provider**         | Something that produces hosts on demand, such as Kubernetes, Docker, or a cloud VM API.           | No. See question 1.                        |
-| **parent**           | The branch a workspace was created from, and the branch its changes go back to.                   | The concept is. The word is not.           |
-| **land**             | Get the changes made in a workspace onto its parent branch.                                       | The concept is. The route is configurable. |
-| **mapper**           | A component that reports what a running process is doing, using more than its terminal output.    | No.                                        |
-| **daemon**           | The long-lived process on a host that owns the terminal processes. Shorthand `werkd`.             | The thing is. The binary name is not.      |
-| **portal**           | The thing a company installs to configure hosts, workspaces, terminals and agents for its people. | No.                                        |
-| **transcript**       | The record of what happened in a terminal process, readable after the process has ended.          | Concept only. Nothing like it exists yet.  |
-| **log**              | The record of who did what to a shared terminal, kept for review.                                 | Concept only. Nothing like it exists yet.  |
+## Words used in these documents
+
+| Word                  | What it means here                                                                                | Settled?                                             |
+| --------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| **workspace**         | A named, isolated place for work: somewhere to run, a copy of the repository, its own branch.     | The concept is. The word is not.                     |
+| **terminal process**  | One long-lived process with a terminal, inside a workspace. A workspace holds several.            | No. The code calls this a session.                   |
+| **host**              | A machine a workspace runs on.                                                                    | No.                                                  |
+| **provider**          | Something that produces hosts on demand, such as Kubernetes, Docker, or a cloud VM API.           | No. See question 1.                                  |
+| **parent**            | The branch a workspace was created from, and the branch its changes go back to.                   | The concept is. The word is not.                     |
+| **land**              | Get the changes made in a workspace onto its parent branch.                                       | The concept is. The route is configurable.           |
+| **mapper**            | A component that reports what a running process is doing, using more than its terminal output.    | No.                                                  |
+| **daemon**            | The long-lived process on a host that owns the terminal processes. Shorthand `werkd`.             | The thing is. The binary name is not.                |
+| **portal**            | The thing a company installs to configure hosts, workspaces, terminals and agents for its people. | No.                                                  |
+| **transcript**        | The record of what happened in a terminal process, readable after the process has ended.          | Concept only. Nothing like it exists yet.            |
+| **containment graph** | Host, the workspaces on it, and the terminal processes in those workspaces.                       | No. See [Workspaces and git](workspaces-and-git.md). |
+| **derivation graph**  | Workspaces and the workspaces they were derived from, wherever those live.                        | No. See [Workspaces and git](workspaces-and-git.md). |
+| **workspace record**  | Whatever werk stores about a workspace: where it is, what it came from, what state it is in.      | No. See question 19.                                 |
+| **log**               | The record of who did what to a shared terminal, kept for review.                                 | Concept only. Nothing like it exists yet.            |
 
 ## What werk is
 
@@ -48,14 +58,19 @@ This is what werk does most of the time, and everything else is secondary to it:
    other one, in a single list.
 4. **Reattach**, see what it did, and deal with it.
 
-The rest of this document is either a part of that loop or something built on
-top of it. werk is three pieces:
+The rest of the specification is either a part of that loop or something built
+on top of it. werk is three pieces:
 
-| Part        | What it is                                                                                    |
-| ----------- | --------------------------------------------------------------------------------------------- |
-| **Client**  | What one person runs, and where the loop above lives.                                         |
-| **Sharing** | Letting someone else see a terminal, live or after the fact.                                  |
-| **Portal**  | What a company runs. How hosts, workspaces, terminals and agents are configured for everyone. |
+| Part                              | What it is                                                                                    |
+| --------------------------------- | --------------------------------------------------------------------------------------------- |
+| **[Client](product/client.md)**   | What one person runs, and where the loop above lives.                                         |
+| **[Sharing](product/sharing.md)** | Letting someone else see a terminal, live or after the fact.                                  |
+| **[Portal](product/portal.md)**   | What a company runs. How hosts, workspaces, terminals and agents are configured for everyone. |
+
+Two parts of the client are large enough to have a document each.
+[Landing](product/landing.md) is how the work done in a workspace gets onto the
+branch that workspace came from. [Mappers](product/mappers.md) are how werk
+works out what a running process is doing.
 
 ## What is settled
 
@@ -75,8 +90,8 @@ it is claiming.
 ## What exists today
 
 The session libraries are built and working. Everything below is real, and it is
-the foundation the rest of this specification sits on. Nothing else described in
-this file exists yet.
+the foundation the rest of the specification sits on. Nothing else described in
+these documents exists yet.
 
 - A daemon owns the terminal processes. Its word for one is a **session**: an
   argv, a working directory, a size, and a state of `starting`, `running`,
@@ -100,269 +115,6 @@ anything remote (the transport is a Unix socket or loopback TCP), sharing as a
 product feature (the protocol supports it, nothing uses it), and a durable log.
 What is on disk now is a bounded screen checkpoint, roughly 10 MB of scrollback
 by default, which is not a record of everything a process printed.
-
-## The client
-
-What one person can do. These are capabilities, not commands: the command
-surface is not designed yet.
-
-### Workspaces
-
-- **Create a workspace.** It gets somewhere to run, a copy of the repository, and
-  a branch of its own.
-- **Create a workspace based on another workspace.** The new workspace's branch
-  starts from that workspace's branch instead of from the default branch. This is
-  how you build on work that has not landed yet.
-- **See the status of every workspace**, across every machine, in one list.
-- **Land the changes from a workspace** onto its parent branch, by whichever
-  route is configured. See [Landing](#landing).
-- **Have several workspaces on one host.** Many people will want one workspace
-  per host, and that is a preference rather than a limit.
-
-### Terminal processes
-
-- **Launch a terminal process in a workspace.** One or two is the common shape:
-  the agent in one, and a second terminal in the same directory for you to use
-  yourself. That second one runs the dev server, or is just a shell you keep
-  around to run whatever you want against the same files the agent is working
-  on. More than two happens, but designing for ten panes would be designing for
-  the wrong thing.
-- **Open a utility terminal in a workspace you already have.** Common enough
-  that it should be one action, not a sequence of them.
-- **Detach**, and the process keeps running. Close the laptop, lose the wifi,
-  walk to another building.
-- **Reattach**, and get the screen back as it actually was, with scrollback,
-  rather than whatever the program happens to redraw.
-- **See the status of every terminal process in every workspace.** The two
-  questions this list exists to answer are probably "which of these needs me?"
-  and "what is that one doing right now?".
-- **Be told when one of them wants you**, rather than having to go and look. How
-  that reaches you, and on which devices, is not worked out.
-
-### Configuration
-
-All configuration lives with the local client: which hosts exist, how workspaces
-are made on them, how landing works, which agent is used and for what. The
-client is the thing that holds the settings and the thing that acts on them.
-
-Registering a client with a portal cedes control over some of that
-configuration to the portal. How much, which parts, and how the two combine is
-not worked out. See question 12.
-
-### Credentials
-
-Running an agent on a machine that is not your laptop means the agent's
-credentials have to be on that machine. `claude` does not work in a workspace
-without them, and neither does `codex` or anything else. So the client sends the
-user's subscription credentials to every host it operates on.
-
-This rests on an assumption, and for now the assumption is deliberate: a host
-werk can reach is a host the client owns exclusively, or at least one where the
-account werk logs into belongs to that user. The home directory is theirs, which
-makes it a reasonable place to put their credentials. A shared machine where
-that is not true is not something this specification covers yet.
-
-### Sharing
-
-- **Share a terminal by registering someone's public key** with your werk
-  instance.
-- **Share a terminal by sending someone a web link.**
-- **Share the transcript of a terminal process** with someone, for them to read
-  after the process has finished.
-
-## Landing
-
-Landing gets the changes made in a workspace onto its **parent**, the branch the
-workspace was created from. How it gets there is configurable, because the
-routes people want are genuinely different.
-
-### The client coordinates it
-
-Landing is driven by the client. The client can reach the workspaces it made, so
-the only other requirement is that it can reach the parent. If it cannot, the
-landing cannot happen. If it can, where the parent physically lives makes no
-difference to how any of this works.
-
-### Three routes
-
-1. **Straight onto the parent.** The change is applied to the parent branch and
-   that is the end of it.
-2. **Through review.** Open a pull request from the workspace against its parent
-   branch, or otherwise ask for review, and land onto the parent once the review
-   is done.
-3. **Through an external system.** Hand the change to something else that owns
-   merging: a GitHub merge queue, or a company CI system.
-
-Whether the change arrives as a squash, a merge or a cherry-pick is configurable
-separately from the route.
-
-This team will start with two of these: land straight onto the parent as a
-squash, or open and update a pull request and then land as a squash.
-
-### An agent does the awkward parts, and you decide how much to look
-
-Landing shells out to whichever agent the user prefers, as a one-shot command
-such as `claude -p`, for two jobs: writing the commit message, and resolving
-merge conflicts when the change does not apply cleanly.
-
-Both are configurable, and both are configurable as reviewable. Generating the
-commit message and then opening the user's editor on it seems a reasonable
-default: close the editor to accept it, edit it first if it is wrong. The same
-person could configure werk never to show it to them, or never to generate one
-at all. Conflict resolution works the same way, and someone who would rather
-resolve conflicts with their own tool, such as the VS Code merge editor, should
-be able to say so.
-
-### Landing happens on a copy first
-
-werk does not apply the change directly to the parent branch. It takes a copy of
-the parent, applies the change there, and only moves the result across once
-there is a good commit sitting on the copy.
-
-1. Generate the commit message with the configured agent.
-2. Make a place to work: a copy of the parent branch. Another workspace, or just
-   a git worktree when hosts are expensive enough that a whole one is not worth
-   it.
-3. Apply the workspace's change to that copy, as a squash or however it is
-   configured.
-4. If it conflicts, resolve the conflict there, with the agent or with whatever
-   the user configured.
-5. Copy the resulting commit onto the real parent.
-
-The parent is never left half-landed, and a failed landing leaves a copy that
-can be thrown away.
-
-### A workspace notices when its changes have already landed
-
-Changes often reach the parent without werk doing it. A pull request gets merged
-on GitHub, or a colleague applies the same commit. A workspace should recognise
-that its work is already on the parent and say so, rather than offering to land
-something that is already there or reporting itself as unfinished work.
-
-Phabricator solved this by attaching something to the commit: every commit
-carried the review it came from, so finding it later was a lookup rather than a
-guess. werk could do the same and write a marker into the commit it produces.
-Comparing commit messages is another angle. How to do it well is unresolved, and
-question 5 has the trouble with the obvious alternatives.
-
-## Sharing
-
-Sharing is a secondary feature. The loop above is the product, and most werk use
-involves nobody but you.
-
-When sharing does happen, there are two kinds of it, and they are not equally
-common. Handing someone the transcript of a session to read afterwards is
-expected to be more common than handing someone a live terminal to watch or type
-into. That is a ranking of the two kinds of share against each other, nothing
-more.
-
-### Sharing a live terminal
-
-There are two ways to share one: register the other person's public key with
-your werk instance, or send them a web link.
-
-There are three levels of access:
-
-| Level               | What the person can do                         |
-| ------------------- | ---------------------------------------------- |
-| **Read only**       | Watch the terminal.                            |
-| **Read and write**  | Watch it and type into it.                     |
-| **Full ssh access** | The above, plus send files into the workspace. |
-
-Sending files is what motivates the third level. Someone you have shared a
-terminal with often needs to put a file in the workspace, and giving them ssh to
-the workspace is the obvious way to allow it. That level does considerably more
-than the other two, and what else it grants (a shell of their own, port
-forwarding, reach beyond the one terminal) is not worked out.
-
-Once a terminal is shared, what happens in it is recorded: what the owner does
-and what the people it was shared with do. A share carries a record of what
-happened under it.
-
-### Sharing a transcript
-
-A transcript is the record of what happened in a terminal process, readable
-after that process has ended. Giving one to someone is the more useful half of
-sharing, because it does not need both people present.
-
-The transcript people want is probably a record of what the agent did rather
-than a record of what the terminal printed. Recovering the first from the second
-is hard. Reading it from the agent's own files is easy, if you know where to
-look: `~/.claude` and the equivalents for other agents. That is the same
-knowledge a mapper has, applied to a process that has already finished.
-
-Little of this is worked out. What a transcript contains, whether the terminal
-output and the agent's activity are one artefact or two views of one thing, how
-one is handed over, whether that can be taken back, and how a company reviews
-them in bulk, are all open. Questions 7, 8 and 9 cover the parts that are
-product decisions rather than implementation.
-
-## Mappers
-
-A **mapper** answers one question about one program: what is this process doing
-right now. It answers it using more than the bytes the process has printed. The
-name is provisional.
-
-**A mapper is code, not a running thing.** It is an interface in the werk
-codebase with an implementation per program, not a process installed anywhere or
-a daemon that watches a terminal and accumulates a view of it. werk knows what a
-terminal process is running, so when it is `claude` it uses the claude mapper to
-work out what to show. Someone asks for the status of a terminal process, the
-mapper runs, works it out, returns an answer, and keeps nothing. Where it needs
-historical context it reads the logs rather than remembering anything itself.
-
-Three consequences follow: a mapper that is never asked costs nothing, a mapper
-can be replaced or upgraded between one status check and the next without losing
-anything, and supporting a new agent means writing one more implementation of
-the interface.
-
-The example that prompted it is a mapper for the `claude` binary. A good one
-would understand the Claude agent SDK, and beyond that would read the user's
-Claude history, memories and session state, so that it can say what a live agent
-is actually doing rather than what it has printed on screen.
-
-Where a mapper runs is unresolved. It might have to run in the daemon on the
-host, next to the files it reads, or the `werk` client might run it. This
-probably does not matter much: when someone asks for status, the information the
-mapper needs can be transferred to wherever the mapper is. A mapper written
-against a small read interface (read this file, list this directory, read this
-much log) would not care which side it ran on, which is a reason to write them
-that way. Question 10 covers what such an interface should be allowed to reach.
-
-This puts mappers in the middle of the core loop. Step 3 is "what is this doing
-right now?" and "does it need me?", which is exactly what a mapper computes.
-Step 4 is "what did it do while I was away", which is the same computation with
-more history behind it.
-
-Processes with no mapper still need a status. The earlier work recorded a way to
-get one without knowing anything about the program: the signals well behaved
-terminal programs already emit, which are the bell, desktop notification
-sequences (OSC 9 and OSC 777), progress reports (OSC 9;4), process exit, and
-going quiet after being busy. Those five give every process a usable "does this
-need me?" with no mapper at all. Mappers make some processes much better
-understood. They are probably not a replacement for that floor, and being asked
-on demand means they cannot replace it for notifications: something has to
-notice that an agent wants you without anyone having asked.
-
-## The portal
-
-The portal is what a company installs. The name is a placeholder and the design
-has not been worked through.
-
-It lets someone configure how terminals are used at that company. The part that
-carries the most weight is configuring the **hosts** those terminals run on, and
-configuring the **workspaces** provisioned on those hosts. That is the broad
-capability. Specific things built on it include central management of which
-agents people are allowed to use and how those agents authenticate.
-
-This is plausibly useful beyond running AI agents. Making everyone's development
-tools the same (the same editor, the same diff tool, managed dev containers on
-managed machines) looks like the first broad capability the portal enables, and
-it does not mention agents at all.
-
-The logs are the portal's other half. Logs plus sharing let people search and
-review each other's sessions. A CTO should be able to see who is running which
-agents, and what those agents are doing right now.
 
 ## Open questions
 
@@ -453,11 +205,14 @@ and it needs to be honest when it is unsure.
 Workspaces based on other workspaces form a chain. When the parent lands, is
 rebased, or is abandoned, the children sit on a branch that has moved or gone.
 Whether werk tracks that relationship after creation, or whether "based on" is
-only a fact about where the branch started, is unresolved.
+only a fact about where the branch started, is unresolved. The relationship is
+the derivation graph in [Workspaces and git](workspaces-and-git.md), and how
+much of it werk has to hold is worked through there.
 
 ### 7. What is a transcript made of, and what is the unit you share?
 
-The transcript is the least specified thing in this document. Open: whether the
+The transcript is the least specified thing in these documents. Open: whether
+the
 terminal output and the agent's activity are one thing or two views
 of one thing; whether a transcript covers one terminal process, a whole
 workspace, or a stretch of time across both; what a reviewer sees when a process
@@ -521,7 +276,7 @@ with a portal, at which point the portal takes over some of it. Which parts, how
 a person sees what has been taken over, what happens to settings they already
 had, and whether anything remains theirs to change, are all unresolved. This is
 the mechanism the whole portal rests on and it is the least worked out part of
-this document.
+the specification.
 
 ### 13. Do you attach to a workspace, or to a terminal process?
 
@@ -532,7 +287,8 @@ reading is that the agent is the workspace's main terminal and reattaching goes
 there, with the utility terminal reached deliberately. That is a guess. It also
 raises whether the two are equal, or whether one is the workspace's process and
 the other is a shell werk offers next to it. The code today attaches to one
-session at a time.
+session at a time. Both are nodes of the containment graph in
+[Workspaces and git](workspaces-and-git.md).
 
 ### 14. What ends a workspace?
 
@@ -565,9 +321,83 @@ machines, "I cannot see it right now" is a normal state and not a failure.
 
 Starting the dev server in the second terminal is one of the two things that
 terminal is for. The dev server then listens on a port on a Mac mini, a VPS or a
-Fly.io machine, and the browser that needs it is on the laptop. Nothing in this
-document gets that port to that browser. The options are the usual ones: werk
+Fly.io machine, and the browser that needs it is on the laptop. Nothing in these
+documents gets that port to that browser. The options are the usual ones: werk
 forwards it over the connection it already has, werk gives the workspace a URL,
 or werk does nothing and you set up your own tunnel. This is not exotic, and it
 becomes visible the first time anyone runs a web project in a workspace that is
 not local.
+
+### 18. Is the derivation graph a tree, or can a workspace come from more than one?
+
+A workspace created from another workspace has one parent, which makes the
+derivation graph a tree. Nothing forces it to stay one. Someone with two
+unlanded workspaces who wants a third that sees both work would be asking for a
+second parent, and git merges as readily as it branches, so the shape is
+available.
+
+The cost of allowing it is that everything downstream gets harder: "has this
+landed" (question 5) has more than one answer to reconcile, "what happens when
+the parent lands" (question 6) has more than one parent to react to, and any
+display of the graph stops being a list with indentation.
+
+**Lean:** a tree first, because it is the shape people described and the cheaper
+one to build, while writing down that the second parent is the thing most likely
+to arrive next. Whether the stored shape should already allow a second parent
+even while nothing creates one is a separate call nobody has made.
+
+### 19. Where does the record of a workspace live?
+
+Something has to know a workspace exists, which host it is on, what it was
+derived from and what state it is in. Where that lives is open, and the options
+carry different failure modes.
+
+- **With the client that made it.** Consistent with configuration living with
+  the local client. A second machine then knows nothing, and a lost index loses
+  the graph.
+- **On the host, next to the workspace.** Survives the client. Scattered across
+  every host, and a host that is unreachable takes its part of the answer with
+  it.
+- **Both, with the client's copy treated as a cache.** Scanning a host and
+  adopting what is there, the approach worth keeping from question 3, points
+  this way. It costs a reconciliation nobody has designed.
+
+This is question 3 asked about workspaces rather than hosts, and the two
+probably want the same answer, which is a reason to decide them together rather
+than separately. No lean.
+
+### 20. Is the place the client is running a workspace?
+
+The derivation graph is rooted wherever the client is executing, which is
+usually a checkout on someone's laptop that werk did not create. Whether that
+checkout is a workspace with everything a workspace has, or a different kind of
+node that only ever appears as a root, is unresolved.
+
+Treating it as a workspace makes the graph uniform and means "derive from what I
+am standing in" is not a special case. Treating it as something else avoids
+claiming werk owns a directory it did not make, and avoids questions about what
+landing, ending, or sharing a workspace mean when applied to it. No lean, and
+the answer probably falls out of question 14.
+
+### 21. How does a change move between two workspaces on different hosts?
+
+Deriving a workspace on one host from a workspace on another needs the second
+host's branch to reach the first. The available shapes are the ordinary git
+ones, and they differ in what they assume.
+
+- **Through a shared remote.** The parent pushes to a forge both hosts can
+  reach, and the child clones or fetches from it. Assumes a remote exists and
+  that unlanded work is allowed to be pushed to it.
+- **Client in the middle.** The client fetches from the parent and pushes to the
+  child, which is the only path guaranteed to exist, because the client is by
+  definition able to reach the workspaces it made. Costs the bytes twice and
+  makes the client's connectivity the limit.
+- **Host to host directly.** Fastest when it works, and it needs the two hosts
+  to be able to reach each other, which for a Mac mini in a house and a Fly.io
+  machine they generally cannot.
+
+**Lean:** the client in the middle, because it is the only one that works
+without an assumption about the network or a forge, and the same reasoning
+already decided that the client coordinates landing. Whether a shared remote
+should be used when there is one, as an optimisation rather than a requirement,
+is not worked out.

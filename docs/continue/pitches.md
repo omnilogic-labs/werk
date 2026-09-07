@@ -112,7 +112,7 @@ result to the concept's existing URL with `favicon` and `contract` omitted.
 ### The four lanes, and what each gives up
 
 Worth keeping straight, because the whole point of four concepts is that they
-answer open question 18 (the monetisation thesis) four different ways.
+answer open question 15 (the monetisation thesis) four different ways.
 
 - **A Substrate.** Claims the seam between a process and a machine, the way
   Tailscale claimed the seam between a host and a network. Wins the senior

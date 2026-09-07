@@ -7,8 +7,8 @@ carries the terminal WASM and runs outside the checkout.
 
 This chapter is the reference for the client as it behaves today. What the
 command surface should become for the product is not settled — the capabilities
-in [product-specification.md](product-specification.md) are deliberately written
-as capabilities rather than commands, and nothing below should be read as a
+in [product/client.md](product/client.md) are deliberately written as
+capabilities rather than commands, and nothing below should be read as a
 commitment about workspaces, hosts, providers or landing, none of which exist.
 
 ## The command tree
@@ -249,9 +249,9 @@ live in the same files.
 A portal is expected to supply some of a client's configuration once that client
 registers with it. Which settings it takes over, what happens to settings the
 client already had, how a person sees what has been taken over, and whether
-anything stays theirs to change are all unresolved — that is open question 12 of
-[product-specification.md](product-specification.md), which the specification
-calls the least worked out part of the whole document.
+anything stays theirs to change are all unresolved — that is
+[open question 12](product-specification.md#12-what-does-registering-a-client-with-a-portal-take-over),
+which the specification calls its own least worked out part.
 
 So what exists is a seam rather than a design. It fixes two things: the shape an
 answer would have, and where it sits in the precedence order — above werk's
