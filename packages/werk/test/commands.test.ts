@@ -1,0 +1,220 @@
+import { expect, test } from "bun:test";
+import { Chalk } from "chalk";
+import type { SessionInfo, TerminationResult } from "@werk/session";
+import type { WerkContext } from "../src/runtime/context.js";
+import { setChildArgv } from "../src/commands/shared.js";
+import {
+  buildCreate,
+  renderCreated,
+  wholeNumber,
+  windowSize,
+} from "../src/commands/create.js";
+import {
+  buildAttach,
+  outcomeNote,
+  sizeIntent,
+} from "../src/commands/attach.js";
+import { buildKill, renderTermination } from "../src/commands/kill.js";
+import { renderInspection, type Inspection } from "../src/commands/inspect.js";
+
+/** A context with no terminal and no colour, so a rendering is plain text. */
+function context(overrides: Partial<WerkContext> = {}): WerkContext {
+  const written: string[] = [];
+  return {
+    write: (text) => void written.push(text),
+    writeError: (text) => void written.push(text),
+    stdoutTTY: false,
+    stdinTTY: false,
+    columns: 80,
+    colour: new Chalk({ level: 0 }),
+    colourLevel: 0,
+    json: false,
+    noInput: true,
+    yes: false,
+    runtimeDir: "/run/werk",
+    stateDir: "/state/werk",
+    entry: "/werk/main.ts",
+    ...overrides,
+  };
+}
+const session = (over: Partial<SessionInfo> = {}): SessionInfo =>
+  ({
+    id: "8f2c1b04e9d1",
+    daemonId: "d1",
+    state: "running",
+    argv: ["/bin/sh"],
+    cwd: "/home/mike",
+    size: { cols: 80, rows: 24 },
+    scrollbackBytes: 1000,
+    createdAt: 0,
+    name: "demo",
+    labels: {},
+    attachments: [],
+    processTree: { children: 0 },
+    ...over,
+  }) as SessionInfo;
+
+test("an exit status is reported with the reason the daemon gave", () => {
+  expect(outcomeNote("s1", { code: 3 })).toBe(
+    "session s1 has ended with status 3",
+  );
+  expect(outcomeNote("s1", { code: null, signal: "SIGKILL" })).toBe(
+    "session s1 has ended with signal SIGKILL",
+  );
+  expect(outcomeNote("s1", { code: null })).toBe(
+    "session s1 has ended with an unknown status",
+  );
+  expect(outcomeNote("s1", { code: 0, reason: "removed" })).toBe(
+    "session s1 has ended with status 0 (removed)",
+  );
+});
+test("a lost record says the daemon never saw the process finish", () => {
+  expect(outcomeNote("s1", undefined, "lost")).toBe(
+    "session s1 was lost: the daemon stopped watching the process before it finished",
+  );
+  expect(outcomeNote("s1", undefined, "exited")).toBe(
+    "session s1 has ended with no recorded outcome",
+  );
+  expect(outcomeNote("s1", undefined)).toBe(
+    "session s1 has ended with no recorded outcome",
+  );
+});
+test("only a writable attachment that was not told otherwise takes the size", () => {
+  expect(sizeIntent({})).toBe("if-free");
+  expect(sizeIntent({ readOnly: true })).toBe("never");
+  expect(sizeIntent({ follow: true })).toBe("never");
+  expect(sizeIntent({ claimSize: true })).toBe("claim");
+  // Reading and claiming contradict each other less than following and
+  // claiming do: the claim wins and the daemon refuses it without input.
+  expect(sizeIntent({ readOnly: true, claimSize: true })).toBe("claim");
+});
+test("a count is rejected here so the message names the flag", () => {
+  const cols = wholeNumber("--cols");
+  expect(cols("40")).toBe(40);
+  expect(cols("0")).toBe(0);
+  expect(() => cols("-1")).toThrow("--cols must be a whole number");
+  expect(() => cols("1.5")).toThrow("--cols must be a whole number");
+  expect(() => cols("lots")).toThrow("--cols must be a whole number");
+  expect(() => wholeNumber("--scrollback", " of bytes")("x")).toThrow(
+    "--scrollback must be a whole number of bytes",
+  );
+});
+test("the window is what was asked for, or what the terminal reports", () => {
+  expect(windowSize({ cols: 40, rows: 8 })).toEqual({ cols: 40, rows: 8 });
+  const own = windowSize({});
+  expect(own.cols).toBeGreaterThan(0);
+  expect(own.rows).toBeGreaterThan(0);
+  expect(windowSize({ cols: 40 }).rows).toBe(own.rows);
+});
+test("a created session tells you how to go back to it", () => {
+  const text = renderCreated(
+    session({ argv: ["claude", "-p"], size: { cols: 40, rows: 8 } }),
+    context(),
+  );
+  expect(text).toContain("created 8f2c1b04e9d1 demo");
+  expect(text).toContain("claude -p · 40x8 in /home/mike");
+  expect(text).toContain("werk attach 8f2c1b04e9d1");
+});
+test("termination reports delivery and outcome as the separate facts they are", () => {
+  const ctx = context();
+  expect(
+    renderTermination("s1", { delivered: true, intent: "force" }, ctx),
+  ).toBe("force sent to s1");
+  expect(
+    renderTermination("s1", { delivered: false, intent: "terminate" }, ctx),
+  ).toBe("terminate was not delivered to s1");
+  const ended: TerminationResult = {
+    delivered: true,
+    intent: "interrupt",
+    exit: { code: 130 },
+  };
+  expect(renderTermination("s1", ended, ctx).split("\n")).toEqual([
+    "interrupt sent to s1",
+    "session s1 has ended with status 130",
+  ]);
+});
+const inspection = (over: Partial<Inspection> = {}): Inspection => ({
+  version: "0.1.0",
+  paths: { runtimeDir: "/run/werk", log: "/state/werk/daemon.log" },
+  lockMechanism: "flock",
+  recorded: { pid: 42, bootId: "boot-1" },
+  daemon: null,
+  ...over,
+});
+test("info names the paths, the lock and the recorded daemon", () => {
+  const text = renderInspection(inspection(), context());
+  expect(text).toContain("werk 0.1.0");
+  expect(text).toContain("lock      flock");
+  expect(text).toContain("pid 42 · boot boot-1");
+  expect(text).toContain("/state/werk/daemon.log");
+});
+test("a daemon that did not answer is reported as why, not as absence", () => {
+  const text = renderInspection(
+    inspection({ connection: "Error: ENOENT endpoint.json" }),
+    context(),
+  );
+  expect(text).toContain("connection");
+  expect(text).toContain("ENOENT endpoint.json");
+});
+test("a daemon that answered is described by what it can do", () => {
+  const text = renderInspection(
+    inspection({
+      daemon: {
+        id: "d1",
+        version: "0.1.0",
+        protocolVersion: 2,
+        engine: { buildId: "ghostty-abc", snapshotFormatVersion: 1 },
+        capabilities: {
+          termination: ["interrupt", "terminate", "force"],
+          snapshots: true,
+          scrollbackMaxBytes: 10000000,
+        },
+      },
+    }),
+    context(),
+  );
+  expect(text).toContain("interrupt, terminate, force");
+  expect(text).toContain("10000000 bytes at most");
+  expect(text).toContain("snapshot format 1");
+});
+test("doctor adds the checks and the log tail", () => {
+  const text = renderInspection(
+    inspection({
+      checks: { lock: "not-held", state: { writable: true, freeBytes: 10 } },
+      log: { tail: ["one", "two"], lastError: "boom" },
+    }),
+    context(),
+  );
+  expect(text).toContain("lock");
+  expect(text).toContain("not-held");
+  expect(text).toContain('{"writable":true,"freeBytes":10}');
+  expect(text).toContain("last error");
+  expect(text).toContain("boom");
+  expect(text).toContain("  two");
+});
+test("an empty log says so rather than showing nothing", () => {
+  expect(
+    renderInspection(
+      inspection({ checks: {}, log: { tail: [], lastError: null } }),
+      context(),
+    ),
+  ).toContain("the log is empty");
+});
+test("create refuses to start nothing", async () => {
+  setChildArgv([]);
+  await expect(
+    buildCreate().parseAsync(["--name", "demo"], { from: "user" }),
+  ).rejects.toThrow("create requires -- COMMAND [ARGS...]");
+});
+test("following and claiming the size are refused together, before connecting", async () => {
+  await expect(
+    buildAttach().parseAsync(["s1", "--follow", "--claim-size"], {
+      from: "user",
+    }),
+  ).rejects.toThrow("--follow and --claim-size ask for opposite things");
+});
+test("kill offers exactly the intents the protocol has", () => {
+  const intent = buildKill().options.find((o) => o.long === "--intent");
+  expect(intent?.argChoices).toEqual(["interrupt", "terminate", "force"]);
+  expect(intent?.defaultValue).toBe("terminate");
+});

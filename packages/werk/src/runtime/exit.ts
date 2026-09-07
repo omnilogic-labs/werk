@@ -38,7 +38,31 @@ const BY_CODE: Record<ErrorCode, number> = {
   UNSUPPORTED: EXIT_FAILURE,
 };
 
+/**
+ * Commander's own parse failures — an unknown command, a bad `--intent` — are
+ * the same class of mistake as a `UsageError` and get the same status. Left to
+ * itself commander exits 1, which would make "you typed it wrong" indist-
+ * inguishable from "the daemon refused". `--help` and `--version` arrive here
+ * too, because `exitOverride` throws for them as well, and they succeeded.
+ */
+const COMMANDER_SUCCESS = new Set([
+  "commander.help",
+  "commander.helpDisplayed",
+  "commander.version",
+]);
+export function isCommanderError(
+  error: unknown,
+): error is { code: string; exitCode: number } {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    typeof (error as { code?: unknown }).code === "string" &&
+    (error as { code: string }).code.startsWith("commander.")
+  );
+}
 export function exitCodeFor(error: unknown): number {
+  if (isCommanderError(error))
+    return COMMANDER_SUCCESS.has(error.code) ? EXIT_OK : EXIT_USAGE;
   if (error instanceof UsageError) return EXIT_USAGE;
   if (error instanceof CancelledError) return EXIT_CANCELLED;
   if (error instanceof SessionError) return BY_CODE[error.code] ?? EXIT_FAILURE;
@@ -49,8 +73,9 @@ export function exitCodeFor(error: unknown): number {
 export function errorPayload(error: unknown): {
   error: { code: string; message: string };
 } {
-  const code =
-    error instanceof SessionError
+  const code = isCommanderError(error)
+    ? "USAGE"
+    : error instanceof SessionError
       ? error.code
       : error instanceof UsageError
         ? "USAGE"

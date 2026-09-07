@@ -46,3 +46,37 @@ test("the machine shape carries the protocol code", () => {
     message: "boom",
   });
 });
+
+test("commander's own parse failures are usage failures too", () => {
+  // `exitOverride` makes commander throw these rather than exiting 1 itself,
+  // which would otherwise collide with the status a daemon refusal uses.
+  for (const code of [
+    "commander.unknownCommand",
+    "commander.unknownOption",
+    "commander.invalidArgument",
+    "commander.missingArgument",
+    "commander.excessArguments",
+    "commander.conflictingOption",
+  ])
+    expect(
+      exitCodeFor(Object.assign(new Error("x"), { code, exitCode: 1 })),
+    ).toBe(2);
+});
+test("help and version succeed even though they arrive as errors", () => {
+  for (const code of [
+    "commander.help",
+    "commander.helpDisplayed",
+    "commander.version",
+  ])
+    expect(
+      exitCodeFor(Object.assign(new Error("x"), { code, exitCode: 0 })),
+    ).toBe(0);
+});
+test("a commander failure reports as a usage failure in JSON", () => {
+  const payload = errorPayload(
+    Object.assign(new Error("unknown command"), {
+      code: "commander.unknownCommand",
+    }),
+  );
+  expect(payload.error.code).toBe("USAGE");
+});

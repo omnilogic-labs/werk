@@ -55,7 +55,11 @@ export function buildProgram(
       getErrHasColors: () => level > 0,
       outputError: (str, write) => write(c.red(str)),
     })
-    .showHelpAfterError("(run `werk --help` for usage)");
+    .showHelpAfterError("(run `werk --help` for usage)")
+    // Commander would exit 1 for a mistyped flag, which is the code werk uses
+    // for a failure the daemon reported. Throwing instead lets `main.ts` give
+    // usage mistakes their own status; see `exitCodeFor`.
+    .exitOverride();
   // Declared from the same table `main.ts` hoists with, so help and parsing
   // always agree about what counts as global.
   for (const { flags, description } of GLOBAL_FLAGS)

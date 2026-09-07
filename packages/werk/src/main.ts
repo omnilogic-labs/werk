@@ -11,8 +11,10 @@
  * for a parser bug so much as a statement about werk: what follows `--` is
  * another program's command line and werk does not parse it at all.
  *
- * The completion path is exempt from that split, because a shell completing
- * `werk attach --<TAB>` sends a literal `--` as the word being completed.
+ * The completion callback rides the same split rather than being exempt from it.
+ * The shell scripts invoke `werk complete -- <words…>`, so the first bare `--`
+ * is exactly the separator, and the words — including a trailing `--` that is
+ * itself the word being completed — arrive intact on the other side of it.
  *
  * Then the global flags are lifted to the front, because commander binds an
  * option to the command it was declared on and werk accepts `--runtime-dir`
@@ -22,7 +24,12 @@ import { fileURLToPath } from "node:url";
 import { buildProgram } from "./app.js";
 import { hoistGlobalFlags, splitChildArgv } from "./runtime/argv.js";
 import { setRuntimeBasis, setChildArgv } from "./commands/shared.js";
-import { errorPayload, exitCodeFor, CancelledError } from "./runtime/exit.js";
+import {
+  errorPayload,
+  exitCodeFor,
+  CancelledError,
+  isCommanderError,
+} from "./runtime/exit.js";
 import { colourLevelFromArgv } from "./runtime/colour.js";
 import { Chalk } from "chalk";
 
@@ -52,6 +59,11 @@ if (import.meta.main)
     const c = new Chalk({ level });
     // Errors go to stderr in both modes, so a pipe reading stdout sees only the
     // command's own output and never has to distinguish the two.
+    // Commander has already written its own message, or the help text.
+    if (isCommanderError(error)) {
+      process.exitCode = exitCodeFor(error);
+      return;
+    }
     if (argv.includes("--json"))
       process.stderr.write(JSON.stringify(errorPayload(error)) + "\n");
     else if (!(error instanceof CancelledError))
