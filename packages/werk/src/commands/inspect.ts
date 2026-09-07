@@ -59,7 +59,9 @@ function daemonRows(daemon: DaemonInfo): (readonly [string, string])[] {
 export function renderInspection(report: Inspection, ctx: WerkContext): string {
   const blocks: string[] = [];
   blocks.push(
-    section(ctx, `werk ${report.version}`, [
+    // Names what the number belongs to: `werk --version` reports the CLI's, and
+    // this one is the diagnostics report's own, which move independently.
+    section(ctx, `report ${report.version}`, [
       ["lock", report.lockMechanism],
       [
         "recorded",

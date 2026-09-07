@@ -45,9 +45,41 @@ export async function withSession<T>(
   const client = await connectDaemon(ctx);
   try {
     const id =
-      given ?? (await selectSession(ctx, await client.list({}), message));
+      given === undefined
+        ? await selectSession(ctx, await client.list({}), message)
+        : resolveSession(await client.list({}), given);
     return await work(client, id, given === undefined);
   } finally {
     await client.close();
   }
+}
+
+/**
+ * Turn what someone typed into a session id.
+ *
+ * Completion offers names, `create` prints a name back, and the argument is
+ * documented as taking either, so a command that only understood ids would
+ * reject the very word it had just suggested. Ids win over names, and an exact
+ * match wins over a prefix, so a name that happens to prefix another id is never
+ * silently taken for it.
+ */
+export function resolveSession(
+  sessions: readonly { id: string; name: string }[],
+  given: string,
+): string {
+  const exact =
+    sessions.find((s) => s.id === given) ??
+    sessions.find((s) => s.name === given);
+  if (exact) return exact.id;
+  const prefixed = sessions.filter(
+    (s) => s.id.startsWith(given) || s.name.startsWith(given),
+  );
+  if (prefixed.length === 1) return prefixed[0]!.id;
+  if (prefixed.length > 1)
+    throw new UsageError(
+      `${given} matches ${prefixed.length} sessions: ${prefixed
+        .map((s) => s.name || s.id)
+        .join(", ")}`,
+    );
+  throw new UsageError(`no session called ${given}`);
 }

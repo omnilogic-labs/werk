@@ -79,7 +79,11 @@ Completion stops at the same boundary and offers nothing past it.
 
 ### Choosing a session
 
-`attach`, `logs`, `kill` and `remove` take an optional `[session]`. Given none,
+`attach`, `logs`, `kill` and `remove` take an optional `[session]`, which is an
+id, a name, or an unambiguous prefix of either — so the name completion offered
+and the name `create` printed both work as typed. An exact match wins over a
+prefix, and a prefix matching more than one session names what it matched rather
+than choosing. Given none,
 and with a terminal to ask in, werk offers a searchable picker of live sessions,
 most recently active first; the prompt paints on stderr so a piped record stays
 clean, and it carries a two-minute deadline.

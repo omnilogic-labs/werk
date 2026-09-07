@@ -16,6 +16,7 @@ import {
 } from "../src/commands/attach.js";
 import { buildKill, renderTermination } from "../src/commands/kill.js";
 import { renderInspection, type Inspection } from "../src/commands/inspect.js";
+import { resolveSession } from "../src/commands/session-argument.js";
 
 /** A context with no terminal and no colour, so a rendering is plain text. */
 function context(overrides: Partial<WerkContext> = {}): WerkContext {
@@ -143,7 +144,8 @@ const inspection = (over: Partial<Inspection> = {}): Inspection => ({
 });
 test("info names the paths, the lock and the recorded daemon", () => {
   const text = renderInspection(inspection(), context());
-  expect(text).toContain("werk 0.1.0");
+  // The report's own version, not the CLI's — `werk --version` answers that one.
+  expect(text).toContain("report 0.1.0");
   expect(text).toContain("lock      flock");
   expect(text).toContain("pid 42 · boot boot-1");
   expect(text).toContain("/state/werk/daemon.log");
@@ -217,4 +219,35 @@ test("kill offers exactly the intents the protocol has", () => {
   const intent = buildKill().options.find((o) => o.long === "--intent");
   expect(intent?.argChoices).toEqual(["interrupt", "terminate", "force"]);
   expect(intent?.defaultValue).toBe("terminate");
+});
+
+test("a session is found by id, by name, or by an unambiguous prefix", () => {
+  const sessions = [
+    { id: "eb86a3dc-bc8f", name: "hello" },
+    { id: "7f21ba90-1c44", name: "worker" },
+  ];
+  expect(resolveSession(sessions, "eb86a3dc-bc8f")).toBe("eb86a3dc-bc8f");
+  expect(resolveSession(sessions, "hello")).toBe("eb86a3dc-bc8f");
+  expect(resolveSession(sessions, "eb86")).toBe("eb86a3dc-bc8f");
+  expect(resolveSession(sessions, "work")).toBe("7f21ba90-1c44");
+});
+test("an exact match wins over a prefix of something else", () => {
+  // `we` names one session and prefixes another; the name is what was meant.
+  const sessions = [
+    { id: "a1", name: "we" },
+    { id: "a2", name: "web" },
+  ];
+  expect(resolveSession(sessions, "we")).toBe("a1");
+});
+test("an ambiguous prefix names what it matched rather than guessing", () => {
+  const sessions = [
+    { id: "a1", name: "web" },
+    { id: "a2", name: "welder" },
+  ];
+  expect(() => resolveSession(sessions, "we")).toThrow(/matches 2 sessions/);
+});
+test("a session that is not there says so", () => {
+  expect(() => resolveSession([{ id: "a1", name: "x" }], "nope")).toThrow(
+    /no session called nope/,
+  );
 });
