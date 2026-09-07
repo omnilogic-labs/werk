@@ -23,8 +23,7 @@ import { createTerminalReplica } from "@werk/terminal";
 import { loadTerminalEngine } from "@werk/terminal/bun";
 import { withContext } from "./shared.js";
 import { wholeNumber, windowSize } from "./create.js";
-import { sessionArgument } from "./session-argument.js";
-import { connectDaemon } from "../runtime/daemon.js";
+import { sessionArgument, withSession } from "./session-argument.js";
 import { UsageError } from "../runtime/exit.js";
 import type { WerkContext } from "../runtime/context.js";
 import {
@@ -265,22 +264,23 @@ Examples:
   $ werk attach 8f2c1b04e9d1
   $ werk attach 8f2c1b04e9d1 --read-only
   $ werk attach 8f2c1b04e9d1 --claim-size
+  $ werk attach                             pick from a list
 
 A session that has already finished paints its saved screen and returns,
 reporting the outcome on stderr.`,
     )
     .action(
-      withContext(async (ctx, opts: AttachFlags, id: string) => {
+      withContext(async (ctx, opts: AttachFlags, given?: string) => {
         if (opts.follow && opts.claimSize)
           throw new UsageError(
             "--follow and --claim-size ask for opposite things",
           );
-        const client = await connectDaemon(ctx);
-        try {
-          await attachSession(ctx, client, id, opts);
-        } finally {
-          await client.close();
-        }
+        await withSession(
+          ctx,
+          given,
+          "Attach to which session?",
+          (client, id) => attachSession(ctx, client, id, opts),
+        );
       }),
     );
   return attach;

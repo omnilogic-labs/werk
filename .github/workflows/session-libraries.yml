@@ -93,7 +93,7 @@ jobs:
       - name: compiled lock mechanism
         shell: bash
         run: |
-          packages/werk/dist/werk info | tee /tmp/info.json
+          packages/werk/dist/werk info --json | tee /tmp/info.json
           test "$(jq -r .lockMechanism /tmp/info.json)" = flock
   browser:
     runs-on: ubuntu-latest

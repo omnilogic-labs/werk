@@ -9,9 +9,8 @@ import { Command, Option } from "@commander-js/extra-typings";
 import type { TerminationIntent, TerminationResult } from "@werk/session";
 import { withContext } from "./shared.js";
 import { outcomeNote } from "./attach.js";
-import { sessionArgument } from "./session-argument.js";
+import { sessionArgument, withSession } from "./session-argument.js";
 import { result } from "../runtime/output.js";
-import { connectDaemon } from "../runtime/daemon.js";
 import type { WerkContext } from "../runtime/context.js";
 
 const INTENTS: TerminationIntent[] = ["interrupt", "terminate", "force"];
@@ -50,21 +49,24 @@ Examples:
   $ werk kill 8f2c1b04e9d1
   $ werk kill 8f2c1b04e9d1 --intent interrupt
   $ werk kill 8f2c1b04e9d1 --intent force
+  $ werk kill                               pick from a list
 
 The record stays until it is removed; kill stops the process, not the session.`,
     )
     .action(
-      withContext(async (ctx, opts: { intent: string }, id: string) => {
-        const client = await connectDaemon(ctx);
-        try {
-          const value = await client.terminate(
-            id,
-            opts.intent as TerminationIntent,
-          );
-          return result(value, (c) => renderTermination(id, value, c));
-        } finally {
-          await client.close();
-        }
+      withContext(async (ctx, opts: { intent: string }, given?: string) => {
+        return await withSession(
+          ctx,
+          given,
+          "Stop which session?",
+          async (client, id) => {
+            const value = await client.terminate(
+              id,
+              opts.intent as TerminationIntent,
+            );
+            return result(value, (c) => renderTermination(id, value, c));
+          },
+        );
       }),
     );
   return kill;

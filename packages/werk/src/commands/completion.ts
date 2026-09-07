@@ -14,6 +14,7 @@ import bash from "../completion/scripts/bash.sh" with { type: "text" };
 import zsh from "../completion/scripts/zsh.sh" with { type: "text" };
 import fish from "../completion/scripts/fish.sh" with { type: "text" };
 import { completionFor } from "../completion/candidates.js";
+import { result } from "../runtime/output.js";
 import { NOTHING, writeReply } from "../completion/protocol.js";
 import { createContext, type GlobalFlags } from "../runtime/context.js";
 import { childCommand, withContext } from "./shared.js";
@@ -38,7 +39,17 @@ export function buildCompletion(): Command {
     command.addCommand(
       new Command(shell)
         .description(`Completion script for ${shell}`)
-        .action(withContext((ctx) => void ctx.write(script.source))),
+        // Returns a result rather than writing, so `--json` is answered here
+        // like everywhere else. `eval "$(werk completion bash)"` still works
+        // because the human rendering is the bare script and nothing else.
+        .action(
+          withContext(() =>
+            result(
+              { shell, script: script.source, install: script.install },
+              () => script.source,
+            ),
+          ),
+        ),
     );
   command.addHelpText(
     "after",

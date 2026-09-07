@@ -11,9 +11,8 @@
  */
 import { Command } from "@commander-js/extra-typings";
 import { withContext } from "./shared.js";
-import { sessionArgument } from "./session-argument.js";
+import { sessionArgument, withSession } from "./session-argument.js";
 import { result } from "../runtime/output.js";
-import { connectDaemon } from "../runtime/daemon.js";
 
 export function buildLogs(): Command {
   const logs: Command = new Command("logs");
@@ -27,20 +26,23 @@ export function buildLogs(): Command {
 Examples:
   $ werk logs 8f2c1b04e9d1
   $ werk logs 8f2c1b04e9d1 --history
+  $ werk logs                               pick from a list
 
 History is the daemon's scrollback budget, not a complete output log.`,
     )
     .action(
-      withContext(async (ctx, opts: { history?: boolean }, id: string) => {
-        const client = await connectDaemon(ctx);
-        try {
-          const text = opts.history
-            ? await client.readHistory(id)
-            : await client.readScreen(id);
-          return result(text, () => text);
-        } finally {
-          await client.close();
-        }
+      withContext(async (ctx, opts: { history?: boolean }, given?: string) => {
+        return await withSession(
+          ctx,
+          given,
+          "Read which session?",
+          async (client, id) => {
+            const text = opts.history
+              ? await client.readHistory(id)
+              : await client.readScreen(id);
+            return result(text, () => text);
+          },
+        );
       }),
     );
   return logs;

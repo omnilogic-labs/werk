@@ -152,6 +152,7 @@ try {
     [
       binary,
       "create",
+      "--json",
       ...globalArgs,
       "--cols",
       "40",
@@ -175,7 +176,7 @@ try {
   );
   const created = JSON.parse(createdOutput);
   assert.equal(created.name, "artefact");
-  assert.match(await cli("info"), /capabilities/);
+  assert.match(await cli("info", "--json"), /capabilities/);
   client = await connect();
   await waitFor(
     () => client!.readScreen(created.id),
@@ -204,7 +205,7 @@ try {
   replica.dispose();
   await client.close();
   client = undefined;
-  assert.equal(JSON.parse(await cli("list"))[0].state, "running");
+  assert.equal(JSON.parse(await cli("list", "--json"))[0].state, "running");
   assert.match(await cli("logs", created.id), /received:first/);
   // Exercise Buffer-backed stdin through the compiled consumer, then detach on EOF.
   const attached = Bun.spawn([binary, "attach", created.id, ...globalArgs], {
@@ -264,7 +265,7 @@ try {
   pid = undefined;
   await cli("list");
   pid = await daemonPid(killed);
-  const recovered = JSON.parse(await cli("list"));
+  const recovered = JSON.parse(await cli("list", "--json"));
   assert.equal(recovered[0].state, "lost");
   assert.equal(recovered[0].checkpoint.decodable, true);
   assert.match(await cli("logs", created.id), /received:second/);
@@ -288,6 +289,7 @@ try {
     [
       binary,
       "create",
+      "--json",
       ...globalArgs,
       "--name",
       "artefact-exit",
@@ -306,7 +308,7 @@ try {
   );
   const shortLived = JSON.parse(exitingOutput);
   await waitFor(
-    async () => JSON.parse(await cli("list")),
+    async () => JSON.parse(await cli("list", "--json")),
     (sessions: { id: string; state: string }[]) =>
       sessions.some((s) => s.id === shortLived.id && s.state === "exited"),
     "shortLived exited",
@@ -324,7 +326,7 @@ try {
   assert.match(finishedError, /status 3/);
   await cli("remove", shortLived.id);
   await cli("remove", created.id);
-  assert.deepEqual(JSON.parse(await cli("list")), []);
+  assert.deepEqual(JSON.parse(await cli("list", "--json")), []);
   console.log(
     "Compiled binary outside checkout: detached create, stdin input, reconnect, resize, abrupt-death lost-screen recovery, ended-session outcome reporting and removal passed. Browser boundaries, assets and built declarations passed.",
   );

@@ -1,0 +1,553 @@
+werk help, one section per command in the order the tree declares them.
+Regenerate with: UPDATE_HELP_GOLDEN=1 bun test packages/werk/test/help.test.ts
+
+========================================================================
+$ werk --help
+
+Usage: werk [options] [command]
+
+Start a process somewhere and come back to it later.
+
+Options:
+  -V, --version               print the version and exit
+  --json                      emit machine-readable JSON instead of text
+  --runtime-dir <PATH>        where the daemon socket and endpoint live
+  --state-dir <PATH>          where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>         daemon log level (error, warn, info, debug)
+  --no-input                  never prompt; fail instead of asking
+  -y, --yes                   answer yes to confirmations
+  --color                     force colour output
+  --no-color                  disable colour output
+  -h, --help                  display help for command
+
+Commands:
+  create [options]            Start a session running a command
+  list|ls [options]           List sessions
+  attach [options] [session]  Attach to a session; Ctrl-] detaches
+  logs [options] [session]    Print a session's retained screen, or its history
+  kill [options] [session]    Ask a session's process to stop
+  remove|rm [session]         Remove a retained session record
+  watch                       Print daemon events as JSON lines until
+                              interrupted
+  info                        Print the resolved paths and what the daemon
+                              reports
+  doctor                      Check the local daemon's health and show the log
+                              tail
+  config                      Show the resolved configuration and where it came
+                              from
+  completion                  Print a shell completion script
+  daemon                      Run and inspect the session daemon
+  help [command]              display help for command
+
+========================================================================
+$ werk create --help
+
+Usage: werk create [options]
+
+Start a session running a command
+
+Options:
+  --name <NAME>         name the session instead of taking a generated one
+  --label <KEY=VALUE>   attach a label, repeatable (default: {})
+  --cols <N>            starting columns
+  --rows <N>            starting rows
+  --scrollback <BYTES>  page-memory budget for scrollback; above the daemon's
+                        cap fails
+  --cwd <PATH>          working directory for the command
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk list --help
+
+Usage: werk list|ls [options]
+
+List sessions
+
+Options:
+  --label <KEY=VALUE>   only sessions carrying this label (default: {})
+  --state <STATE>       only sessions in this state (choices: "starting",
+                        "running", "exited", "failed", "lost")
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk attach --help
+
+Usage: werk attach [options] [session]
+
+Attach to a session; Ctrl-] detaches
+
+Arguments:
+  session               session ID or name
+
+Options:
+  --read-only           watch without asking for input
+  --follow              decline the session grid and clip to this window
+  --claim-size          take the session grid from whoever holds it
+  --cols <N>            assume this window width instead of the terminal's
+  --rows <N>            assume this window height instead of the terminal's
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk logs --help
+
+Usage: werk logs [options] [session]
+
+Print a session's retained screen, or its history
+
+Arguments:
+  session               session ID or name
+
+Options:
+  --history             read the retained history rather than the screen
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk kill --help
+
+Usage: werk kill [options] [session]
+
+Ask a session's process to stop
+
+Arguments:
+  session               session ID or name
+
+Options:
+  --intent <INTENT>     how hard to ask (choices: "interrupt", "terminate",
+                        "force", default: "terminate")
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk remove --help
+
+Usage: werk remove|rm [options] [session]
+
+Remove a retained session record
+
+Arguments:
+  session               session ID or name
+
+Options:
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk watch --help
+
+Usage: werk watch [options]
+
+Print daemon events as JSON lines until interrupted
+
+Options:
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk info --help
+
+Usage: werk info [options]
+
+Print the resolved paths and what the daemon reports
+
+Options:
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk doctor --help
+
+Usage: werk doctor [options]
+
+Check the local daemon's health and show the log tail
+
+Options:
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk config --help
+
+Usage: werk config [options] [command]
+
+Show the resolved configuration and where it came from
+
+Options:
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+Commands:
+  list                  Every setting, its value, and the layer it came from
+  get <key>             One setting's value
+  sources               Every layer werk consults, lowest precedence first
+  path                  The config files werk reads, whether or not they exist
+  help [command]        display help for command
+
+========================================================================
+$ werk config list --help
+
+Usage: werk config list [options]
+
+Every setting, its value, and the layer it came from
+
+Options:
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk config get --help
+
+Usage: werk config get [options] <key>
+
+One setting's value
+
+Arguments:
+  key                   one of logLevel, runtimeDir, stateDir, scrollbackBytes,
+                        colour
+
+Options:
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk config sources --help
+
+Usage: werk config sources [options]
+
+Every layer werk consults, lowest precedence first
+
+Options:
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk config path --help
+
+Usage: werk config path [options]
+
+The config files werk reads, whether or not they exist
+
+Options:
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk completion --help
+
+Usage: werk completion [options] [command]
+
+Print a shell completion script
+
+Options:
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+Commands:
+  bash                  Completion script for bash
+  zsh                   Completion script for zsh
+  fish                  Completion script for fish
+  help [command]        display help for command
+
+========================================================================
+$ werk completion bash --help
+
+Usage: werk completion bash [options]
+
+Completion script for bash
+
+Options:
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk completion zsh --help
+
+Usage: werk completion zsh [options]
+
+Completion script for zsh
+
+Options:
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk completion fish --help
+
+Usage: werk completion fish [options]
+
+Completion script for fish
+
+Options:
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk daemon --help
+
+Usage: werk daemon [options] [command]
+
+Run and inspect the session daemon
+
+Options:
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+Commands:
+  serve                 Serve the daemon in this process until it is signalled
+  help [command]        display help for command
+
+========================================================================
+$ werk daemon serve --help
+
+Usage: werk daemon serve [options]
+
+Serve the daemon in this process until it is signalled
+
+Options:
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk complete --help
+
+Usage: werk complete -- <words...>
+
+Emit completion candidates for a partly typed command line
+
+Options:
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output
+
+========================================================================
+$ werk session-daemon --help
+
+Usage: werk session-daemon [options]
+
+Serve the daemon in this process
+
+Options:
+  -h, --help            display help for command
+
+Global Options:
+  -V, --version         print the version and exit
+  --json                emit machine-readable JSON instead of text
+  --runtime-dir <PATH>  where the daemon socket and endpoint live
+  --state-dir <PATH>    where checkpoints, logs and the daemon record live
+  --log-level <LEVEL>   daemon log level (error, warn, info, debug)
+  --no-input            never prompt; fail instead of asking
+  -y, --yes             answer yes to confirmations
+  --color               force colour output
+  --no-color            disable colour output

@@ -16,6 +16,12 @@ const child = Bun.spawn(
     new URL("./src/main.ts", import.meta.url).pathname,
     "--define",
     "WERK_COMPILED=true",
+    // Bun compiles dotenv autoloading in by default, so the binary would read a
+    // `.env` out of whatever directory it was run in and merge it into
+    // `process.env`. `clientEnvironment()` forwards nearly all of `process.env`
+    // to the daemon, so `werk create` inside any repository holding a `.env`
+    // would ship that repository's secrets into every session it starts.
+    "--no-compile-autoload-dotenv",
     "--outfile",
     new URL("./dist/werk", import.meta.url).pathname,
   ],
