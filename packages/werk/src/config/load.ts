@@ -17,6 +17,7 @@
  * caller who only wants the pure merge, so the cost lands when a command
  * actually reads a config file and not when this module is loaded.
  */
+import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
@@ -155,10 +156,42 @@ interface FileLayer {
  * `packageJson` would let a dependency's manifest contribute. werk's file is
  * `<dir>/config.toml` and the caller decided which directory.
  */
+/**
+ * The extensions c12 would consider, so that "is there anything to read here"
+ * can be answered without paying for c12 itself.
+ */
+const CONFIG_EXTENSIONS = [
+  "toml",
+  "json",
+  "jsonc",
+  "json5",
+  "ts",
+  "mts",
+  "js",
+  "mjs",
+];
+
+/** Whether a directory holds a config file at all. */
+async function hasConfigFile(dir: string): Promise<boolean> {
+  const found = await Promise.all(
+    CONFIG_EXTENSIONS.map((extension) =>
+      fs
+        .stat(path.join(dir, `config.${extension}`))
+        .then((entry) => entry.isFile())
+        .catch(() => false),
+    ),
+  );
+  return found.includes(true);
+}
+
 export async function readConfigDir(
   dir: string,
   source: ConfigSource = unconfiguredSource,
 ): Promise<FileLayer> {
+  // Importing c12 costs about 50 ms, which is most of a tab-completion budget,
+  // and the overwhelmingly common case is a directory with no config file in it
+  // at all. Eight stats answer that for a fraction of the cost.
+  if (!(await hasConfigFile(dir))) return { values: {} };
   const { loadConfig } = await import("c12");
   const loaded = await loadConfig<Record<string, unknown>>({
     name: "werk",

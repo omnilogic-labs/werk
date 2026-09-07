@@ -15,6 +15,10 @@ import zsh from "../completion/scripts/zsh.sh" with { type: "text" };
 import fish from "../completion/scripts/fish.sh" with { type: "text" };
 import { completionFor } from "../completion/candidates.js";
 import { result } from "../runtime/output.js";
+import { loadWerkConfig } from "../config/load.js";
+
+/** Longest completion will wait for the configuration layers before ignoring them. */
+const CONFIG_BUDGET_MS = 50;
 import { NOTHING, writeReply } from "../completion/protocol.js";
 import { createContext, type GlobalFlags } from "../runtime/context.js";
 import { childCommand, withContext } from "./shared.js";
@@ -81,11 +85,26 @@ export function buildComplete(): Command {
         // shell sends after `werk complete --` arrive as the child argv. Both
         // shapes are read, so this holds whichever side of that split moves.
         const typed = self.args.length > 0 ? self.args : [...childCommand()];
-        const ctx = createContext(
-          self.optsWithGlobals() as unknown as GlobalFlags,
-          "",
-          0,
-        );
+        const flags = self.optsWithGlobals() as unknown as GlobalFlags;
+        // Completion has to look where the sessions actually are, so it reads
+        // the same layers every other command does — but on a budget of its own
+        // and falling back to the flags alone. A configured runtime directory
+        // that made TAB silently find nothing would be worse than a slow TAB,
+        // and a remote layer that hangs must not hang the shell either.
+        // The timer is cleared rather than left to fire: a pending timeout keeps
+        // Bun's event loop alive to its full deadline, so an uncancelled one
+        // would add the whole budget to every TAB even when the layers resolved
+        // in a millisecond.
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const config = await Promise.race([
+          loadWerkConfig({ flags })
+            .then((merged) => merged.config)
+            .catch(() => undefined),
+          new Promise<undefined>((resolve) => {
+            timer = setTimeout(() => resolve(undefined), CONFIG_BUDGET_MS);
+          }),
+        ]).finally(() => clearTimeout(timer));
+        const ctx = createContext(flags, "", 0, config);
         const reply = await completionFor(
           self.parent ?? self,
           typed,

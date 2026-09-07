@@ -272,7 +272,13 @@ packages/werk/dist/werk info
 packages/werk/dist/werk doctor
 ```
 
-Ctrl-] detaches. `create` sends the invoking shell's environment minus terminal
+Ctrl-] detaches. Every command renders for a person by default and answers with
+the same record under `--json`; [cli.md](cli.md) is the reference for the
+command surface, the two output registers, exit codes, configuration and shell
+completion. What follows here is what the CLI shows about the session library in
+particular.
+
+`create` sends the invoking shell's environment minus terminal
 identity, multiplexer markers, shell bookkeeping and `GPG_TTY`; the daemon
 applies it over a minimal base and owns `TERM`, `COLORTERM`, `TERM_PROGRAM`,
 `TERM_PROGRAM_VERSION`, `WERK_SESSION` and `WERK_DAEMON`.
@@ -302,12 +308,15 @@ checks and the tail of `$stateDir/daemon.log` with its last error line; both are
 read-only. The daemon logs a fixed event vocabulary to that file at
 `--log-level` or `WERK_LOG_LEVEL` (`error`, `warn`, `info`, `debug`), rotating
 at 5 MB and keeping three files; environment values, input bytes and
-credentials are never written. All commands accept explicit `--runtime-dir PATH`
-and `--state-dir PATH`. The CLI supplies its own `session-daemon` command to the
-detached launcher.
+credentials are never written. `--runtime-dir PATH` and `--state-dir PATH` are
+accepted on every command, before or after the command name. The CLI supplies
+its own `daemon serve` command to the detached launcher, and
+`werk daemon serve` runs one in the foreground for an operator who would rather
+supervise it.
 
-For the local browser consumer, start a daemon via a CLI command with an explicit
-runtime directory, then run:
+For the local browser consumer, start a daemon with an explicit runtime
+directory — any command starts one, or `werk daemon serve` holds it in the
+foreground — then run:
 
 ```sh
 bun examples/session-web/dist/server.js /absolute/runtime/endpoint.json 4319

@@ -35,7 +35,8 @@ export async function withSession<T>(
   ctx: WerkContext,
   given: string | undefined,
   message: string,
-  work: (client: SessionClient, id: string) => Promise<T>,
+  /** `picked` says the session came from the list rather than the command line. */
+  work: (client: SessionClient, id: string, picked: boolean) => Promise<T>,
 ): Promise<T> {
   if (given === undefined && !canPrompt(ctx))
     throw new UsageError(
@@ -45,7 +46,7 @@ export async function withSession<T>(
   try {
     const id =
       given ?? (await selectSession(ctx, await client.list({}), message));
-    return await work(client, id);
+    return await work(client, id, given === undefined);
   } finally {
     await client.close();
   }

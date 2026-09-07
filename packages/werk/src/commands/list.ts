@@ -11,6 +11,8 @@ import { withContext } from "./shared.js";
 import { tableResult } from "../runtime/output.js";
 import { connectDaemon } from "../runtime/daemon.js";
 import { UsageError } from "../runtime/exit.js";
+import { completes } from "../completion/hooks.js";
+import { labelCandidates } from "../completion/candidates.js";
 
 const STATES: SessionState[] = [
   "starting",
@@ -44,11 +46,13 @@ export function buildList(): Command {
   return new Command("list")
     .alias("ls")
     .description("List sessions")
-    .option(
-      "--label <KEY=VALUE>",
-      "only sessions carrying this label",
-      collectLabel,
-      {},
+    .addOption(
+      completes(
+        new Option("--label <KEY=VALUE>", "only sessions carrying this label")
+          .argParser(collectLabel)
+          .default({}),
+        labelCandidates,
+      ),
     )
     .addOption(
       new Option("--state <STATE>", "only sessions in this state").choices(

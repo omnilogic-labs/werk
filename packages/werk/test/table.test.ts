@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { renderTable } from "../src/runtime/table.js";
+import { terminalColumns } from "../src/runtime/context.js";
 
 const rows = [
   ["ID", "COMMAND", "STATE"],
@@ -82,4 +83,14 @@ test("the flex column keeps a readable floor rather than vanishing", () => {
 });
 test("no rows renders nothing", () => {
   expect(renderTable([], { aligned: true })).toBe("");
+});
+
+test("a terminal that reports no width is treated as unknown, not as zero", () => {
+  // A pty whose size was never set reports 0 rather than undefined, so `?? 80`
+  // lets it through and every flexible column collapses to its floor.
+  expect(terminalColumns(0)).toBe(80);
+  expect(terminalColumns(undefined)).toBe(80);
+  expect(terminalColumns(Number.NaN)).toBe(80);
+  expect(terminalColumns(-1)).toBe(80);
+  expect(terminalColumns(120)).toBe(120);
 });

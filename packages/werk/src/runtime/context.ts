@@ -10,6 +10,7 @@ import path from "node:path";
 import { Chalk, type ChalkInstance } from "chalk";
 import { type ColourLevel } from "./colour.js";
 import { defaultSessionRuntimeDir } from "@werk/session-daemon";
+import type { WerkConfig } from "../config/schema.js";
 
 export interface GlobalFlags {
   json?: boolean;
@@ -49,6 +50,19 @@ export function defaultStateDir(
     "werk",
   );
 }
+/**
+ * A terminal that cannot say how wide it is. `process.stdout.columns` is `0`
+ * rather than undefined on a pty whose size was never set — which happens under
+ * `script`, inside some containers, and on an ssh session that lost its window
+ * size — and `0` would otherwise pass through `??` and collapse every flexible
+ * column to its floor.
+ */
+const DEFAULT_COLUMNS = 80;
+export function terminalColumns(reported: number | undefined): number {
+  return reported !== undefined && Number.isFinite(reported) && reported > 0
+    ? reported
+    : DEFAULT_COLUMNS;
+}
 /** CI runners report a TTY often enough that prompting there still hangs a job. */
 function inCI(env: Record<string, string | undefined>): boolean {
   return (
@@ -68,6 +82,7 @@ export function createContext(
   flags: GlobalFlags,
   entry: string,
   level: ColourLevel,
+  config?: WerkConfig,
 ): WerkContext {
   const env = process.env;
   const stdoutTTY = process.stdout.isTTY === true;
@@ -77,15 +92,22 @@ export function createContext(
     writeError: (text) => void process.stderr.write(text),
     stdoutTTY,
     stdinTTY,
-    columns: process.stdout.columns ?? 80,
+    columns: terminalColumns(process.stdout.columns),
     colour: new Chalk({ level }),
     colourLevel: level,
     json: flags.json === true,
     noInput: flags.noInput === true || !stdinTTY || !stdoutTTY || inCI(env),
     yes: flags.yes === true,
-    runtimeDir: path.resolve(flags.runtimeDir ?? defaultSessionRuntimeDir()),
-    stateDir: path.resolve(flags.stateDir ?? defaultStateDir(env)),
-    logLevel: flags.logLevel ?? env.WERK_LOG_LEVEL,
+    // The merged configuration has already applied the flags, so it wins where
+    // it is present; the fallbacks are only for the completion path, which does
+    // not read configuration at all.
+    runtimeDir: path.resolve(
+      config?.runtimeDir ?? flags.runtimeDir ?? defaultSessionRuntimeDir(),
+    ),
+    stateDir: path.resolve(
+      config?.stateDir ?? flags.stateDir ?? defaultStateDir(env),
+    ),
+    logLevel: config?.logLevel ?? flags.logLevel ?? env.WERK_LOG_LEVEL,
     entry,
   };
 }

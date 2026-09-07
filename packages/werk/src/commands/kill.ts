@@ -10,6 +10,8 @@ import type { TerminationIntent, TerminationResult } from "@werk/session";
 import { withContext } from "./shared.js";
 import { outcomeNote } from "./attach.js";
 import { sessionArgument, withSession } from "./session-argument.js";
+import { confirm } from "../runtime/interactive.js";
+import { CancelledError } from "../runtime/exit.js";
 import { result } from "../runtime/output.js";
 import type { WerkContext } from "../runtime/context.js";
 
@@ -59,7 +61,13 @@ The record stays until it is removed; kill stops the process, not the session.`,
           ctx,
           given,
           "Stop which session?",
-          async (client, id) => {
+          async (client, id, picked) => {
+            // Only asked when the session was chosen from a list rather than
+            // named, so nothing scripted ever meets this: a caller that names a
+            // session, or passes --no-input, goes straight through. Picking the
+            // wrong row is the mistake worth catching, and `--yes` skips it.
+            if (picked && !(await confirm(ctx, `Stop ${id}?`)))
+              throw new CancelledError("not stopped");
             const value = await client.terminate(
               id,
               opts.intent as TerminationIntent,

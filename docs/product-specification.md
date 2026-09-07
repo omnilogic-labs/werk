@@ -84,7 +84,8 @@ this file exists yet.
 - A viewer of a session is an **attachment**, carrying a principal and separate
   read and input permissions. Several attachments can watch one session.
 - The CLI (`packages/werk`) has `create`, `list`, `attach`, `logs`, `kill`,
-  `remove`, `watch`, `info`, `doctor` and `session-daemon`. Detach is `Ctrl-]`.
+  `remove`, `watch`, `info`, `doctor`, `config`, `completion` and
+  `daemon serve`. Detach is `Ctrl-]`. See [cli.md](cli.md).
 - Reattach restores the real screen, decoded from a checkpoint by the libghostty
   WASM engine. `examples/session-web` does the same in a browser.
 - Checkpoints are written per session to the state directory. Records of ended

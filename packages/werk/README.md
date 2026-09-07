@@ -1,15 +1,23 @@
 # werk session CLI
 
 Build from the workspace with `bun run build`, then run `packages/werk/dist/werk`.
-`werk help` lists the session commands. `werk create -- /bin/sh` creates a session
-and prints its record as JSON. Use its ID with `werk attach ID`; Ctrl-] detaches
-while the process continues. `werk list` and `werk watch` need no attachment.
+The compiled binary contains the terminal WASM and can run outside the checkout.
+`werk --help` lists the commands; [`docs/cli.md`](../../docs/cli.md) is the
+reference for the command surface, output, exit codes, configuration and shell
+completion. This file records what the client does with a session.
+
+`werk create -- /bin/sh` starts a session and prints its id, name and command;
+`--json` gives the whole record. Use the id or the name with `werk attach ID`;
+Ctrl-] detaches while the process continues. `werk list` and `werk watch` need
+no attachment. `attach`, `logs`, `kill` and `remove` given no session offer a
+picker when there is a terminal to ask in, and fail as a usage error when there
+is not.
 
 `--runtime-dir` and `--state-dir` configure daemon discovery and retained state,
 and `--log-level` (or `WERK_LOG_LEVEL`) sets what the daemon writes to
-`$stateDir/daemon.log`. All three work on every command. The CLI supplies its
-own daemon command to the launcher. The compiled binary contains the terminal
-WASM and can run outside the checkout.
+`$stateDir/daemon.log`. All three work on every command, before or after the
+command name. The CLI supplies its own `daemon serve` command to the launcher,
+and `werk daemon serve` runs a daemon in the foreground.
 
 `create --scrollback BYTES` asks for a page-memory budget for the session's
 scrollback; omitting it takes the daemon's cap, and asking for more than the cap
@@ -17,7 +25,7 @@ fails rather than being clamped. `logs ID` prints the retained screen and
 `logs --history` the retained history, which is not a complete durable output
 log. `info` prints the resolved paths, the lock mechanism, the recorded daemon
 and the daemon's capabilities; `doctor` adds directory, lock and terminfo checks
-and the tail of the log. Both are read-only.
+and the tail of the log. Both are read-only and neither starts a daemon.
 
 TTY attachment carries a local snapshot replica and paints cell frames using
 ANSI escapes. The underlying terminal's font and supported attributes determine
@@ -57,4 +65,6 @@ identity (`TERM`, `COLORTERM`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `TERMCAP`
 `LINES`, `COLUMNS`, `WINDOWID`), multiplexer markers (`TMUX`, `TMUX_PANE`, `STY`,
 `WINDOW`, `ZELLIJ`, `ZELLIJ_SESSION_NAME`, `ZELLIJ_PANE_ID`, `WERK_SESSION`), shell
 bookkeeping (`_`, `PWD`, `OLDPWD`, `SHLVL`) and `GPG_TTY`. Other exported values,
-including credentials and agent socket paths, come from the current caller.
+including credentials and agent socket paths, come from the current caller. The
+compiled binary is built with `--no-compile-autoload-dotenv`, so a `.env` in the
+directory `werk` was run from is not read into that environment.
