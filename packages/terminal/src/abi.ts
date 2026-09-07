@@ -18,6 +18,9 @@ type Description = {
 export class Abi {
   readonly exports: WebAssembly.Exports;
   readonly types: Record<string, Description>;
+  private buffer?: ArrayBuffer;
+  private cachedBytes?: Uint8Array;
+  private cachedView?: DataView;
   constructor(instance: WebAssembly.Instance) {
     this.exports = instance.exports;
     const p = this.call("ghostty_type_json");
@@ -28,10 +31,27 @@ export class Abi {
     ).types;
   }
   bytes() {
-    return new Uint8Array((this.exports.memory as WebAssembly.Memory).buffer);
+    const buffer = (this.exports.memory as WebAssembly.Memory).buffer;
+    // WASM growth replaces the buffer and detaches the old views.
+    if (buffer !== this.buffer) {
+      this.buffer = buffer;
+      this.cachedBytes = new Uint8Array(buffer);
+      this.cachedView = new DataView(buffer);
+    }
+    return this.cachedBytes!;
   }
   view() {
-    return new DataView(this.bytes().buffer);
+    this.bytes();
+    return this.cachedView!;
+  }
+  u32(p: number): number {
+    return this.view().getUint32(p, true);
+  }
+  u8(p: number): number {
+    return this.view().getUint8(p);
+  }
+  setU32(p: number, value: number): void {
+    this.view().setUint32(p, value, true);
   }
   call(name: string, ...args: (number | bigint)[]): number {
     return Number((this.exports[name] as Function)(...args) ?? 0);

@@ -17,6 +17,19 @@ export interface ReplicaEvent {
   snapshotFormatVersion?: number;
   data?: Uint8Array;
 }
+/** Return a cancellation function when the scheduler supports cancellation. */
+export type PaintScheduler = (paint: () => void) => void | (() => void);
+export interface ReplicaOptions {
+  schedulePaint?: PaintScheduler;
+}
+export const defaultScheduler: PaintScheduler = (paint) => {
+  if (typeof requestAnimationFrame === "function") {
+    const id = requestAnimationFrame(paint);
+    return () => cancelAnimationFrame(id);
+  }
+  const id = setTimeout(paint, 0);
+  return () => clearTimeout(id);
+};
 export class TerminalReplica {
   private terminal?: TerminalHandle;
   private attachmentId?: string;
@@ -24,12 +37,21 @@ export class TerminalReplica {
   private position = -1;
   private closed = false;
   private queue = Promise.resolve();
+  private pending?: { cancel?: () => void };
+  private paintError?: { error: unknown };
+  private schedule: PaintScheduler;
   constructor(
     private factory: TerminalEngineFactory,
     private renderer?: Renderer,
-  ) {}
+    options: ReplicaOptions = {},
+  ) {
+    this.schedule = options.schedulePaint ?? defaultScheduler;
+  }
   apply(event: ReplicaEvent): Promise<void> {
-    const next = this.queue.then(() => this.accept(event));
+    const next = this.queue.then(async () => {
+      await this.accept(event);
+      this.throwPaintError();
+    });
     this.queue = next.catch(() => {});
     return next;
   }
@@ -73,8 +95,44 @@ export class TerminalReplica {
       if (e.type === "resize" && e.size) this.terminal!.resize(e.size);
     }
     this.position = e.position;
-    if (this.terminal && this.renderer)
-      this.renderer.paint(this.terminal.frame());
+    if (this.terminal && this.renderer) this.requestPaint();
+    if (e.type === "ended") this.flush();
+  }
+  private requestPaint() {
+    if (this.pending) return;
+    const pending: { cancel?: () => void } = {};
+    this.pending = pending;
+    try {
+      const cancel = this.schedule(() => {
+        if (this.pending !== pending || this.closed) return;
+        this.pending = undefined;
+        try {
+          this.renderer!.paint(this.terminal!.frame());
+        } catch (error) {
+          this.paintError = { error };
+        }
+      });
+      if (typeof cancel === "function") pending.cancel = cancel;
+    } catch (error) {
+      this.pending = undefined;
+      throw error;
+    }
+  }
+  /** Paint applied events now; also surface any earlier scheduled paint failure. */
+  flush(): void {
+    if (this.closed) return;
+    this.throwPaintError();
+    const pending = this.pending;
+    if (!pending) return;
+    this.pending = undefined;
+    pending.cancel?.();
+    this.renderer!.paint(this.terminal!.frame());
+  }
+  private throwPaintError() {
+    if (!this.paintError) return;
+    const { error } = this.paintError;
+    this.paintError = undefined;
+    throw error;
   }
   inputModes(): InputModes | undefined {
     return this.terminal?.inputModes();
@@ -88,13 +146,24 @@ export class TerminalReplica {
   dispose() {
     if (this.closed) return;
     this.closed = true;
-    this.terminal?.dispose();
-    this.renderer?.dispose();
+    const pending = this.pending;
+    this.pending = undefined;
+    this.paintError = undefined;
+    try {
+      pending?.cancel?.();
+    } finally {
+      try {
+        this.terminal?.dispose();
+      } finally {
+        this.renderer?.dispose();
+      }
+    }
   }
 }
 export function createTerminalReplica(
   factory: TerminalEngineFactory,
   renderer?: Renderer,
+  options: ReplicaOptions = {},
 ) {
-  return new TerminalReplica(factory, renderer);
+  return new TerminalReplica(factory, renderer, options);
 }

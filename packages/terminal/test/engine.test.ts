@@ -175,3 +175,126 @@ test("viewport scrolling and cell selections preserve wide graphemes", async () 
     t.dispose();
   }
 });
+
+test("scrollback budgets retain history and survive restore with optional pruning", async () => {
+  const factory = await loadTerminalEngine();
+  expect(factory.capabilities.scrollbackLimit).toBe(true);
+  const data = bytes(
+    Array.from({ length: 30000 }, (_, i) => `line ${i}\r\n`).join(""),
+  );
+  const size = { cols: 120, rows: 40 };
+  let defaultRows = 0;
+  for (const scrollbackBytes of [undefined, 1_000_000, 10_000_000]) {
+    const t = await factory.create(size, { scrollbackBytes });
+    try {
+      expect(t.scrollback()).toEqual({
+        maxBytes: scrollbackBytes ?? 10000,
+        rows: 0,
+      });
+      t.write(data);
+      const retained = t.scrollback();
+      if (scrollbackBytes === undefined) defaultRows = retained.rows;
+      else if (scrollbackBytes === 1_000_000)
+        expect(retained.rows).toBe(defaultRows);
+      else {
+        expect(retained.rows).toBeGreaterThan(5000);
+        const snapshot = t.snapshot();
+        const restored = await factory.restore(snapshot);
+        try {
+          expect(restored.scrollback()).toEqual(retained);
+          expect(restored.readHistory()).toBe(t.readHistory());
+          restored.write(data);
+          expect(restored.scrollback().rows).toBeGreaterThan(5000);
+        } finally {
+          restored.dispose();
+        }
+        const pruned = await factory.restore(snapshot, {
+          scrollbackBytes: 1_000_000,
+        });
+        try {
+          expect(pruned.scrollback().maxBytes).toBe(1_000_000);
+          expect(pruned.scrollback().rows).toBeLessThan(retained.rows);
+          expect(pruned.readScreen()).toBe(t.readScreen());
+        } finally {
+          pruned.dispose();
+        }
+      }
+    } finally {
+      t.dispose();
+    }
+  }
+});
+
+test("scrollback validates wasm32 budgets, supports zero and guards disposed readers", async () => {
+  const factory = await loadTerminalEngine();
+  const size = { cols: 20, rows: 3 };
+  const t = await factory.create(size, { scrollbackBytes: 0 });
+  try {
+    t.write(bytes("line\r\n".repeat(1000)));
+    expect(t.scrollback()).toEqual({ maxBytes: 0, rows: 0 });
+    const snapshot = t.snapshot();
+    for (const scrollbackBytes of [-1, 0.5, NaN, Infinity, 0x100000000]) {
+      await expect(
+        factory.create(size, { scrollbackBytes }),
+      ).rejects.toBeInstanceOf(RangeError);
+      await expect(
+        factory.restore(snapshot, { scrollbackBytes }),
+      ).rejects.toBeInstanceOf(RangeError);
+    }
+    const largest = await factory.create(size, { scrollbackBytes: 0xffffffff });
+    try {
+      expect(largest.scrollback().maxBytes).toBeNull();
+    } finally {
+      largest.dispose();
+    }
+  } finally {
+    t.dispose();
+  }
+  expect(() => t.scrollback()).toThrow("disposed");
+});
+
+test("screen formatting preserves styles and graphemes without consuming frame dirtiness", async () => {
+  const factory = await loadTerminalEngine();
+  expect(factory.capabilities.preview).toBe(true);
+  const size = { cols: 20, rows: 3 };
+  const t = await factory.create(size);
+  const replay = await factory.create(size);
+  try {
+    t.write(bytes("old history\r\n".repeat(10)));
+    t.write(bytes("\x1b[2J\x1b[H\x1b[31;1mA界é\x1b[0m &<end>\r\nsecond"));
+    t.frame();
+    t.write(bytes("!"));
+    t.formatScreen("vt");
+    t.formatScreen("html");
+    expect(t.frame().changed.map((row) => row.y)).toEqual([1]);
+    t.scrollViewport("top");
+    const plain = t.formatScreen("plain");
+    expect(plain).toBe(t.readScreen());
+    expect(plain).not.toContain("old history");
+    const vt = t.formatScreen("vt");
+    replay.write(bytes(vt.replace(/\r?\n/g, "\r\n")));
+    expect(replay.readScreen()).toBe(plain);
+    const html = t.formatScreen("html");
+    expect(html).toContain("&lt;");
+    expect(html).toContain("&amp;");
+    // A preview carries the cursor without the cost of building a frame.
+    expect(t.cursor()).toEqual(t.frame().cursor);
+    expect(t.cursor()).toEqual({ x: 7, y: 1, visible: true });
+    t.write(bytes("\x1b[?25l"));
+    expect(t.cursor().visible).toBe(false);
+    t.write(bytes("\x1b[?25h"));
+    t.scrollViewport("bottom");
+    const rendered = t.frame();
+    expect(rendered.changed.length).toBeGreaterThan(0);
+    const first = rendered.changed.find((row) => row.y === 0)!.cells;
+    expect(replay.frame().changed[0]!.cells.slice(0, 5)).toEqual(
+      first.slice(0, 5),
+    );
+    expect(t.frame().changed).toHaveLength(0);
+  } finally {
+    t.dispose();
+    replay.dispose();
+  }
+  expect(() => t.formatScreen("plain")).toThrow("disposed");
+  expect(() => t.cursor()).toThrow("disposed");
+});

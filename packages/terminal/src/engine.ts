@@ -3,6 +3,7 @@ import {
   validateSize,
   UnsupportedSnapshotError,
   type Size,
+  type TerminalOptions,
   type SnapshotEnvelope,
   type TerminalEffect,
   type TerminalHandle,
@@ -14,6 +15,19 @@ import {
 } from "./types.js";
 export const ENGINE_BUILD = "ghostty-3c1ef5b32fc5ea6b93d28493fabf193f595139cf";
 export const SNAPSHOT_FORMAT_VERSION = 1;
+const DEFAULT_FG = 0xd8dee9,
+  DEFAULT_BG = 0x161b22;
+function validateOptions({ scrollbackBytes }: TerminalOptions): void {
+  if (
+    scrollbackBytes !== undefined &&
+    (!Number.isInteger(scrollbackBytes) ||
+      scrollbackBytes < 0 ||
+      scrollbackBytes > 0xffffffff)
+  )
+    throw new RangeError(
+      "scrollbackBytes must be an integer from 0 to 4,294,967,295",
+    );
+}
 export async function createTerminalEngine(
   source: Uint8Array | ArrayBuffer | WebAssembly.Module,
 ): Promise<TerminalEngineFactory> {
@@ -28,24 +42,28 @@ export async function createTerminalEngine(
       snapshot: true,
       screen: true,
       history: true,
+      scrollbackLimit: true,
+      preview: true,
       cursor: true,
       viewport: true,
       selection: true,
       inputModes: true,
     },
-    async create(size) {
+    async create(size, options = {}) {
       validateSize(size);
+      validateOptions(options);
       const a = new Abi(await WebAssembly.instantiate(module, {}));
       let h = 0;
       try {
         h = a.handle("ghostty_terminal_new", size.cols, size.rows);
-        return new Terminal(a, h, size);
+        return new Terminal(a, h, size, options);
       } catch (e) {
         if (h) a.call("ghostty_terminal_free", h);
         throw e;
       }
     },
-    async restore(s) {
+    async restore(s, options = {}) {
+      validateOptions(options);
       if (
         s.engineBuild !== ENGINE_BUILD ||
         s.formatVersion !== SNAPSHOT_FORMAT_VERSION
@@ -89,12 +107,15 @@ export async function createTerminalEngine(
             if (code === a.enum("GhosttyResult", "NO_VALUE")) break;
             if (code !== 0) throw new Error(`Invalid snapshot: ${code}`);
           }
-          const t = new Terminal(a, h, s.size);
+          const t = new Terminal(a, h, s.size, options);
           if (
             t.number("COLS") !== s.size.cols ||
             t.number("ROWS") !== s.size.rows
-          )
+          ) {
+            t.dispose();
+            h = 0;
             throw new Error("Snapshot dimensions disagree with envelope");
+          }
           return t;
         } catch (e) {
           if (h) a.call("ghostty_terminal_free", h);
@@ -107,11 +128,169 @@ export async function createTerminalEngine(
   };
   return factory;
 }
+type BitField = { lsb: number; width: number };
+/** Bit extraction over a u64 split into two little-endian u32 words. */
+function bits(lo: number, hi: number, f: BitField): number {
+  const mask = f.width >= 32 ? 0xffffffff : (1 << f.width) - 1;
+  if (f.lsb + f.width <= 32) return (lo >>> f.lsb) & mask;
+  if (f.lsb >= 32) return (hi >>> (f.lsb - 32)) & mask;
+  return ((lo >>> f.lsb) | (hi << (32 - f.lsb))) & mask;
+}
+const ascii: string[] = [];
+for (let i = 0; i < 128; i++) ascii.push(String.fromCharCode(i));
+interface Layout {
+  contentTag: BitField;
+  codepoint: BitField;
+  bgIndex: BitField;
+  bgR: BitField;
+  bgG: BitField;
+  bgB: BitField;
+  styleId: BitField;
+  wide: BitField;
+  tagCodepoint: number;
+  tagGrapheme: number;
+  tagBgPalette: number;
+  tagBgRgb: number;
+  styleSize: number;
+  fgTag: number;
+  fgValue: number;
+  bgTag: number;
+  bgValue: number;
+  bold: number;
+  italic: number;
+  inverse: number;
+  strikethrough: number;
+  underline: number;
+  colourPalette: number;
+  colourRgb: number;
+  colorsSize: number;
+  paletteOffset: number;
+  viewPtr: number;
+  viewLen: number;
+  dirtyPartial: number;
+  dirtyFull: number;
+  kDirty: number;
+  kRowIterator: number;
+  kColors: number;
+  kCells: number;
+  kCellsRaw: number;
+  kStyle: number;
+  kGraphemesLen: number;
+  kGraphemesBuf: number;
+}
+function layout(a: Abi): Layout {
+  const cell = a.types.GhosttyCell as any;
+  const content = cell.bits.content;
+  const arms = content.arms;
+  const rel = (arm: string, name: string): BitField => ({
+    lsb: content.lsb + arms[arm].bits[name].lsb,
+    width: arms[arm].bits[name].width,
+  });
+  const style = a.types.GhosttyStyle!;
+  const sc = a.types.GhosttyStyleColor!;
+  const colors = a.types.GhosttyRenderStateColors!;
+  const view = a.types.GhosttyCellsView!;
+  return {
+    contentTag: cell.bits.content_tag,
+    codepoint: rel("CODEPOINT", "codepoint"),
+    bgIndex: rel("BG_COLOR_PALETTE", "index"),
+    bgR: rel("BG_COLOR_RGB", "r"),
+    bgG: rel("BG_COLOR_RGB", "g"),
+    bgB: rel("BG_COLOR_RGB", "b"),
+    styleId: cell.bits.style_id,
+    wide: cell.bits.wide,
+    tagCodepoint: a.enum("GhosttyCellContentTag", "CODEPOINT"),
+    tagGrapheme: a.enum("GhosttyCellContentTag", "CODEPOINT_GRAPHEME"),
+    tagBgPalette: a.enum("GhosttyCellContentTag", "BG_COLOR_PALETTE"),
+    tagBgRgb: a.enum("GhosttyCellContentTag", "BG_COLOR_RGB"),
+    styleSize: style.size,
+    fgTag: style.fields!.fg_color!.offset + sc.fields!.tag!.offset,
+    fgValue: style.fields!.fg_color!.offset + sc.fields!.value!.offset,
+    bgTag: style.fields!.bg_color!.offset + sc.fields!.tag!.offset,
+    bgValue: style.fields!.bg_color!.offset + sc.fields!.value!.offset,
+    bold: style.fields!.bold!.offset,
+    italic: style.fields!.italic!.offset,
+    inverse: style.fields!.inverse!.offset,
+    strikethrough: style.fields!.strikethrough!.offset,
+    underline: style.fields!.underline!.offset,
+    colourPalette: a.enum("GhosttyStyleColorTag", "PALETTE"),
+    colourRgb: a.enum("GhosttyStyleColorTag", "RGB"),
+    colorsSize: colors.size,
+    paletteOffset: colors.fields!.palette!.offset,
+    viewPtr: view.fields!.ptr!.offset,
+    viewLen: view.fields!.len!.offset,
+    dirtyPartial: a.enum("GhosttyRenderStateDirty", "PARTIAL"),
+    dirtyFull: a.enum("GhosttyRenderStateDirty", "FULL"),
+    kDirty: a.enum("GhosttyRenderStateData", "DIRTY"),
+    kRowIterator: a.enum("GhosttyRenderStateData", "ROW_ITERATOR"),
+    kColors: a.enum("GhosttyRenderStateData", "COLORS"),
+    kCells: a.enum("GhosttyRenderStateRowData", "CELLS"),
+    kCellsRaw: a.enum("GhosttyRenderStateRowData", "CELLS_RAW"),
+    kStyle: a.enum("GhosttyRenderStateRowCellsData", "STYLE"),
+    kGraphemesLen: a.enum("GhosttyRenderStateRowCellsData", "GRAPHEMES_LEN"),
+    kGraphemesBuf: a.enum("GhosttyRenderStateRowCellsData", "GRAPHEMES_BUF"),
+  };
+}
+interface Style {
+  fg: number;
+  bg: number; // -1 when the style has no bg
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  inverse: boolean;
+  strikethrough: boolean;
+}
+const plain: Style = {
+  fg: DEFAULT_FG,
+  bg: -1,
+  bold: false,
+  italic: false,
+  underline: false,
+  inverse: false,
+  strikethrough: false,
+};
+function same(a: Cell, b: Cell) {
+  return (
+    a.text === b.text &&
+    a.width === b.width &&
+    a.fg === b.fg &&
+    a.bg === b.bg &&
+    a.bold === b.bold &&
+    a.italic === b.italic &&
+    a.underline === b.underline &&
+    a.inverse === b.inverse &&
+    a.strikethrough === b.strikethrough
+  );
+}
+function blank(): Cell {
+  return {
+    text: " ",
+    width: 1,
+    fg: DEFAULT_FG,
+    bg: DEFAULT_BG,
+    bold: false,
+    italic: false,
+    underline: false,
+    inverse: false,
+    strikethrough: false,
+  };
+}
 class Terminal implements TerminalHandle {
   private ended = false;
   private effects: TerminalEffect[] = [];
-  private previous: string[] = [];
+  private shadow: Cell[][] = [];
   private grid: Size;
+  private L: Layout;
+  // update consumes terminal dirtiness: this is the sole persistent render state.
+  private state = 0;
+  private iter = 0;
+  private cellsHandle = 0;
+  private scratch = 0;
+  private scratchSize = 1024;
+  private forceFull = true;
+  private wrote = false;
+  private palette = new Uint32Array(256);
+  private words = new Uint32Array(0);
   get size() {
     return { ...this.grid };
   }
@@ -119,9 +298,20 @@ class Terminal implements TerminalHandle {
     private a: Abi,
     private h: number,
     size: Size,
+    options: TerminalOptions = {},
   ) {
     this.grid = { ...size };
+    this.L = layout(a);
     a.temporary(4, (p) => {
+      if (options.scrollbackBytes !== undefined) {
+        a.write(p, "u32", options.scrollbackBytes);
+        a.check(
+          "ghostty_terminal_set",
+          h,
+          a.enum("GhosttyTerminalOption", "SCROLLBACK_MAX_BYTES"),
+          p,
+        );
+      }
       a.write(p, "u32", 1048576);
       a.check(
         "ghostty_terminal_set",
@@ -167,6 +357,15 @@ class Terminal implements TerminalHandle {
         a.hook(arity, fn),
       );
     }
+    try {
+      this.state = a.handle("ghostty_render_state_new");
+      this.iter = a.handle("ghostty_render_state_row_iterator_new");
+      this.cellsHandle = a.handle("ghostty_render_state_row_cells_new");
+      this.scratch = a.alloc(this.scratchSize);
+    } catch (error) {
+      this.freeRenderState();
+      throw error;
+    }
   }
   private live() {
     if (this.ended) throw new Error("Terminal is disposed");
@@ -199,11 +398,13 @@ class Terminal implements TerminalHandle {
   write(bytes: Uint8Array) {
     this.live();
     this.effects = [];
-    if (bytes.length)
+    if (bytes.length) {
+      this.wrote = true;
       this.a.temporary(bytes.length, (p) => {
         this.a.bytes().set(bytes, p);
         this.a.call("ghostty_terminal_vt_write", this.h, p, bytes.length);
       });
+    }
     return this.effects.splice(0);
   }
   resize(size: Size) {
@@ -218,7 +419,8 @@ class Terminal implements TerminalHandle {
       16,
     );
     this.grid = { ...size };
-    this.previous = [];
+    this.forceFull = true;
+    this.shadow = [];
   }
   private allocated(name: string, ...args: number[]): Uint8Array {
     return this.a.temporary(8, (p) => {
@@ -241,11 +443,11 @@ class Terminal implements TerminalHandle {
       bytes: this.allocated("ghostty_snapshot_encode_alloc", this.h),
     };
   }
-  private format(selection: number) {
+  private format(selection: number, emit: "PLAIN" | "VT" | "HTML" = "PLAIN") {
     const a = this.a;
     return a.object("GhosttyFormatterTerminalOptions", (p) => {
       a.write(p, "GhosttyFormatterTerminalOptions", {
-        emit: "PLAIN",
+        emit,
         trim: true,
         unwrap: false,
         selection,
@@ -291,6 +493,22 @@ class Terminal implements TerminalHandle {
       kittyKeyboardFlags: this.number("KITTY_KEYBOARD_FLAGS"),
     };
   }
+  scrollback() {
+    this.live();
+    const maxBytes = this.a.temporary(4, (p) => {
+      const result = this.a.call(
+        "ghostty_terminal_get",
+        this.h,
+        this.a.enum("GhosttyTerminalData", "SCROLLBACK_MAX_BYTES"),
+        p,
+      );
+      if (result === this.a.enum("GhosttyResult", "NO_VALUE")) return null;
+      if (result !== 0)
+        throw new Error(`Unable to read scrollback limit: ${result}`);
+      return this.a.read(p, "u32") as number;
+    });
+    return { maxBytes, rows: this.number("SCROLLBACK_ROWS") };
+  }
   viewport() {
     this.live();
     return this.a.object("GhosttyTerminalScrollbar", (p) => {
@@ -325,7 +543,8 @@ class Terminal implements TerminalHandle {
       );
       this.a.call("ghostty_terminal_scroll_viewport", this.h, p);
     });
-    this.previous = [];
+    this.forceFull = true;
+    this.shadow = [];
   }
   readSelection(selection: Selection) {
     this.live();
@@ -373,7 +592,12 @@ class Terminal implements TerminalHandle {
     return this.format(0);
   }
   readScreen() {
+    return this.formatScreen("plain");
+  }
+  formatScreen(format: "plain" | "vt" | "html") {
     this.live();
+    if (!["plain", "vt", "html"].includes(format))
+      throw new RangeError("Unsupported screen format");
     const a = this.a;
     return a.object("GhosttySelection", (s) =>
       a.object("GhosttyPoint", (p) => {
@@ -389,129 +613,277 @@ class Terminal implements TerminalHandle {
             s + a.types.GhosttySelection!.fields![k]!.offset,
           );
         }
-        const rows = this.format(s).split("\n");
+        const formatted = this.format(
+          s,
+          format.toUpperCase() as "PLAIN" | "VT" | "HTML",
+        );
+        if (format !== "plain") return formatted;
+        const rows = formatted.split("\n");
         while (rows.length < this.grid.rows) rows.push("");
         return rows.slice(0, this.grid.rows).join("\n");
       }),
     );
   }
-  frame(): Frame {
+  cursor() {
     this.live();
-    const cells = this.cells();
-    const changed: Frame["changed"] = [];
-    for (let y = 0; y < cells.length; y++) {
-      const serial = JSON.stringify(cells[y]);
-      if (serial !== this.previous[y]) changed.push({ y, cells: cells[y]! });
-      this.previous[y] = serial;
-    }
     return {
-      ...this.size,
-      changed,
-      cursor: {
-        x: this.number("CURSOR_X"),
-        y: this.number("CURSOR_Y"),
-        visible: !!this.number("CURSOR_VISIBLE"),
-      },
+      x: this.number("CURSOR_X"),
+      y: this.number("CURSOR_Y"),
+      visible: !!this.number("CURSOR_VISIBLE"),
     };
   }
-  private cells(): Cell[][] {
-    const a = this.a;
-    const state = a.handle("ghostty_render_state_new");
-    const iter = a.handle("ghostty_render_state_row_iterator_new");
-    const cells = a.handle("ghostty_render_state_row_cells_new");
-    try {
-      return a.temporary(256, (p) => {
-        a.check("ghostty_render_state_update", state, this.h);
-        a.write(p, "pointer", iter);
-        a.check(
-          "ghostty_render_state_get",
-          state,
-          a.enum("GhosttyRenderStateData", "ROW_ITERATOR"),
-          p,
-        );
-        const rows: Cell[][] = [];
-        while (a.call("ghostty_render_state_row_iterator_next", iter)) {
-          a.write(p, "pointer", cells);
-          a.check(
-            "ghostty_render_state_row_get",
-            iter,
-            a.enum("GhosttyRenderStateRowData", "CELLS"),
-            p,
-          );
-          const row: Cell[] = [];
-          for (let x = 0; x < this.grid.cols; x++) {
-            a.check("ghostty_render_state_row_cells_select", cells, x);
-            const get = (key: string) =>
-              a.check(
-                "ghostty_render_state_row_cells_get",
-                cells,
-                a.enum("GhosttyRenderStateRowCellsData", key),
-                p,
-              );
-            get("RAW");
-            const raw = a.read(p, "u64") as bigint;
-            const bits = a.types.GhosttyCell as any;
-            const wide = Number((raw >> BigInt(bits.bits.wide.lsb)) & 3n);
-            a.write(p, "GhosttyStyle", {});
-            get("STYLE");
-            const st = a.read(p, "GhosttyStyle");
-            const colour = (key: string, fallback: number) => {
-              const code = a.call(
-                "ghostty_render_state_row_cells_get",
-                cells,
-                a.enum("GhosttyRenderStateRowCellsData", key),
-                p,
-              );
-              return code === 0
-                ? (a.bytes()[p]! << 16) |
-                    (a.bytes()[p + 1]! << 8) |
-                    a.bytes()[p + 2]!
-                : fallback;
-            };
-            const fg = colour("FG_COLOR", 0xd8dee9),
-              bg = colour("BG_COLOR", 0x161b22);
-            get("GRAPHEMES_LEN");
-            const n = a.read(p, "u32");
-            const text = n
-              ? a.temporary(n * 4, (q) => {
-                  a.check(
-                    "ghostty_render_state_row_cells_get",
-                    cells,
-                    a.enum("GhosttyRenderStateRowCellsData", "GRAPHEMES_BUF"),
-                    q,
-                  );
-                  return Array.from({ length: n }, (_, i) =>
-                    String.fromCodePoint(a.read(q + i * 4, "u32")),
-                  ).join("");
-                })
-              : " ";
-            row.push({
-              text,
-              width: wide === 1 ? 2 : wide === 2 || wide === 3 ? 0 : 1,
-              fg,
-              bg,
-              bold: st.bold,
-              italic: st.italic,
-              underline: !!st.underline,
-              inverse: st.inverse,
-              strikethrough: st.strikethrough,
-            });
-          }
-          rows.push(row);
-        }
-        return rows;
-      });
-    } finally {
-      a.call("ghostty_render_state_row_cells_free", cells);
-      a.call("ghostty_render_state_row_iterator_free", iter);
-      a.call("ghostty_render_state_free", state);
+  frame(): Frame {
+    this.live();
+    const a = this.a,
+      L = this.L,
+      p = this.scratch;
+    const cursor = this.cursor();
+    a.check("ghostty_render_state_update", this.state, this.h);
+    a.check("ghostty_render_state_get", this.state, L.kDirty, p);
+    const dirty = a.view().getUint32(p, true);
+    const changed: Frame["changed"] = [];
+    const full = this.forceFull || dirty === L.dirtyFull;
+    const partial = !full && dirty === L.dirtyPartial;
+    const rows = this.grid.rows;
+    // A grapheme append does not dirty its row on the pinned build, and the
+    // persistent state only re-copies dirty rows. After a write, the cursor
+    // row and the row above must therefore come from a fresh render state
+    // unless the dirty walk already delivered them.
+    const need = new Set<number>();
+    if (this.wrote && !full) {
+      if (cursor.y > 0) need.add(cursor.y - 1);
+      need.add(cursor.y);
     }
+    if (full || partial) {
+      this.readPalette(this.state);
+      a.setU32(this.scratch, this.iter);
+      a.check(
+        "ghostty_render_state_get",
+        this.state,
+        L.kRowIterator,
+        this.scratch,
+      );
+      let nextY = 0;
+      for (;;) {
+        let y: number;
+        if (full) {
+          if (!a.call("ghostty_render_state_row_iterator_next", this.iter))
+            break;
+          y = nextY++;
+        } else {
+          if (
+            !a.call(
+              "ghostty_render_state_row_iterator_next_dirty",
+              this.iter,
+              this.scratch,
+            )
+          )
+            break;
+          y = a.view().getUint16(this.scratch, true);
+        }
+        need.delete(y);
+        this.compareRow(y, this.decodeRow(), changed);
+      }
+      if (full)
+        for (let y = 0; y < rows; y++)
+          if (!this.shadow[y]) {
+            const cells = Array.from({ length: this.grid.cols }, blank);
+            this.shadow[y] = cells.map((cell) => ({ ...cell }));
+            changed.push({ y, cells });
+          }
+    }
+    if (need.size) {
+      const s = a.handle("ghostty_render_state_new");
+      try {
+        a.check("ghostty_render_state_update", s, this.h);
+        this.readPalette(s);
+        a.setU32(this.scratch, this.iter);
+        a.check("ghostty_render_state_get", s, L.kRowIterator, this.scratch);
+        const last = Math.max(...need);
+        for (let y = 0; y <= last; y++) {
+          if (!a.call("ghostty_render_state_row_iterator_next", this.iter))
+            break;
+          if (need.has(y)) this.compareRow(y, this.decodeRow(), changed);
+        }
+      } finally {
+        a.call("ghostty_render_state_free", s);
+      }
+    }
+    changed.sort((m, n) => m.y - n.y);
+    a.check("ghostty_render_state_clean", this.state);
+    this.forceFull = false;
+    this.wrote = false;
+    return { ...this.size, changed, cursor };
+  }
+  private readPalette(state: number) {
+    const a = this.a,
+      L = this.L,
+      p = this.scratch;
+    a.view().setUint32(p, L.colorsSize, true);
+    a.check("ghostty_render_state_get", state, L.kColors, p);
+    const b = a.bytes();
+    let at = p + L.paletteOffset;
+    for (let i = 0; i < 256; i++, at += 3)
+      this.palette[i] = (b[at]! << 16) | (b[at + 1]! << 8) | b[at + 2]!;
+  }
+  private compareRow(y: number, cells: Cell[], changed: Frame["changed"]) {
+    const prev = this.shadow[y];
+    let differs = !prev || prev.length !== cells.length;
+    if (!differs)
+      for (let x = 0; x < cells.length; x++)
+        if (!same(prev![x]!, cells[x]!)) {
+          differs = true;
+          break;
+        }
+    if (differs) {
+      changed.push({ y, cells });
+      this.shadow[y] = cells.map((cell) => ({ ...cell }));
+    }
+  }
+  private decodeRow(): Cell[] {
+    const a = this.a,
+      L = this.L,
+      p = this.scratch;
+    a.check("ghostty_render_state_row_get", this.iter, L.kCellsRaw, p);
+    let v = a.view();
+    const ptr = v.getUint32(p + L.viewPtr, true),
+      len = v.getUint32(p + L.viewLen, true);
+    if (this.words.length < len * 2) this.words = new Uint32Array(len * 2);
+    const words = this.words;
+    // Copy the borrowed row out; later calls may grow memory.
+    words.set(new Uint32Array(a.bytes().buffer, ptr, len * 2));
+    const cols = this.grid.cols;
+    const cells: Cell[] = new Array(cols);
+    let selected = false;
+    let styles: Map<number, Style> | undefined;
+    for (let x = 0; x < len && x < cols; x++) {
+      const lo = words[x * 2]!,
+        hi = words[x * 2 + 1]!;
+      const tag = bits(lo, hi, L.contentTag);
+      const styleId = bits(lo, hi, L.styleId);
+      const wide = bits(lo, hi, L.wide);
+      let text = " ";
+      let bg = -1;
+      if (tag === L.tagCodepoint) {
+        const cp = bits(lo, hi, L.codepoint);
+        if (cp) text = cp < 128 ? ascii[cp]! : String.fromCodePoint(cp);
+      } else if (tag === L.tagGrapheme) {
+        if (!selected) selected = this.selectRow();
+        a.check("ghostty_render_state_row_cells_select", this.cellsHandle, x);
+        a.check(
+          "ghostty_render_state_row_cells_get",
+          this.cellsHandle,
+          L.kGraphemesLen,
+          this.scratch,
+        );
+        const n = a.u32(this.scratch);
+        const q = this.ensureScratch(n * 4 + 256) + 256;
+        a.check(
+          "ghostty_render_state_row_cells_get",
+          this.cellsHandle,
+          L.kGraphemesBuf,
+          q,
+        );
+        v = a.view();
+        const parts: number[] = [];
+        for (let i = 0; i < n; i++) parts.push(v.getUint32(q + i * 4, true));
+        text = String.fromCodePoint(...parts);
+      } else if (tag === L.tagBgPalette) {
+        bg = this.palette[bits(lo, hi, L.bgIndex)]!;
+      } else if (tag === L.tagBgRgb) {
+        bg =
+          (bits(lo, hi, L.bgR) << 16) |
+          (bits(lo, hi, L.bgG) << 8) |
+          bits(lo, hi, L.bgB);
+      }
+      // Style ids are page-local: never carry this cache across rows.
+      let st = plain;
+      if (styleId) {
+        st = (styles ??= new Map()).get(styleId)!;
+        if (!st) {
+          if (!selected) selected = this.selectRow();
+          a.check("ghostty_render_state_row_cells_select", this.cellsHandle, x);
+          st = this.readStyle();
+          styles.set(styleId, st);
+        }
+      }
+      if (bg < 0) bg = st.bg < 0 ? DEFAULT_BG : st.bg;
+      cells[x] = {
+        text,
+        width: wide === 1 ? 2 : wide === 2 || wide === 3 ? 0 : 1,
+        fg: st.fg,
+        bg,
+        bold: st.bold,
+        italic: st.italic,
+        underline: st.underline,
+        inverse: st.inverse,
+        strikethrough: st.strikethrough,
+      };
+    }
+    for (let x = len; x < cols; x++) cells[x] = blank();
+    return cells;
+  }
+  private selectRow(): true {
+    const a = this.a,
+      p = this.scratch;
+    a.view().setUint32(p, this.cellsHandle, true);
+    a.check("ghostty_render_state_row_get", this.iter, this.L.kCells, p);
+    return true;
+  }
+  private ensureScratch(n: number): number {
+    if (n <= this.scratchSize) return this.scratch;
+    const size = Math.max(n, this.scratchSize * 2);
+    const scratch = this.a.alloc(size);
+    this.a.free(this.scratch, this.scratchSize);
+    this.scratchSize = size;
+    this.scratch = scratch;
+    return this.scratch;
+  }
+  private readStyle(): Style {
+    const a = this.a,
+      L = this.L,
+      p = this.scratch + 128;
+    let v = a.view();
+    v.setUint32(p, L.styleSize, true);
+    a.check(
+      "ghostty_render_state_row_cells_get",
+      this.cellsHandle,
+      L.kStyle,
+      p,
+    );
+    v = a.view();
+    const b = a.bytes();
+    const colour = (tagAt: number, valueAt: number, none: number) => {
+      const tag = v.getInt32(tagAt, true);
+      if (tag === L.colourPalette) return this.palette[b[valueAt]!]!;
+      if (tag === L.colourRgb)
+        return (b[valueAt]! << 16) | (b[valueAt + 1]! << 8) | b[valueAt + 2]!;
+      return none;
+    };
+    return {
+      fg: colour(p + L.fgTag, p + L.fgValue, DEFAULT_FG),
+      bg: colour(p + L.bgTag, p + L.bgValue, -1),
+      bold: !!b[p + L.bold],
+      italic: !!b[p + L.italic],
+      underline: v.getInt32(p + L.underline, true) !== 0,
+      inverse: !!b[p + L.inverse],
+      strikethrough: !!b[p + L.strikethrough],
+    };
+  }
+  private freeRenderState() {
+    if (this.cellsHandle)
+      this.a.call("ghostty_render_state_row_cells_free", this.cellsHandle);
+    if (this.iter)
+      this.a.call("ghostty_render_state_row_iterator_free", this.iter);
+    if (this.state) this.a.call("ghostty_render_state_free", this.state);
+    if (this.scratch) this.a.free(this.scratch, this.scratchSize);
   }
   dispose() {
     if (this.ended) return;
     this.ended = true;
+    this.freeRenderState();
     this.a.call("ghostty_terminal_free", this.h);
     this.effects = [];
-    this.previous = [];
+    this.shadow = [];
   }
 }

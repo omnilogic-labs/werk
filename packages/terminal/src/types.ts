@@ -2,6 +2,15 @@ export interface Size {
   cols: number;
   rows: number;
 }
+export interface TerminalOptions {
+  /** Page-memory budget: 0 disables history; 4,294,967,295 means unlimited. */
+  scrollbackBytes?: number;
+}
+export interface Scrollback {
+  /** null means the snapshot or engine has no explicit byte limit. */
+  maxBytes: number | null;
+  rows: number;
+}
 export interface SnapshotEnvelope {
   engineBuild: string;
   formatVersion: number;
@@ -39,6 +48,8 @@ export interface TerminalCapabilities {
   snapshot: boolean;
   screen: boolean;
   history: boolean;
+  scrollbackLimit: boolean;
+  preview: boolean;
   cursor: boolean;
   viewport: boolean;
   selection: boolean;
@@ -63,7 +74,12 @@ export interface TerminalHandle {
   resize(size: Size): void;
   snapshot(): SnapshotEnvelope;
   readScreen(): string;
+  /** Format the active screen, independent of the scrolled viewport. */
+  formatScreen(format: "plain" | "vt" | "html"): string;
+  /** Cursor position on the active screen, without building a frame. */
+  cursor(): { x: number; y: number; visible: boolean };
   readHistory(): string;
+  scrollback(): Scrollback;
   inputModes(): InputModes;
   viewport(): Viewport;
   scrollViewport(delta: number | "top" | "bottom"): void;
@@ -76,8 +92,11 @@ export interface TerminalEngineFactory {
   readonly buildId: string;
   readonly snapshotFormatVersion: number;
   readonly capabilities: TerminalCapabilities;
-  create(size: Size): Promise<TerminalHandle>;
-  restore(snapshot: SnapshotEnvelope): Promise<TerminalHandle>;
+  create(size: Size, options?: TerminalOptions): Promise<TerminalHandle>;
+  restore(
+    snapshot: SnapshotEnvelope,
+    options?: TerminalOptions,
+  ): Promise<TerminalHandle>;
 }
 export class UnsupportedSnapshotError extends Error {
   constructor(message: string) {
