@@ -7,7 +7,11 @@ It puts your repository there on a fresh branch, gives you a terminal that
 survives your laptop closing, and shows you every one of those — across every
 machine — in one list you can open from a terminal or a browser.
 
-Nothing here is a product design yet. There are four parts:
+The current product specification is
+[product-specification.md](product-specification.md). It replaces `product/`
+and most of `research/`, which are being retired.
+
+There are four other parts:
 
 |                                              |                                                                                                                                                                           |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -18,7 +22,7 @@ Nothing here is a product design yet. There are four parts:
 
 ## Start here
 
-- New to the project → [product/00-what-werk-is.md](product/00-what-werk-is.md)
+- New to the project → [product-specification.md](product-specification.md)
 - Want to see it → [product/02-journeys.md](product/02-journeys.md)
 - About to argue about a decision → [product/04-open-questions.md](product/04-open-questions.md)
 - About to write code → [proposals/00-stack-proof-of-concept.md](proposals/00-stack-proof-of-concept.md),
