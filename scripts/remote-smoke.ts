@@ -25,6 +25,9 @@ import type {
   SessionClient,
 } from "../packages/session/dist/index.js";
 import { openLocalTransport } from "../packages/session-daemon/dist/index.js";
+// The compatibility surface itself, rather than a second copy of its rule here:
+// this check is only worth anything if it is the one the transport applies.
+import { notPrivateToOwner } from "../packages/session-daemon/dist/platform/index.js";
 
 export type Options = {
   host?: string;
@@ -514,10 +517,11 @@ async function main(): Promise<number> {
     const localStat = await fs.stat(localDir);
     record(
       "forward: socket is private",
+      // The daemon's own rule, rather than a second copy of it here: this
+      // check is only worth anything if it is the one the transport applies.
       forwardStat.isSocket() &&
         !forwardStat.isSymbolicLink() &&
-        forwardStat.uid === process.getuid!() &&
-        (forwardStat.mode & 0o077) === 0,
+        !notPrivateToOwner(forwardStat),
       `mode ${(forwardStat.mode & 0o777).toString(8)}, uid ${forwardStat.uid}, socket ${forwardStat.isSocket()}`,
     );
     note(
