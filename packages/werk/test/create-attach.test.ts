@@ -132,7 +132,23 @@ test(
     // The summary is status, so it is on stderr, and it does not tell somebody
     // who is already attached how to attach.
     expect(ran.stderr).toContain("created ");
-    expect(ran.stderr).toMatch(/workspace attached-[0-9a-f]{8} on branch /);
+    // The one notation: the name, then the directory it is in. This is the
+    // whole reference as a real run produces it, not a restatement of it.
+    const reference =
+      /workspace (attached-[0-9a-f]{8}):(\S+) on branch (attached-[0-9a-f]{8})\n(.*)\n/.exec(
+        ran.stderr,
+      );
+    expect(reference, ran.stderr).not.toBeNull();
+    const [, name, directory, branch, sizeLine] = reference!;
+    expect(branch).toBe(name);
+    // The reference's path is the workspace, so it ends in the workspace name.
+    expect(
+      directory!.endsWith(`/${name}`) || directory!.endsWith(`\\${name}`),
+    ).toBe(true);
+    // The size line reports the grid and does not spell the directory out a
+    // second time in a second shape.
+    expect(sizeLine).toContain("80x24");
+    expect(sizeLine).not.toContain(directory!);
     expect(ran.stderr).not.toContain("werk attach ");
   },
   TIMEOUT,

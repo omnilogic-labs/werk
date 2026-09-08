@@ -19,6 +19,8 @@ import { Command, InvalidArgumentError } from "@commander-js/extra-typings";
 import type { SessionInfo } from "@werk/session";
 import {
   createLocalWorktreeHost,
+  formatWorkspaceReference,
+  workspaceReference,
   type Workspace,
   type WorkspaceHost,
 } from "@werk/workspace";
@@ -137,13 +139,16 @@ export function renderCreated(
   workspace: Workspace,
   hint: boolean,
 ): string {
-  const where = `${info.size.cols}x${info.size.rows} in ${info.cwd}`;
   return [
     `${ctx.style.success("created")} ${info.id} ${ctx.style.emphasis(info.name)}`,
+    // The reference carries the directory, so the size line no longer says it a
+    // second time in a second spelling.
     ctx.style.muted(
-      `workspace ${workspace.name} on branch ${workspace.branch}`,
+      `workspace ${formatWorkspaceReference(workspaceReference(workspace), "full")} on branch ${workspace.branch}`,
     ),
-    ctx.style.muted(`${info.argv.join(" ")} · ${where}`),
+    ctx.style.muted(
+      `${info.argv.join(" ")} · ${info.size.cols}x${info.size.rows}`,
+    ),
     ...(hint ? [`werk attach ${info.id}`] : []),
   ].join("\n");
 }
@@ -270,6 +275,12 @@ export function buildCreate(): Command {
                     name: workspace.name,
                     directory: workspace.directory,
                     branch: workspace.branch,
+                    // The one notation, so a caller reading this record and a
+                    // person reading the chrome are looking at one spelling.
+                    reference: formatWorkspaceReference(
+                      workspaceReference(workspace),
+                      "full",
+                    ),
                   },
                 },
                 (c) => renderCreated(info, c, workspace, true),

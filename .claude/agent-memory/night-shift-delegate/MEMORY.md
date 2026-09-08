@@ -7,3 +7,4 @@
 - [session-daemon platform risk](session-daemon-platform-risk.md): a null platform reader disables its guards; platformCapabilities is wire-visible
 - [Testing a TTY-only path](testing-a-tty-only-path.md): give the CLI a pty from `script`; removing a data listener does not stop the read
 - [Reading a retried test failure](reading-a-retried-test-failure.md): the error on the last attempt may belong to an earlier one; check the timings before the line number
+- [Workspace is reconstructed from a path](workspace-is-reconstructed-from-a-path.md): nothing records which workspaces exist; only `create` holds a real one

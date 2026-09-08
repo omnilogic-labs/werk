@@ -24,12 +24,28 @@ than as a boundary to build against.
   does not describe how to build one.
 - A workspace failing to be made is a set of named reasons rather than git's
   exit status, so a client can turn each one into its own message.
+- There is one notation for writing a workspace down, at three levels of
+  verbosity, so a column, a status row and a JSON record spell a workspace the
+  same way. `formatWorkspaceReference` writes one and `fitWorkspaceReference`
+  picks the most detailed level that fits the room a caller has.
+- `localWorkspaceAt` answers which workspace a directory is, for the callers
+  that hold a path and no name. It is the inverse of the join `create`
+  performs, and it reaches only as far as this host's layout.
 
 ## What it does not do
 
 - **What werk remembers about a workspace, and where that record lives.**
-  Nothing is written here except the worktree itself. See
+  Nothing is written here except the worktree itself, so `localWorkspaceAt`
+  reads a path rather than an index and answers only for workspaces this host
+  laid out. See
   [question 19](../../docs/product-specification.md#19-where-does-the-record-of-a-workspace-live).
+- **Which machine a workspace is on.** A reference has room for a host and
+  nothing supplies one, so the component is absent everywhere. What its absence
+  should mean is
+  [question 24](../../docs/product-specification.md#24-what-is-the-host-component-of-a-workspace-reference).
+- **Reading a reference back from a string.** The grammar is built to be
+  read back, and nothing needs it yet: every caller starts from a directory or
+  from a workspace rather than from a rendered reference.
 - **The state a workspace can be in.** `Workspace` has no state field, because
   the words for one are
   [question 16](../../docs/product-specification.md#16-which-of-the-old-words-survive).

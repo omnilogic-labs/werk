@@ -268,6 +268,31 @@ describe.skipIf(!PTY)("with a terminal on stdin and stdout", () => {
   }
 
   test(
+    "the list table names its columns, the workspace among them",
+    async () => {
+      // A person gets column headings; a pipe gets rows alone, which
+      // `table.test.ts` settles. This is the one place the set of columns
+      // `werk list` actually offers is read back off a real run.
+      const terminal = await underPty([...sandbox(), "list"]);
+      expect(terminal.timedOut).toBe(false);
+      const heading = plain(terminal.output)
+        .split("\n")
+        .find((line) => line.includes("WORKSPACE"));
+      expect(heading, terminal.output).toBeDefined();
+      for (const column of [
+        "ID",
+        "NAME",
+        "WORKSPACE",
+        "STATE",
+        "AGE",
+        "COMMAND",
+      ])
+        expect(heading).toContain(column);
+    },
+    DEADLINE * 2,
+  );
+
+  test(
     "a terminal that answers the question is heard",
     async () => {
       // Without this the suite would still pass against a werk that had given

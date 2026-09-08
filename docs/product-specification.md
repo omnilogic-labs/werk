@@ -356,6 +356,14 @@ carry different failure modes.
   adopting what is there, the approach worth keeping from question 3, points
   this way. It costs a reconciliation nobody has designed.
 
+Nothing records one today. Where a workspace has to be named after the fact, as
+`werk list` and the chrome both do, it is reconstructed from the directory the
+session was started in, by asking whether this host's layout is what put it
+there. That reaches exactly as far as this host: a workspace on another machine,
+or one a differently shaped host laid out, has no route through it, and neither
+does anything wanting to know a workspace exists when no session is running in
+it.
+
 This is question 3 asked about workspaces rather than hosts, and the two
 probably want the same answer, which is a reason to decide them together rather
 than separately. No lean.
@@ -466,3 +474,36 @@ and the thing worth avoiding.
   the device attributes request and not the colour one, so a program running
   inside werk cannot learn the background werk is painting it on — which is the
   same question this one asks, one level down, with werk on the other side of it.
+
+### 24. What is the host component of a workspace reference?
+
+There is one notation for writing down which workspace is meant, at three levels
+of verbosity: `fix-login`, `fix-login:/path/to/checkout`, and
+`fix-login@host:/path/to/checkout`. The name and the path are read from the
+workspace. The host is not, because there is no host in the model to read one
+from, and what a host is even called is question 1.
+
+The component is absent today, and what its absence should mean is open.
+
+- **Absence means the machine werk is running on.** A reference that names no
+  host is about here. Nothing has to be invented while there is one host, and a
+  reference stays short in the case that is currently every case. A reference
+  then changes meaning depending on where it is read, which matters as soon as
+  one is written down somewhere and read somewhere else.
+- **Every reference names a host, with a literal for this machine.** A reference
+  means the same thing wherever it is read. It requires picking that literal now,
+  which is naming a thing the model does not have, and question 1 has not fixed
+  the noun.
+- **The component carries enough to reach the host**, rather than a label for it.
+  That is what somebody typing a reference at another machine would want. It
+  collides with the `@` and `:` the grammar already spends, and question 21 has
+  not settled how a change moves between hosts at all.
+
+**Lean: absence means the machine werk is running on**, and this is a lean rather
+than a decision. It is the only option that adds no claim, and it is what the
+code does today. The cost lands when a reference first travels between machines,
+which is the point at which this wants answering properly.
+
+This is question 19 seen from the other end. That question asks where the record
+of a workspace lives; this one asks how a workspace is written down once
+something has to name one it did not make.

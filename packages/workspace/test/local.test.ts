@@ -13,7 +13,15 @@ import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { createLocalWorktreeHost, repositorySlot } from "../src/local.js";
+import {
+  createLocalWorktreeHost,
+  localWorkspaceAt,
+  repositorySlot,
+} from "../src/local.js";
+import {
+  formatWorkspaceReference,
+  workspaceReference,
+} from "../src/reference.js";
 import { WorkspaceError } from "../src/types.js";
 import type { Workspace } from "../src/types.js";
 
@@ -85,6 +93,29 @@ test("a workspace is a directory on a branch of its own", async () => {
     "HEAD",
   );
   expect(stdout.trim()).toBe("demo");
+});
+
+test("a workspace the host made is recovered from its directory alone", async () => {
+  // The round trip that `werk list` and the chrome depend on: they hold a
+  // directory and no name. Both sides come from the host rather than from a
+  // path written out here, so the join and its inverse cannot drift apart.
+  const { workspace, root } = await created("fix-login");
+  expect(localWorkspaceAt(root, workspace.directory)).toEqual(
+    workspaceReference(workspace),
+  );
+  // The reference recovered this way is what the notation writes.
+  expect(
+    formatWorkspaceReference(
+      localWorkspaceAt(root, workspace.directory)!,
+      "path",
+    ),
+  ).toBe(`${workspace.name}:${workspace.directory}`);
+  // A directory inside the workspace is not itself a workspace.
+  expect(
+    localWorkspaceAt(root, path.join(workspace.directory, "src")),
+  ).toBeUndefined();
+  // Nor is the checkout the workspace was branched from.
+  expect(localWorkspaceAt(root, (await created()).source)).toBeUndefined();
 });
 
 test("the source repository agrees the worktree is one of its own", async () => {

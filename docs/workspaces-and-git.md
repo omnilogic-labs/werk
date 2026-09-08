@@ -19,6 +19,13 @@ a new branch, from the checkout the caller is standing in, and starts the
 session in it. A host is absent from the code, and so is any record of which
 workspaces exist.
 
+There is one notation for writing a workspace down, at three levels of
+verbosity, and everywhere that names a workspace uses it. Because nothing
+records which workspaces exist, the places that hold a directory rather than a
+workspace work back to one from the path, which reaches as far as this host's
+own layout. The host half of the notation has nothing to read from yet and is
+absent; question 24 carries what its absence should mean.
+
 The other git call the client makes is `git rev-parse --show-toplevel`, in the
 configuration loader, to find the root of the repository the caller is standing
 in so that the project configuration layer can be read from `<repository>/.werk`.
@@ -156,7 +163,8 @@ That package would probably own:
 - **The workspace record.** Whatever werk knows about a workspace: which host it
   is on, what it was derived from, which branch it holds, what state it is in.
   Where that record lives is question 19, and the state words the earlier work
-  fixed are question 16.
+  fixed are question 16. It would also be what a reference is resolved against,
+  in place of the reconstruction from a path that stands in for one today.
 - **Both traversals**, since it is the only thing that would hold enough to
   compute either.
 

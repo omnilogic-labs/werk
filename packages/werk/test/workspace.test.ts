@@ -17,6 +17,7 @@ import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { localWorkspaceAt } from "@werk/workspace";
 
 const run = promisify(execFile);
 const MAIN = join(import.meta.dir, "../src/main.ts");
@@ -105,6 +106,18 @@ test(
     expect(
       info.workspace.directory.startsWith(join(stateDir, "workspaces")),
     ).toBe(true);
+    // The one notation, composed from this record's own fields rather than
+    // from a shape written out here, so the record and the notation cannot
+    // disagree about how a workspace is written down.
+    expect(info.workspace.reference).toBe(
+      `${info.workspace.name}:${info.workspace.directory}`,
+    );
+    // The reference a real run produced is one the package recovers from the
+    // directory alone, which is the route `werk list` and the chrome take.
+    expect(localWorkspaceAt(join(stateDir, "workspaces"), info.cwd)).toEqual({
+      name: info.workspace.name,
+      directory: info.workspace.directory,
+    });
 
     // The repository agrees it is a worktree of its own, on that branch.
     const listed = await git(source, "worktree", "list", "--porcelain");
@@ -284,6 +297,61 @@ test(
     expect(info.cwd).not.toBe(elsewhere);
     const listed = await git(source, "worktree", "list", "--porcelain");
     expect(listed.stdout).toContain("branch refs/heads/from-cwd");
+  },
+  TIMEOUT,
+);
+
+test(
+  "list names the workspace each session is in, in the one notation",
+  async () => {
+    const source = await repository();
+    const made = await werk(
+      source,
+      "create",
+      "--workspace",
+      "listed",
+      "--",
+      "sleep",
+      "30",
+    );
+    expect(made.code, made.stderr).toBe(0);
+    const info = JSON.parse(made.stdout.trim());
+
+    // Without `--json` this is the table a person reads.
+    const table = Bun.spawn(
+      [
+        process.execPath,
+        MAIN,
+        "--runtime-dir",
+        runtimeDir,
+        "--state-dir",
+        stateDir,
+        "list",
+      ],
+      { cwd: source, stdout: "pipe", stderr: "pipe" },
+    );
+    const printed = await new Response(table.stdout).text();
+    expect(await table.exited).toBe(0);
+    // Piped, the table is tab separated and carries no header row, so the
+    // column is asserted by its position rather than by a heading.
+    const row = printed
+      .split("\n")
+      .find((line) => line.startsWith(info.id.slice(0, 12)))!;
+    expect(row, printed).toBeDefined();
+    const columns = row.split("\t");
+    // ID, NAME, WORKSPACE, STATE, AGE, COMMAND.
+    expect(columns).toHaveLength(6);
+    // The name level of the reference, which is all a column has room for.
+    expect(columns[2]).toBe(info.workspace.name);
+    expect(columns[1]).toBe(info.name);
+
+    // The records stay the daemon's own. A workspace is reconstructed for the
+    // table and is not mixed into what `--json` hands back.
+    const records = JSON.parse((await werk(source, "list")).stdout.trim());
+    const listed = records.find((r: { id: string }) => r.id === info.id);
+    expect(listed).toBeDefined();
+    expect(listed.workspace).toBeUndefined();
+    expect(listed.cwd).toBe(info.workspace.directory);
   },
   TIMEOUT,
 );

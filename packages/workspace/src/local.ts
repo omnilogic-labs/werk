@@ -20,6 +20,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 import { isMissingExecutable, runGit, type GitRunner } from "./git.js";
+import type { WorkspaceReference } from "./reference.js";
 import {
   WorkspaceError,
   type CreateWorkspaceRequest,
@@ -59,6 +60,38 @@ export function repositorySlot(toplevel: string): string {
     .slice(0, 8);
   const leaf = path.basename(absolute).replace(unsafe, "-");
   return `${leaf === "" ? "repository" : leaf}-${digest}`;
+}
+
+/**
+ * The workspace a directory is, when this host's layout is what put it there.
+ *
+ * The inverse of the join `create` performs below, and it lives beside that
+ * join so the two cannot drift apart. It answers from the path alone: nothing
+ * records which workspaces exist, so there is no index to consult, and where
+ * that record should live is
+ * [question 19](../../../docs/product-specification.md#19-where-does-the-record-of-a-workspace-live).
+ *
+ * Reconstruction reaches exactly as far as this host's layout. A workspace on
+ * another machine, or one a differently shaped host laid out, has no route
+ * through here, which is one of the things question 19 costs.
+ *
+ * A path is a workspace when it is a direct child of a repository slot, so
+ * `root/slot/leaf` answers and `root/slot`, `root/slot/leaf/src` and anything
+ * outside `root` do not. The slot itself is not checked beyond its position:
+ * the digest in it is not recomputable without the checkout it was made from.
+ */
+export function localWorkspaceAt(
+  root: string,
+  directory: string,
+): WorkspaceReference | undefined {
+  const absolute = path.resolve(directory);
+  const relative = path.relative(path.resolve(root), absolute);
+  if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative))
+    return undefined;
+  const parts = relative.split(path.sep);
+  if (parts.length !== 2) return undefined;
+  const name = parts[1]!;
+  return isWorkspaceName(name) ? { name, directory: absolute } : undefined;
 }
 
 export interface LocalWorktreeOptions {

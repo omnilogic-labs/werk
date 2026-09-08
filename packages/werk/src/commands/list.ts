@@ -11,7 +11,9 @@ import {
   Option,
 } from "@commander-js/extra-typings";
 import type { SessionInfo, SessionState } from "@werk/session";
+import { localWorkspaceAt } from "@werk/workspace";
 import { withContext } from "./shared.js";
+import { workspaceRoot } from "./create.js";
 import { defineCommand } from "./define.js";
 import { tableResult } from "../runtime/output.js";
 import { connectDaemon } from "../runtime/daemon.js";
@@ -97,17 +99,22 @@ export function buildList(): Command {
                 : state === "failed" || state === "lost"
                   ? ctx.style.error(text)
                   : ctx.style.muted(text);
+            // The workspace is recovered from where the session was started,
+            // because nothing records which workspaces exist. A session started
+            // outside this host's workspace root leaves the column blank.
+            const root = workspaceRoot(ctx);
             return tableResult(
               sessions,
-              ["ID", "NAME", "STATE", "AGE", "COMMAND"],
+              ["ID", "NAME", "WORKSPACE", "STATE", "AGE", "COMMAND"],
               sessions.map((s) => [
                 s.id.slice(0, 12),
                 s.name,
+                localWorkspaceAt(root, s.cwd)?.name ?? "",
                 stateText(s, paint),
                 age(s.createdAt),
                 s.argv.join(" "),
               ]),
-              4,
+              5,
             );
           } finally {
             await client.close();

@@ -2,7 +2,8 @@
  * Painting a session grid into a local window that need not match it.
  *
  * werk spends the bottom row of the local window on one row of chrome: which
- * session this is, and the key that ends the attachment. That row is werk's, so
+ * workspace this is and where on disk it is, and the key that ends the
+ * attachment. That row is werk's, so
  * the session grid gets the window less one row, and an attachment that sets the
  * grid asks for that smaller size rather than for the whole window. A window one
  * row tall gives the chrome up, because it has nothing left to frame.
@@ -17,7 +18,12 @@
  *
  * The planning half is pure so it can be exercised without a daemon or a TTY.
  */
+import path from "node:path";
 import type { Cell, Frame, Renderer } from "@werk/terminal";
+import {
+  fitWorkspaceReference,
+  type WorkspaceReference,
+} from "@werk/workspace";
 
 /** Ctrl-] — the key that ends an attachment, said the way the chrome says it. */
 export const DETACH_HINT = "Ctrl-] detaches";
@@ -37,6 +43,18 @@ export interface ViewState {
   follow: boolean;
   /** What the chrome calls this session: its name, or its id until one is known. */
   name?: string;
+  /**
+   * The workspace this session was started in, when the directory it was
+   * started in is one this host laid out. A session running somewhere werk did
+   * not make has none, and the chrome falls back to the session name.
+   */
+  workspace?: WorkspaceReference;
+  /**
+   * Where the session says it is executing now, when it says. A shell that
+   * emits OSC 7 moves this as a person moves around; one that does not leaves
+   * it undefined and the chrome shows only the workspace.
+   */
+  cwd?: string;
 }
 export interface ViewPlan {
   session: ViewSize;
@@ -83,22 +101,58 @@ function fit(parts: string[], cols: number): string {
   }
   return line || (parts[0] ?? "").slice(0, cols);
 }
+/** Clamped to the budget, with an ellipsis standing in for what was cut. */
+const clamp = (text: string, budget: number) =>
+  text.length <= budget ? text : `${text.slice(0, budget - 1)}…`;
 /**
  * The identity, clamped so that the hint beside it always fits whole. Below the
- * width that leaves a legible name there is no identity at all, because a
- * session named down to one letter says less than the key that gets you out.
+ * width that leaves a legible identity there is none at all, because a name cut
+ * down to one letter says less than the key that gets you out.
+ *
+ * A workspace takes the slot when there is one, at the most detailed level the
+ * budget allows, so a wide window says which workspace this is and where on
+ * disk it is while a narrow one says only its name. The session name is what is
+ * left when no workspace can be recovered, and otherwise moves down the row: it
+ * is the part a person can most easily infer from what is on the screen.
  */
-function identity(name: string | undefined, cols: number): string | undefined {
-  if (!name) return undefined;
+function identity(state: ViewState, cols: number): string | undefined {
   const budget = cols - DETACH_HINT.length - 3;
   if (budget < 4) return undefined;
-  return name.length <= budget ? name : `${name.slice(0, budget - 1)}…`;
+  if (state.workspace)
+    return (
+      fitWorkspaceReference(state.workspace, budget) ??
+      clamp(state.workspace.name, budget)
+    );
+  return state.name ? clamp(state.name, budget) : undefined;
+}
+/**
+ * Where the session says it is executing, when that is somewhere other than the
+ * workspace it was started in. Inside the workspace it is relative, because the
+ * part a person does not already have from the identity is the part below it;
+ * outside, or with no workspace to be relative to, it is the path itself.
+ *
+ * Separators are made `/` for display so one row reads the same on every
+ * platform.
+ */
+function executing(state: ViewState): string | undefined {
+  const { workspace, cwd } = state;
+  if (!cwd) return undefined;
+  if (!workspace) return `in ${cwd}`;
+  const relative = path.relative(workspace.directory, cwd);
+  if (relative === "") return undefined;
+  if (relative.startsWith("..") || path.isAbsolute(relative))
+    return `in ${cwd}`;
+  return `in ./${relative.split(path.sep).join("/")}`;
 }
 /**
  * What the chrome says. The identity and the detach hint are unconditional; the
- * rest reports the grids and why this attachment is not in charge of the
- * session's, for as long as they differ. It never names a size holder, because
- * a `size-holder` event does not carry one.
+ * rest reports where the session is executing, then the grids and why this
+ * attachment is not in charge of the session's, for as long as they differ. It
+ * never names a size holder, because a `size-holder` event does not carry one.
+ *
+ * The order is a priority ladder, because `fit` stops at the first part that
+ * does not fit rather than skipping it. What a person cannot get from the
+ * screen in front of them comes first.
  *
  * `area` is what the session grid is measured against and clipped to, which is
  * the window less the chrome rather than the window itself.
@@ -109,10 +163,15 @@ export function statusText(
   state: ViewState,
 ): string {
   const parts: string[] = [];
-  const who = identity(state.name, area.cols);
+  const who = identity(state, area.cols);
   if (who) parts.push(who);
   parts.push(DETACH_HINT);
   if (!state.writable) parts.push("read-only");
+  const where = executing(state);
+  if (where) parts.push(where);
+  // The session name only when the workspace took the identity slot; otherwise
+  // it is already the identity and saying it twice would spend the row on it.
+  if (state.workspace && state.name) parts.push(state.name);
   // A holder's mismatch is its own pending resize and corrects itself within a
   // frame or two, so only somebody else's grid is worth reporting. A grid of no
   // size is one no frame has arrived for yet, which is not a mismatch either.

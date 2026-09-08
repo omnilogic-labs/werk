@@ -20,8 +20,22 @@
  */
 export type { GitResult, GitRunner } from "./git.js";
 export { runGit } from "./git.js";
-export { createLocalWorktreeHost, isWorkspaceName } from "./local.js";
+export {
+  createLocalWorktreeHost,
+  isWorkspaceName,
+  localWorkspaceAt,
+} from "./local.js";
 export type { LocalWorktreeOptions } from "./local.js";
+export {
+  formatWorkspaceReference,
+  fitWorkspaceReference,
+  workspaceReference,
+  WORKSPACE_REFERENCE_LEVELS,
+} from "./reference.js";
+export type {
+  WorkspaceReference,
+  WorkspaceReferenceLevel,
+} from "./reference.js";
 export type {
   CreateWorkspaceRequest,
   Workspace,

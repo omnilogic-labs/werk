@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
 import type { Cell, Frame } from "@werk/terminal";
+import { formatWorkspaceReference } from "@werk/workspace";
 import {
   chromeRows,
   createViewRenderer,
   planView,
   sessionArea,
   statusText,
+  DETACH_HINT,
   type ViewSize,
   type ViewState,
 } from "../src/view.js";
@@ -291,4 +293,113 @@ test("a one row window spends it on the session rather than the status", () => {
   expect(plan.status).toBeUndefined();
   expect(plan.rows).toBe(1);
   expect(plan.cols).toBe(120);
+});
+const WORKSPACE = {
+  name: "fix-login",
+  directory: "/state/werk/workspaces/werk-1a2b3c4d/fix-login",
+};
+/** The chrome's identity budget, as `identity()` computes it. */
+const budget = (cols: number) => cols - DETACH_HINT.length - 3;
+
+test("the chrome says which workspace this is and where on disk it is", () => {
+  const session = { cols: 120, rows: 39 };
+  const wide = statusText(
+    session,
+    { cols: 120, rows: 39 },
+    state({ name: "demo", workspace: WORKSPACE }),
+  );
+  // The path level, because the row has the columns for it. Read off the
+  // notation rather than restated, so the chrome and the notation agree.
+  expect(wide).toContain(formatWorkspaceReference(WORKSPACE, "path"));
+  expect(wide).toContain(DETACH_HINT);
+  // The session name is still there, after the things a person cannot read off
+  // the screen in front of them.
+  expect(wide).toContain("demo");
+  expect(wide.indexOf(WORKSPACE.name)).toBeLessThan(wide.indexOf("demo"));
+
+  // Too narrow for the path, wide enough for the name, and the hint survives
+  // whole because it always does.
+  const narrow = statusText(
+    session,
+    { cols: 60, rows: 39 },
+    state({ name: "demo", workspace: WORKSPACE }),
+  );
+  expect(narrow).toContain(WORKSPACE.name);
+  expect(narrow).not.toContain(WORKSPACE.directory);
+  expect(narrow).toContain(DETACH_HINT);
+});
+
+test("the chrome never overruns the row it is given", () => {
+  for (let cols = 10; cols <= 200; cols++) {
+    const line = statusText(
+      { cols: 160, rows: 50 },
+      { cols, rows: 39 },
+      state({ name: "a-session-named-at-some-length", workspace: WORKSPACE }),
+    );
+    expect(line.length, `at ${cols} columns`).toBeLessThanOrEqual(cols);
+  }
+});
+
+test("the chrome says where the session is executing when that is not the workspace root", () => {
+  const session = { cols: 120, rows: 39 },
+    area = { cols: 160, rows: 39 };
+  const inside = statusText(
+    session,
+    area,
+    state({
+      name: "demo",
+      workspace: WORKSPACE,
+      cwd: `${WORKSPACE.directory}/packages/werk`,
+    }),
+  );
+  // Relative to the workspace, because the identity already carries the rest.
+  expect(inside).toContain("· in ./packages/werk ·");
+
+  // Standing in the workspace root is not worth a part: the identity said it.
+  expect(
+    statusText(
+      session,
+      area,
+      state({ name: "demo", workspace: WORKSPACE, cwd: WORKSPACE.directory }),
+    ),
+  ).not.toContain("· in ");
+
+  // Outside the workspace there is nothing to be relative to, so it is said in
+  // full rather than as a run of `..`.
+  const outside = statusText(
+    session,
+    area,
+    state({ name: "demo", workspace: WORKSPACE, cwd: "/etc/nginx" }),
+  );
+  expect(outside).toContain("· in /etc/nginx ·");
+  expect(outside).not.toContain("..");
+
+  // A session that never reported a directory says nothing about one.
+  expect(
+    statusText(session, area, state({ name: "demo", workspace: WORKSPACE })),
+  ).not.toContain("· in ");
+});
+
+test("a session with no workspace to recover keeps the identity it had", () => {
+  const session = { cols: 160, rows: 50 };
+  // Unchanged from a session werk did not make a workspace for: the name is
+  // the identity, clamped, and the hint is what a row too narrow spends itself
+  // on.
+  expect(
+    statusText(session, { cols: 34, rows: 12 }, state({ name: "demo" })),
+  ).toBe("demo · Ctrl-] detaches");
+  const clamped = statusText(
+    session,
+    { cols: 34, rows: 12 },
+    state({ name: "a-session-with-a-very-long-name-indeed" }),
+  );
+  expect(clamped.split(" · ")[0]).toEndWith("…");
+  // Below the width that leaves a legible identity there is none at all.
+  const tiny = { cols: DETACH_HINT.length + 3 + 3, rows: 12 };
+  expect(budget(tiny.cols)).toBeLessThan(4);
+  expect(statusText(session, tiny, state({ name: "demo" }))).toBe(DETACH_HINT);
+  // A workspace is dropped at the same width, for the same reason.
+  expect(
+    statusText(session, tiny, state({ name: "demo", workspace: WORKSPACE })),
+  ).toBe(DETACH_HINT);
 });

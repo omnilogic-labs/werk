@@ -23,7 +23,8 @@ import { createTerminalReplica } from "@werk/terminal";
 import { loadTerminalEngine } from "@werk/terminal/bun";
 import { withContext } from "./shared.js";
 import { defineCommand } from "./define.js";
-import { wholeNumber, windowSize } from "./create.js";
+import { wholeNumber, windowSize, workspaceRoot } from "./create.js";
+import { localWorkspaceAt } from "@werk/workspace";
 import { sessionArgument, withSession } from "./session-argument.js";
 import type { WerkContext } from "../runtime/context.js";
 import {
@@ -157,10 +158,13 @@ export async function attachSession(
     if (tty)
       void client.get(id).then(
         (info) => {
-          if (info.name) {
-            state.name = info.name;
-            view?.refresh();
-          }
+          if (info.name) state.name = info.name;
+          // The directory the session was started in is the workspace, when
+          // this host's layout is what put it there. A session started
+          // somewhere else recovers none and the chrome keeps the name.
+          state.workspace = localWorkspaceAt(workspaceRoot(ctx), info.cwd);
+          state.cwd = info.reportedCwd;
+          view?.refresh();
         },
         () => {},
       );
@@ -187,6 +191,12 @@ export async function attachSession(
               state.holdsSize = event.holdsSize;
               view?.refresh();
               fitSession();
+            }
+            // A shell that reports where it has moved to keeps the chrome
+            // current; the daemon records the same effect on the session.
+            if (event.type === "effect" && event.effect.kind === "cwd") {
+              state.cwd = String(event.effect.payload);
+              view?.refresh();
             }
             if (event.type === "exit") outcome = event.exit;
             if (event.type === "ended") {

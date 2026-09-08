@@ -153,8 +153,8 @@ named after the repository and the digest of its path, so two checkouts of the
 same project do not collide. `--state-dir` and a `stateDir` in a config file
 move them; there is no setting of their own.
 
-Under `--json` the record carries a `workspace` object — `name`, `directory`
-and `branch` — beside the session's own fields.
+Under `--json` the record carries a `workspace` object — `name`, `directory`,
+`branch` and `reference` — beside the session's own fields.
 
 The workspace is made before a daemon is asked for anything, so a repository
 that cannot be branched fails without starting one. Nothing removes the worktree
@@ -167,6 +167,60 @@ about a workspace, and what more it should be able to do with one, is worked
 through in [workspaces-and-git.md](workspaces-and-git.md); `@werk/workspace` is
 explicitly under development and a local worktree is the whole of what it makes
 today.
+
+### Referencing a workspace
+
+There is one notation for saying which workspace is meant, written at three
+levels of verbosity so that a column, a status row and a record can all use the
+same spelling:
+
+| Level | Looks like                    | Where it is used                           |
+| ----- | ----------------------------- | ------------------------------------------ |
+| name  | `fix-login`                   | the `WORKSPACE` column of `werk list`      |
+| path  | `fix-login:/path/to/checkout` | the chrome, when the row has room for it   |
+| full  | `fix-login@host:/path`        | `create`'s summary and its `reference` key |
+
+The host is absent while werk makes workspaces only on the machine it is running
+on, so `full` and `path` are the same string today. What an absent host should
+mean is [question 24](product-specification.md#24-what-is-the-host-component-of-a-workspace-reference).
+
+A name carries no `@`, `:` or `/`, so the first `:` after the name and host ends
+the prefix and the rest is the path. A Windows path survives, because a drive
+letter's colon is never the first one.
+
+`werk list` and the chrome are given a directory rather than a workspace, so
+they work back to one by asking whether this host's layout is what put a
+directory where it is. That reaches as far as this host and no further; nothing
+records which workspaces exist, which is
+[question 19](product-specification.md#19-where-does-the-record-of-a-workspace-live).
+A session started somewhere werk did not make leaves the column blank and keeps
+its own name in the chrome.
+
+### The chrome
+
+While `attach` holds a terminal, werk spends the bottom row of the window on one
+row of its own, and the session gets the window less that row. A window one row
+tall has no chrome, because there would be nothing left to frame.
+
+The row is built from parts joined with `·`, in a fixed order, and joining stops
+at the first part that does not fit. So the widest terminal shows all of it and
+the narrowest shows the beginning of it:
+
+1. the workspace, at the most detailed level the width allows, or the session
+   name when no workspace can be worked back to
+2. `Ctrl-] detaches`, which always survives whole
+3. `read-only`, when the attachment asked for no input
+4. where the session says it is executing, when that is not the workspace root:
+   relative to the workspace, or in full when it is outside it
+5. the session name, when the workspace took the first slot
+6. the two grid sizes while they differ, and then whether this attachment is
+   following the size, was refused it, or could claim it
+
+Part 4 needs the session to say where it has moved to, which a shell does by
+emitting `OSC 7`. A shell that does not leaves it out.
+
+Below the width that would leave a legible identity there is no identity at all,
+because a name cut down to one letter says less than the key that gets you out.
 
 ### Choosing a session
 

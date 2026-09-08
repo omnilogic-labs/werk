@@ -2,7 +2,11 @@ import { expect, test } from "bun:test";
 import path from "node:path";
 import { createStyles } from "../src/runtime/style.js";
 import type { SessionInfo, TerminationResult } from "@werk/session";
-import { isWorkspaceName } from "@werk/workspace";
+import {
+  formatWorkspaceReference,
+  isWorkspaceName,
+  workspaceReference,
+} from "@werk/workspace";
 import { sizeValid } from "@werk/session-daemon";
 import type { WerkContext } from "../src/runtime/context.js";
 import { setChildArgv } from "../src/commands/shared.js";
@@ -162,7 +166,7 @@ test("a detached session tells you how to go back to it", () => {
     true,
   );
   expect(text).toContain("created 8f2c1b04e9d1 demo");
-  expect(text).toContain("claude -p · 40x8 in /home/mike");
+  expect(text).toContain("claude -p · 40x8");
   expect(text).toContain("werk attach 8f2c1b04e9d1");
 });
 test("an attached session is not told how to get to where it already is", () => {
@@ -307,12 +311,19 @@ test("a session that is not there says so", () => {
   );
 });
 
-test("a created session says which workspace it landed in", () => {
-  const info = session({
-    cwd: "/state/werk/workspaces/werk-1a2b3c4d/fix-login",
-  });
-  const text = renderCreated(info, context(), workspace(), true);
-  expect(text).toContain("workspace fix-login on branch fix-login");
+test("a created session says which workspace it landed in, in the one notation", () => {
+  const made = workspace();
+  const info = session({ cwd: made.directory });
+  const text = renderCreated(info, context(), made, true);
+  // Read off the notation rather than restated here, so the line and the
+  // reference cannot drift into two spellings of the same fact.
+  expect(text).toContain(
+    `workspace ${formatWorkspaceReference(workspaceReference(made), "full")} on branch ${made.branch}`,
+  );
+  // The directory is the reference's, and is not also spelled out a second
+  // time on the size line.
+  expect(text).toContain(made.directory);
+  expect(text.split(made.directory)).toHaveLength(2);
   expect(text).toContain("created 8f2c1b04e9d1 demo");
   expect(text).toContain("werk attach 8f2c1b04e9d1");
   expect(text.split("\n")).toHaveLength(4);
