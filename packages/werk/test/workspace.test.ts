@@ -69,9 +69,9 @@ test(
     expect(ran.code, ran.stderr).toBe(0);
     const info = JSON.parse(ran.stdout.trim());
 
-    // Nothing named it, so the name is generated from the command and carries
-    // enough entropy to be made twice in one repository.
-    expect(info.workspace.name).toMatch(/^sleep-[0-9a-f]{8}$/);
+    // Nothing named it and nothing could be asked, so werk made one up: three
+    // words, and no digest.
+    expect(info.workspace.name).toMatch(/^[a-z]+-[a-z]+-[a-z]+$/);
     expect(info.workspace.branch).toBe(info.workspace.name);
     // The session is in the workspace, not in the repository it came from.
     expect(info.cwd).toBe(info.workspace.directory);
@@ -210,15 +210,54 @@ test(
 );
 
 test(
-  "a command that is not a legal branch name still gets a workspace",
+  "--describe names the workspace, and describing the same work twice numbers it",
   async () => {
-    // The generated name comes from argv[0], which is routinely a path. Nothing
-    // a person can type as a command should be able to fail the name rule.
+    // The question `create` asks, answered on the command line. A description
+    // is prose, and what reaches the branch is a name: the filler is gone and
+    // what is left is joined up.
     const source = await repository();
-    const ran = await werk(source, "create", "--", "/bin/sh", "-c", "sleep 30");
+    const ran = await werk(
+      source,
+      "create",
+      "--describe",
+      "Fix the login redirect on Safari",
+      "--",
+      "sleep",
+      "30",
+    );
     expect(ran.code, ran.stderr).toBe(0);
-    const info = JSON.parse(ran.stdout.trim());
-    expect(info.workspace.name).toMatch(/^sh-[0-9a-f]{8}$/);
+    expect(JSON.parse(ran.stdout.trim()).workspace.name).toBe(
+      "fix-login-redirect-safari",
+    );
+
+    // Nothing in the name makes it unique, so the same description again is
+    // numbered rather than refused. Only a name somebody typed is a conflict.
+    const again = await werk(
+      source,
+      "create",
+      "--describe",
+      "Fix the login redirect on Safari",
+      "--",
+      "sleep",
+      "30",
+    );
+    expect(again.code, again.stderr).toBe(0);
+    expect(JSON.parse(again.stdout.trim()).workspace.name).toBe(
+      "fix-login-redirect-safari-2",
+    );
+  },
+  TIMEOUT,
+);
+
+test(
+  "a description with nothing a name can be made of falls back to a made-up one",
+  async () => {
+    const source = await repository();
+    const ran = await werk(source, "create", "--describe", "!!!", "--", "true");
+    expect(ran.code, ran.stderr).toBe(0);
+    expect(JSON.parse(ran.stdout.trim()).workspace.name).toMatch(
+      /^[a-z]+-[a-z]+-[a-z]+$/,
+    );
   },
   TIMEOUT,
 );

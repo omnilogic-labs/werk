@@ -104,7 +104,7 @@ test(
     // The one notation: the name, then the directory it is in. This is the
     // whole reference as a real run produces it, not a restatement of it.
     const reference =
-      /workspace (attached-[0-9a-f]{8}):(\S+) on branch (attached-[0-9a-f]{8})\n(.*)\n/.exec(
+      /workspace ([a-z]+-[a-z]+-[a-z]+):(\S+) on branch ([a-z]+-[a-z]+-[a-z]+)\n(.*)\n/.exec(
         ran.stderr,
       );
     expect(reference, ran.stderr).not.toBeNull();

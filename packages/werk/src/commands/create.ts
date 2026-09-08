@@ -13,14 +13,17 @@
  * positional at all and reads the child's argv from the same place `main.ts` put
  * it.
  */
-import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { Command, InvalidArgumentError } from "@commander-js/extra-typings";
 import type { SessionInfo } from "@werk/session";
 import {
   formatWorkspaceReference,
   workspaceReference,
+  WorkspaceError,
+  type CreateWorkspaceOptions,
   type Workspace,
+  type WorkspaceMaker,
+  type WorkspaceSource,
 } from "@werk/workspace";
 import { childCommand, withContext } from "./shared.js";
 import { defineCommand } from "./define.js";
@@ -32,6 +35,8 @@ import { createProgress } from "../runtime/progress.js";
 import { CancelledError } from "../runtime/exit.js";
 import { reachHost, workspaceMakerFor } from "../host/place.js";
 import { reportedSize, type WerkContext } from "../runtime/context.js";
+import { canPrompt, text, type PromptOptions } from "../runtime/interactive.js";
+import { workspaceNames } from "../workspace-name.js";
 import { clientEnvironment, remoteEnvironment } from "../environment.js";
 import { DETACH_HINT, sessionArea } from "../view.js";
 
@@ -80,39 +85,92 @@ export function windowSize(
     rows: opts.rows ?? reportedSize(reported.rows, FALLBACK_WINDOW.rows),
   };
 }
-/** Characters a branch and a directory leaf both carry without being escaped. */
-const unsafe = /[^A-Za-z0-9._-]/g;
+/**
+ * What the work is going to be, in the person's own words.
+ *
+ * A workspace is a place to do one thing, and the person starting it is the
+ * only one who knows what that thing is. So werk asks, and turns the answer
+ * into the name: it is a better name than anything derivable from the command
+ * line, where every session looks like `claude` or `/bin/sh`.
+ *
+ * Asking is skipped rather than refused wherever it would not help. `--workspace`
+ * has already settled the name, so the answer would change nothing.
+ * `--describe` is the same question answered in advance, which is what makes
+ * the naming reachable from a script. `--json` is the machine register, where a
+ * question drawn on stderr while one value goes to stdout is at best a
+ * surprise. And `canPrompt` is the guard that keeps a pipe or a CI job from
+ * waiting on a question nobody will ever see.
+ *
+ * An empty answer is an answer: it means "name it for me", and the sequence
+ * below makes one up.
+ */
+export async function describeWork(
+  ctx: WerkContext,
+  opts: { workspace?: string; describe?: string },
+  options: PromptOptions = {},
+): Promise<string | undefined> {
+  if (opts.describe !== undefined) return opts.describe;
+  if (opts.workspace !== undefined) return undefined;
+  if (ctx.json || !canPrompt(ctx)) return undefined;
+  return await text(
+    ctx,
+    {
+      message: "What is this workspace for?",
+      placeholder: "a line about the work, or enter alone for a made-up name",
+      defaultValue: "",
+    },
+    options,
+  );
+}
+
+/** How many names a generated one is allowed to be before `create` gives up. */
+export const NAME_ATTEMPTS = 5;
 
 /**
- * What the workspace is called.
- *
- * `--workspace` is taken as typed, so a person who names their branch gets the
- * branch they named and a second `create` under the same name is the conflict
- * it looks like. Everything else is generated here, in the client, because the
- * workspace exists before any daemon has been asked for a session and so has
- * no session name to borrow.
- *
- * The generated form is a readable leaf and a digest, the same shape
- * `repositorySlot` uses for a repository's directory: `claude-a3f2b1c9` says
- * what is running in `git branch` output, and the suffix is what lets
- * `werk create -- claude` be run twice in one repository. The digest is what
- * makes a workspace the shortest unique thing on a `werk list` row, which is
- * why `attach` takes one.
+ * A name somebody else already has. Both codes mean the same thing to a caller
+ * holding more names — the branch is there, or the directory is — and the ssh
+ * maker reports them under the same two words as the local one.
  */
-export function workspaceNameFor(
-  opts: { workspace?: string; name?: string },
-  argv: readonly string[],
-): string {
-  if (opts.workspace !== undefined) return opts.workspace;
-  const leaf = path
-    .basename(opts.name ?? argv[0] ?? "")
-    .replace(unsafe, "-")
-    // `..` is refused by the workspace name rule, and a leading dot or dash is
-    // not a first character a branch and a directory both accept.
-    .replace(/\.{2,}/g, ".")
-    .replace(/^[^A-Za-z0-9]+/, "")
-    .slice(0, 32);
-  return `${leaf === "" ? "workspace" : leaf}-${randomBytes(4).toString("hex")}`;
+const taken = (error: unknown): boolean =>
+  error instanceof WorkspaceError &&
+  (error.code === "BRANCH_EXISTS" || error.code === "DIRECTORY_EXISTS");
+
+/**
+ * The workspace, made under the first name the maker will take.
+ *
+ * Nothing records which workspaces exist, so there is no list to check a name
+ * against and the maker is the only thing that knows. It refuses a taken name
+ * before it changes anything — the branch and the directory are both looked for
+ * first — so trying the next name costs a couple of git calls and leaves
+ * nothing behind.
+ *
+ * A refusal is only ever swallowed while there is another name to try, so what
+ * reaches the caller is the last one: `--workspace fix-login` twice is a
+ * sequence of one name and one conflict, reported as the conflict it is.
+ */
+export async function makeWorkspace(
+  maker: WorkspaceMaker,
+  names: Iterable<string>,
+  from: WorkspaceSource,
+  options: CreateWorkspaceOptions,
+): Promise<Workspace> {
+  let attempts = 0;
+  let refused: unknown;
+  for (const name of names) {
+    attempts += 1;
+    try {
+      return await maker.create({ name, from }, options);
+    } catch (error) {
+      if (!taken(error) || attempts >= NAME_ATTEMPTS) throw error;
+      refused = error;
+    }
+  }
+  // The sequence ran out, which only a typed name does. The second half is for
+  // the type: `workspaceNames` always offers at least one name.
+  throw (
+    refused ??
+    new WorkspaceError("INVALID_NAME", "no workspace name was offered")
+  );
 }
 
 /**
@@ -181,15 +239,21 @@ export function buildCreate(): Command {
       "session outlives the terminal that started it, and `werk attach` goes " +
       "back to it. --detach starts the session and returns instead. --json " +
       "does the same, because the session's output and the one JSON value " +
-      "cannot share stdout.",
+      "cannot share stdout. Unless the name is settled by --workspace, werk " +
+      "asks what the workspace is for and makes the name out of the answer; " +
+      "an empty answer gets a made-up one.",
     usage: "[options] -- COMMAND [ARGS...]",
     examples: [
       {
         run: "werk create -- /bin/sh",
-        note: "a shell in a new workspace; werk names the session and the workspace",
+        note: "a shell in a new workspace; werk asks what the workspace is for",
       },
       { run: "werk create --name demo --label project=werk -- claude" },
       { run: "werk create --scrollback 2000000 -- npm run dev" },
+      {
+        run: 'werk create --describe "fix the login redirect" -- claude',
+        note: "answer the question in advance; the workspace is fix-login-redirect",
+      },
       {
         run: "werk create --workspace fix-login -- claude",
         note: "choose the workspace name, which is also the branch name",
@@ -228,8 +292,12 @@ export function buildCreate(): Command {
     )
     .option("--cwd <PATH>", "which checkout to branch the workspace from")
     .option(
+      "--describe <TEXT>",
+      "say what the workspace is for; werk makes the name out of it, and asks when neither flag is given",
+    )
+    .option(
       "--workspace <NAME>",
-      "name the workspace and its branch; werk generates one otherwise",
+      "name the workspace and its branch, exactly as typed",
     )
     .action(
       withContext(
@@ -243,6 +311,7 @@ export function buildCreate(): Command {
             rows?: number;
             scrollback?: number;
             cwd?: string;
+            describe?: string;
             workspace?: string;
           },
         ) => {
@@ -282,16 +351,20 @@ export function buildCreate(): Command {
           let daemon;
           let workspace: Workspace;
           try {
+            // Asked here rather than before the machine was reached, so a
+            // mistyped `--host` is reported before somebody types a sentence,
+            // and inside the `try` so that a cancelled question closes the
+            // connection that reaching one opened.
+            const description = await describeWork(ctx, opts);
             // Before the daemon, deliberately: a workspace that cannot be made
             // is a failure that should not have started a daemon on its way to
             // being reported. Nothing removes the worktree if the session then
             // fails to start — rolling a half-made workspace back is one of the
             // things `docs/workspaces-and-git.md` leaves open.
-            workspace = await workspaceMakerFor(place).create(
-              {
-                name: workspaceNameFor(opts, argv),
-                from: { kind: "local-checkout", path: here },
-              },
+            workspace = await makeWorkspace(
+              workspaceMakerFor(place),
+              workspaceNames(opts.workspace, description),
+              { kind: "local-checkout", path: here },
               {
                 signal: cancelling.signal,
                 ...(progress ? { onProgress: progress.onProgress } : {}),

@@ -20,16 +20,17 @@ The compiled binary contains the terminal WASM and can run outside the checkout.
 ## Making a session and coming back to it
 
 ```sh
-werk create -- /bin/sh                     # start it and attach; Ctrl-] detaches
-werk create --detach -- npm run dev        # start it and return
-werk create --workspace fix-login -- claude # name the workspace and its branch
-werk list                                  # what is running
-werk attach demo                           # by id, name or workspace
-werk logs demo                             # the retained screen
+werk create -- /bin/sh                       # start it and attach; Ctrl-] detaches
+werk create --detach -- npm run dev          # start it and return
+werk create --describe "fix login" -- claude # answer the question it would ask
+werk create --workspace fix-login -- claude  # name the workspace and its branch
+werk list                                    # what is running
+werk attach demo                             # by id, name or workspace
+werk logs demo                               # the retained screen
 werk kill demo --intent force
 werk remove demo
-werk info                                  # paths, lock mechanism, daemon
-werk doctor                                # plus directory, lock and terminfo checks
+werk info                                    # paths, lock mechanism, daemon
+werk doctor                                  # plus directory, lock and terminfo checks
 ```
 
 `werk create` starts a session and attaches to it. `--detach` starts it and
@@ -59,14 +60,17 @@ repository you are standing in, on a new branch, under
 checkout.
 
 `--workspace NAME` names it, and that name is also the branch name. Without the
-flag, werk generates a name from the command being run plus a random suffix, so
-`werk create -- claude` twice in one repository gives `claude-a3f2b1c9` and
-`claude-7e04d215`. `--cwd PATH` says which checkout to branch from; it does not
-say where the command runs.
+flag `werk create` asks what the workspace is for and makes the name out of the
+answer: "fix the login redirect on Safari" becomes `fix-login-redirect-safari`.
+`--describe TEXT` answers that in advance. An empty answer, or nowhere to ask —
+`--json`, `--no-input`, a pipe, CI — gets a made-up `magical-otters-flexing`
+instead. Neither generated name is unique on its own, so `create` numbers a
+described one and re-rolls a made-up one until the maker takes it. `--cwd PATH`
+says which checkout to branch from; it does not say where the command runs.
 
-Because the digest makes a workspace name the shortest unique thing on a `werk
-list` row, `werk attach` accepts a workspace name as well as a session id or
-name. Ids beat names beat workspaces, and an exact match beats a prefix. See
+Because a workspace name is usually the shortest unique thing on a `werk list`
+row, `werk attach` accepts one as well as a session id or name. Ids beat names
+beat workspaces, and an exact match beats a prefix. See
 [`@werk/workspace`](../workspace/README.md).
 
 ## Attaching

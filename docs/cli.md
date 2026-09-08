@@ -164,7 +164,7 @@ Two flags start the session and return instead:
 | `--detach` | Start it and return; the summary goes to stdout with the hint |
 | `--json`   | Answer with the record, which is what a machine asked for     |
 
-`create` takes seven more:
+`create` takes eight more:
 
 | Flag                   | Effect                                                            |
 | ---------------------- | ----------------------------------------------------------------- |
@@ -174,7 +174,8 @@ Two flags start the session and return instead:
 | `--rows <N>`           | Start the session at this many rows                               |
 | `--scrollback <BYTES>` | Bytes of output to keep, instead of the `scrollbackBytes` setting |
 | `--cwd <PATH>`         | Which checkout to branch the workspace from                       |
-| `--workspace <NAME>`   | Name the workspace and its branch; werk generates one otherwise   |
+| `--describe <TEXT>`    | Say what the workspace is for, instead of being asked             |
+| `--workspace <NAME>`   | Name the workspace and its branch, exactly as typed               |
 
 Without `--cols` and `--rows` the session starts at the terminal's own size,
 less the chrome row when `create` is going to attach, and at 80 by 24 when
@@ -206,13 +207,34 @@ workspace name, taken from the `HEAD` of the repository `--cwd` is inside;
 command always runs in the workspace. Outside a repository, or in one with no
 commits, `create` fails and starts nothing.
 
-`--workspace NAME` names the workspace, and the branch, as typed. Without it
-the name is generated: the command's own name, or `--name` when there is one,
-and a short digest — `claude-a3f2b1c9`. The digest is what lets `werk create`
-be run twice in the same repository: a second `--workspace NAME` under the same
-name fails, because the branch already exists, and a generated name does not. It is also what makes
-the workspace the shortest unique word on a `werk list` row, which is why
-[choosing a session](#choosing-a-session) accepts one.
+### What it is called
+
+Unless `--workspace` has already settled it, `create` asks what the workspace is
+for and makes the name out of the answer. "Fix the login redirect on Safari"
+becomes `fix-login-redirect-safari`: the words that carry the meaning, lowercased
+and joined, at most four of them and at most 40 characters. `--describe TEXT` is
+that question answered in advance, which is how a script reaches the same
+naming.
+
+Answering with nothing, or being somewhere the question cannot be asked, gets a
+made-up name instead: `magical-otters-flexing`, an adjective, a plural noun and
+a verb. Two of those are told apart at a glance, which is what the name is for
+on a `werk list` row and in `git branch` output.
+
+The question is skipped where an answer would change nothing or could not be
+read: after `--workspace` or `--describe`, under `--json`, and wherever
+prompting is forbidden — `--no-input`, a pipe on either stream, or `CI` set. All
+of those take the made-up name.
+
+Neither generated form carries a digest, so neither is unique on its own.
+`create` therefore offers the maker a sequence of names and takes the first it
+accepts: a described name is numbered — `fix-login-redirect`, then
+`fix-login-redirect-2` — and a made-up one is simply made up again, five names
+before it gives up. `--workspace NAME` is a sequence of one, so asking for the
+same name twice is the conflict it looks like.
+
+A workspace name is often the shortest unique word on a `werk list` row, which
+is why [choosing a session](#choosing-a-session) accepts one.
 
 The worktree goes under `$stateDir/workspaces`, in a directory per repository
 named after the repository and the digest of its path, so two checkouts of the
