@@ -29,7 +29,7 @@ import {
 } from "@werk/palette";
 import { defaultSessionRuntimeDir, type LogLevel } from "@werk/session-daemon";
 import { ConfigError } from "./errors.js";
-import { DEFAULT_HOST, isHostName } from "./hosts.js";
+import { DEFAULT_HOST, isBlockName } from "./hosts.js";
 
 /** What to do about colour when the terminal has not already settled it. */
 export type ColourPreference = "auto" | "always" | "never";
@@ -57,6 +57,13 @@ export interface WerkConfig {
    * host somebody defined; `hostFor` refuses a name nothing does.
    */
   defaultHost: string;
+  /**
+   * The `[setup.<name>]` block for a workspace that has just been made. It has
+   * no value at all until a file names one, which is why it is the one key
+   * here that may be absent: there is no block werk would run by default, and
+   * an empty name is not a name.
+   */
+  workspaceSetup?: string;
   colour: ColourPreference;
   /** The flavour werk wears, or `auto` to suit the terminal's own ground. */
   flavour: FlavourPreference;
@@ -116,14 +123,15 @@ function byteCount(key: string) {
 }
 
 /**
- * A host name, checked for spelling and nothing else. A per-key parser is
- * handed one value and never sees the `[hosts.*]` collection, so it cannot say
- * whether the host exists; that check belongs wherever a host is resolved.
+ * A block name, checked for spelling and nothing else. A per-key parser is
+ * handed one value and never sees the `[hosts.*]` or `[setup.*]` collection, so
+ * it cannot say whether anything defines that name; that check belongs wherever
+ * the name is resolved.
  */
-function hostName(key: string) {
+function blockName(key: string, what: string) {
   return (raw: unknown): string => {
-    if (typeof raw === "string" && isHostName(raw)) return raw;
-    throw new ConfigError("CONFIG_UNREADABLE", `${key} must be a host name`);
+    if (typeof raw === "string" && isBlockName(raw)) return raw;
+    throw new ConfigError("CONFIG_UNREADABLE", `${key} must be ${what}`);
   };
 }
 
@@ -151,7 +159,12 @@ export const FIELDS: { readonly [K in ConfigKey]: ConfigField<K> } = {
   defaultHost: {
     env: "WERK_DEFAULT_HOST",
     describe: "which host werk puts work on when nobody names one",
-    parse: hostName("defaultHost"),
+    parse: blockName("defaultHost", "a host name"),
+  },
+  workspaceSetup: {
+    env: "WERK_WORKSPACE_SETUP",
+    describe: "which [setup.<name>] block a new workspace gets",
+    parse: blockName("workspaceSetup", "the name of a [setup.<name>] block"),
   },
   colour: {
     env: "WERK_COLOUR",
@@ -213,6 +226,10 @@ export function builtInDefaults(
     // A `werk create` that names no host runs on this machine, so this is a
     // description of the present rather than a plan for anything else.
     defaultHost: DEFAULT_HOST,
+    // Written down as nothing rather than left out, so the defaults layer is
+    // the layer that answered for it and `werk config list` has a row to show.
+    // Nothing runs after a workspace is made until a file names a block.
+    workspaceSetup: undefined,
     colour: "auto",
     // Mocha and mauve are Catppuccin's conventional defaults, and dark is what
     // every tool that probes a terminal falls back to when it learns nothing.

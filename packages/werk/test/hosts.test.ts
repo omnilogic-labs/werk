@@ -12,13 +12,14 @@ import {
   HOST_KINDS,
   builtInHosts,
   hostFor,
-  isHostName,
+  isBlockName,
   parseHost,
   parseHosts,
   summariseHost,
   workspaceRootFor,
   type Host,
 } from "../src/config/hosts.js";
+import { DAEMON_OWNED } from "../src/environment.js";
 import { mergeLayers, type ConfigLayer } from "../src/config/load.js";
 import { builtInDefaults } from "../src/config/schema.js";
 import { exitCodeFor, errorPayload } from "../src/runtime/exit.js";
@@ -59,8 +60,8 @@ test("a replaced block is recorded, naming the layer that lost it", () => {
     layer("project", { beast: { kind: "ssh", sshHost: "b" } }),
   ]);
   expect(shadowed).toEqual([
-    { name: "beast", layer: "defaults", by: "user" },
-    { name: "beast", layer: "user", by: "project" },
+    { table: "hosts", name: "beast", layer: "defaults", by: "user" },
+    { table: "hosts", name: "beast", layer: "user", by: "project" },
   ]);
 });
 test("provenance is per host, so two layers each keep the host they named", () => {
@@ -123,6 +124,8 @@ test("a host block names its kind and the keys that kind takes", () => {
     "sshHost",
     "workspaceRoot",
     "provider",
+    "setup",
+    "env",
   ]);
 });
 test("a key inside a host block that werk does not know is refused by name", () => {
@@ -164,6 +167,98 @@ test("provider is accepted and nothing is done with it", () => {
   // No registry, no kinds, no meaning: a name werk carries around.
   expect(HOST_FIELDS.local.provider.required).toBe(false);
 });
+test("both kinds take an env and a setup, and carry them untouched", () => {
+  const env = { EDITOR: "werk edit --wait", CARGO_HOME: "/opt/cargo" };
+  expect(
+    parseHost("beast", { kind: "ssh", sshHost: "a", env, setup: "my-boxes" }),
+  ).toEqual({ kind: "ssh", sshHost: "a", env, setup: "my-boxes" });
+  expect(parseHost("here", { kind: "local", env, setup: "my-boxes" })).toEqual({
+    kind: "local",
+    env,
+    setup: "my-boxes",
+  });
+  // Whether anything defines that block is a question about the collection, so
+  // a name nothing defines is still a block that reads.
+  expect(HOST_FIELDS.local.setup.required).toBe(false);
+  expect(HOST_FIELDS.ssh.env.required).toBe(false);
+});
+test("setup names a block, spelled the way every other block name is", () => {
+  expect(() =>
+    parseHost("beast", { kind: "ssh", sshHost: "a", setup: "my boxes" }),
+  ).toThrow(/setup must name a \[setup\.<name>\] block/);
+  expect(() =>
+    parseHost("beast", { kind: "ssh", sshHost: "a", setup: 3 }),
+  ).toThrow(/setup must name a \[setup\.<name>\] block/);
+});
+test("an env werk would not be able to send is refused where it is written", () => {
+  const bad = (env: unknown) => () =>
+    parseHost("beast", { kind: "ssh", sshHost: "a", env });
+  expect(bad("EDITOR=vi")).toThrow(/env is a table of variables/);
+  expect(bad(["EDITOR"])).toThrow(/env is a table of variables/);
+  expect(bad({ "2FA": "x" })).toThrow(/env cannot set "2FA"/);
+  expect(bad({ "no-dashes": "x" })).toThrow(/env cannot set "no-dashes"/);
+  expect(bad({ EDITOR: 3 })).toThrow(/env must give EDITOR a string/);
+  expect(bad({ EDITOR: "a\0b" })).toThrow(/env cannot give EDITOR a value/);
+  // The daemon's own bounds, said by the file that carries the map rather than
+  // by a session that would not start an hour later.
+  expect(
+    bad(Object.fromEntries([...Array(1025).keys()].map((n) => [`A${n}`, "x"]))),
+  ).toThrow(/env takes at most 1024 variables/);
+  expect(bad({ [`A${"b".repeat(256)}`]: "x" })).toThrow(
+    /env cannot set a name longer than 256 bytes/,
+  );
+  expect(bad({ BIG: "x".repeat(128 * 1024 + 1) })).toThrow(
+    /env gives BIG more than 131072 bytes/,
+  );
+  expect(
+    bad(
+      Object.fromEntries(
+        [...Array(16).keys()].map((n) => [`A${n}`, "x".repeat(100_000)]),
+      ),
+    ),
+  ).toThrow(/env comes to more than 1048576 bytes in total/);
+});
+test("the names the daemon writes last are refused rather than discarded", () => {
+  // Read off the list `sessionEnvironment` merges over the client's map, so the
+  // two cannot drift into disagreeing about which names are werk's.
+  for (const name of DAEMON_OWNED)
+    expect(() =>
+      parseHost("beast", { kind: "ssh", sshHost: "a", env: { [name]: "x" } }),
+    ).toThrow(`env cannot set ${name}`);
+  // Everything else about the terminal is somebody's to set.
+  expect(
+    parseHost("beast", { kind: "ssh", sshHost: "a", env: { TERMINFO: "/t" } }),
+  ).toEqual({ kind: "ssh", sshHost: "a", env: { TERMINFO: "/t" } });
+});
+test("an env werk cannot read is a problem in a file, not a throw", () => {
+  const { hosts, problems } = parseHosts(
+    {
+      hosts: {
+        beast: { kind: "ssh", sshHost: "beast" },
+        broken: { kind: "ssh", sshHost: "b", env: { TERM: "dumb" } },
+      },
+    },
+    "/home/x/.werk/config.toml",
+  );
+  expect(hosts).toEqual({ beast: { kind: "ssh", sshHost: "beast" } });
+  expect(problems[0]!.name).toBe("broken");
+  expect(problems[0]!.message).toContain("env cannot set TERM");
+  expect(problems[0]!.message).toContain("/home/x/.werk/config.toml");
+});
+test("a stronger layer's block drops the env under it, whole", () => {
+  // By name and never by field: a project file that re-points a machine takes
+  // the whole block with it, rather than leaving the user file's variables on
+  // an address nobody wrote them against.
+  const { hosts } = mergeLayers([
+    defaults(),
+    layer("user", {
+      beast: { kind: "ssh", sshHost: "a", env: { EDITOR: "vi" } },
+    }),
+    layer("project", { beast: { kind: "ssh", sshHost: "b" } }),
+  ]);
+  expect(hosts.beast).toEqual({ kind: "ssh", sshHost: "b" });
+  expect(hosts.beast).not.toHaveProperty("env");
+});
 test("a table name that is not a host name is refused as the name it is", () => {
   const error = (() => {
     try {
@@ -184,7 +279,7 @@ test("a host name is a bare TOML key with no @ and no : in it", () => {
     "10.0.0.7",
     "a_b.c-d",
   ])
-    expect(isHostName(name), name).toBe(true);
+    expect(isBlockName(name), name).toBe(true);
   for (const name of [
     "",
     "-leading",
@@ -196,8 +291,8 @@ test("a host name is a bare TOML key with no @ and no : in it", () => {
     "has/slash",
     "a".repeat(65),
   ])
-    expect(isHostName(name), JSON.stringify(name)).toBe(false);
-  expect(isHostName("a".repeat(64))).toBe(true);
+    expect(isBlockName(name), JSON.stringify(name)).toBe(false);
+  expect(isBlockName("a".repeat(64))).toBe(true);
 });
 
 test("a block werk cannot read is a problem, not a reason to stop", () => {

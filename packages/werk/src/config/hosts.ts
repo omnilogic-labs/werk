@@ -13,6 +13,8 @@
  * [hosts.beast]
  * kind = "ssh"
  * sshHost = "beast"
+ * env = { EDITOR = "werk edit --wait" }
+ * setup = "my-boxes"
  *
  * [hosts.agent-sandboxes]
  * kind = "ssh"
@@ -40,6 +42,7 @@
  * keeping true.
  */
 import path from "node:path";
+import { DAEMON_OWNED } from "../environment.js";
 import { ConfigError, type ConfigWhere } from "./errors.js";
 
 interface HostBase {
@@ -47,6 +50,14 @@ interface HostBase {
   readonly workspaceRoot?: string;
   /** The name of the provider that made this host, when one did. */
   readonly provider?: string;
+  /**
+   * The `[setup.<name>]` block that says how this machine is set up. Only the
+   * name: whether a block is called that is a question about the whole
+   * collection, and the block may come from a layer this one cannot see.
+   */
+  readonly setup?: string;
+  /** Variables every session on this host is started with. */
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 /** The machine werk is running on. */
@@ -84,17 +95,20 @@ export const HOST_KINDS = ["local", "ssh"] as const;
 const ARTICLE: Record<HostKind, string> = { local: "a", ssh: "an" };
 
 /**
- * One field of a host block, in the shape `FIELDS` uses for a setting, so there
- * is one way to describe a field in this codebase. There is no `env` here: the
- * environment rule is one variable per scalar key, and a collection of tables
- * has no spelling in it.
+ * One field of a named block in a config file — a host, or a `[setup.<name>]`
+ * beside it — in the shape `FIELDS` uses for a setting, so there is one way to
+ * describe a field in this codebase.
+ *
+ * `T` is what the field is worth once it has been read. Most of them are
+ * strings; `env` is a table and `run` is a list, and a field table says which
+ * by naming the type rather than by having a second kind of field.
  */
-export interface HostField {
+export interface BlockField<T = string> {
   readonly describe: string;
-  /** A host has no defaults, so a required field that is absent is refused. */
+  /** A block has no defaults, so a required field that is absent is refused. */
   readonly required: boolean;
   /** Raw as a file gave it; throws when it is not usable. */
-  parse(raw: unknown, key: string): string;
+  parse(raw: unknown, key: string): T;
 }
 
 function text(what: string) {
@@ -104,7 +118,7 @@ function text(what: string) {
   };
 }
 
-const workspaceRoot: HostField = {
+const workspaceRoot: BlockField = {
   describe: "where workspaces go on this host",
   required: false,
   parse: text("a path"),
@@ -122,19 +136,45 @@ const workspaceRoot: HostField = {
  * around; a person writing one today is describing their own setup to
  * themselves.
  */
-const provider: HostField = {
+const provider: BlockField = {
   describe: "the provider that made this host, when one did",
   required: false,
   parse: text("a name"),
 };
+/**
+ * Which `[setup.<name>]` block sets this machine up.
+ *
+ * Only the spelling is checked. Whether anything defines a block by that name
+ * is a question about the whole collection, and a parser is handed one value:
+ * the block may be in a file this one has never seen, and the layers settle
+ * that where they are merged.
+ */
+const setup: BlockField = {
+  describe: "the [setup.<name>] block that sets this machine up",
+  required: false,
+  parse: (raw, key) => {
+    if (typeof raw === "string" && isBlockName(raw)) return raw;
+    throw new ConfigError(
+      "HOST_INVALID",
+      `${key} must name a [setup.<name>] block: ${BLOCK_NAME_RULE}`,
+    );
+  },
+};
+const env: BlockField<Readonly<Record<string, string>>> = {
+  describe: "variables every session on this host is started with",
+  required: false,
+  parse: readEnvironment,
+};
 
-type FieldsFor<K extends HostKind> = Readonly<
-  Record<Exclude<keyof Extract<Host, { kind: K }>, "kind">, HostField>
->;
+type FieldsFor<K extends HostKind> = {
+  readonly [
+    F in Exclude<keyof Extract<Host, { kind: K }>, "kind">
+  ]-?: BlockField<NonNullable<Extract<Host, { kind: K }>[F]>>;
+};
 
 /** Every key each kind of host takes, apart from `kind`, which selects the table. */
 export const HOST_FIELDS: { readonly [K in HostKind]: FieldsFor<K> } = {
-  local: { workspaceRoot, provider },
+  local: { workspaceRoot, provider, setup, env },
   ssh: {
     sshHost: {
       describe: "an ssh destination, spelled as it would be typed after `ssh`",
@@ -143,11 +183,82 @@ export const HOST_FIELDS: { readonly [K in HostKind]: FieldsFor<K> } = {
     },
     workspaceRoot,
     provider,
+    setup,
+    env,
   },
 };
 
+/** What a variable may be called, in the spelling every shell agrees on. */
+const ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/** `validateEnvironment` in `@werk/session-daemon` holds these numbers. */
+const ENV_ENTRIES = 1024;
+const ENV_KEY_BYTES = 256;
+const ENV_VALUE_BYTES = 128 * 1024;
+const ENV_TOTAL_BYTES = 1024 * 1024;
+
 /**
- * What a host may be called.
+ * The variables a host block asks for on top of whatever else a session gets.
+ *
+ * The daemon's own bounds are repeated here rather than left to it. A map it
+ * would refuse arrives there as a session that will not start, which names
+ * neither the file nor the key; refusing it while the file is in hand says
+ * where to go and fix it.
+ *
+ * The six names the daemon writes last are refused rather than dropped.
+ * `sessionEnvironment` merges them over whatever a client sent, so a `TERM` in
+ * a host block would be discarded without a word, and quietly discarding
+ * something somebody wrote in a block is what the unknown-key rule exists to
+ * prevent.
+ */
+function readEnvironment(
+  raw: unknown,
+  key: string,
+): Readonly<Record<string, string>> {
+  const wrong = (detail: string) =>
+    new ConfigError("HOST_INVALID", `${key} ${detail}`);
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+    throw wrong(
+      'is a table of variables, such as { EDITOR = "werk edit --wait" }',
+    );
+  const entries = Object.entries(raw as Record<string, unknown>);
+  if (entries.length > ENV_ENTRIES)
+    throw wrong(`takes at most ${ENV_ENTRIES} variables`);
+  const values: Record<string, string> = {};
+  let total = 0;
+  for (const [name, value] of entries) {
+    if (!ENV_KEY.test(name))
+      throw wrong(
+        `cannot set ${JSON.stringify(name)}: a variable name is letters, ` +
+          `digits and underscores, and does not start with a digit`,
+      );
+    if ((DAEMON_OWNED as readonly string[]).includes(name))
+      throw wrong(
+        `cannot set ${name}: the daemon writes it for every session after ` +
+          `everything a client sends, so this would be thrown away`,
+      );
+    if (typeof value !== "string") throw wrong(`must give ${name} a string`);
+    if (value.includes("\0"))
+      throw wrong(`cannot give ${name} a value with a NUL in it`);
+    const nameBytes = Buffer.byteLength(name);
+    const valueBytes = Buffer.byteLength(value);
+    if (nameBytes > ENV_KEY_BYTES)
+      throw wrong(`cannot set a name longer than ${ENV_KEY_BYTES} bytes`);
+    if (valueBytes > ENV_VALUE_BYTES)
+      throw wrong(`gives ${name} more than ${ENV_VALUE_BYTES} bytes`);
+    // The `=` and the terminating NUL each name costs in `envp`, counted the
+    // way the daemon counts them.
+    total += nameBytes + valueBytes + 2;
+    if (total > ENV_TOTAL_BYTES)
+      throw wrong(`comes to more than ${ENV_TOTAL_BYTES} bytes in total`);
+    values[name] = value;
+  }
+  return values;
+}
+
+/**
+ * What a named block in a config file may be called: a host, and the
+ * `[setup.<name>]` blocks beside them. One rule, because a name that is fine
+ * in one table and refused in the next is a rule nobody can remember.
  *
  * Bare TOML keys, so `[hosts.beast]` never needs quoting in a file somebody
  * types by hand. No `@` and no `:`, so a name stays usable in the
@@ -155,10 +266,14 @@ export const HOST_FIELDS: { readonly [K in HostKind]: FieldsFor<K> } = {
  * `@werk/workspace`'s `reference.ts`, which reads the first `@` as the start of
  * the host and the first `:` as the start of the path.
  */
-const HOST_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-const HOST_NAME_LIMIT = 64;
-export const isHostName = (name: string): boolean =>
-  name.length <= HOST_NAME_LIMIT && HOST_NAME.test(name);
+const BLOCK_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const BLOCK_NAME_LIMIT = 64;
+export const isBlockName = (name: string): boolean =>
+  name.length <= BLOCK_NAME_LIMIT && BLOCK_NAME.test(name);
+/** The rule as a sentence, so every refusal says the same thing. */
+export const BLOCK_NAME_RULE =
+  `letters, digits, dots, dashes and underscores, starting with a letter ` +
+  `or a digit, up to ${BLOCK_NAME_LIMIT} characters`;
 
 /** A host block that could not be read, and enough to go and look at it. */
 export interface HostProblem {
@@ -191,12 +306,10 @@ export function parseHost(name: string, raw: unknown, file?: string): Host {
 }
 
 function readHost(name: string, raw: unknown): Host {
-  if (!isHostName(name))
+  if (!isBlockName(name))
     throw new ConfigError(
       "HOST_NAME_INVALID",
-      `${JSON.stringify(name)} is not a host name: letters, digits, dots, ` +
-        `dashes and underscores, starting with a letter or a digit, up to ` +
-        `${HOST_NAME_LIMIT} characters`,
+      `${JSON.stringify(name)} is not a host name: ${BLOCK_NAME_RULE}`,
     );
   if (typeof raw !== "object" || raw === null || Array.isArray(raw))
     throw new ConfigError("HOST_INVALID", "a host is a table of keys");
@@ -210,7 +323,7 @@ function readHost(name: string, raw: unknown): Host {
       "HOST_INVALID",
       `kind must be one of ${HOST_KINDS.join(", ")}`,
     );
-  const fields: Readonly<Record<string, HostField>> =
+  const fields: Readonly<Record<string, BlockField<unknown>>> =
     HOST_FIELDS[kind as HostKind];
   const takes = ["kind", ...Object.keys(fields)].join(", ");
   const a = ARTICLE[kind as HostKind];

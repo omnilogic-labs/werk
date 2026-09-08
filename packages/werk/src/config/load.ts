@@ -9,11 +9,12 @@
  * TOML files, ask the remote source — in the same shape as `view.ts`.
  *
  * A layer holds two different kinds of thing. Settings are scalars that merge
- * key by key, and every one of them has a default underneath it. Hosts are
- * blocks that replace each other whole, and a name nobody wrote down has
- * nothing underneath it at all. Only the file layers and the built-in defaults
- * carry hosts today: the environment rule is one variable per scalar key and
- * the flags are the same, and neither has a spelling for a table.
+ * key by key, and nearly all of them have a default underneath. Named blocks —
+ * the hosts, and the `[setup.*]` blocks beside them — replace each other whole,
+ * and a name nobody wrote down has nothing underneath it at all. Only the file
+ * layers and the built-in defaults carry blocks today: the environment rule is
+ * one variable per scalar key and the flags are the same, and neither has a
+ * spelling for a table.
  *
  * c12 reads the files and nothing else. It is deliberately not asked to merge:
  * it has five fixed slots where werk has six ordered layers, and its `layers`
@@ -43,6 +44,7 @@ import {
   type Host,
   type HostProblem,
 } from "./hosts.js";
+import { parseSetups, type SetupBlock, type SetupProblem } from "./setup.js";
 import {
   REMOTE_PREFIX,
   unconfiguredSource,
@@ -67,15 +69,27 @@ export interface ConfigLayer {
   values: Partial<WerkConfig>;
   /** The `[hosts.*]` blocks this layer carried, if it carried any. */
   hosts?: Readonly<Record<string, Host>>;
-  /** The blocks it carried that could not be read. */
+  /** The host blocks it carried that could not be read. */
   problems?: readonly HostProblem[];
+  /** The `[setup.*]` blocks this layer carried, if it carried any. */
+  setups?: Readonly<Record<string, SetupBlock>>;
+  /** The setup blocks it carried that could not be read. */
+  setupProblems?: readonly SetupProblem[];
 }
-/** A host block that could not be read, and which layer's file it was in. */
+/**
+ * Which table a named block came out of. Hosts and setup blocks merge by
+ * exactly the same rules, so what a reader needs beside a name is the header it
+ * was written under.
+ */
+export type BlockTable = "hosts" | "setup";
+/** A block that could not be read, and which layer's file it was in. */
 export interface LayerProblem extends HostProblem {
+  table: BlockTable;
   layer: LayerName;
 }
-/** A host block one layer supplied and a stronger layer replaced outright. */
-export interface ShadowedHost {
+/** A block one layer supplied and a stronger layer replaced outright. */
+export interface ShadowedBlock {
+  table: BlockTable;
   name: string;
   /** The layer whose block was replaced. */
   layer: LayerName;
@@ -90,12 +104,41 @@ export interface MergedConfig {
   hosts: Readonly<Record<string, Host>>;
   /** The layer that supplied each host. */
   hostFrom: Record<string, LayerName>;
-  /** Every host block a stronger layer replaced, weakest first. */
-  shadowed: readonly ShadowedHost[];
-  /** Every host block that could not be read, weakest first. */
+  /** Every setup block in force, by name. */
+  setups: Readonly<Record<string, SetupBlock>>;
+  /** The layer that supplied each setup block. */
+  setupFrom: Record<string, LayerName>;
+  /** Every block a stronger layer replaced, weakest first. */
+  shadowed: readonly ShadowedBlock[];
+  /** Every block that could not be read, weakest first. */
   problems: readonly LayerProblem[];
   /** Every layer that was consulted, lowest precedence first. */
   layers: readonly ConfigLayer[];
+}
+
+/**
+ * One layer's blocks over what the weaker layers said, recording each block
+ * that was replaced.
+ *
+ * Hosts and setup blocks merge by the same rule, so they merge through the same
+ * function: a whole block wins or it does not, and the name it is filed under
+ * is all either collection has to go on.
+ */
+function takeBlocks<T>(
+  given: Readonly<Record<string, T>> | undefined,
+  table: BlockTable,
+  layer: LayerName,
+  into: Record<string, T>,
+  from: Record<string, LayerName>,
+  shadowed: ShadowedBlock[],
+): void {
+  for (const [name, block] of Object.entries(given ?? {})) {
+    const held = from[name];
+    if (held !== undefined)
+      shadowed.push({ table, name, layer: held, by: layer });
+    into[name] = block;
+    from[name] = layer;
+  }
 }
 
 /**
@@ -111,44 +154,50 @@ export function mergeLayers(layers: readonly ConfigLayer[]): MergedConfig {
   const from = {} as Record<ConfigKey, LayerName>;
   for (const layer of ordered)
     for (const key of CONFIG_KEYS) {
-      const value = layer.values[key];
-      if (value === undefined) continue;
-      config[key] = value;
+      // Whether the layer holds the key, rather than whether it holds a value.
+      // A setting may legitimately be worth nothing — `workspaceSetup` is,
+      // until a file names a block — and the layer that said so is still the
+      // layer that answered for it.
+      if (!(key in layer.values)) continue;
+      config[key] = layer.values[key];
       from[key] = layer.name;
     }
   const missing = CONFIG_KEYS.filter((key) => from[key] === undefined);
   if (missing.length > 0)
     throw new Error(`No layer supplied ${missing.join(", ")}`);
-  // Hosts merge by name and never by field. A host is a discriminated union, so
+  // Blocks merge by name and never by field. A host is a discriminated union, so
   // merging `kind = "ssh"` in a project file over a `kind = "local"` block in
   // the user file would compose a record no file ever contained and point the
-  // name at a machine nobody wrote down. A whole block wins or it does not, and
-  // every replacement is recorded, because a host that quietly changed which
-  // machine it means is the worst thing this can do.
+  // name at a machine nobody wrote down. A setup block is the same kind of
+  // thing: half of one file's commands under another file's `copy` is a run
+  // nobody wrote. A whole block wins or it does not, and every replacement is
+  // recorded, because a name that quietly changed what it means is the worst
+  // thing this can do.
   //
-  // There is no "every host must be supplied" check to match the one above. A
-  // collection with no entries is a person who has not written any hosts down;
-  // a setting with no value is a hole in werk's own defaults.
+  // There is no "every block must be supplied" check to match the one above. A
+  // collection with no entries is a person who has not written any blocks down,
+  // where a key no layer holds at all is a hole in werk's own defaults.
   const hosts: Record<string, Host> = {};
   const hostFrom: Record<string, LayerName> = {};
-  const shadowed: ShadowedHost[] = [];
+  const setups: Record<string, SetupBlock> = {};
+  const setupFrom: Record<string, LayerName> = {};
+  const shadowed: ShadowedBlock[] = [];
   const problems: LayerProblem[] = [];
   for (const layer of ordered) {
-    for (const [name, host] of Object.entries(layer.hosts ?? {})) {
-      const held = hostFrom[name];
-      if (held !== undefined)
-        shadowed.push({ name, layer: held, by: layer.name });
-      hosts[name] = host;
-      hostFrom[name] = layer.name;
-    }
+    takeBlocks(layer.hosts, "hosts", layer.name, hosts, hostFrom, shadowed);
+    takeBlocks(layer.setups, "setup", layer.name, setups, setupFrom, shadowed);
     for (const problem of layer.problems ?? [])
-      problems.push({ ...problem, layer: layer.name });
+      problems.push({ table: "hosts", ...problem, layer: layer.name });
+    for (const problem of layer.setupProblems ?? [])
+      problems.push({ table: "setup", ...problem, layer: layer.name });
   }
   return {
     config: config as WerkConfig,
     from,
     hosts,
     hostFrom,
+    setups,
+    setupFrom,
     shadowed,
     problems,
     layers: ordered,
@@ -223,6 +272,8 @@ interface FileLayer {
   values: Partial<WerkConfig>;
   hosts: Readonly<Record<string, Host>>;
   problems: readonly HostProblem[];
+  setups: Readonly<Record<string, SetupBlock>>;
+  setupProblems: readonly SetupProblem[];
   /** The file that was actually read, absent when there was none. */
   file?: string;
 }
@@ -230,6 +281,8 @@ const emptyFileLayer = (): FileLayer => ({
   values: {},
   hosts: {},
   problems: [],
+  setups: {},
+  setupProblems: [],
 });
 /**
  * Read `<dir>/config.toml`, if it exists.
@@ -301,10 +354,13 @@ export async function readConfigDir(
         : null,
   });
   const { hosts, problems } = parseHosts(loaded.config, loaded._configFile);
+  const setup = parseSetups(loaded.config, loaded._configFile);
   return {
     values: coerceLayer(loaded.config),
     hosts,
     problems,
+    setups: setup.setups,
+    setupProblems: setup.problems,
     file: loaded._configFile,
   };
 }
@@ -363,6 +419,8 @@ export async function loadWerkConfig(
       values: user.values,
       hosts: user.hosts,
       problems: user.problems,
+      setups: user.setups,
+      setupProblems: user.setupProblems,
     },
     {
       name: "project",
@@ -370,6 +428,8 @@ export async function loadWerkConfig(
       values: project.values,
       hosts: project.hosts,
       problems: project.problems,
+      setups: project.setups,
+      setupProblems: project.setupProblems,
     },
     { name: "env", origin: "environment", values: envLayer(env) },
     {

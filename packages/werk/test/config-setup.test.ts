@@ -163,6 +163,39 @@ test("a name already in force is changed rather than duplicated", async () => {
   });
 });
 
+test("changing a block keeps what the wizard never asked about", async () => {
+  // The block is written whole, so anything the conversation has no question
+  // for has to come across from the block that is there. Without that,
+  // re-pointing a machine at a new address takes its variables, its setup block
+  // and its provider out of the file without saying so.
+  const written: { edit?: ConfigEdit } = {};
+  await runSetup(
+    context(),
+    { host: "beast", ssh: "moved.example" },
+    deps(written, {
+      load: async () =>
+        configured({
+          beast: {
+            kind: "ssh",
+            sshHost: "beast.example",
+            provider: "incus",
+            setup: "my-boxes",
+            env: { EDITOR: "werk edit --wait" },
+          },
+        }),
+    }),
+  );
+  expect(written.edit?.hosts).toEqual({
+    beast: {
+      kind: "ssh",
+      sshHost: "moved.example",
+      provider: "incus",
+      setup: "my-boxes",
+      env: { EDITOR: "werk edit --wait" },
+    },
+  });
+});
+
 test("without a terminal and without the flags, nothing is written", async () => {
   const written: { edit?: ConfigEdit } = {};
   await expect(runSetup(context(), {}, deps(written))).rejects.toThrow(

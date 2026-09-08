@@ -76,19 +76,28 @@ sshHost = "beast"
 kind = "ssh"
 sshHost = "mike@10.0.0.7"
 workspaceRoot = "/srv/werk/workspaces"
+env = { EDITOR = "werk edit --wait" }
+setup = "my-boxes"
 ```
 
-| Key             | Required       | What it is                                                           |
-| --------------- | -------------- | -------------------------------------------------------------------- |
-| `kind`          | yes            | `local` or `ssh`. It selects which other keys the block takes.       |
-| `sshHost`       | yes, for `ssh` | An ssh destination, spelled exactly as it would be typed after `ssh` |
-| `workspaceRoot` | no             | Where workspaces go on this machine                                  |
-| `provider`      | no             | The name of whatever made this host. Recorded, never interpreted.    |
+| Key             | Required       | What it is                                                                  |
+| --------------- | -------------- | --------------------------------------------------------------------------- |
+| `kind`          | yes            | `local` or `ssh`. It selects which other keys the block takes.              |
+| `sshHost`       | yes, for `ssh` | An ssh destination, spelled exactly as it would be typed after `ssh`        |
+| `workspaceRoot` | no             | Where workspaces go on this machine                                         |
+| `provider`      | no             | The name of whatever made this host. Recorded, never interpreted.           |
+| `env`           | no             | Variables every session on this machine is started with                     |
+| `setup`         | no             | The `[setup.<name>]` block that sets this machine up. Nothing runs one yet. |
 
 A name is bare TOML: letters, digits, dots, dashes and underscores, starting
 with a letter or a digit, up to 64 characters. No `@` and no `:`, because a
 host name appears in the `name@host:/path` workspace reference and both of
-those characters are already separators there.
+those characters are already separators there. A `[setup.<name>]` block is
+named by the same rule, so a name that works in one table works in the other.
+
+`setup` is checked for spelling and nothing else. Whether a block by that name
+exists is a question about the whole collection rather than about one value, and
+the block may be written in a file the host block has never seen.
 
 `local` is supplied by the defaults layer, so it is an ordinary row with an
 ordinary provenance and nothing has to special-case the machine werk is running
@@ -117,6 +126,42 @@ and it is genuinely open. The cost of the current shape is that werk depends on
 a file it does not own and has nothing to read on a machine where the alias is
 absent.
 
+### Variables for every session on a host
+
+`env` is a table of variables every session werk starts on that machine gets.
+
+```toml
+[hosts.beast]
+kind = "ssh"
+sshHost = "beast"
+env = { EDITOR = "werk edit --wait", CARGO_HOME = "/opt/cargo" }
+```
+
+It is an overlay rather than a whole environment. Whatever a session would have
+been started with is still the base — the denylist on this machine, the
+allowlist on another — and the block changes only the names it writes. It wins
+over both, because both are guesses about names nobody named, and a block is
+not a guess: somebody wrote it against that machine.
+
+Six names are refused rather than accepted and ignored: `TERM`, `COLORTERM`,
+`TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `WERK_SESSION` and `WERK_DAEMON`. The
+daemon writes those for every session after everything a client sends, so a
+value here would be thrown away on the far side without a word, and quietly
+discarding what somebody wrote in a block is what the unknown-key rule exists to
+prevent.
+
+The daemon's limits on an environment are checked here too — at most 1024
+variables, a name of at most 256 bytes, a value of at most 128 KiB, and at most
+1 MiB in total — so a map it would refuse is refused by the file that carries
+it, naming the file, rather than arriving later as a session that will not
+start.
+
+Write it as an inline table, on one line, as above. A `[hosts.<name>.env]`
+sub-table reads fine, because TOML puts it in the same place, but werk will not
+write over a block that has one: it replaces a block's text up to the next table
+header, which would leave the sub-table stranded after the rewrite. `werk config
+setup` refuses that rather than damaging the file, and says to edit it by hand.
+
 ### A block that cannot be read does not stop werk starting
 
 An unknown key inside a host block is refused, which is the opposite of what
@@ -143,6 +188,54 @@ not be read at all.
 
 `werk config set` and `werk config unset` write single top-level settings.
 Neither writes host blocks; `werk config setup` does that.
+
+## Setting a machine up, as configuration
+
+A `[setup.<name>]` block says what to put on a machine and what to run there. A
+host block points at one with `setup = "<name>"`, and the top-level
+`workspaceSetup` points at one for a workspace that has just been made.
+
+```toml
+# ~/.werk/config.toml
+[setup.my-boxes]
+copy = "~/dotfiles/werk-host"     # a path on the machine werk runs on
+to = ".local/share/werk/setup"    # relative to $HOME over there
+run = [
+  "claude plugin marketplace add claude-plugins-official",
+  "~/.local/share/werk/setup/install.sh",
+]
+rerunOnChange = true
+```
+
+```toml
+# <repository>/.werk/config.toml, so it travels with the repository
+workspaceSetup = "bootstrap"
+
+[setup.bootstrap]
+run = ["bun install"]
+```
+
+| Key             | Required | What it is                                                                |
+| --------------- | -------- | ------------------------------------------------------------------------- |
+| `copy`          | no       | What to send: a path on the machine werk is running on. `~/` is expanded. |
+| `to`            | no       | Where it lands, relative to the home directory over there                 |
+| `run`           | yes      | The commands to run there, in the order they are written                  |
+| `rerunOnChange` | no       | Whether it is worth running again once what it copies has changed         |
+
+`copy` and `to` go together: one without the other is refused naming both,
+because half of that pair is either a path with nowhere to go or a place with
+nothing to put in it. `to` is refused if it starts with `/` or has a `..` in it,
+so what a block sends stays under the home directory it names. An unknown key
+inside a block is refused, for the same reason it is inside a host block: a
+block that looks configured and does nothing costs a machine somebody thinks is
+set up. A block werk cannot read is a problem rather than a reason to stop, so
+`werk config list` shows the `setup.<name>` row as `unreadable` and `werk config
+sources` says what is wrong and which file it is in.
+
+**Nothing runs any of this.** werk reads these blocks, merges them through the
+layers by name, and prints them. What would copy the files, what would run the
+commands, what `rerunOnChange` is compared against, and when either block runs
+at all are not built and not settled.
 
 ## The wizard
 
@@ -354,6 +447,12 @@ its logs and cannot be taken back.
 reason: they would be wrong rather than merely surplus, because they name things
 on the machine werk was typed on. The remote daemon's own environment supplies
 its versions of them.
+
+The allowlist bounds what leaves this machine on its own. A host block's
+[`env`](#variables-for-every-session-on-a-host) is an explicit list rather than
+a default, so it is sent as well and it wins: the names in it are ones somebody
+wrote down against that machine, where everything the allowlist decides is werk
+guessing about names it has never seen.
 
 ### The warm path
 
@@ -646,6 +745,11 @@ and the machine werk is running on, the moment somebody adds their own desktop
 by its ssh alias. That puts one set of workspaces under two roots of a graph
 that is supposed to be a tree. See
 [question 27](product-specification.md#27-when-are-two-routes-to-the-same-machine-the-same-host).
+
+**Nothing runs a `[setup.<name>]` block.** A block can be written, read, merged
+and printed. Nothing copies what it names or runs what it lists, on a machine or
+in a workspace. See [setting a machine up, as
+configuration](#setting-a-machine-up-as-configuration).
 
 **Nothing removes werk from a machine.** werk leaves a binary, a daemon and a
 directory of workspaces on every host it touches, and there is no command that
