@@ -2,7 +2,11 @@ import fs from "node:fs/promises";
 import { closeSync, openSync, readFileSync } from "node:fs";
 import os from "node:os";
 import { holdSharedDirectoryLock } from "./platform/lock.js";
-import { makePrivate, processStartedAt } from "./platform/index.js";
+import {
+  forgetPrivate,
+  makePrivate,
+  processStartedAt,
+} from "./platform/index.js";
 import type { Logger } from "./log.js";
 
 /**
@@ -139,6 +143,7 @@ export async function ensurePrivateDirectory(directory: string) {
   const stat = await fs.stat(directory);
   if (process.getuid && stat.uid !== process.getuid())
     throw new Error(`Directory ${directory} belongs to another user`);
+  if (created) forgetPrivate(directory);
   await makePrivate(directory);
   return created;
 }

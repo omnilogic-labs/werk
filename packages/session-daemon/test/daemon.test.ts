@@ -637,13 +637,19 @@ test("preview needs a formatting engine and ends with a dead record's screen", a
         representation: "preview",
         onEvent: () => {},
       }),
-    ).rejects.toThrow("cannot format");
+    ).rejects.toMatchObject({
+      code: "UNSUPPORTED",
+      message: expect.stringContaining("format"),
+    });
     await expect(
       plain.client.attach(session.id, {
         representation: "bitmap" as any,
         onEvent: () => {},
       }),
-    ).rejects.toThrow("reserved");
+    ).rejects.toMatchObject({
+      code: "UNSUPPORTED",
+      message: expect.stringContaining("reserved"),
+    });
   } finally {
     await plain.close();
   }

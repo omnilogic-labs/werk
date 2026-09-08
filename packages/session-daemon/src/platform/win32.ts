@@ -118,8 +118,14 @@ export function createWindowsTree() {
   };
 }
 
-/** Apply an explicit per-user inherited ACL to local endpoint and state files. */
-export function privateWindowsDirectory(directory: string) {
+/**
+ * Apply an explicit per-user inherited ACL to local endpoint and state files.
+ *
+ * Windows has no mode to set, so this runs PowerShell, and a PowerShell start
+ * costs the better part of a second. Awaiting the child rather than blocking on
+ * it is what keeps the daemon answering requests while the ACL is applied.
+ */
+export async function privateWindowsDirectory(directory: string) {
   const script = `$identity=[Security.Principal.WindowsIdentity]::GetCurrent().User;
 $acl=New-Object Security.AccessControl.DirectorySecurity;
 $acl.SetOwner($identity);
@@ -127,7 +133,7 @@ $acl.SetAccessRuleProtection($true,$false);
 $rule=New-Object Security.AccessControl.FileSystemAccessRule($identity,'FullControl','ContainerInherit,ObjectInherit','None','Allow');
 $acl.AddAccessRule($rule);
 Set-Acl -LiteralPath $env:WERK_PRIVATE_DIRECTORY -AclObject $acl -ErrorAction Stop;`;
-  const result = Bun.spawnSync(
+  const child = Bun.spawn(
     [
       "powershell.exe",
       "-NoLogo",
@@ -138,12 +144,14 @@ Set-Acl -LiteralPath $env:WERK_PRIVATE_DIRECTORY -AclObject $acl -ErrorAction St
     ],
     {
       env: { ...process.env, WERK_PRIVATE_DIRECTORY: directory },
-      stdout: "pipe",
+      stdout: "ignore",
       stderr: "pipe",
     },
   );
-  if (result.exitCode !== 0)
-    throw new Error(
-      `Cannot restrict Windows directory: ${new TextDecoder().decode(result.stderr)}`,
-    );
+  const [exitCode, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stderr).text(),
+  ]);
+  if (exitCode !== 0)
+    throw new Error(`Cannot restrict Windows directory: ${stderr}`);
 }

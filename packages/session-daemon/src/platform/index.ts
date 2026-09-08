@@ -3,17 +3,29 @@ import type { Size } from "@werk/session";
 import { posixSummary, signalPosixTree } from "./posix.js";
 import { createWindowsTree, privateWindowsDirectory } from "./win32.js";
 
-export { privateWindowsDirectory } from "./win32.js";
 export { socketPathTooLong, notPrivateToOwner } from "./rules.js";
 export { processStartedAt } from "./posix.js";
 
+// A directory this process has already restricted. The POSIX mode costs one
+// syscall and is set every time it is asked for; the Windows ACL costs a
+// PowerShell process, which is far too much to spend on a five-second timer.
+const restricted = new Set<string>();
+
 /**
  * Restrict a directory to the current user. Windows has no mode to set, so the
- * per-user ACL does the work the POSIX bits do everywhere else.
+ * per-user ACL does the work the POSIX bits do everywhere else, and is applied
+ * once for as long as the directory it was applied to survives.
  */
 export async function makePrivate(directory: string) {
-  if (process.platform === "win32") privateWindowsDirectory(directory);
-  else await fs.chmod(directory, 0o700);
+  if (process.platform !== "win32") return await fs.chmod(directory, 0o700);
+  if (restricted.has(directory)) return;
+  await privateWindowsDirectory(directory);
+  restricted.add(directory);
+}
+
+/** A directory made afresh is no longer the one that was restricted. */
+export function forgetPrivate(directory: string) {
+  restricted.delete(directory);
 }
 
 export const platformCapabilities = {

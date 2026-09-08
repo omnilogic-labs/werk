@@ -65,9 +65,9 @@ export const EXCEPTIONS: Exception[] = [
   },
   {
     path: "packages/session-daemon/src/index.ts",
-    allowed: 3,
+    allowed: 2,
     reason:
-      "The owner principal reads a uid, the state directory takes a Windows ACL with no POSIX counterpart, and the loopback credential is decided once here so that everything downstream branches on the credential rather than on the platform.",
+      "The owner principal reads a uid, and the loopback credential is decided once here so that everything downstream branches on the credential rather than on the platform.",
     disposition: "wants-moving",
   },
   {

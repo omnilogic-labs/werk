@@ -41,7 +41,7 @@ import type {
 import {
   spawnPty,
   platformCapabilities,
-  privateWindowsDirectory,
+  makePrivate,
   socketPathTooLong,
 } from "./platform/index.js";
 import {
@@ -247,7 +247,7 @@ export async function createSessionDaemon(config: DaemonConfig) {
     if (!Number.isFinite(value) || value <= 0)
       throw new Error(`Invalid limit ${key}`);
   await fs.mkdir(config.stateDir, { recursive: true, mode: 0o700 });
-  if (process.platform === "win32") privateWindowsDirectory(config.stateDir);
+  await makePrivate(config.stateDir);
   const identityPath = path.join(config.stateDir, "identity");
   let id: string;
   try {
