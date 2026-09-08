@@ -1,0 +1,1 @@
+- [No help-output snapshots](feedback-no-help-output-snapshots.md) — never pin CLI help or prose verbatim in tests; assert properties read off the source of truth
