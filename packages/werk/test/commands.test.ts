@@ -22,6 +22,7 @@ import {
   sizeIntent,
 } from "../src/commands/attach.js";
 import { buildKill, renderTermination } from "../src/commands/kill.js";
+import { renderOpen, waitTimeoutMs } from "../src/commands/edit.js";
 import { renderInspection, type Inspection } from "../src/commands/inspect.js";
 import { describeEndpoint, renderEndpoint } from "../src/commands/daemon.js";
 import { aliasesOf, resolveSession } from "../src/commands/session-argument.js";
@@ -49,6 +50,9 @@ function context(overrides: Partial<WerkContext> = {}): WerkContext {
     hosts: builtInHosts(),
     hostProblems: [],
     defaultHost: "local",
+    setups: {},
+    hostOrigin: {},
+    editor: builtInDefaults().editor,
     ...overrides,
   };
 }
@@ -248,6 +252,31 @@ test("termination reports delivery and outcome as the separate facts they are", 
     "interrupt sent to s1",
     "session s1 has ended with status 130",
   ]);
+});
+test("an open says who was asked, or that they have finished", () => {
+  const ctx = context();
+  const outcome = {
+    openId: "o1",
+    attachments: 2,
+    finished: false,
+  };
+  expect(renderOpen(outcome, "/tmp/a b.txt", ctx)).toBe(
+    "asked 2 attached clients to open /tmp/a b.txt",
+  );
+  expect(renderOpen({ ...outcome, attachments: 1 }, "/tmp/x", ctx)).toContain(
+    "1 attached client ",
+  );
+  expect(renderOpen({ ...outcome, finished: true }, "/tmp/x", ctx)).toBe(
+    "/tmp/x was opened and reported finished",
+  );
+});
+test("a --wait outlasts the daemon's own bound, and never waits forever", () => {
+  // The client's deadline is the daemon's plus slack, so the daemon's failure
+  // is the one that gets reported rather than a bare client timeout.
+  expect(waitTimeoutMs({ openWaitMs: 1000 })).toBeGreaterThan(1000);
+  // A daemon that says nothing, or something unusable, still gets a bound.
+  for (const capabilities of [{}, { openWaitMs: "soon" }, { openWaitMs: 0 }])
+    expect(waitTimeoutMs(capabilities)).toBeGreaterThan(0);
 });
 const inspection = (over: Partial<Inspection> = {}): Inspection => ({
   version: "0.1.0",
@@ -504,6 +533,8 @@ const merged = (over: Partial<MergedConfig> = {}): MergedConfig => ({
   ) as MergedConfig["from"],
   hosts: {},
   hostFrom: {},
+  setups: {},
+  setupFrom: {},
   shadowed: [],
   problems: [],
   layers: [],
@@ -549,6 +580,7 @@ test("a host block werk could not read is a row that says so", () => {
     hostRows({
       problems: [
         {
+          table: "hosts",
           name: "broken",
           layer: "project",
           file: "/repo/.werk/config.toml",
@@ -567,6 +599,33 @@ test("a host block werk could not read is a row that says so", () => {
     value: null,
     layer: "project",
   });
+});
+test("config list carries a setup block on the same terms as a host", () => {
+  const ctx = context();
+  const shown = listResult(
+    hostRows({
+      setups: {
+        bootstrap: { run: ["bun install"] },
+        boxes: { copy: "/home/nobody/dotfiles", to: "setup", run: ["a", "b"] },
+      },
+      setupFrom: { bootstrap: "project", boxes: "user" },
+    }),
+    ctx,
+  );
+  const text = shown.human(ctx);
+  expect(text).toContain("setup.bootstrap\t1 command\tproject file");
+  expect(text).toContain(
+    "setup.boxes\tcopy /home/nobody/dotfiles; 2 commands\tuser file",
+  );
+  // The whole block in the machine shape, because summarising it is a thing a
+  // person wants and a script does not.
+  expect(shown.json.find((row) => row.key === "setup.bootstrap")).toEqual({
+    key: "setup.bootstrap",
+    value: { run: ["bun install"] },
+    layer: "project",
+  });
+  // A setting with no value reads as unset rather than as the word undefined.
+  expect(text).toContain("workspaceSetup\tunset\tdefaults");
 });
 test("config sources says which host block lost and which one could not be read", () => {
   const ctx = context();
@@ -598,9 +657,17 @@ test("config sources says which host block lost and which one could not be read"
           ],
         },
       ],
-      shadowed: [{ name: "agent-sandboxes", layer: "user", by: "project" }],
+      shadowed: [
+        {
+          table: "hosts",
+          name: "agent-sandboxes",
+          layer: "user",
+          by: "project",
+        },
+      ],
       problems: [
         {
+          table: "hosts",
           name: "broken",
           layer: "project",
           file: project,

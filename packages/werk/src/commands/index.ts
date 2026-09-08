@@ -7,7 +7,8 @@
  *
  * The order is the order someone meets them: make a session, land what it did,
  * see what is there, go back to one, then the things done to a session, then the
- * machinery.
+ * machinery. `setup` sits with the machinery because it acts on a machine rather
+ * than a session.
  */
 import type { Command } from "@commander-js/extra-typings";
 import { buildCreate } from "./create.js";
@@ -15,9 +16,11 @@ import { buildLand } from "./land.js";
 import { buildList } from "./list.js";
 import { buildAttach } from "./attach.js";
 import { buildLogs } from "./logs.js";
+import { buildEdit } from "./edit.js";
 import { buildKill } from "./kill.js";
 import { buildRemove } from "./remove.js";
 import { buildWatch } from "./watch.js";
+import { buildSetup } from "./setup.js";
 import { buildInfo, buildDoctor } from "./inspect.js";
 import { buildConfig } from "./config.js";
 import { buildDaemon } from "./daemon.js";
@@ -29,9 +32,11 @@ export const COMMANDS: readonly (() => Command)[] = [
   buildList,
   buildAttach,
   buildLogs,
+  buildEdit,
   buildKill,
   buildRemove,
   buildWatch,
+  buildSetup,
   buildInfo,
   buildDoctor,
   buildConfig,

@@ -23,10 +23,9 @@ them, or know anything about how they came to exist.
 
 A **provider** would be the thing that makes hosts on demand: incus,
 Kubernetes, Docker, a cloud machine API. Nothing makes hosts today, and
-_provider_ is a lean rather than a name anyone settled. [Question
-1](product-specification.md#1-what-do-we-call-the-thing-that-makes-machines)
+_provider_ is a lean rather than a name anyone settled. [Question 1](open-questions.md#1-what-do-we-call-a-machine-and-what-do-we-call-the-thing-that-makes-machines)
 carries that question and
-[question 2](product-specification.md#2-how-is-a-provider-configured) carries
+[question 2](open-questions.md#2-how-does-a-person-configure-their-hosts-and-providers) carries
 how one would be configured.
 
 A host block takes a `provider` key, which is a string werk carries around and
@@ -49,9 +48,10 @@ restated here.
 | `local` | The machine werk is running on | A git worktree under `<stateDir>/workspaces`                         |
 | `ssh`   | A machine reached with `ssh`   | A bare mirror pushed to, and a linked worktree checked out beside it |
 
-`--host` is a global flag, so `create`, `list`, `attach`, `logs`, `kill` and
-`remove` all take it, and each of them acts on that one machine. `werk config`
-has `list`, `get`, `set`, `unset`, `setup`, `check`, `sources` and `path`.
+`--host` is a global flag, so `create`, `list`, `attach`, `logs`, `kill`,
+`remove` and `setup` all take it, and each of them acts on that one machine.
+`werk config` has `list`, `get`, `set`, `unset`, `setup`, `check`, `sources` and
+`path`.
 
 werk cross-compiles the binary it sends to an ssh host, and it builds only for
 Linux: `bun-linux-x64`, `bun-linux-arm64`, and the musl variant of each. A Mac
@@ -76,6 +76,8 @@ sshHost = "beast"
 kind = "ssh"
 sshHost = "mike@10.0.0.7"
 workspaceRoot = "/srv/werk/workspaces"
+env = { EDITOR = "werk edit --wait" }
+setup = "my-boxes"
 ```
 
 | Key             | Required       | What it is                                                           |
@@ -84,11 +86,21 @@ workspaceRoot = "/srv/werk/workspaces"
 | `sshHost`       | yes, for `ssh` | An ssh destination, spelled exactly as it would be typed after `ssh` |
 | `workspaceRoot` | no             | Where workspaces go on this machine                                  |
 | `provider`      | no             | The name of whatever made this host. Recorded, never interpreted.    |
+| `env`           | no             | Variables every session on this machine is started with              |
+| `setup`         | no             | The `[setup.<name>]` block that sets this machine up                 |
 
 A name is bare TOML: letters, digits, dots, dashes and underscores, starting
 with a letter or a digit, up to 64 characters. No `@` and no `:`, because a
 host name appears in the `name@host:/path` workspace reference and both of
-those characters are already separators there.
+those characters are already separators there. A `[setup.<name>]` block is
+named by the same rule, so a name that works in one table works in the other.
+
+`setup` is checked for spelling where the block is parsed and no further.
+Whether anything defines a block by that name is a question about the whole
+collection rather than about one value, and the block may be written in a file
+the host block has never seen, so it is asked at the moment something is about
+to run one. A name nothing answers is refused there, naming the host, the block
+and the file the host came from.
 
 `local` is supplied by the defaults layer, so it is an ordinary row with an
 ordinary provenance and nothing has to special-case the machine werk is running
@@ -112,10 +124,46 @@ Re-expressing any of that in `~/.werk/config.toml` would be a second, worse
 ssh_config that goes stale silently: `ssh beast` would keep working while werk,
 holding its own copy of a port that changed, would not. Whether that is the
 right call is
-[question 29](product-specification.md#29-does-werk-own-how-it-reaches-a-host-or-does-ssh),
+[question 30](open-questions.md#30-does-werk-own-how-it-reaches-a-host-or-does-ssh),
 and it is genuinely open. The cost of the current shape is that werk depends on
 a file it does not own and has nothing to read on a machine where the alias is
 absent.
+
+### Variables for every session on a host
+
+`env` is a table of variables every session werk starts on that machine gets.
+
+```toml
+[hosts.beast]
+kind = "ssh"
+sshHost = "beast"
+env = { EDITOR = "werk edit --wait", CARGO_HOME = "/opt/cargo" }
+```
+
+It is an overlay rather than a whole environment. Whatever a session would have
+been started with is still the base — the denylist on this machine, the
+allowlist on another — and the block changes only the names it writes. It wins
+over both, because both are guesses about names nobody named, and a block is
+not a guess: somebody wrote it against that machine.
+
+Six names are refused rather than accepted and ignored: `TERM`, `COLORTERM`,
+`TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `WERK_SESSION` and `WERK_DAEMON`. The
+daemon writes those for every session after everything a client sends, so a
+value here would be thrown away on the far side without a word, and quietly
+discarding what somebody wrote in a block is what the unknown-key rule exists to
+prevent.
+
+The daemon's limits on an environment are checked here too — at most 1024
+variables, a name of at most 256 bytes, a value of at most 128 KiB, and at most
+1 MiB in total — so a map it would refuse is refused by the file that carries
+it, naming the file, rather than arriving later as a session that will not
+start.
+
+Write it as an inline table, on one line, as above. A `[hosts.<name>.env]`
+sub-table reads fine, because TOML puts it in the same place, but werk will not
+write over a block that has one: it replaces a block's text up to the next table
+header, which would leave the sub-table stranded after the rewrite. `werk config
+setup` refuses that rather than damaging the file, and says to edit it by hand.
 
 ### A block that cannot be read does not stop werk starting
 
@@ -143,6 +191,190 @@ not be read at all.
 
 `werk config set` and `werk config unset` write single top-level settings.
 Neither writes host blocks; `werk config setup` does that.
+
+## Setting a machine up, and setting a workspace up
+
+A `[setup.<name>]` block says what to put on a machine and what to run there. A
+host block points at one with `setup = "<name>"`, and the top-level
+`workspaceSetup` points at one for a workspace that has just been made.
+
+```toml
+# ~/.werk/config.toml
+[setup.my-boxes]
+copy = "~/dotfiles/werk-host"     # a path on the machine werk runs on
+to = ".local/share/werk/setup"    # relative to $HOME over there
+run = [
+  "claude plugin marketplace add claude-plugins-official",
+  "~/.local/share/werk/setup/install.sh",
+]
+rerunOnChange = true
+```
+
+```toml
+# <repository>/.werk/config.toml, so it travels with the repository
+workspaceSetup = "bootstrap"
+
+[setup.bootstrap]
+run = ["bun install"]
+```
+
+| Key             | Required | What it is                                                                  |
+| --------------- | -------- | --------------------------------------------------------------------------- |
+| `copy`          | no       | The directory to send, on the machine werk is running on. `~/` is expanded. |
+| `to`            | no       | Where it lands: under `$HOME` there, or under the workspace                 |
+| `run`           | yes      | The commands to run there, in the order they are written                    |
+| `rerunOnChange` | no       | Whether it is worth running again once what it copies has changed           |
+
+`copy` and `to` go together: one without the other is refused naming both,
+because half of that pair is either a path with nowhere to go or a place with
+nothing to put in it. `copy` names a directory and its _contents_ land under
+`to`, so `to` never gains a level named after the directory it came from. `to`
+is refused if it starts with `/` or has a `..` in it, so what a block sends
+stays under the directory it names. An unknown key
+inside a block is refused, for the same reason it is inside a host block: a
+block that looks configured and does nothing costs a machine somebody thinks is
+set up. A block werk cannot read is a problem rather than a reason to stop, so
+`werk config list` shows the `setup.<name>` row as `unreadable` and `werk config
+sources` says what is wrong and which file it is in.
+
+### The two phases
+
+A host block's `setup` runs **on the machine**, before anything is put on it.
+`workspaceSetup` runs **in the workspace**, after the worktree is checked out
+and before the session starts, with the commands' working directory set to the
+worktree and `to` relative to it rather than to `$HOME`.
+
+`werk create` runs both. The host's setup starts as soon as the machine is
+resolved and runs beside the `git push`, because getting the machine ready and
+sending the history have nothing to say to each other; it is awaited before the
+workspace's, which may want whatever it installed. `werk setup` runs the host's
+alone, without making a workspace, starting a daemon or sending a binary.
+
+The commands go over in **one invocation, under a login shell**, and stop at the
+first one that fails. The login shell is the same call `werk daemon endpoint
+--ensure` makes: on the machines werk is aimed at `claude` lives in
+`~/.local/bin` and is on the login PATH and no other, and a setup script that
+cannot find what it is configuring is worse than useless. Whatever `copy` names
+is sent first, as a `tar` pipe carrying the directory's contents.
+
+The environment the commands get is the one a session on that host would get:
+the allowlist for another machine or the denylist for this one, with the host
+block's own [`env`](#variables-for-every-session-on-a-host) over the top.
+
+**A local host runs the same block**, with `sh -lc` in place of the ssh. There is
+no second code path: a machine is reached through one seam, and the local answer
+to that seam spawns a process here.
+
+Everything the commands print goes to **stderr**, as it arrives. That keeps
+`--json` one value on stdout with no special-casing, and it means a slow `bun
+install` looks like a slow `bun install` rather than a hang.
+
+### The stamp says what a machine already has
+
+The machine keeps `~/.local/share/werk/setup/<block>/stamp`, holding a
+fingerprint of the block that wrote it: sha256 over the commands in order, the
+resolved `to`, and the bytes of everything `copy` names, shown as twelve hex
+characters. It is written **last**, after every command has succeeded, so a run
+that stopped part-way leaves no stamp and the next one runs again.
+
+**The machine is the authority**, and that is the whole point of putting it
+there. A second laptop that has never touched the machine reaches the same
+answer as the first, without either of them knowing the other exists.
+
+Beside it, `<stateDir>/hosts/<name>.setup.json` records what this client last
+saw, so the ordinary case costs no round trip at all. It is a separate file from
+`<stateDir>/hosts/<name>.json`, which holds [the warm path](#the-warm-path)'s
+answers: that one is discarded whenever the client's build changes, and
+upgrading werk must not re-run somebody's setup.
+
+**Both files are caches.** Losing the hint costs a round trip; losing the stamp
+costs the block being run again. Neither is a record of what werk knows about a
+host, and neither is meant to grow into one —
+[question 25](open-questions.md#25-what-does-werk-store-about-a-host-once-it-has-been-to-one)
+is open and this does not answer it.
+
+| Stamp                    | `rerunOnChange`   | What happens                                                                 |
+| ------------------------ | ----------------- | ---------------------------------------------------------------------------- |
+| absent                   | either            | Run. werk has not set this machine up before.                                |
+| equal to the fingerprint | either            | Nothing, and no round trip where the hint already said so.                   |
+| different                | `true`            | Run.                                                                         |
+| different                | absent or `false` | Ask: "The setup for beast has changed since werk last ran it. Run it again?" |
+
+With no terminal to ask in, that last row is **skipped with a note on stderr
+naming `--yes`**, rather than refused. A refusal would fail an unattended `werk
+create` over an edit to a config file, and werk already prefers a statement
+where a prompt would break `--json`: the count of uncommitted files `create`
+reports is the same call. Under `--json` the skip is a field in the record
+rather than a line. `werk setup --force` runs the block whatever the stamp says.
+
+### A repository's own setup is asked about once
+
+`workspaceSetup` usually lives in the repository's `.werk/config.toml`, so it
+travels with the branch. That makes it code from a branch, run automatically:
+checking out a colleague's branch would otherwise run their commands as you,
+before anybody had read them.
+
+So werk asks, once per repository:
+
+```
+werk wants to run its own setup before the session starts:
+
+    bun install
+
+Run it? [y/N]
+```
+
+The answer is recorded in `<stateDir>/trust/<repo-id>.json`, against the
+fingerprint that was trusted, so a change to the block asks again. `--yes`
+answers it. With no terminal and no `--yes` the setup is **skipped with a note**
+rather than run, which is the safe direction for this one.
+
+It is keyed by the repository's
+[`werk.repo-id`](#werkrepo-id-is-the-first-thing-werk-writes-into-a-users-repository)
+and stored in werk's own state directory rather than in git's configuration.
+That line is the only thing werk writes into a person's git config and it is
+worth keeping true, and a decision about whether to run a branch's code is not
+one to hand to whoever can push to the branch.
+
+### What a failure is
+
+| Where           | Code                     | What happens                                            |
+| --------------- | ------------------------ | ------------------------------------------------------- |
+| Host setup      | `HOST_SETUP_FAILED`      | `create` fails.                                         |
+| Workspace setup | `WORKSPACE_SETUP_FAILED` | `create` fails, and the workspace is deliberately left. |
+
+Both name the machine, the command that failed and what the far side printed,
+and both exit 1. Which command failed comes from a trap the script sets for
+itself: one invocation has one exit status, and a person told only that "the
+setup failed" has to go and run each line by hand to find out which.
+
+The workspace is left because the push happened and the branch is real work.
+Destroying it to tidy up after a failed `bun install` would lose more than it
+saved, and the message says so. Anything the push had already made when a _host_
+setup fails is left for the same reason, since the two run beside each other.
+
+### What is refused before anything is sent
+
+A `copy` that is not there, a `copy` that is not a directory, and a symbolic
+link inside one whose target points outside it are each refused by name. A link
+out of the tree is named rather than dropped in silence, because a setup that
+quietly sent half of what somebody meant would leave a machine looking
+configured.
+
+A `copy` of more than 2,000 entries or 32 MB is refused too, so a path pointed
+at the wrong directory costs a message rather than a long transfer.
+
+### What is not settled
+
+Nothing prunes a stamp for a block that no longer exists, and nothing removes
+what a setup put on a machine — that sits under
+[question 27](open-questions.md#27-is-a-host-owned-or-borrowed-and-what-does-that-mean-for-cleanup).
+Two host blocks naming one machine and one block set it up once, which is right
+when they are the same machine and is
+[question 28](open-questions.md#28-when-are-two-routes-to-the-same-machine-the-same-host)
+when nothing can tell. Whether a workspace should get a stamp of its own so that
+re-entering one does not re-run its setup is not worked out; a workspace is made
+once today, so the question has not come up.
 
 ## The wizard
 
@@ -173,7 +405,7 @@ Whatever a probe finds is thrown away rather than stored. A host block holds
 what the machine is called and where werk may put things, and everything else is
 asked at the moment it is needed. `claude` being on a login shell's PATH today is
 a fact about today. What werk should store about a machine it has been to is
-[question 24](product-specification.md#24-what-does-werk-store-about-a-host-once-it-has-been-to-one).
+[question 25](open-questions.md#25-what-does-werk-store-about-a-host-once-it-has-been-to-one).
 
 The same command runs from flags alone, with no terminal:
 
@@ -355,6 +587,81 @@ reason: they would be wrong rather than merely surplus, because they name things
 on the machine werk was typed on. The remote daemon's own environment supplies
 its versions of them.
 
+The allowlist bounds what leaves this machine on its own. A host block's
+[`env`](#variables-for-every-session-on-a-host) is an explicit list rather than
+a default, so it is sent as well and it wins: the names in it are ones somebody
+wrote down against that machine, where everything the allowlist decides is werk
+guessing about names it has never seen.
+
+### Opening a file from a session on another machine
+
+Somebody in a session on `beast` types `$EDITOR notes.md` and wants the editor
+on the laptop in front of them to open it. `werk edit notes.md` is what is
+being tried for that, and [cli.md](cli.md#opening-a-file-where-you-are-sitting)
+is the reference for the command. What it forwards is a path: the session's
+daemon relays `/srv/work/notes.md` to whoever is attached, and that client runs
+`code --remote ssh-remote+beast /srv/work/notes.md` locally, so the editor
+reaches the file over ssh itself and no file content crosses werk's wire. The
+same message drives `zed ssh://beast/...` or a `jetbrains://` link; the client
+decides.
+
+**No `$EDITOR` string can do this, which is why it is a message rather than a
+command.** The setup this is aimed at is Windows VS Code, driven from WSL, with
+the session on a third machine, and two things stop a string spanning it:
+
+- VS Code's remote `code` shim talks HTTP over a Unix socket named by
+  `VSCODE_IPC_HOOK_CLI`. That socket is per-window, a new one is made every
+  time a window reloads, and stale ones are never cleaned up. A werk session
+  outlives the client that started it, so it can never hold a live handle to
+  one.
+- VS Code cannot chain remote authorities, so Windows client → WSL → a third
+  machine has no VS Code path at all.
+
+Forwarding the path sidesteps both: the session holds nothing, and the editor
+makes one hop of its own to a machine it can reach. It also means werk needs
+nothing on the session's side beyond a way to say "this file", which is what
+makes `werk edit` a small command.
+
+None of this is settled. It rests on the client having an ssh destination for
+the machine that the editor can use as well, which is true when werk reached
+the machine by an ssh_config alias and is not true of a host reached some other
+way. It says nothing about a machine werk provisioned rather than one somebody
+wrote down.
+
+**Nothing has forwarded a path to a real editor on a real second machine.**
+What has been run is the suite, on one machine: a session, a daemon, an
+attached client and `cp` standing in for the editor. Every sentence above about
+what VS Code does with what it is handed is reasoning rather than evidence.
+
+**`werk` is on a session's `PATH`, and that is what makes any of it
+reachable.** The binary werk installs on a host lives at
+`~/.local/share/werk/bin/<target>-<stamp>/werk`, which is on nobody's `PATH` and
+which nobody could write down, because the stamp in it changes with every build
+of the client that sent it. So the daemon puts its own directory at the front of
+every session's `PATH`. It learns the directory from `WERK_BIN_DIR` in its own
+environment, which the CLI sets when the running process is a werk of its own:
+a `bun` running from source says nothing, because the directory of a `bun` holds
+no werk. The variable is dropped from the session along with every other
+`WERK_*`, so a session sees the effect and not the cause.
+
+The front rather than the back, because the point is to be found, and because a
+session this daemon started should reach this daemon's own build rather than a
+`werk` of another version that happens to be installed.
+
+What is still on the person is `EDITOR`. Nothing sets it, and a
+[`env`](#variables-for-every-session-on-a-host) on the host block is where it
+would go:
+
+```toml
+[hosts.beast]
+env = { EDITOR = "werk edit --wait", VISUAL = "werk edit --wait" }
+```
+
+The two compose without either knowing about the other, which is why neither
+tries to be the other. Whether werk should set `EDITOR` itself when nobody has,
+and what else would belong on a session's `PATH` now that something is, are both
+open.
+
 ### The warm path
 
 The cold path is four round trips and about a second of them at any real
@@ -426,7 +733,7 @@ $ werk daemon endpoint --ensure --json
 Treat the comparison as a hint rather than a guarantee. Nothing is signed, and
 nothing stops two trees with the same SHA differing in what was never committed.
 How strict this should be is
-[question 25](product-specification.md#25-what-has-to-match-between-a-client-and-the-daemon-it-ships-to-a-host),
+[question 26](open-questions.md#26-what-has-to-match-between-a-client-and-the-daemon-it-ships-to-a-host),
 and exact equality is the strictest of the three options there rather than the
 agreed one. It costs a 92 MB transfer to every host on every client upgrade.
 
@@ -609,13 +916,13 @@ nothing aggregates across machines today.
 in it is invisible from every machine, including the one it is on. The only
 thing that knows a workspace is there is the daemon holding a session in it.
 Where that record should live is
-[question 19](product-specification.md#19-where-does-the-record-of-a-workspace-live).
+[question 19](open-questions.md#19-where-does-the-record-of-a-workspace-live).
 
 **An unreachable machine is invisible rather than marked unreachable.** There is
 no row saying "beast did not answer". A command aimed at a machine that is
 asleep fails after the timeout, and a machine nobody aimed a command at is not
 mentioned at all. What this should look like is
-[question 28](product-specification.md#28-what-does-a-workspace-on-an-unreachable-host-look-like).
+[question 29](open-questions.md#29-what-does-a-workspace-on-an-unreachable-host-look-like).
 
 **macOS hosts are refused.** See [what werk builds, and what it
 refuses](#what-werk-builds-and-what-it-refuses).
@@ -645,15 +952,25 @@ machine is unreachable when nobody asked it.
 and the machine werk is running on, the moment somebody adds their own desktop
 by its ssh alias. That puts one set of workspaces under two roots of a graph
 that is supposed to be a tree. See
-[question 27](product-specification.md#27-when-are-two-routes-to-the-same-machine-the-same-host).
+[question 28](open-questions.md#28-when-are-two-routes-to-the-same-machine-the-same-host).
+
+**Nothing prunes a setup's stamp, or takes back what a setup put there.** A
+block renamed in a config file leaves its old stamp on every machine it ever ran
+on, and whatever it installed stays installed. See [setting a machine up, and
+setting a workspace up](#setting-a-machine-up-and-setting-a-workspace-up).
 
 **Nothing removes werk from a machine.** werk leaves a binary, a daemon and a
 directory of workspaces on every host it touches, and there is no command that
 takes them off again. See
-[question 26](product-specification.md#26-is-a-host-owned-or-borrowed-and-what-does-that-mean-for-cleanup).
+[question 27](open-questions.md#27-is-a-host-owned-or-borrowed-and-what-does-that-mean-for-cleanup).
 
 **Old binaries are never pruned.** Every client version that reaches a machine
 leaves 92 MB there permanently.
+
+**The werk on a host is not on a session's `PATH`.** So `werk edit`, which is
+meant to be run from inside a session, cannot be run from inside one on a
+machine werk installed itself onto. See [opening a file from a session on
+another machine](#opening-a-file-from-a-session-on-another-machine).
 
 ## What has been observed
 
@@ -662,11 +979,14 @@ leaves 92 MB there permanently.
 below that involves ssh was run by one person, on a LAN, between two Linux
 boxes.
 
-| What                                                                                                                                  | Where                                 | What it proves                                                                                                 |
-| ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| The failure table, every git argv, the shape of the remote scripts                                                                    | `packages/workspace/test/ssh.test.ts` | Against a scripted runner. No machine involved.                                                                |
-| The scripts actually running: `git init --bare`, the numbered refusals, `worktree add --lock`, the rollback, a mirror pushed to twice | `packages/werk/test/loopback.test.ts` | `sh -c` in a temporary `$HOME`, a filesystem push URL, a relay onto a local daemon socket. No network, no ssh. |
-| ssh itself: the connection, its failures, the forward, the install, the daemon start, keystroke latency                               | `scripts/remote-smoke.ts`             | A real second machine. Run by hand.                                                                            |
+| What                                                                                                                                  | Where                                                                          | What it proves                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| The failure table, every git argv, the shape of the remote scripts                                                                    | `packages/workspace/test/ssh.test.ts`                                          | Against a scripted runner. No machine involved.                                                                |
+| The scripts actually running: `git init --bare`, the numbered refusals, `worktree add --lock`, the rollback, a mirror pushed to twice | `packages/werk/test/loopback.test.ts`                                          | `sh -c` in a temporary `$HOME`, a filesystem push URL, a relay onto a local daemon socket. No network, no ssh. |
+| A setup actually running: the script, the tar pipe, the stamp written and read back, a command that fails                             | `packages/werk/test/setup-run.test.ts`                                         | A real shell in a temporary `$HOME`. No network, no ssh.                                                       |
+| Every command werk builds for a setup, and each row of the decision table                                                             | `packages/werk/test/host/setup.test.ts`                                        | Against a scripted runner. No machine involved.                                                                |
+| ssh itself: the connection, its failures, the forward, the install, the daemon start, keystroke latency, a setup on a real `$HOME`    | `scripts/remote-smoke.ts`                                                      | A real second machine. Run by hand.                                                                            |
+| Opening a file: the wire, the refusals, the argv splitting, and an attached client running an editor                                  | `packages/session-daemon/test/open.test.ts`, `packages/werk/test/edit.test.ts` | One machine, with `cp` standing in for the editor. No second machine and no editor.                            |
 
 `scripts/remote-smoke.ts` is not part of `bun test`: it needs a box reachable
 with key authentication and it starts processes there.
@@ -686,16 +1006,17 @@ day it was measured and is untested everywhere else.
 
 ## The questions this raises
 
-Each of these is open in the specification, and none of them is answered here.
+Each of these is open in [open-questions.md](open-questions.md), and none of
+them is answered here.
 
-- [Question 1: what do we call the thing that makes machines?](product-specification.md#1-what-do-we-call-the-thing-that-makes-machines)
-- [Question 2: how is a provider configured?](product-specification.md#2-how-is-a-provider-configured)
-- [Question 3: are a person's hosts shared between their own machines?](product-specification.md#3-are-a-persons-hosts-shared-between-their-own-machines)
-- [Question 19: where does the record of a workspace live?](product-specification.md#19-where-does-the-record-of-a-workspace-live)
-- [Question 23: what is the host component of a workspace reference?](product-specification.md#23-what-is-the-host-component-of-a-workspace-reference)
-- [Question 24: what does werk store about a host once it has been to one?](product-specification.md#24-what-does-werk-store-about-a-host-once-it-has-been-to-one)
-- [Question 25: what has to match between a client and the daemon it ships to a host?](product-specification.md#25-what-has-to-match-between-a-client-and-the-daemon-it-ships-to-a-host)
-- [Question 26: is a host owned or borrowed, and what does that mean for cleanup?](product-specification.md#26-is-a-host-owned-or-borrowed-and-what-does-that-mean-for-cleanup)
-- [Question 27: when are two routes to the same machine the same host?](product-specification.md#27-when-are-two-routes-to-the-same-machine-the-same-host)
-- [Question 28: what does a workspace on an unreachable host look like?](product-specification.md#28-what-does-a-workspace-on-an-unreachable-host-look-like)
-- [Question 29: does werk own how it reaches a host, or does ssh?](product-specification.md#29-does-werk-own-how-it-reaches-a-host-or-does-ssh)
+- [Question 1: what do we call a machine, and what do we call the thing that makes machines?](open-questions.md#1-what-do-we-call-a-machine-and-what-do-we-call-the-thing-that-makes-machines)
+- [Question 2: how does a person configure their hosts and providers?](open-questions.md#2-how-does-a-person-configure-their-hosts-and-providers)
+- [Question 3: are a person's hosts shared between their own machines?](open-questions.md#3-are-a-persons-hosts-shared-between-their-own-machines)
+- [Question 19: where does the record of a workspace live?](open-questions.md#19-where-does-the-record-of-a-workspace-live)
+- [Question 24: what is the host component of a workspace reference?](open-questions.md#24-what-is-the-host-component-of-a-workspace-reference)
+- [Question 25: what does werk store about a host once it has been to one?](open-questions.md#25-what-does-werk-store-about-a-host-once-it-has-been-to-one)
+- [Question 26: what has to match between a client and the daemon it ships to a host?](open-questions.md#26-what-has-to-match-between-a-client-and-the-daemon-it-ships-to-a-host)
+- [Question 27: is a host owned or borrowed, and what does that mean for cleanup?](open-questions.md#27-is-a-host-owned-or-borrowed-and-what-does-that-mean-for-cleanup)
+- [Question 28: when are two routes to the same machine the same host?](open-questions.md#28-when-are-two-routes-to-the-same-machine-the-same-host)
+- [Question 29: what does a workspace on an unreachable host look like?](open-questions.md#29-what-does-a-workspace-on-an-unreachable-host-look-like)
+- [Question 30: does werk own how it reaches a host, or does ssh?](open-questions.md#30-does-werk-own-how-it-reaches-a-host-or-does-ssh)

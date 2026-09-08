@@ -30,6 +30,8 @@ export type ConfigErrorCode =
   | "HOST_INVALID"
   /** The table name is not one a host can be called. */
   | "HOST_NAME_INVALID"
+  /** A `[setup.<name>]` block werk cannot read, its name included. */
+  | "SETUP_INVALID"
   /** A host was named that nothing defines. */
   | "UNKNOWN_HOST"
   /**

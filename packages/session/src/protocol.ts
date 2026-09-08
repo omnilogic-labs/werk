@@ -229,11 +229,21 @@ function validate(message: any): void {
         "resize",
         "effect",
         "exit",
+        "open",
         "size-holder",
         "ended",
       ].includes(e.type)
     )
       throw new Error("Invalid attachment event");
+    if (
+      e.type === "open" &&
+      (typeof e.openId !== "string" ||
+        !e.openId ||
+        typeof e.path !== "string" ||
+        !e.path ||
+        typeof e.wait !== "boolean")
+    )
+      throw new Error("Invalid open request");
     if (
       ["snapshot", "resync", "resize", "preview"].includes(e.type) &&
       (!e.size ||

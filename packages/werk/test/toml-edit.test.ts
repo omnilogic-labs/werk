@@ -288,6 +288,117 @@ test("applyEdit escapes a value that would otherwise break the file", () => {
   });
 });
 
+test("applyEdit writes an env as an inline table and reads it back", () => {
+  const written = applyEdit("", {
+    hosts: {
+      beast: {
+        kind: "ssh",
+        sshHost: "beast",
+        env: { EDITOR: "werk edit --wait", CARGO_HOME: "/opt/cargo" },
+      },
+    },
+  });
+  expect(written).toContain(
+    'env = { EDITOR = "werk edit --wait", CARGO_HOME = "/opt/cargo" }',
+  );
+  // One line, so the block stays a span this module can replace whole.
+  expect(
+    written.split("\n").filter((line) => line.includes("env")),
+  ).toHaveLength(1);
+  expect(Bun.TOML.parse(written)).toEqual({
+    hosts: {
+      beast: {
+        kind: "ssh",
+        sshHost: "beast",
+        env: { EDITOR: "werk edit --wait", CARGO_HOME: "/opt/cargo" },
+      },
+    },
+  });
+});
+test("applyEdit escapes inside an inline table, key and value alike", () => {
+  const written = applyEdit("", {
+    hosts: {
+      odd: {
+        kind: "ssh",
+        sshHost: "a",
+        env: { PROMPT: 'a"b\\c\nd', "with.dot": "x" },
+      },
+    },
+  });
+  expect(written).toContain('PROMPT = "a\\"b\\\\c\\nd"');
+  expect(written).toContain('"with.dot" = "x"');
+  expect(Bun.TOML.parse(written)).toEqual({
+    hosts: {
+      odd: {
+        kind: "ssh",
+        sshHost: "a",
+        env: { PROMPT: 'a"b\\c\nd', "with.dot": "x" },
+      },
+    },
+  });
+});
+test("applyEdit removes an env with the block that carried it", () => {
+  const source = [
+    "[hosts.beast]",
+    'kind = "ssh"',
+    'sshHost = "beast"',
+    'env = { EDITOR = "vi" }',
+    "",
+  ].join("\n");
+  expect(applyEdit(source, { hosts: { beast } })).toBe(
+    [
+      "[hosts.beast]",
+      'kind = "ssh"',
+      'sshHost = "beast.example"',
+      'workspaceRoot = "/srv/werk"',
+      "",
+    ].join("\n"),
+  );
+});
+
+/**
+ * A hand-written `[hosts.beast.env]`, under a block werk is being asked to
+ * rewrite.
+ *
+ * Reading one is fine: `Bun.TOML.parse` puts it exactly where an inline table
+ * would go. Rewriting the block over it is not, because `spanOf` ends the span
+ * at that header and the sub-table survives. With an `env` in the edit the
+ * result defines the table twice and does not parse; without one the sub-table
+ * is still there afterwards, saying something the edit did not ask for. Either
+ * way it is a refusal, which is why werk only ever writes the inline form.
+ */
+test("applyEdit refuses to rewrite a block whose env is a sub-table", () => {
+  const source = [
+    "[hosts.beast]",
+    'kind = "ssh"',
+    'sshHost = "old"',
+    "",
+    "[hosts.beast.env]",
+    'EDITOR = "vi"',
+    "",
+  ].join("\n");
+  const refused = (edit: Parameters<typeof applyEdit>[1]) => {
+    try {
+      applyEdit(source, edit);
+    } catch (error) {
+      return error;
+    }
+    return undefined;
+  };
+  const twice = refused({
+    hosts: { beast: { kind: "ssh", sshHost: "new", env: { EDITOR: "vi" } } },
+  });
+  expect(twice).toBeInstanceOf(ConfigError);
+  expect((twice as ConfigError).code).toBe("CONFIG_WRITE_FAILED");
+  expect((twice as ConfigError).message).toContain("redefine");
+  const orphaned = refused({
+    hosts: { beast: { kind: "ssh", sshHost: "new" } },
+  });
+  expect(orphaned).toBeInstanceOf(ConfigError);
+  expect((orphaned as ConfigError).code).toBe("CONFIG_WRITE_FAILED");
+  expect((orphaned as ConfigError).message).toContain("hosts");
+});
+
 test("applyEdit refuses a file that is not TOML at all", () => {
   expect(() =>
     applyEdit("this is not = = toml\n", { set: { logLevel: "debug" } }),

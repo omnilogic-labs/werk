@@ -123,6 +123,20 @@ test("a hidden command is parsed but not offered", async () => {
     values(await completionFor(tree(), ["c"], await scratch())).sort(),
   ).toEqual(["completion", "config", "create"]);
 });
+test("a positional that names a file lets the shell complete one", async () => {
+  // `NoFileComp` is werk's usual answer and would be the wrong one here: a
+  // path has no candidate list, and telling the shell not to fall back would
+  // leave `werk edit <TAB>` offering nothing at all.
+  const reply = await completionFor(tree(), ["edit", ""], await scratch());
+  expect(values(reply)).toEqual([]);
+  expect(reply.directive & Directive.NoFileComp).toBe(0);
+  // A session positional is the other way round: it has its own candidates and
+  // a filename is never one of them.
+  expect(
+    (await completionFor(tree(), ["attach", ""], await scratch())).directive &
+      Directive.NoFileComp,
+  ).toBe(Directive.NoFileComp);
+});
 test("a subcommand's own commands are offered under it", async () => {
   expect(
     values(await completionFor(tree(), ["daemon", ""], await scratch())),

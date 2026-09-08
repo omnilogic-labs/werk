@@ -15,7 +15,7 @@
  * shows both. Nothing records that a workspace exists, so a workspace with no
  * running session is invisible from every machine including its own. Whether
  * werk should keep such a record is
- * [question 19](../../../docs/product-specification.md#19-where-does-the-record-of-a-workspace-live).
+ * [question 19](../../../docs/open-questions.md#19-where-does-the-record-of-a-workspace-live).
  */
 import {
   createLocalWorktreeMaker,
@@ -59,7 +59,7 @@ export interface HostPlace {
   /**
    * The host to stamp on a workspace reference, so `full` reads
    * `name@host:/path`. Absent for this machine, which keeps the lean recorded
-   * in question 23 — that an absent host reads as "here" — intact.
+   * in question 24 — that an absent host reads as "here" — intact.
    */
   readonly reference?: string;
   /** Let go of the connection. Safe to call more than once. */
@@ -179,6 +179,12 @@ const AS_WORKSPACE: Record<HostErrorCode, WorkspaceErrorCode> = {
   // The daemon is beside the point when a script is what was being run: what
   // the caller saw is that the machine did not answer.
   HOST_DAEMON_MISSING: "HOST_UNREACHABLE",
+  // A setup runs either side of the maker and never through it, so neither of
+  // these can reach this table. They are here because the table is total, and
+  // "werk could not get the machine ready" is the nearest thing the maker's own
+  // vocabulary has if one ever does.
+  HOST_SETUP_FAILED: "HOST_BOOTSTRAP_FAILED",
+  WORKSPACE_SETUP_FAILED: "HOST_BOOTSTRAP_FAILED",
 };
 
 /**

@@ -13,6 +13,7 @@ import type { Roles } from "@werk/palette";
 import type { RuntimeBasis } from "../commands/shared.js";
 import type { LayerName } from "../config/load.js";
 import {
+  DEFAULT_EDITOR,
   defaultStateDir,
   type ConfigKey,
   type LandRoute,
@@ -24,6 +25,7 @@ import {
   type Host,
   type HostProblem,
 } from "../config/hosts.js";
+import type { SetupBlock } from "../config/setup.js";
 
 /**
  * The configuration a context is built from: the settings, and the hosts that
@@ -38,6 +40,12 @@ export interface ResolvedConfig {
   readonly config: WerkConfig;
   readonly hosts: Readonly<Record<string, Host>>;
   readonly problems: readonly HostProblem[];
+  /** Every `[setup.<name>]` block in force, by name. */
+  readonly setups: Readonly<Record<string, SetupBlock>>;
+  /** Where each host block was written, so a refusal can say where to look. */
+  readonly hostOrigin: Readonly<Record<string, string>>;
+  /** The same, for a setting. */
+  readonly configOrigin: Partial<Record<keyof WerkConfig, string>>;
   /**
    * The layer that supplied each setting. Absent only on the completion path,
    * which abandons the layers when they are slow.
@@ -110,6 +118,23 @@ export interface WerkContext {
   readonly defaultHost: string;
   /** The host `--host` named, when it named one. */
   readonly requestedHost?: string;
+  /**
+   * Every `[setup.<name>]` block in force. Carried whole rather than resolved,
+   * because whether a name has a block behind it is a question about the
+   * collection and only the command about to run one can ask it.
+   */
+  readonly setups: Readonly<Record<string, SetupBlock>>;
+  /** Where each host block was written, for a refusal that has to say. */
+  readonly hostOrigin: Readonly<Record<string, string>>;
+  /** The `[setup.<name>]` block a new workspace gets, when a layer named one. */
+  readonly workspaceSetup?: string;
+  /** Where that name was written. */
+  readonly workspaceSetupFrom?: string;
+  /**
+   * What this machine runs to open a file a session asked to have opened. An
+   * attached client is the only reader; see `commands/attach.ts`.
+   */
+  readonly editor: string;
   /**
    * The agent werk asks for a commit message and for a conflict resolution,
    * as a command line. Empty means none.
@@ -227,6 +252,7 @@ export function createContext(
     hosts: resolved?.hosts ?? builtInHosts(),
     hostProblems: resolved?.problems ?? [],
     defaultHost: config?.defaultHost ?? DEFAULT_HOST,
+    editor: config?.editor ?? DEFAULT_EDITOR,
     agent: config?.agent ?? "",
     // Absent provenance is the completion path, which never lands anything.
     // Reading it as "chosen" there is the direction that asks nothing.
@@ -234,5 +260,15 @@ export function createContext(
       resolved?.from === undefined ? true : resolved.from.agent !== "defaults",
     landRoute: config?.landRoute ?? "parent",
     ...(flags.host === undefined ? {} : { requestedHost: flags.host }),
+    setups: resolved?.setups ?? {},
+    hostOrigin: resolved?.hostOrigin ?? {},
+    // Absent until a layer names one, which is what makes it the only setting
+    // with no value underneath it.
+    ...(config?.workspaceSetup === undefined
+      ? {}
+      : { workspaceSetup: config.workspaceSetup }),
+    ...(resolved?.configOrigin.workspaceSetup === undefined
+      ? {}
+      : { workspaceSetupFrom: resolved.configOrigin.workspaceSetup }),
   };
 }

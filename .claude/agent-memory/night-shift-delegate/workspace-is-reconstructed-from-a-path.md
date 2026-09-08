@@ -10,7 +10,7 @@ the fact works back to it from the directory the session was started in, with
 `workspaceAt` in `@werk/workspace`. Only `create` ever holds a real
 `Workspace`.
 
-**Why:** where the record of a workspace lives is open (product-specification
+**Why:** where the record of a workspace lives is open (open-questions.md
 question 19, no lean), so there is no index to consult. Reconstruction reaches
 exactly as far as this host's own layout.
 

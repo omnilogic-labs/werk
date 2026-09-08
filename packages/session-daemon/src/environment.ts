@@ -85,14 +85,52 @@ export function sessionEnvironment(
     const name = windows ? key.toUpperCase() : key;
     return !name.startsWith("WERK_") && name !== "LINES" && name !== "COLUMNS";
   });
-  return merge(windows, base, env ?? {}, {
-    TERM: "xterm-256color",
-    COLORTERM: "truecolor",
-    TERM_PROGRAM: "werk",
-    TERM_PROGRAM_VERSION: version,
-    WERK_SESSION: sessionId,
-    WERK_DAEMON: daemonId,
-  });
+  return onPath(
+    merge(windows, base, env ?? {}, {
+      TERM: "xterm-256color",
+      COLORTERM: "truecolor",
+      TERM_PROGRAM: "werk",
+      TERM_PROGRAM_VERSION: version,
+      WERK_SESSION: sessionId,
+      WERK_DAEMON: daemonId,
+    }),
+    source.WERK_BIN_DIR,
+    windows,
+  );
+}
+
+/**
+ * werk's own directory, at the front of a session's `PATH`.
+ *
+ * A program in a session has to be able to run `werk` for `werk edit` to be
+ * reachable at all, and on a machine werk installed itself on the binary is at
+ * `~/.local/share/werk/bin/<target>-<stamp>/werk`, which is on nobody's `PATH`.
+ * Nor could a person put it on theirs: the stamp in that path changes with
+ * every build of the client that sent it.
+ *
+ * The directory arrives as `WERK_BIN_DIR` in the daemon's own environment,
+ * because whether this process is a binary of its own or a `bun` running from
+ * source is a thing only the CLI knows. It is dropped from the session's
+ * environment with every other `WERK_*`, so what a session sees is the effect
+ * and not the cause.
+ *
+ * The front, not the back, because the point is to be found. A `werk` the
+ * person installed themselves is the one thing that would shadow it, and a
+ * session started by this daemon should reach the daemon's own build rather
+ * than one of a different version.
+ */
+function onPath(
+  env: Record<string, string>,
+  dir: string | undefined,
+  windows: boolean,
+): Record<string, string> {
+  if (dir === undefined || dir === "") return env;
+  const separator = windows ? ";" : ":";
+  const path = env.PATH;
+  if (path === undefined || path === "") return { ...env, PATH: dir };
+  // Idempotent, so a daemon that restarts a session does not grow its `PATH`.
+  if (path.split(separator).includes(dir)) return env;
+  return { ...env, PATH: `${dir}${separator}${path}` };
 }
 
 export function validateEnvironment(env: Record<string, string> | undefined) {

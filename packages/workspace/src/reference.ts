@@ -18,10 +18,10 @@
  * it is running on. Nothing here invents a host identity: there is no host in
  * the model to read one from, and a host that something else made would be
  * named by whatever made it, which has no noun yet
- * ([question 1](../../../docs/product-specification.md#1-what-do-we-call-the-thing-that-makes-machines)).
+ * ([question 1](../../../docs/open-questions.md#1-what-do-we-call-a-machine-and-what-do-we-call-the-thing-that-makes-machines)).
  * What an absent host should mean, and whether a reference should always name
  * one, is
- * [question 23](../../../docs/product-specification.md#23-what-is-the-host-component-of-a-workspace-reference).
+ * [question 24](../../../docs/open-questions.md#24-what-is-the-host-component-of-a-workspace-reference).
  */
 
 /**

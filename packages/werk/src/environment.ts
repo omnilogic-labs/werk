@@ -1,8 +1,23 @@
-const excluded = new Set([
+/**
+ * The names the daemon writes for itself, after everything a client sent.
+ *
+ * `sessionEnvironment` in `@werk/session-daemon` merges these last and
+ * unconditionally: a session's terminal identity is what the daemon made it,
+ * not what a client asked for. So sending one is pointless, which is why a
+ * host block's `env` refuses them rather than letting them be discarded in
+ * silence on the far side.
+ */
+export const DAEMON_OWNED = [
   "TERM",
   "COLORTERM",
   "TERM_PROGRAM",
   "TERM_PROGRAM_VERSION",
+  "WERK_SESSION",
+  "WERK_DAEMON",
+] as const;
+
+const excluded = new Set<string>([
+  ...DAEMON_OWNED,
   "TERMCAP",
   "LINES",
   "COLUMNS",
@@ -14,7 +29,6 @@ const excluded = new Set([
   "ZELLIJ",
   "ZELLIJ_SESSION_NAME",
   "ZELLIJ_PANE_ID",
-  "WERK_SESSION",
   "_",
   "PWD",
   "OLDPWD",
@@ -86,4 +100,30 @@ export function remoteEnvironment(
     if (value !== undefined) forwarded[key] = value;
   }
   return forwarded;
+}
+
+/**
+ * What a session on a host is started with: the base for where it is going,
+ * and then whatever the host block asked for.
+ *
+ * The block wins over both halves above, and it wins for the same reason each
+ * of them exists. A denylist is a guess about names nobody named, and so is an
+ * allowlist; both are werk deciding on somebody's behalf what a name it has
+ * never seen is worth. A host block's `env` is not a guess. Somebody wrote it
+ * against that machine, so it goes even when the allowlist would have kept it
+ * here, and it stands even when this shell has a value of its own for the same
+ * name.
+ *
+ * The names werk owns still win last, in the daemon, which is why a block that
+ * sets one is refused where it is written rather than dropped here.
+ */
+export function environmentFor(
+  host: { readonly env?: Readonly<Record<string, string>> },
+  here: boolean,
+  source: Record<string, string | undefined> = process.env,
+): Record<string, string> {
+  return {
+    ...(here ? clientEnvironment(source) : remoteEnvironment(source)),
+    ...host.env,
+  };
 }

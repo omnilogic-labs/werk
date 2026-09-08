@@ -48,18 +48,16 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
   requireConnection,
-  requireSuccess,
   shellQuote,
   sshExecArgv,
-  SSH_COMMON_OPTIONS,
   type RemoteRunner,
 } from "./ssh.js";
 import { HostError, type RemoteFacts } from "./types.js";
 import type { HostTarget } from "./target.js";
+import { sendFile, TRANSFER_TIMEOUT_MS } from "./transfer.js";
 import { SOURCE_IDENTITY, werkVersion } from "../runtime/version.js";
 
-/** A transfer of about 92 MB over a link werk knows nothing about. */
-export const TRANSFER_TIMEOUT_MS = 300_000;
+export { TRANSFER_TIMEOUT_MS } from "./transfer.js";
 
 /** Where a werk of one identity lives on a machine. */
 export interface RemoteLayout {
@@ -232,13 +230,10 @@ async function localBinary(
 /**
  * Send it, and stamp it afterwards.
  *
- * `tar -cz | ssh 'tar -xz'` is the default because it assumes nothing about the
- * far machine beyond POSIX and a shell, and one round trip does the whole job
- * including the stamp. `rsync` is used where the probe found one, for its
- * delta: a rebuilt binary usually differs from the last one in a fraction of
- * its bytes. rsync runs `rsync --server` over a *non-login* ssh, so a machine
- * with rsync on the login PATH and not on the other one exists; that is why a
- * failed rsync falls back rather than raising.
+ * The two ends of the transfer are werk's alone: make room and drop any stamp
+ * that is there, so a half-finished send cannot look installed, then make the
+ * binary executable and write the stamp. `transfer.ts` owns everything between
+ * them, including the choice of rsync or tar.
  */
 async function send(
   options: InstallOptions,
@@ -246,79 +241,24 @@ async function send(
   file: string,
   stamp: string,
 ): Promise<string> {
-  const { sshHost, runner } = options;
-  const quotedDir = shellQuote(layout.dir);
-  const finish =
-    `chmod 755 ${shellQuote(layout.binary)} && ` +
-    // Last, so that an interrupted transfer never looks installed.
-    `printf '%s\\n' ${shellQuote(stamp)} > ${shellQuote(layout.stampFile)}`;
-  const prepare = `mkdir -p ${quotedDir} && rm -f ${shellQuote(layout.stampFile)}`;
-
-  if (options.facts.rsync) {
-    const rsynced = await rsyncTo(options, layout, file, prepare, finish);
-    if (rsynced) return "sent with rsync";
-  }
-
-  const name = path.basename(file);
-  const rename =
-    name === "werk"
-      ? ""
-      : ` && mv -f ${shellQuote(`${layout.dir}/${name}`)} ${shellQuote(layout.binary)}`;
-  const tar = runner.start([
-    "tar",
-    "-czf",
-    "-",
-    "-C",
-    path.dirname(file),
-    name,
-  ]);
-  const outcome = await runner.run(
-    sshExecArgv(
-      sshHost,
-      `${prepare} && tar -xzf - -C ${quotedDir}${rename} && ${finish}`,
-    ),
-    { stdin: tar.stdout, timeoutMs: TRANSFER_TIMEOUT_MS },
+  const sent = await sendFile(
+    {
+      sshHost: options.sshHost,
+      runner: options.runner,
+      exec: (command) => sshExecArgv(options.sshHost, command),
+      rsync: options.facts.rsync,
+      prepare: `mkdir -p ${shellQuote(layout.dir)} && rm -f ${shellQuote(layout.stampFile)}`,
+      finish:
+        `chmod 755 ${shellQuote(layout.binary)} && ` +
+        `printf '%s\\n' ${shellQuote(stamp)} > ${shellQuote(layout.stampFile)}`,
+      what: `sending werk to ${options.sshHost}`,
+      rsyncChmod: "F755",
+      timeoutMs: TRANSFER_TIMEOUT_MS,
+    },
+    file,
+    layout.binary,
   );
-  tar.kill();
-  requireSuccess(sshHost, outcome, `sending werk to ${sshHost}`);
-  return "sent with tar";
-}
-
-/** Returns false where rsync could not do it, so the caller can use tar. */
-async function rsyncTo(
-  options: InstallOptions,
-  layout: RemoteLayout,
-  file: string,
-  prepare: string,
-  finish: string,
-): Promise<boolean> {
-  const { sshHost, runner } = options;
-  requireSuccess(
-    sshHost,
-    await runner.run(sshExecArgv(sshHost, prepare)),
-    `making room for werk on ${sshHost}`,
-  );
-  const copied = await runner.run(
-    [
-      "rsync",
-      "--times",
-      "--chmod=F755",
-      "-e",
-      // rsync splits this on whitespace itself, and none of the options
-      // contains any, so no quoting is involved.
-      ["ssh", ...SSH_COMMON_OPTIONS].join(" "),
-      file,
-      `${sshHost}:${layout.binary}`,
-    ],
-    { timeoutMs: TRANSFER_TIMEOUT_MS },
-  );
-  if (copied.code !== 0) return false;
-  requireSuccess(
-    sshHost,
-    await runner.run(sshExecArgv(sshHost, finish)),
-    `stamping werk on ${sshHost}`,
-  );
-  return true;
+  return sent === "rsync" ? "sent with rsync" : "sent with tar";
 }
 
 /** Make sure the machine has this werk, and say what that took. */

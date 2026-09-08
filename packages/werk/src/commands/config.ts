@@ -6,11 +6,12 @@
  * that matters: it is how someone finds out which layer won a key, such as an
  * exported `WERK_LOG_LEVEL` overriding the repository's `.werk/config.toml`.
  *
- * Hosts are here on the same terms as the settings. A `[hosts.<name>]` block
- * says which machine a name means, so which layer supplied it is worth as much
+ * The named blocks are here on the same terms as the settings. A
+ * `[hosts.<name>]` block says which machine a name means and a `[setup.<name>]`
+ * says what would be run there, so which layer supplied either is worth as much
  * as which layer supplied a log level — more, because a block replaces a block
  * whole and a person who wrote one in two files has one of them doing nothing.
- * `list` shows every host with the layer it came from, and `sources` is where a
+ * `list` shows every block with the layer it came from, and `sources` is where a
  * block that was replaced, or one werk could not read, is explained.
  *
  * The rendering is separated from the reading so a test can drive it with a
@@ -27,6 +28,7 @@ import { envVariablesInUse } from "../config/env.js";
 import {
   configPaths,
   loadWerkConfig,
+  type BlockTable,
   type LayerName,
   type MergedConfig,
 } from "../config/load.js";
@@ -37,6 +39,7 @@ import {
   type ConfigValue,
 } from "../config/schema.js";
 import { summariseHost, type Host } from "../config/hosts.js";
+import { summariseSetup } from "../config/setup.js";
 import { UsageError } from "../runtime/exit.js";
 import { editProjectConfig, editUserConfig } from "../config/write.js";
 import type { ConfigEdit } from "../config/toml-edit.js";
@@ -100,8 +103,9 @@ export function buildConfig(): Command {
       "Every setting werk has, the value in force, and which of the six " +
       "layers supplied it. Use it to see which layer won: an exported WERK_ " +
       "variable beats a config file in the repository, and a command-line " +
-      "flag beats both. Hosts follow the settings, keyed hosts.<name>. A host " +
-      "werk could not read reads unreadable, and config sources says why.",
+      "flag beats both. The blocks follow the settings, keyed hosts.<name> and " +
+      "setup.<name>. A block werk could not read reads unreadable, and config " +
+      "sources says why.",
     examples: [
       { run: "werk config list" },
       {
@@ -135,7 +139,7 @@ export function buildConfig(): Command {
       // A person piping this wants the value alone, so the layer stays in the
       // machine shape where it costs nothing to carry.
       return result({ key, value: values[key], layer: from[key] }, () =>
-        String(values[key]),
+        show(values[key]),
       );
     }),
   );
@@ -267,7 +271,7 @@ export function buildConfig(): Command {
       "The six layers, weakest first, and what each of them is doing. An " +
       "empty layer says why it is empty: a config file that does not exist is " +
       "a different problem from one that exists and was overridden on every " +
-      "key. A host block a stronger layer replaced is listed against the " +
+      "key. A block a stronger layer replaced is listed against the " +
       "layer that lost it, and a block werk could not read is listed with " +
       "what is wrong and which file it is in.",
     examples: [
@@ -378,7 +382,13 @@ async function write(
   });
 }
 
-const show = (value: ConfigValue): string => String(value);
+/**
+ * A setting with no value at all reads as `unset` rather than as the word
+ * "undefined": absent is an answer here, and `workspaceSetup` is absent until
+ * a file names a block.
+ */
+const show = (value: ConfigValue): string =>
+  value === undefined ? "unset" : String(value);
 
 /** Where a layer's value came from, spelled as something a person can go and look at. */
 function describeLayer(
@@ -444,26 +454,26 @@ export function checkResult(
   return tableResult(checked, ["HOST", "HOW", "STATE", "FOUND"], rows, 3);
 }
 
-/** One row of `config list`: a setting or a host, and the layer it came from. */
+/** One row of `config list`: a setting or a block, and the layer it came from. */
 export interface ConfigRow {
   key: string;
   /**
-   * The setting's value, the whole host block, or null for a host werk could
-   * not read.
+   * The setting's value, the whole block, or null for a block werk could not
+   * read.
    */
   value: unknown;
   layer: LayerName;
 }
 
 /**
- * Every setting, then every host.
+ * Every setting, then every host, then every setup block.
  *
  * The machine shape stays one flat array of `{key, value, layer}`, so
  * `jq '.[] | select(.layer != "defaults")'` still answers the question it
- * always answered. A host row carries the whole block as its value, because a
- * one-line summary is a thing a person wants and a script does not.
+ * always answered. A block's row carries the whole block as its value, because
+ * a one-line summary is a thing a person wants and a script does not.
  *
- * A host that could not be read still gets a row: leaving it out would say the
+ * A block that could not be read still gets a row: leaving it out would say the
  * name is not configured, when what happened is that it is configured wrongly.
  * Its value is null and the reason lives in `config sources`, which is the
  * subcommand for why.
@@ -475,40 +485,49 @@ export function listResult(
   const settings: { row: ConfigRow; shown: string }[] = CONFIG_KEYS.map(
     (key) => ({
       row: { key, value: merged.config[key], layer: merged.from[key] },
-      shown: String(merged.config[key]),
+      shown:
+        merged.config[key] === undefined
+          ? ctx.style.muted(show(merged.config[key]))
+          : show(merged.config[key]),
     }),
   );
-  const broken = new Map(
-    merged.problems.map((problem) => [problem.name, problem]),
-  );
-  const names = [
-    ...new Set([...Object.keys(merged.hosts), ...broken.keys()]),
-  ].sort();
-  const hosts: { row: ConfigRow; shown: string }[] = names.map((name) => {
-    const host = merged.hosts[name];
-    // A name can be both: a block that does not parse in one file and a good
-    // one in another. The good block is what werk would act on, so it is the
-    // row, and `sources` still reports the one that did not parse.
-    if (host !== undefined)
+  /**
+   * The rows for one table. A name can be in both halves: a block that does not
+   * parse in one file and a good one in another. The good block is what werk
+   * would act on, so it is the row, and `sources` still reports the one that
+   * did not parse.
+   */
+  const blocks = <T>(
+    table: BlockTable,
+    held: Readonly<Record<string, T>>,
+    from: Record<string, LayerName>,
+    summarise: (block: T) => string,
+  ): { row: ConfigRow; shown: string }[] => {
+    const broken = new Map(
+      merged.problems
+        .filter((problem) => problem.table === table)
+        .map((problem) => [problem.name, problem]),
+    );
+    const names = [...new Set([...Object.keys(held), ...broken.keys()])].sort();
+    return names.map((name) => {
+      const key = `${table}.${name}`;
+      const block = held[name];
+      if (block !== undefined)
+        return {
+          row: { key, value: block, layer: from[name] as LayerName },
+          shown: summarise(block),
+        };
       return {
-        row: {
-          key: `hosts.${name}`,
-          value: host,
-          layer: merged.hostFrom[name] as LayerName,
-        },
-        shown: summariseHost(host),
+        row: { key, value: null, layer: broken.get(name)?.layer ?? "defaults" },
+        shown: ctx.style.error("unreadable"),
       };
-    const problem = broken.get(name);
-    return {
-      row: {
-        key: `hosts.${name}`,
-        value: null,
-        layer: problem?.layer ?? "defaults",
-      },
-      shown: ctx.style.error("unreadable"),
-    };
-  });
-  const rows = [...settings, ...hosts];
+    });
+  };
+  const rows = [
+    ...settings,
+    ...blocks("hosts", merged.hosts, merged.hostFrom, summariseHost),
+    ...blocks("setup", merged.setups, merged.setupFrom, summariseSetup),
+  ];
   return tableResult(
     rows.map((entry) => entry.row),
     ["KEY", "VALUE", "FROM"],
@@ -549,11 +568,15 @@ export function sourcesResult(
     const hosts = Object.keys(merged.hostFrom).filter(
       (name) => merged.hostFrom[name] === layer.name,
     );
+    const setups = Object.keys(merged.setupFrom).filter(
+      (name) => merged.setupFrom[name] === layer.name,
+    );
     const shadowed = merged.shadowed.filter((one) => one.layer === layer.name);
     const problems = merged.problems.filter((one) => one.layer === layer.name);
     const held =
       Object.keys(layer.values).length > 0 ||
       Object.keys(layer.hosts ?? {}).length > 0 ||
+      Object.keys(layer.setups ?? {}).length > 0 ||
       problems.length > 0;
     // Why a layer is empty is the useful half: a file that is not there reads
     // very differently from one that is there and lost every key.
@@ -565,7 +588,7 @@ export function sourcesResult(
           : layer.name === "user" || layer.name === "project"
             ? "absent"
             : "unset";
-    const won = keys.length > 0 || hosts.length > 0;
+    const won = keys.length > 0 || hosts.length > 0 || setups.length > 0;
     const where =
       layer.name === "user"
         ? found.user
@@ -580,17 +603,24 @@ export function sourcesResult(
       where,
       keys,
       hosts,
-      shadowed: shadowed.map((one) => ({ name: one.name, by: one.by })),
+      setups,
+      shadowed: shadowed.map((one) => ({
+        table: one.table,
+        name: one.name,
+        by: one.by,
+      })),
       problems,
     };
   });
-  // A layer's row, then a line for each of its host blocks that is not doing
-  // what the person who wrote it would expect. The blank first column is what
-  // ties those lines to the row above.
+  // A layer's row, then a line for each of its blocks that is not doing what
+  // the person who wrote it would expect. The blank first column is what ties
+  // those lines to the row above.
   const rows = records.flatMap((record) => [
     [
       LAYER_LABEL[record.source],
-      record.keys.length > 0 || record.hosts.length > 0
+      record.keys.length > 0 ||
+      record.hosts.length > 0 ||
+      record.setups.length > 0
         ? record.state
         : ctx.style.muted(record.state),
       record.where,
@@ -598,7 +628,7 @@ export function sourcesResult(
     ...record.shadowed.map((one) => [
       "",
       ctx.style.muted("shadowed"),
-      `hosts.${one.name} replaced by ${LAYER_LABEL[one.by]}`,
+      `${one.table}.${one.name} replaced by ${LAYER_LABEL[one.by]}`,
     ]),
     ...record.problems.map((one) => [
       "",

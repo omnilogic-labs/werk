@@ -171,6 +171,41 @@ Sequences that demand a reply into the PTY, such as device attribute and status
 queries, are answered inside the daemon and never forwarded, because a consumer
 cannot answer them in time and a program waiting on one hangs.
 
+### Asking whoever is attached to open a path
+
+`openPath(sessionId, path)` asks the clients attached to a session to open a
+path on the daemon's machine. The daemon relays it as an `open` event on every
+non-preview attachment of that session and answers the caller with how many
+were told; what opening means is each client's own business, and the library
+neither knows nor asks. A path never carries content: what crosses is where the
+file is.
+
+A session with nothing attached is a `CONFLICT` rather than a wait. Nothing is
+queued for whoever attaches next, because somebody who has detached cannot open
+anything and an answer now is worth more than one that never comes.
+
+The path is checked before anything is told: absolute on the daemon's machine,
+no NUL, and at most 4096 bytes. `openPathValid` in `@werk/session-daemon`
+exports the rule, so a client can check its own input against the rule itself
+rather than against a restatement of it. A space, a quote or a newline in a
+filename is not refused, because a client hands the path to a program as one
+argument rather than to a shell.
+
+`openPath(id, path, { wait: true })` holds the answer until a client calls
+`finishOpen(openId)`, which may carry a short reason the open failed. Only a
+connection holding one of the attachments that were told may answer. The wait
+ends when a client answers, when the last attachment that was told goes away —
+a `CONFLICT` — or when the daemon's `limits.openWaitMs` expires, which it
+reports as `capabilities.openWaitMs` so a client can set its own deadline
+beyond it. A daemon holds a waiting request on the connection that made it, and
+that connection reads nothing else until it settles, so a connection cannot
+wait on an attachment of its own; the daemon refuses that outright rather than
+letting it hang.
+
+The CLI is one caller of this: [cli.md](cli.md#opening-a-file-where-you-are-sitting)
+has `werk edit`, which is what a process inside a session runs, and what
+happens on the client that opens the file.
+
 Attachment ordering, size ownership, preview tiles, scrollback budgets and the
 environment rules are in
 [packages/session](../packages/session/README.md). The daemon's queues, limits,

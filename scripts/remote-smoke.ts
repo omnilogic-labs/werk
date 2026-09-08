@@ -30,8 +30,19 @@ import { openLocalTransport } from "../packages/session-daemon/dist/index.js";
 import { notPrivateToOwner } from "../packages/session-daemon/dist/platform/index.js";
 import { openForward } from "../packages/werk/src/host/forward.js";
 import { openHostSession } from "../packages/werk/src/host/session.js";
+import {
+  fingerprintSetup,
+  runHostSetup,
+  setupStampFile,
+  setupHintFile,
+} from "../packages/werk/src/host/setup.js";
 import { spawnRunner } from "../packages/werk/src/host/ssh.js";
 import { HostError } from "../packages/werk/src/host/types.js";
+import type { SetupBlock } from "../packages/werk/src/config/setup.js";
+import type { WerkContext } from "../packages/werk/src/runtime/context.js";
+import { createStyles } from "../packages/werk/src/runtime/style.js";
+import { builtInDefaults } from "../packages/werk/src/config/schema.js";
+import { roles } from "../packages/palette/dist/index.js";
 
 export type Options = {
   host?: string;
@@ -54,6 +65,7 @@ Checks, in order:
   forward   what \`ssh -L\` hands the client-side socket checks
   latency   keystroke round trip through a -N forward and through a -tt one
   transport the CLI's own remote path, end to end: probe, install, forward
+  setup     a [setup.<name>] block against a real \$HOME and a real login shell
 
 Options:
   --host <name>     the ssh destination, as ssh itself would take it
@@ -348,6 +360,8 @@ async function main(): Promise<number> {
   let transport: { close(): Promise<void> } | undefined;
   /** The binary the transport check installed, so the teardown can remove it. */
   let installed: string | undefined;
+  /** What the setup check left under the far side's own `$HOME`. */
+  const setupLeft: string[] = [];
 
   try {
     // The forwarded sockets land here, and `openLocalTransport` refuses a
@@ -730,6 +744,148 @@ async function main(): Promise<number> {
       missingCode,
     );
 
+    // 7. A setup block, against the only thing that can answer for one: a real
+    //    `$HOME`, a real login shell, and the real ssh stdin pipe carrying the
+    //    tar. Everything about a setup that a test can settle without a machine
+    //    is settled in `packages/werk/test/host/setup.test.ts`; what is left is
+    //    whether the login shell over there finds what the block expects.
+    const setupBlock = `smoke-${tag}`;
+    const setupLanding = `.werk-smoke-${tag}`;
+    setupLeft.push(`"$HOME/${setupLanding}"`);
+    const copyFrom = path.join(localDir, "setup-copy");
+    await fs.mkdir(copyFrom, { recursive: true });
+    await Bun.write(
+      path.join(copyFrom, "hello.sh"),
+      '#!/bin/sh\nprintf %s "$WERK_SMOKE_TOKEN"\n',
+    );
+    await fs.chmod(path.join(copyFrom, "hello.sh"), 0o755);
+    const setupHome = `$HOME/${setupLanding}`;
+    const block: SetupBlock = {
+      copy: copyFrom,
+      to: `${setupLanding}/sent`,
+      run: [
+        // Proves the executable bit survived the tar and that the block's `env`
+        // reached the command.
+        `"${setupHome}/sent/hello.sh" > "${setupHome}/token"`,
+        // The one thing no test on one machine can answer: whether a login
+        // shell over there has `claude` on its PATH.
+        `command -v claude > "${setupHome}/claude" || printf '' > "${setupHome}/claude"`,
+      ],
+    };
+    const setupState = path.join(localDir, "setup-state");
+    const ctx: WerkContext = {
+      write: () => {},
+      // The far side's own output, which is what a person would see on stderr.
+      writeError: (text) => void process.stderr.write(text),
+      stdoutTTY: false,
+      stdinTTY: false,
+      columns: 80,
+      style: createStyles(0),
+      theme: roles(),
+      colourLevel: 0,
+      json: false,
+      noInput: true,
+      yes: true,
+      runtimeDir: transportRuntime,
+      stateDir: setupState,
+      entry: path.join(here, "packages/werk/src/main.ts"),
+      hosts: {},
+      hostProblems: [],
+      defaultHost: "smoke",
+      setups: { [setupBlock]: block },
+      hostOrigin: {},
+      // Nothing here opens a file or lands anything; these are required, and
+      // the defaults are the honest answer for a context never asked for them.
+      editor: builtInDefaults().editor,
+      agent: builtInDefaults().agent,
+      agentChosen: true,
+      landRoute: builtInDefaults().landRoute,
+    };
+    const setupHost = {
+      kind: "ssh" as const,
+      sshHost: host,
+      setup: setupBlock,
+      env: { WERK_SMOKE_TOKEN: `token-${tag}` },
+    };
+    const expected = (await fingerprintSetup(block)).fingerprint;
+    try {
+      const first = await runHostSetup({
+        ctx,
+        name: "smoke",
+        host: setupHost,
+        runner: spawnRunner(),
+      });
+      record(
+        "setup: ran",
+        first.state === "ran",
+        first.state === "ran"
+          ? `${first.commands} commands, ${first.copied ?? 0} entries sent, ${first.fingerprint}`
+          : `answered ${first.state}`,
+      );
+      const token = ssh(host, [`cat "${setupHome}/token"`]);
+      record(
+        "setup: copy and env arrived",
+        token.stdout.trim() === `token-${tag}`,
+        `hello.sh printed ${JSON.stringify(token.stdout.trim())}`,
+      );
+      const claude = ssh(host, [`cat "${setupHome}/claude"`]).stdout.trim();
+      note(
+        "setup: claude on the login shell",
+        claude === "" ? "not on it" : claude,
+      );
+      const remoteHome = ssh(host, ['printf %s "$HOME"']).stdout.trim();
+      setupLeft.push(`"$HOME/.local/share/werk/setup/${setupBlock}"`);
+      const stamp = ssh(host, [
+        `cat ${shellQuote(setupStampFile(remoteHome, setupBlock))}`,
+      ]).stdout.trim();
+      record(
+        "setup: stamped last",
+        stamp === expected,
+        `${remoteHome} carries ${stamp || "no stamp"}, werk computed ${expected}`,
+      );
+
+      // Nothing changed, so nothing happens — and with the local hint in place
+      // the machine is not asked at all.
+      const second = await runHostSetup({
+        ctx,
+        name: "smoke",
+        host: setupHost,
+        runner: spawnRunner(),
+      });
+      record(
+        "setup: second run does nothing",
+        second.state === "current" && second.asked === false,
+        second.state === "current"
+          ? `answered from ${second.asked ? "the machine" : "the local hint"}`
+          : `answered ${second.state}`,
+      );
+
+      // With the hint gone the machine answers instead, which is the property
+      // that makes a second laptop correct without either knowing the other.
+      await fs.rm(setupHintFile(setupState, "smoke"), { force: true });
+      const third = await runHostSetup({
+        ctx,
+        name: "smoke",
+        host: setupHost,
+        runner: spawnRunner(),
+      });
+      record(
+        "setup: the machine is the authority",
+        third.state === "current" && third.asked === true,
+        third.state === "current"
+          ? `answered from ${third.asked ? "the machine" : "the local hint"}`
+          : `answered ${third.state}`,
+      );
+    } catch (error) {
+      record(
+        "setup",
+        false,
+        error instanceof HostError
+          ? `${error.code}: ${error.message.split("\n")[0]}`
+          : String(error),
+      );
+    }
+
     const failed = checks.filter((check) => !check.ok);
     console.log(
       `\n${checks.length - failed.length}/${checks.length} checks passed`,
@@ -750,7 +906,11 @@ async function main(): Promise<number> {
           // The far side is POSIX, so the directory is the path up to the
           // last slash; `path.dirname` here would be this machine's rules.
           `sleep 1; rm -rf ${shellQuote(installed.slice(0, installed.lastIndexOf("/")))}; `;
-    const teardown = `${installedTeardown}pkill -f '[${remoteDir[0]}]${remoteDir.slice(1)}/werk'; sleep 1; rm -rf ${remoteDir}`;
+    // The setup check writes under the far side's own `$HOME`, which is not
+    // under `remoteDir`, so what it left is named here too.
+    const setupTeardown =
+      setupLeft.length === 0 ? "" : `rm -rf ${setupLeft.join(" ")}; `;
+    const teardown = `${installedTeardown}${setupTeardown}pkill -f '[${remoteDir[0]}]${remoteDir.slice(1)}/werk'; sleep 1; rm -rf ${remoteDir}`;
     if (options.keep) {
       console.log(`\nKept ${localDir} here and ${remoteDir} on ${host}.`);
       console.log(`Tear it down with: ssh ${host} ${shellQuote(teardown)}`);

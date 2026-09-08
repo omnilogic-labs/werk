@@ -5,8 +5,8 @@
  * client registers with it, but which settings it takes over, what happens to
  * settings the client already had, how a person sees what has been taken over,
  * and whether anything stays theirs to change are all unresolved — that is open
- * question 12 of `docs/product-specification.md`, and the specification says it
- * is the least worked out part of the whole document.
+ * question 12 of `docs/open-questions.md`, which says it is the least worked out
+ * part of the whole specification.
  *
  * So this is a seam, not a design. It fixes only two things: the shape an answer
  * would have, and where it would sit in the precedence order — above werk's

@@ -29,7 +29,8 @@ import {
 } from "@werk/palette";
 import { defaultSessionRuntimeDir, type LogLevel } from "@werk/session-daemon";
 import { ConfigError } from "./errors.js";
-import { DEFAULT_HOST, isHostName } from "./hosts.js";
+import { DEFAULT_HOST, isBlockName } from "./hosts.js";
+import { splitCommand } from "../editor.js";
 
 /** What to do about colour when the terminal has not already settled it. */
 export type ColourPreference = "auto" | "always" | "never";
@@ -68,6 +69,13 @@ export interface WerkConfig {
    * host somebody defined; `hostFor` refuses a name nothing does.
    */
   defaultHost: string;
+  /**
+   * The `[setup.<name>]` block for a workspace that has just been made. It has
+   * no value at all until a file names one, which is why it is the one key
+   * here that may be absent: there is no block werk would run by default, and
+   * an empty name is not a name.
+   */
+  workspaceSetup?: string;
   colour: ColourPreference;
   /** The flavour werk wears, or `auto` to suit the terminal's own ground. */
   flavour: FlavourPreference;
@@ -77,6 +85,16 @@ export interface WerkConfig {
   flavourLight: FlavourName;
   /** Which of Catppuccin's fourteen accents marks the thing being attended to. */
   accent: AccentName;
+  /**
+   * What this machine runs to open a file a session asked to have opened, with
+   * `{host}` and `{path}` filled in.
+   *
+   * It is a top-level setting rather than a per-host one because the command
+   * runs where the person is sitting, not on the machine the session is on: a
+   * client on WSL wants `code.exe` for every host it reaches, and one on Linux
+   * wants `code` for every host.
+   */
+  editor: string;
   /**
    * The agent werk asks to write a commit message and to resolve a conflict
    * when a landing does not apply cleanly, run one-shot with the prompt on its
@@ -165,14 +183,40 @@ function commandLine(key: string) {
 }
 
 /**
- * A host name, checked for spelling and nothing else. A per-key parser is
- * handed one value and never sees the `[hosts.*]` collection, so it cannot say
- * whether the host exists; that check belongs wherever a host is resolved.
+ * A command line for the client's editor.
+ *
+ * Checked here rather than where it is run, so a command that could never open
+ * anything is refused by `werk config set` instead of failing inside somebody's
+ * attachment an hour later. It has to split into words, which an unclosed quote
+ * stops it doing, and it has to say where the path goes.
  */
-function hostName(key: string) {
+function editorCommand(key: string) {
   return (raw: unknown): string => {
-    if (typeof raw === "string" && isHostName(raw)) return raw;
-    throw new ConfigError("CONFIG_UNREADABLE", `${key} must be a host name`);
+    const words = typeof raw === "string" ? splitCommand(raw) : undefined;
+    if (!words?.length)
+      throw new ConfigError(
+        "CONFIG_UNREADABLE",
+        `${key} must be a command, with every quote in it closed`,
+      );
+    if (!words.some((word) => word.includes("{path}")))
+      throw new ConfigError(
+        "CONFIG_UNREADABLE",
+        `${key} must contain {path}, which is where the file to open goes`,
+      );
+    return raw as string;
+  };
+}
+
+/**
+ * A block name, checked for spelling and nothing else. A per-key parser is
+ * handed one value and never sees the `[hosts.*]` or `[setup.*]` collection, so
+ * it cannot say whether anything defines that name; that check belongs wherever
+ * the name is resolved.
+ */
+function blockName(key: string, what: string) {
+  return (raw: unknown): string => {
+    if (typeof raw === "string" && isBlockName(raw)) return raw;
+    throw new ConfigError("CONFIG_UNREADABLE", `${key} must be ${what}`);
   };
 }
 
@@ -200,7 +244,12 @@ export const FIELDS: { readonly [K in ConfigKey]: ConfigField<K> } = {
   defaultHost: {
     env: "WERK_DEFAULT_HOST",
     describe: "which host werk puts work on when nobody names one",
-    parse: hostName("defaultHost"),
+    parse: blockName("defaultHost", "a host name"),
+  },
+  workspaceSetup: {
+    env: "WERK_WORKSPACE_SETUP",
+    describe: "which [setup.<name>] block a new workspace gets",
+    parse: blockName("workspaceSetup", "the name of a [setup.<name>] block"),
   },
   colour: {
     env: "WERK_COLOUR",
@@ -227,6 +276,11 @@ export const FIELDS: { readonly [K in ConfigKey]: ConfigField<K> } = {
     describe: "which Catppuccin accent marks the active thing",
     parse: oneOf<AccentName>("accent", ACCENTS),
   },
+  editor: {
+    env: "WERK_EDITOR",
+    describe: "what this machine runs to open a file from a session",
+    parse: editorCommand("editor"),
+  },
   agent: {
     env: "WERK_AGENT",
     describe: "the agent werk asks for commit messages and conflict resolution",
@@ -239,6 +293,18 @@ export const FIELDS: { readonly [K in ConfigKey]: ConfigField<K> } = {
   },
 };
 export const CONFIG_KEYS = Object.keys(FIELDS) as readonly ConfigKey[];
+
+/**
+ * What opens a file when nobody has said otherwise.
+ *
+ * VS Code's remote authority, because that is the editor werk is being used
+ * with and the shape it takes there is the shape the whole mechanism is built
+ * around: the path is forwarded and the editor reaches the machine itself, so
+ * no file content crosses the wire. Somebody driving Windows VS Code from WSL
+ * sets `code.exe`, and somebody using another editor writes their own
+ * `zed ssh://{host}/{path}` or `jetbrains://...` in its place.
+ */
+export const DEFAULT_EDITOR = "code --remote ssh-remote+{host} {path}";
 
 /** The state directory werk has always used; kept so existing state is found. */
 export function defaultStateDir(
@@ -272,6 +338,10 @@ export function builtInDefaults(
     // A `werk create` that names no host runs on this machine, so this is a
     // description of the present rather than a plan for anything else.
     defaultHost: DEFAULT_HOST,
+    // Written down as nothing rather than left out, so the defaults layer is
+    // the layer that answered for it and `werk config list` has a row to show.
+    // Nothing runs after a workspace is made until a file names a block.
+    workspaceSetup: undefined,
     colour: "auto",
     // Mocha and mauve are Catppuccin's conventional defaults, and dark is what
     // every tool that probes a terminal falls back to when it learns nothing.
@@ -279,6 +349,7 @@ export function builtInDefaults(
     flavourDark: "mocha",
     flavourLight: "latte",
     accent: DEFAULT_ACCENT,
+    editor: DEFAULT_EDITOR,
     // Nothing, and `werk land` asks once rather than guessing at which agent
     // somebody has. An agent named here would be a claim about what is
     // installed, and running one the caller never chose is the wrong direction

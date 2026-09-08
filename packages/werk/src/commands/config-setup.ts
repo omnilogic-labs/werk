@@ -48,7 +48,7 @@ import {
   loadWerkConfig,
   type MergedConfig,
 } from "../config/load.js";
-import { isHostName, type Host } from "../config/hosts.js";
+import { isBlockName, type Host } from "../config/hosts.js";
 import type { ConfigKey, ConfigValue } from "../config/schema.js";
 import { applyEdit, type ConfigEdit } from "../config/toml-edit.js";
 import {
@@ -360,6 +360,7 @@ async function describe(
 
   const workspaceRoot = await chooseRoot(talk, flags, report);
   const host: Host = {
+    ...carried(existing === undefined ? undefined : merged.hosts[existing]),
     kind: "ssh",
     sshHost: destination,
     ...(workspaceRoot === "" ? {} : { workspaceRoot }),
@@ -399,6 +400,24 @@ async function describe(
     probe: report,
     unchanged: false,
   });
+}
+
+/**
+ * The keys this conversation asks about. A block it is changing is written
+ * whole, so anything it did not ask about has to come across from the block
+ * that is there, or the write would take it out: somebody who set `env` in
+ * their file and then re-pointed the machine at a new address would lose it
+ * without being told.
+ *
+ * Named as what is asked rather than as what is carried, so a key added to a
+ * host block travels by default and only a new question has to change this.
+ */
+const ASKED = new Set(["kind", "sshHost", "workspaceRoot"]);
+function carried(previous: Host | undefined): Partial<Host> {
+  if (previous === undefined) return {};
+  return Object.fromEntries(
+    Object.entries(previous).filter(([key]) => !ASKED.has(key)),
+  ) as Partial<Host>;
 }
 
 /** Which machine: an alias out of the ssh config, or something typed. */
@@ -486,7 +505,7 @@ async function chooseName(
 ): Promise<string> {
   const check = (value: string): string | undefined => {
     const name = value.trim();
-    if (!isHostName(name))
+    if (!isBlockName(name))
       return "letters, digits, dots, dashes and underscores, starting with a letter or a digit";
     if (existing !== name && merged.hosts[name] !== undefined)
       return `${name} is already a host; pick another name, or change that one instead`;
@@ -517,7 +536,7 @@ export function suggestName(destination: string): string {
   const cleaned = bare
     .replace(/[^A-Za-z0-9._-]/g, "-")
     .replace(/^[^A-Za-z0-9]+/, "");
-  return isHostName(cleaned) ? cleaned : "";
+  return isBlockName(cleaned) ? cleaned : "";
 }
 
 /**

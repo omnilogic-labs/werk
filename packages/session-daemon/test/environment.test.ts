@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   daemonEnvironment,
   sessionEnvironment,
@@ -161,4 +161,87 @@ test("environment bounds count UTF-8 bytes and envp overhead", () => {
     ),
   ])
     expect(() => validateEnvironment(env)).toThrow("environment");
+});
+
+describe("werk's own directory on a session's PATH", () => {
+  const bin = "/home/mike/.local/share/werk/bin/bun-linux-x64-0.0.0-abc/";
+  const dir = bin.slice(0, -1);
+
+  test("goes at the front, so `werk edit` in a session finds it", () => {
+    const env = sessionEnvironment(
+      undefined,
+      "s",
+      "d",
+      "1",
+      { PATH: "/usr/bin", WERK_BIN_DIR: dir },
+      false,
+    );
+    expect(env.PATH).toBe(`${dir}:/usr/bin`);
+    // The cause is the daemon's own business; a session sees only the effect.
+    expect(env.WERK_BIN_DIR).toBeUndefined();
+  });
+
+  test("goes in front of a PATH the client sent, not behind it", () => {
+    const env = sessionEnvironment(
+      { PATH: "/client/bin" },
+      "s",
+      "d",
+      "1",
+      { PATH: "/usr/bin", WERK_BIN_DIR: dir },
+      false,
+    );
+    expect(env.PATH).toBe(`${dir}:/client/bin`);
+  });
+
+  test("is the whole PATH when there was none", () => {
+    const env = sessionEnvironment(
+      undefined,
+      "s",
+      "d",
+      "1",
+      { WERK_BIN_DIR: dir },
+      false,
+    );
+    expect(env.PATH).toBe(dir);
+  });
+
+  test("is added once, so a restarted session does not grow its PATH", () => {
+    const env = sessionEnvironment(
+      undefined,
+      "s",
+      "d",
+      "1",
+      { PATH: `${dir}:/usr/bin`, WERK_BIN_DIR: dir },
+      false,
+    );
+    expect(env.PATH).toBe(`${dir}:/usr/bin`);
+  });
+
+  test("separates with a semicolon on Windows", () => {
+    const env = sessionEnvironment(
+      undefined,
+      "s",
+      "d",
+      "1",
+      { PATH: "C:\\Windows", WERK_BIN_DIR: "C:\\werk\\bin" },
+      true,
+    );
+    expect(env.PATH).toBe("C:\\werk\\bin;C:\\Windows");
+  });
+
+  test("a daemon that did not say leaves PATH exactly as it was", () => {
+    // A werk run from source says nothing, because the directory of a `bun`
+    // holds no werk.
+    const env = sessionEnvironment(
+      undefined,
+      "s",
+      "d",
+      "1",
+      {
+        PATH: "/usr/bin",
+      },
+      false,
+    );
+    expect(env.PATH).toBe("/usr/bin");
+  });
 });

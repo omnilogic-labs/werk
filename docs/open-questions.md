@@ -1,8 +1,11 @@
 # Open questions
 
-The questions the [product specification](product-specification.md) has not
-answered. They are genuinely open. Where there is a lean it is labelled as a
-lean, and where nobody has taken a position that is said rather than filled in.
+Every question these documents raise and none of them answers. This file is the
+only register of them, so a question raised in the [product
+specification](product-specification.md), in [hosts.md](hosts.md) or anywhere
+else is written down here and linked to. They are genuinely open. Where there is
+a lean it is labelled as a lean, and where nobody has taken a position that is
+said rather than filled in.
 
 Several answers refer to **the earlier work**, which the specification
 identifies: the product documents and research dossiers this specification
@@ -409,3 +412,132 @@ which is the point at which this wants answering properly.
 This is question 19 seen from the other end. That question asks where the record
 of a workspace lives; this one asks how a workspace is written down once
 something has to name one it did not make.
+
+## 25. What does werk store about a host once it has been to one?
+
+A host somebody configured is described by what they wrote in the file. What
+werk learns by going there is not: which operating system and architecture it
+turned out to be, where the daemon binary was put, which build of it is there,
+when werk last reached it, and whether it answered. None of that has anywhere to
+go today.
+
+- **Nowhere. Ask the host every time.** Nothing can go stale, and a machine
+  reinstalled behind werk's back is not a problem. It costs a round trip before
+  anything else can happen, on a connection that may be slow or down.
+- **Beside the host's entry in the configuration.** One file to read, and a
+  person can see what werk thinks. It mixes what the user wrote with what werk
+  learned, in a file the user edits by hand.
+- **In werk's own state directory, keyed by host.** Keeps the two apart. Adds a
+  second place to look and a way for the two to disagree about which hosts
+  exist.
+
+This is question 19 asked about hosts rather than workspaces, and question 3
+asked about a different kind of thing, so all three probably want answering
+together. No lean.
+
+## 26. What has to match between a client and the daemon it ships to a host?
+
+werk puts its own compiled daemon on a host, and the client then speaks the
+session protocol to it. A client and a daemon of different builds can therefore
+meet, which is a thing that happens the first time somebody upgrades a laptop
+and reattaches to a machine they set up a month ago.
+
+The strictness available runs from exact to negotiated:
+
+- **The exact build.** VS Code Remote-SSH matches by commit hash, installs to a
+  path carrying it, and redownloads whenever the client changes. Nothing can
+  skew, and every client upgrade costs a transfer to every host.
+- **A protocol version the two agree on.** The wire in `@werk/session` already
+  has a shape a version could be negotiated in. It costs keeping older
+  behaviours alive, which is the kind of thing that is cheap to add and
+  expensive to remove.
+- **Whatever is there, and fail loudly when it does not work.** Cheapest to
+  build, and the failure lands on the user at the worst moment.
+
+What makes this harder than it looks is that the terminal replica is part of the
+compatibility question too, not only the protocol: a checkpoint written by one
+build of the libghostty WASM engine is read by whichever build the client has.
+No lean.
+
+## 27. Is a host owned or borrowed, and what does that mean for cleanup?
+
+A machine somebody already had and a machine something made for werk differ in
+one way that matters: who is responsible for the machine ending. werk would be a
+guest on the first and would have made the second, so destroying a workspace on
+the first should leave the machine alone, while destroying the last workspace on
+the second raises whether the machine goes too. Those two probably want showing
+differently as well as treating differently, because a person reasons about a
+box they own and a container werk made in different ways.
+
+The distinction is clear at the extremes and not in the middle. werk shipping a
+daemon, a binary and a directory of workspaces onto a machine it borrowed has
+left things behind that somebody has to be able to remove, and there is no
+answer yet to what removing werk from a host means, which command does it, or
+whether it is werk's job at all rather than the user's.
+
+## 28. When are two routes to the same machine the same host?
+
+Two `[hosts.<name>]` entries can name one machine. So can a host entry and the
+machine werk is running on, the moment somebody adds their own desktop by its
+ssh alias. Nothing stops that today, and nothing notices it either.
+
+It matters because the containment graph is a tree. A machine appearing twice
+puts one set of workspaces under two roots, so `werk list` shows each workspace
+twice, and a workspace created against one entry is invisible from the other.
+
+- **Do not care.** Two entries are two hosts, and a person who made a duplicate
+  can see it. Wrong in the one case a person is least likely to expect, which is
+  their own machine reached over ssh.
+- **Ask the host who it is.** A machine identifier that werk reads once and
+  stores, which is question 25's material. Reliable, and it needs an identifier
+  that survives a reboot and a reinstall, which is a thing operating systems are
+  inconsistent about.
+- **Compare what the workspaces say.** Two entries holding the same workspace at
+  the same path are probably the same machine. Cheap, and it only works once
+  there is a workspace on both.
+
+No lean.
+
+## 29. What does a workspace on an unreachable host look like?
+
+Once werk reaches machines it does not own, "I cannot see it right now" stops
+being a failure and becomes an ordinary state, which is why `unreachable` is one
+of the status words question 16 is about. What that means in use is not worked
+out.
+
+It is open in at least three places:
+
+- **What the list shows.** Whether an unreachable host is one row saying so, or
+  one row per workspace on it each failing separately.
+- **How long werk waits before saying so.** ssh to a machine that is asleep can
+  hang for a long time, and a list that blocks on the slowest host is a list
+  nobody waits for.
+- **What a command aimed at an unreachable workspace does.** Fail, wait, or be
+  remembered and run when the host comes back. That last one is the difference
+  between werk being a client and werk being a queue.
+
+The cheap version is honest and does nothing: say what is unreachable, fail
+anything aimed at it, and let the person retry. Whether that reads as broken or
+as trustworthy is the thing nobody has evidence about yet.
+
+## 30. Does werk own how it reaches a host, or does ssh?
+
+A host entry has to say enough to open a connection. There are two ways to get
+that, and they differ in which file is authoritative.
+
+- **Copy the connection details into `~/.werk/config.toml`.** A host name, a
+  user, a port, an identity file. werk holds everything it needs and depends on
+  no file it does not own. The details then drift out of step with
+  `~/.ssh/config`, and they cannot express what ssh's own configuration can.
+- **Record the ssh alias and let ssh resolve it.** The entry is one word, and
+  everything the user has already configured keeps working, including `Match`
+  blocks and `ProxyJump` through a bastion. werk then depends on a file it does
+  not own, cannot fully predict what a connection will do, and has nothing to
+  read on a machine where the alias is absent.
+
+`werk config setup` reading `~/.ssh/config` points at the second, because a
+wizard that offers you the machines you already reach and then copies their
+details out has already accepted a copy that can go stale. That is an argument,
+not a lean, and nobody has taken one. The two can also be combined, with the
+alias as the normal case and explicit fields for a host ssh knows nothing about,
+at the cost of two shapes of host entry to explain.

@@ -30,9 +30,11 @@ alone, and what each dependency is for.
 | `list` (`ls`)                                                                | List sessions                                                                 |
 | `attach [session]`                                                           | Go back to a running session; Ctrl-] detaches                                 |
 | `logs [session]`                                                             | Print what a session has on screen, or what it has kept                       |
+| `edit <path>`                                                                | From inside a session, open a file where the person is sitting                |
 | `kill [session]`                                                             | Ask a session's process to stop                                               |
 | `remove` (`rm`)                                                              | Forget a session that has stopped                                             |
 | `watch`                                                                      | Print daemon events as JSON lines until interrupted                           |
+| `setup`                                                                      | Run a machine's setup block without making a workspace                        |
 | `info`                                                                       | Print where werk keeps things and what the daemon says                        |
 | `doctor`                                                                     | Check the local daemon and print the end of its log                           |
 | `config`                                                                     | `list`, `get`, `set`, `unset`, `setup`, `check`, `sources`, `path`            |
@@ -100,7 +102,7 @@ Completion stops at the same boundary and offers nothing past it.
 | 2    | A usage mistake: a bad flag, an unknown command, `INVALID_ARGUMENT`         |
 | 3    | `NOT_FOUND` — no such session                                               |
 | 4    | `PERMISSION_DENIED`                                                         |
-| 5    | `CONFLICT` — a session or workspace name already taken                      |
+| 5    | `CONFLICT` — the state refuses it: a name already taken, nobody attached    |
 | 6    | `LIMIT` — a cap was exceeded                                                |
 | 7    | Nothing answered: `TIMEOUT`, `CLOSED`, `HOST_DAEMON_MISSING`                |
 | 130  | Cancelled: SIGINT, or a prompt nobody answered                              |
@@ -149,10 +151,18 @@ it exits 1.
 
 Configuration is mapped the same way. A host block that does not parse, a name
 nothing defines and a file that is not the TOML it claims to be are all "what
-werk was told is wrong", which is exit 2. A file werk could not write, or would
-not write because it could not make the change cleanly, is exit 1: the machine
-did not do it. No new statuses; nothing scripting werk should have to learn a
-number to find out that a config file has a typo in it.
+werk was told is wrong", which is exit 2. That covers a `setup` or a
+`workspaceSetup` naming a block nothing defines, and a `copy` naming a path that
+is not there. A file werk could not write, or would not write because it could
+not make the change cleanly, is exit 1: the machine did not do it. No new
+statuses; nothing scripting werk should have to learn a number to find out that
+a config file has a typo in it.
+
+A setup command that refused is exit 1, under `HOST_SETUP_FAILED` for a
+machine's block and `WORKSPACE_SETUP_FAILED` for a repository's. Neither is a
+usage mistake and neither is a machine that did not answer: werk reached it, and
+something somebody wrote there exited non-zero. A machine that stopped answering
+part-way through a setup still reports `HOST_UNREACHABLE` and exits 7.
 
 ## Starting a session
 
@@ -270,6 +280,33 @@ missing is still a worktree and a branch; it is `werk land <name>` that no
 longer finds it. If writing the record fails, `create` says so and carries on,
 because the workspace already exists by then.
 
+The record also carries a `setup` object, holding what each of the two setups
+came to:
+
+```json
+{
+  "setup": {
+    "host": {
+      "state": "current",
+      "block": "my-boxes",
+      "fingerprint": "9f2c1b04e9d1",
+      "asked": false
+    },
+    "workspace": {
+      "state": "ran",
+      "block": "bootstrap",
+      "fingerprint": "3a71c0de5b22",
+      "commands": 1
+    }
+  }
+}
+```
+
+`state` is `none` where nothing named a block, `current` where the machine
+already has it, `ran` where it ran, and `skipped` where werk left it alone and
+`why` says what would have answered the question. Both keys are always there, so
+a caller reads a state rather than an absence.
+
 The workspace is made before a daemon is asked for anything, so a repository
 that cannot be branched fails without starting one. Nothing removes the worktree
 if the session then fails to start.
@@ -315,7 +352,7 @@ Each of these commands talks to **one** daemon: this machine's without `--host`,
 that machine's with it. There is no view across machines. Nothing records that a
 workspace exists, so a workspace with no session running in it is not listed
 anywhere, including on the machine it is on. Where that record should live is
-[question 19](product-specification.md#19-where-does-the-record-of-a-workspace-live).
+[question 19](open-questions.md#19-where-does-the-record-of-a-workspace-live).
 
 ## Landing a workspace
 
@@ -480,6 +517,57 @@ characters and the separator costs 3, so a narrower window leaves fewer than 4
 columns for a name, and a name cut down to one letter says less than the key
 that gets you out. `identity` in `packages/werk/src/view.ts` is where that is
 decided.
+
+## Opening a file where you are sitting
+
+`werk edit <path>`, run **inside** a session, asks whoever is attached to that
+session to open the file in their own editor.
+
+```sh
+werk edit src/main.ts
+EDITOR="werk edit --wait" git commit
+```
+
+What crosses the wire is a path and never a file. `werk edit` resolves the path
+on the machine the session is on, reads `WERK_SESSION` from its own
+environment, and hands both to the daemon there; the daemon relays them to
+every client attached to that session, and each client runs its own `editor`
+command with `{host}` and `{path}` filled in. In the default configuration that
+is `code --remote ssh-remote+beast /srv/work/main.ts`, so the editor reaches
+the file over ssh itself. [hosts.md](hosts.md#opening-a-file-from-a-session-on-another-machine)
+has why forwarding a path is the shape being tried rather than anything simpler.
+
+- The daemon it talks to is the one on the machine it is running on, always,
+  because that is the daemon holding the session. It takes no `--host`, and
+  says so rather than acting on somebody else's machine.
+- Nothing attached is a refusal, exit 5, rather than a wait. Somebody who has
+  detached cannot open anything, and no list of files to open later is kept.
+- Every attached client is asked, so a session watched from two places opens
+  the file in both.
+- `--wait` returns when the client's editor command exits. Without it the
+  command returns as soon as the daemon has relayed the request.
+- A client that could not run its editor reports why, and `werk edit` fails
+  with that reason on stderr.
+
+**What `--wait` guarantees is werk's half of it.** werk holds the request until
+the attached client's `editor` command exits, and the daemon bounds that at an
+hour, after which the caller is told nobody answered rather than being left
+blocked. Whether the editor exits when the file is closed is the editor's
+business: `code` needs its own `--wait` in the setting, and whether that
+composes with `--remote` is untested here. A configuration that wants blocking
+is worth trying before anything depends on it.
+
+The command werk runs is split into words before `{host}` and `{path}` are
+substituted, and the words are handed to the operating system rather than to a
+shell. A path with a space, a quote or a semicolon in it is therefore one
+argument and cannot become a second command. The cost is that the setting is a
+command line rather than a shell fragment: `sh -c '...' _ {path}` is how to ask
+for a shell, and the path still arrives as one word.
+
+`werk edit` is meant to be what `$EDITOR` is set to inside a session. What sets
+it there is the session's own environment rather than anything this command
+does — a per-host `env` map is the likely place for it — and the two compose:
+`EDITOR="werk edit --wait"` on the session, and `editor` on the client.
 
 ## Naming a session
 
@@ -808,20 +896,22 @@ project layer outside a repository.
 Every key answers to `WERK_` plus its name in screaming snake case. That is a
 rule rather than a list, so a new setting gets its variable for free.
 
-| Key               | Variable                | What it is                                         |
-| ----------------- | ----------------------- | -------------------------------------------------- |
-| `logLevel`        | `WERK_LOG_LEVEL`        | Daemon log level                                   |
-| `runtimeDir`      | `WERK_RUNTIME_DIR`      | Where the daemon socket and endpoint live          |
-| `stateDir`        | `WERK_STATE_DIR`        | Where checkpoints, logs and the daemon record live |
-| `scrollbackBytes` | `WERK_SCROLLBACK_BYTES` | Bytes of output a new session keeps                |
-| `defaultHost`     | `WERK_DEFAULT_HOST`     | Which host werk puts work on when nobody names one |
-| `colour`          | `WERK_COLOUR`           | `auto`, `always` or `never`                        |
-| `flavour`         | `WERK_FLAVOUR`          | `auto` or a Catppuccin flavour                     |
-| `flavourDark`     | `WERK_FLAVOUR_DARK`     | What `auto` wears on a dark terminal               |
-| `flavourLight`    | `WERK_FLAVOUR_LIGHT`    | What `auto` wears on a light terminal              |
-| `accent`          | `WERK_ACCENT`           | Which Catppuccin accent marks the active thing     |
-| `agent`           | `WERK_AGENT`            | The agent `land` asks for a commit message         |
-| `landRoute`       | `WERK_LAND_ROUTE`       | How `land` gets the change onto the parent         |
+| Key               | Variable                | What it is                                           |
+| ----------------- | ----------------------- | ---------------------------------------------------- |
+| `logLevel`        | `WERK_LOG_LEVEL`        | Daemon log level                                     |
+| `runtimeDir`      | `WERK_RUNTIME_DIR`      | Where the daemon socket and endpoint live            |
+| `stateDir`        | `WERK_STATE_DIR`        | Where checkpoints, logs and the daemon record live   |
+| `scrollbackBytes` | `WERK_SCROLLBACK_BYTES` | Bytes of output a new session keeps                  |
+| `defaultHost`     | `WERK_DEFAULT_HOST`     | Which host werk puts work on when nobody names one   |
+| `workspaceSetup`  | `WERK_WORKSPACE_SETUP`  | Which `[setup.<name>]` block a new workspace gets    |
+| `colour`          | `WERK_COLOUR`           | `auto`, `always` or `never`                          |
+| `flavour`         | `WERK_FLAVOUR`          | `auto` or a Catppuccin flavour                       |
+| `flavourDark`     | `WERK_FLAVOUR_DARK`     | What `auto` wears on a dark terminal                 |
+| `flavourLight`    | `WERK_FLAVOUR_LIGHT`    | What `auto` wears on a light terminal                |
+| `accent`          | `WERK_ACCENT`           | Which Catppuccin accent marks the active thing       |
+| `editor`          | `WERK_EDITOR`           | What this machine runs to open a file from a session |
+| `agent`           | `WERK_AGENT`            | The agent `land` asks for a commit message           |
+| `landRoute`       | `WERK_LAND_ROUTE`       | How `land` gets the change onto the parent           |
 
 An empty variable is treated as unset, so `WERK_LOG_LEVEL= werk list` gets the
 layer below rather than a parse error. A key werk does not know is ignored
@@ -833,6 +923,11 @@ Only settings that describe something werk already does appear in that table. A
 key invented for a feature that does not exist yet reads back later as a decision
 somebody took. `defaultHost` is what a command acts on when `--host` names none,
 which is `local` until somebody writes a host block and points it somewhere else.
+
+`workspaceSetup` is the one key with no value underneath it. Every other setting
+has a default, and `config list` shows it as `unset` until a file names a
+`[setup.<name>]` block. There is no block werk would run in a new workspace by
+default, and an empty name is not a name.
 
 `agent` is empty by default, and `werk land` asks once rather than guessing.
 Naming an agent in the defaults would be a claim about what is installed. Note
@@ -848,6 +943,24 @@ overrides it for that one session. The daemon's own limit is 10,000,000 bytes,
 and it refuses a larger request rather than quietly reducing it: the error is
 `LIMIT`, `scrollbackBytes exceeds the daemon cap of 10000000`, and the exit
 status is 6.
+
+`editor` is what an attached client runs when a session asks for a file to be
+opened, and it defaults to `code --remote ssh-remote+{host} {path}`. It is a
+setting of the client rather than of a host because the command runs where the
+person is sitting: somebody driving Windows VS Code from WSL sets `code.exe`
+once and it serves every machine they reach.
+
+`{path}` is the file, on the machine the session is on. `{host}` is that
+machine's ssh destination, spelled as it would be typed after `ssh`. A session
+on the machine the client is already sitting at has no destination, so `{host}`
+becomes that machine's own hostname — which keeps the default command a real
+remote authority rather than an empty one, and asks the editor to reach this
+machine over ssh, the long way round. Somebody whose sessions are mostly local
+should set something with no `{host}` in it, such as `code {path}`.
+
+A command that cannot open anything is refused when it is set rather than when
+it is run, so `werk config set editor` says no to a command with no `{path}` in
+it and to one with a quote left open.
 
 The layers are read once, before parsing begins, rather than by each command.
 Commander prints a help page during the parse, so a `flavour` set in a file has
@@ -866,8 +979,9 @@ flags, so a slow layer costs a less accurate completion rather than a shell that
 has stopped responding.
 
 Whether `~/.werk` is the right home for the user layer is not settled. How a
-person configures providers once those exist is open question 2 of the product
-specification; hosts are in these files already.
+person configures providers once those exist is
+[question 2](open-questions.md#2-how-does-a-person-configure-their-hosts-and-providers);
+hosts are in these files already.
 
 ### Hosts
 
@@ -887,6 +1001,8 @@ sshHost = "beast"
 kind = "ssh"
 sshHost = "mike@10.0.0.7"
 workspaceRoot = "/srv/werk/workspaces"
+env = { EDITOR = "werk edit --wait" }
+setup = "my-boxes"
 ```
 
 | Key             | Kind  | What it is                                                    |
@@ -895,6 +1011,16 @@ workspaceRoot = "/srv/werk/workspaces"
 | `sshHost`       | `ssh` | An ssh destination, spelled as it would be typed after `ssh`  |
 | `workspaceRoot` | both  | Where workspaces go on that host                              |
 | `provider`      | both  | The name of whatever made the host. Recorded, not interpreted |
+| `env`           | both  | Variables every session on that host is started with          |
+| `setup`         | both  | The `[setup.<name>]` block that sets the host up              |
+
+`env` is an overlay on whatever a session would have been started with, and it
+wins over it. Six names are refused rather than ignored — `TERM`, `COLORTERM`,
+`TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `WERK_SESSION` and `WERK_DAEMON` — because
+the daemon writes those last for every session and a value here would be
+discarded in silence. Write it as an inline table on one line: werk reads a
+`[hosts.<name>.env]` sub-table but refuses to write over a block that has one.
+[hosts.md](hosts.md#variables-for-every-session-on-a-host) has the rest.
 
 `defaultHost` names one of them, and `--host` overrides it for one command.
 
@@ -925,11 +1051,55 @@ A block werk cannot read never stops it starting. `werk config list` shows the
 row as `unreadable`, `werk config sources` says what is wrong and which file it
 is in, and only a command that actually wants that host fails.
 
-A block holds what the machine is called and where werk may put things, and
-nothing else. There is no `werkPath` and no `shell`, and no probe result is
-stored: a fact about a machine written into a file is a fact that was true once,
-and it goes stale silently while `ssh beast` keeps working. `werk config check`
-asks the machine instead, every time.
+A block holds what somebody decided about the machine: what it is called, where
+werk may put things, what every session on it is started with, and which block
+sets it up. What werk found out about the machine is not in there. There is no
+`werkPath` and no `shell`, and no probe result is stored: a fact about a machine
+written into a file is a fact that was true once, and it goes stale silently
+while `ssh beast` keeps working. `werk config check` asks the machine instead,
+every time.
+
+### Setting a machine or a workspace up
+
+A `[setup.<name>]` table says what to put somewhere and what to run there. A
+host block names one with `setup`, and the `workspaceSetup` setting names one
+for a workspace that has just been made. `werk config list` shows them under the
+hosts, keyed `setup.<name>`, with the layer each came from.
+
+```toml
+workspaceSetup = "bootstrap"
+
+[setup.bootstrap]
+run = ["bun install"]
+
+[setup.my-boxes]
+copy = "~/dotfiles/werk-host"
+to = ".local/share/werk/setup"
+run = ["~/.local/share/werk/setup/install.sh"]
+rerunOnChange = true
+```
+
+| Key             | What it is                                                                  |
+| --------------- | --------------------------------------------------------------------------- |
+| `copy`          | The directory to send, on the machine werk is running on. `~/` is expanded. |
+| `to`            | Where it lands: under `$HOME` there, or under the workspace                 |
+| `run`           | The commands to run there, in order. Required.                              |
+| `rerunOnChange` | Whether it is worth running again once what it copies has changed           |
+
+`copy` and `to` are required together, `to` may not be absolute or contain
+`..`, and an unknown key is refused the way it is in a host block. A block also
+merges the way a host does: by name, never by field, with `werk config sources`
+reporting one a stronger layer replaced.
+
+A host's block runs on the machine, before anything is put on it; a
+`workspaceSetup` runs in the workspace, after the worktree is checked out and
+before the session starts. `werk create` runs both, and `werk setup` runs the
+host's alone. The machine keeps a stamp of what was last run on it, so a second
+run does nothing; a repository's own setup is asked about once and the answer is
+recorded against the repository.
+[hosts.md](hosts.md#setting-a-machine-up-and-setting-a-workspace-up) has the
+whole of it: the stamp and the hint, the four outcomes, the trust prompt, and
+what a failure is.
 
 ### The remote layer, and the unimplemented `extends` hook
 

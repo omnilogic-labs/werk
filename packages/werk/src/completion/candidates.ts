@@ -306,6 +306,14 @@ function commandCandidates(
 const wantsDirectory = (option: Option) =>
   /<[A-Z_]*PATH[A-Z_]*>/.test(option.flags);
 
+/**
+ * A positional that names a file is best completed by the shell too, and by
+ * its ordinary file completion rather than by `FilterDirs`. Answering nothing
+ * here would be worse than answering nothing at all: `NoFileComp` tells the
+ * shell not to fall back, so `werk edit <TAB>` would offer no filenames.
+ */
+const wantsFile = (argument: Argument) => argument.name() === "path";
+
 async function valuesFor(
   parameter: Option | Argument,
   partial: string,
@@ -378,7 +386,10 @@ export async function completionFor(
     if (operands === 0) candidates.push(...commandCandidates(command, partial));
     const argument = argumentAt(command, operands);
     if (argument) candidates.push(...(await valuesFor(argument, partial, ctx)));
-    return reply(matching(candidates, partial));
+    const matched = matching(candidates, partial);
+    if (!matched.length && argument && wantsFile(argument))
+      return { candidates: [], directive: 0 };
+    return reply(matched);
   } catch {
     return NOTHING;
   }
