@@ -136,7 +136,11 @@ describe("install", () => {
 });
 
 describe("present", () => {
-  const cache = `${import.meta.dir}/../.claude/worktrees`;
+  // The repository root, reached without traversing anything that might not be
+  // there: `..` through a directory that does not exist is not a path the OS
+  // resolves, so a cache directory only some machines have made would leave
+  // `scan` throwing and every assertion below passing for the wrong reason.
+  const root = `${import.meta.dir}/..`;
 
   test("finds nothing in a directory that does not exist", async () => {
     const { present } = await import("./browser-install.ts");
@@ -147,14 +151,13 @@ describe("present", () => {
 
   test("matches a real executable through its revision glob", async () => {
     const { present } = await import("./browser-install.ts");
-    const dir = `${cache}/../..`;
     // package.json is a real, non-empty file, so it stands in for a browser
     // binary without this test depending on one being installed.
-    expect(await present(dir, ["package.json"])).toEqual(["package.json"]);
+    expect(await present(root, ["package.json"])).toEqual(["package.json"]);
   });
 
   test("does not match a directory", async () => {
     const { present } = await import("./browser-install.ts");
-    expect(await present(`${cache}/../..`, ["packages"])).toEqual([]);
+    expect(await present(root, ["packages"])).toEqual([]);
   });
 });
