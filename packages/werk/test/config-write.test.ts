@@ -7,39 +7,34 @@
  * command is a conversation, and that a file somebody hand-edited comes back
  * with their comments in it byte for byte.
  *
- * `WERK_CONFIG_DIR` points at a temporary directory so nothing here can reach
- * the config file of whoever is running the suite. The directories live under a
- * short `/tmp` path for the same reason the other end-to-end tests do.
+ * Every run goes through the shared sandbox, so the config directory it writes
+ * to is a temporary one and nothing here can reach the config file of whoever
+ * is running the suite. Each case gets a directory of its own inside that
+ * sandbox, because they read back what they wrote.
  */
 import { afterAll, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { runWerk, sandbox } from "./support/run.js";
 
-const MAIN = join(import.meta.dir, "../src/main.ts");
 const TIMEOUT = 30000;
-const home = await mkdtemp("/tmp/wkc-");
-afterAll(() => rm(home, { recursive: true, force: true }).catch(() => {}));
+const box = await sandbox("wkc");
+afterAll(box.dispose);
 
 let made = 0;
 /** A config directory of its own for each case. */
-const directory = () => join(home, `c${made++}`);
+const directory = () => join(box.root, `c${made++}`);
 
 async function werk(
   configDir: string,
   ...args: string[]
-): Promise<{ code: number; stdout: string; stderr: string }> {
-  const child = Bun.spawn([process.execPath, MAIN, ...args], {
-    cwd: home,
-    env: { ...process.env, WERK_CONFIG_DIR: configDir, NO_COLOR: "1" },
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return await runWerk({
+    sandbox: box,
+    args,
+    env: { WERK_CONFIG_DIR: configDir, NO_COLOR: "1" },
+    timeoutMs: TIMEOUT,
   });
-  const [stdout, stderr] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
-  return { code: await child.exited, stdout, stderr };
 }
 
 const fileIn = (configDir: string) => join(configDir, "config.toml");
@@ -226,24 +221,18 @@ test(
   "config set says so when a stronger layer is beating what it wrote",
   async () => {
     const configDir = directory();
-    const child = Bun.spawn(
-      [process.execPath, MAIN, "config", "set", "logLevel", "debug"],
-      {
-        cwd: home,
-        env: {
-          ...process.env,
-          WERK_CONFIG_DIR: configDir,
-          WERK_LOG_LEVEL: "error",
-          NO_COLOR: "1",
-        },
-        stdin: "ignore",
-        stdout: "pipe",
-        stderr: "pipe",
+    const ran = await runWerk({
+      sandbox: box,
+      args: ["config", "set", "logLevel", "debug"],
+      env: {
+        WERK_CONFIG_DIR: configDir,
+        WERK_LOG_LEVEL: "error",
+        NO_COLOR: "1",
       },
-    );
-    const stdout = await new Response(child.stdout).text();
-    expect(await child.exited).toBe(0);
-    expect(stdout).toContain("WERK_LOG_LEVEL=error is beating it");
+      timeoutMs: TIMEOUT,
+    });
+    expect(ran.code, ran.stderr).toBe(0);
+    expect(ran.stdout).toContain("WERK_LOG_LEVEL=error is beating it");
     expect((await read(configDir))!).toContain('logLevel = "debug"');
   },
   TIMEOUT,

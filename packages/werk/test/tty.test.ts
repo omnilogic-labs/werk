@@ -31,8 +31,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { cliEntry } from "./support/run.js";
 
-const MAIN = join(import.meta.dir, "../src/main.ts");
 /** Long enough for a cold start and a daemon; short enough to fail a hang. */
 const DEADLINE = 30_000;
 
@@ -85,6 +85,7 @@ function environment(unthemed: boolean): Record<string, string> {
   delete env.FORCE_COLOR;
   env.TERM = "xterm-256color";
   env.HOME = home;
+  env.WERK_CONFIG_DIR = join(home, "cfg");
   if (unthemed) env.NO_COLOR = "1";
   return env;
 }
@@ -189,7 +190,7 @@ async function underPty(
   { reply, unthemed = false, onCue, andThen }: PtyOptions = {},
 ): Promise<Run> {
   const command = [
-    [process.execPath, MAIN, ...args].map(quote).join(" "),
+    [process.execPath, cliEntry, ...args].map(quote).join(" "),
     ...(andThen === undefined ? [] : [andThen]),
   ].join("; ");
   const child = Bun.spawn(["script", "-qec", command, "/dev/null"], {
@@ -219,7 +220,7 @@ async function underPty(
 
 /** The same command with pipes, which is the combination that always worked. */
 async function piped(args: string[]): Promise<Run> {
-  const child = Bun.spawn([process.execPath, MAIN, ...args], {
+  const child = Bun.spawn([process.execPath, cliEntry, ...args], {
     cwd: home,
     env: environment(false),
     stdin: "ignore",

@@ -7,23 +7,21 @@
  * value is therefore run for real, against a daemon of its own, and its stdout
  * is required to be exactly one parseable value on one line.
  *
- * The daemon lives under a short directory in `/tmp` on purpose: a Unix socket
- * path is capped at 103 bytes and a per-run temporary directory nested any
- * deeper than this fails to bind.
+ * The sandbox is what keeps the daemon's directory short — a Unix socket path
+ * is capped at 103 bytes and a per-run temporary directory nested any deeper
+ * than this fails to bind — and what keeps the three writing subcommands off
+ * the config file of whoever is running the suite.
  */
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Command } from "@commander-js/extra-typings";
 import { buildProgram } from "../src/app.js";
+import { runWerk, sandbox, type Sandbox } from "./support/run.js";
 
-const MAIN = join(import.meta.dir, "../src/main.ts");
 const TIMEOUT = 30000;
-let home = "";
-let runtimeDir = "";
-let stateDir = "";
+let box!: Sandbox;
 
 /**
  * Run a command with `--json` and return the value it printed, having first
@@ -33,32 +31,13 @@ let stateDir = "";
  * trailing text the parser rejects.
  */
 async function runJson(...args: string[]): Promise<unknown> {
-  const child = Bun.spawn(
-    [
-      process.execPath,
-      MAIN,
-      "--json",
-      "--runtime-dir",
-      runtimeDir,
-      "--state-dir",
-      stateDir,
-      ...args,
-    ],
-    {
-      cwd: home,
-      // Every run gets a config directory inside the temporary home. Two of
-      // these commands write one, and without this they would write the config
-      // file of whoever is running the suite.
-      env: { ...process.env, WERK_CONFIG_DIR: join(home, "cfg") },
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  );
-  const stdout = await new Response(child.stdout).text();
-  const stderr = await new Response(child.stderr).text();
-  expect(await child.exited, `werk ${args.join(" ")} failed: ${stderr}`).toBe(
-    0,
-  );
+  const { code, stdout, stderr } = await runWerk({
+    sandbox: box,
+    args: ["--json", ...args],
+    cwd: box.root,
+    timeoutMs: TIMEOUT,
+  });
+  expect(code, `werk ${args.join(" ")} failed: ${stderr}`).toBe(0);
   expect(stdout.endsWith("\n"), `${args[0]} printed no line`).toBe(true);
   const body = stdout.slice(0, -1);
   expect(body.includes("\n"), `${args[0]} printed more than one line`).toBe(
@@ -88,21 +67,11 @@ const git = (cwd: string, ...args: string[]) =>
   );
 
 beforeAll(async () => {
-  home = await mkdtemp("/tmp/wkj-");
-  runtimeDir = join(home, "r");
-  stateDir = join(home, "s");
-  await git(home, "init", "-q", "-b", "main", ".");
-  await git(home, "commit", "-q", "--allow-empty", "-m", "init");
+  box = await sandbox("wkj");
+  await git(box.root, "init", "-q", "-b", "main", ".");
+  await git(box.root, "commit", "-q", "--allow-empty", "-m", "init");
 });
-afterAll(async () => {
-  try {
-    const record = JSON.parse(
-      await readFile(join(stateDir, "daemon.json"), "utf8"),
-    );
-    if (Number.isInteger(record?.pid)) process.kill(record.pid, "SIGTERM");
-  } catch {}
-  await rm(home, { recursive: true, force: true });
-});
+afterAll(() => box.dispose());
 
 let session = "";
 
@@ -157,12 +126,28 @@ test(
       build: string;
     };
     expect(["unix", "tcp"]).toContain(report.endpoint.kind);
-    expect(report.runtimeDir).toBe(runtimeDir);
-    expect(report.stateDir).toBe(stateDir);
+    expect(report.runtimeDir).toBe(box.runtimeDir);
+    expect(report.stateDir).toBe(box.stateDir);
     expect(report.pid).toBeInteger();
     // The daemon under test was started by this same werk, so the identity it
     // reports and the identity of the binary that asked are one string.
     expect(report.version).toBe(report.build);
+  },
+  TIMEOUT,
+);
+test(
+  "completion answers with the script beside the shell it is for",
+  async () => {
+    for (const shell of ["bash", "zsh", "fish"]) {
+      const answer = (await runJson("completion", shell)) as {
+        shell: string;
+        script: string;
+      };
+      expect(answer.shell).toBe(shell);
+      // A script carries newlines, and one JSON value on one line is the rule,
+      // so this is also the case that says the escaping holds.
+      expect(answer.script).toContain("werk complete");
+    }
   },
   TIMEOUT,
 );
@@ -179,9 +164,9 @@ test(
 );
 
 /**
- * The three that write. They get a config directory of their own inside the
- * same temporary home, because the rest of the suite reads whatever is there
- * and a host block written here would change what `config list` answers.
+ * The three that write. They write into the sandbox's config directory, which
+ * is where every run in this file already reads from, so a host block written
+ * here is seen by the rest of the suite and by nobody's home directory.
  *
  * `setup` is a conversation, and this is what proves the conversation still
  * obeys the `--json` rule: the prompts paint on stderr, so a run answered
@@ -193,7 +178,7 @@ test(
     expect(await runJson("config", "set", "logLevel", "debug")).toMatchObject({
       key: "logLevel",
       value: "debug",
-      file: join(home, "cfg", "config.toml"),
+      file: join(box.configDir, "config.toml"),
     });
     expect(await runJson("config", "unset", "logLevel")).toMatchObject({
       key: "logLevel",

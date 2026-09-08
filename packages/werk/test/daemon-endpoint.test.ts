@@ -7,58 +7,33 @@
  * first is about a process that must not appear, and the second is about two
  * processes agreeing — so these run the CLI and look at the files it left.
  *
- * The directories live under a short path in `/tmp` because a Unix socket path
- * is capped at 103 bytes and a deeper temporary directory fails to bind.
+ * Every run goes through the shared sandbox, which is what keeps its
+ * directories short — a Unix socket path is capped at 103 bytes and a deeper
+ * temporary directory fails to bind — and its config directory out of the
+ * reader's home.
  */
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   formatBuildIdentity,
   SOURCE_IDENTITY,
 } from "../src/runtime/version.js";
+import {
+  disposeSandboxes,
+  runWerk,
+  sandbox as makeSandbox,
+  type Sandbox,
+} from "./support/run.js";
 
-const MAIN = join(import.meta.dir, "../src/main.ts");
 const TIMEOUT = 30000;
-const homes: string[] = [];
 
-async function sandbox() {
-  const home = await mkdtemp("/tmp/wke-");
-  homes.push(home);
-  return { home, runtimeDir: join(home, "r"), stateDir: join(home, "s") };
-}
-afterEach(async () => {
-  for (const home of homes.splice(0)) {
-    try {
-      const record = JSON.parse(
-        await readFile(join(home, "s", "daemon.json"), "utf8"),
-      );
-      if (Number.isInteger(record?.pid)) process.kill(record.pid, "SIGTERM");
-    } catch {}
-    await rm(home, { recursive: true, force: true });
-  }
-});
+/** One machine's worth of directories per case, so no run finds another's. */
+const sandbox = () => makeSandbox("wke");
+afterEach(disposeSandboxes);
 
-async function werk(
-  where: { runtimeDir: string; stateDir: string },
-  ...args: string[]
-) {
-  const child = Bun.spawn(
-    [
-      process.execPath,
-      MAIN,
-      "--runtime-dir",
-      where.runtimeDir,
-      "--state-dir",
-      where.stateDir,
-      ...args,
-    ],
-    { stdout: "pipe", stderr: "pipe" },
-  );
-  const stdout = await new Response(child.stdout).text();
-  const stderr = await new Response(child.stderr).text();
-  return { code: await child.exited, stdout, stderr };
-}
+const werk = (where: Sandbox, ...args: string[]) =>
+  runWerk({ sandbox: where, args });
 const exists = (path: string) =>
   stat(path).then(
     () => true,
