@@ -76,20 +76,21 @@ const withoutLayers = (argv: readonly string[]): boolean =>
  * The reply comes back on stdin, so that is what goes into raw mode. `stdout`
  * carries the query rather than `stderr`, because the probe only runs when
  * stdout is the terminal being themed.
+ *
+ * `detectGround` hands stdin back with the read stopped and raw mode as it
+ * found it. Nothing else here has to put the stream back, and anything that
+ * reads stdin afterwards resumes it for itself.
  */
 async function askTheTerminal(): Promise<"light" | "dark" | undefined> {
   const input = process.stdin as unknown as tty.ReadStream;
   if (typeof input.setRawMode !== "function") return undefined;
   const wasRaw = input.isRaw === true;
-  const wasPaused = input.isPaused();
   try {
-    const ground = await detectGround({
+    return await detectGround({
       input,
       output: process.stdout,
       setRawMode: (on) => void input.setRawMode(on || wasRaw),
     });
-    if (wasPaused) input.pause();
-    return ground;
   } catch {
     return undefined;
   }

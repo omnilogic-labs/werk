@@ -33,9 +33,26 @@
  * round trip over ssh. If it turns out to be short, the evidence will be a
  * terminal that answers late rather than a number anybody has measured.
  *
- * Raw mode is restored on every path, including the one where parsing throws,
- * because leaving a shell without its echo is worse than getting the wrong
- * flavour.
+ * ## Putting the input back
+ *
+ * The exchange leaves the stream exactly as it found it, on every path,
+ * including the one where parsing throws. Two things have to be undone and the
+ * second is easy to miss.
+ *
+ * Raw mode is restored because leaving a shell without its echo is worse than
+ * getting the wrong flavour.
+ *
+ * The read is stopped because starting one holds the process open. Listening
+ * for `data` puts the stream into flowing mode, and a flowing stdin keeps the
+ * event loop alive for as long as the terminal stays open, which is forever.
+ * Removing the listener is not enough: the stream carries on reading with
+ * nobody to hand the bytes to, so the read has to be stopped as well as
+ * ignored. Every command pays for this, because the probe runs before the
+ * command line is parsed.
+ *
+ * Pausing is safe for whatever reads next. `attach` resumes the stream itself
+ * after attaching its own handler, and a prompt goes through readline, which
+ * resumes the stream when it is constructed.
  */
 import { type Ground, groundFromRgb } from "./theme.js";
 
@@ -57,10 +74,23 @@ function channel(digits: string): number {
   return Math.round((value / max) * 255);
 }
 
+/**
+ * Where the terminal's reply arrives.
+ *
+ * Only the three methods the exchange uses are named, and all three are
+ * required. A wider type would let a fake leave `pause` off and still satisfy
+ * the compiler, and a fake that cannot record the read being stopped cannot
+ * catch it going missing again.
+ */
+export interface GroundInput {
+  on(event: "data", listener: (chunk: Buffer | string) => void): unknown;
+  off(event: "data", listener: (chunk: Buffer | string) => void): unknown;
+  pause(): unknown;
+}
+
 /** What the exchange needs, so that a test can supply all of it. */
 export interface GroundIO {
-  /** Where the terminal's reply arrives. */
-  readonly input: NodeJS.ReadableStream;
+  readonly input: GroundInput;
   /** Where the query goes. */
   readonly output: { write(text: string): unknown };
   /** Put the input into and out of raw mode. */
@@ -69,6 +99,15 @@ export interface GroundIO {
 }
 
 export const DEFAULT_TIMEOUT_MS = 150;
+
+/** Run one step of the teardown, where failing is not worth reporting. */
+function settle(action: () => void): void {
+  try {
+    action();
+  } catch {
+    // The stream may already be gone.
+  }
+}
 
 export function detectGround(io: GroundIO): Promise<Ground | undefined> {
   const timeoutMs = io.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -81,12 +120,13 @@ export function detectGround(io: GroundIO): Promise<Ground | undefined> {
       if (done) return;
       done = true;
       if (timer !== undefined) clearTimeout(timer);
-      io.input.off?.("data", onData);
-      try {
-        io.setRawMode(false);
-      } catch {
-        // The stream may already be gone. Nothing here is worth failing over.
-      }
+      // Each undo is attempted whatever the ones before it did, so a stream
+      // that has already gone cannot leave the terminal in raw mode.
+      settle(() => io.input.off("data", onData));
+      // Stopping the read is what lets the process exit. Removing the listener
+      // alone leaves the stream flowing and the handle held.
+      settle(() => io.input.pause());
+      settle(() => io.setRawMode(false));
       resolve(ground);
     };
 

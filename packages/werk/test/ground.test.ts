@@ -4,18 +4,34 @@
  * `detectGround` takes its streams as arguments, so every case here runs against
  * a pair of fakes: a terminal that answers, one that answers only the sentinel,
  * one that says nothing at all, and one that answers something unparseable. The
- * three terminators in the wild each get their own case, and every one of them
- * asserts that raw mode was put back.
+ * three terminators in the wild each get their own case.
+ *
+ * However the exchange ends, it has to leave the input as it found it: raw mode
+ * off and the read stopped. Both are asserted across every ending, because the
+ * cost of missing either is paid by every command rather than by this one.
  */
 import { expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { detectGround } from "../src/runtime/ground.js";
+import { detectGround, type GroundInput } from "../src/runtime/ground.js";
 
-/** A terminal under test: what it was sent, and what it says back. */
+/**
+ * A terminal under test: what it was sent, and what it says back.
+ *
+ * `stopped` records the read being stopped, because that is what lets a command
+ * exit. It holds the number of `data` listeners still attached at each pause,
+ * so a stop that left the exchange's own listener behind is visible rather than
+ * counted as a pass.
+ */
 function fake(reply?: string | ((query: string) => string | undefined)) {
-  const input = new EventEmitter() as unknown as NodeJS.ReadableStream;
+  const emitter = new EventEmitter();
   const raw: boolean[] = [];
   const sent: string[] = [];
+  const stopped: number[] = [];
+  const input: GroundInput = {
+    on: (event, listener) => emitter.on(event, listener),
+    off: (event, listener) => emitter.off(event, listener),
+    pause: () => stopped.push(emitter.listenerCount("data")),
+  };
   const io = {
     input,
     output: {
@@ -24,14 +40,14 @@ function fake(reply?: string | ((query: string) => string | undefined)) {
         const answer = typeof reply === "function" ? reply(text) : reply;
         // Asynchronously, the way a terminal would.
         if (answer !== undefined)
-          queueMicrotask(() => input.emit("data", Buffer.from(answer)));
+          queueMicrotask(() => emitter.emit("data", Buffer.from(answer)));
         return true;
       },
     },
     setRawMode: (on: boolean) => void raw.push(on),
     timeoutMs: 40,
   };
-  return { io, raw, sent };
+  return { io, raw, sent, stopped };
 }
 
 const LIGHT = "rgb:eeee/f1f1/f5f5";
@@ -98,23 +114,37 @@ test("an answer that cannot be read is no answer rather than a failure", async (
   expect(await detectGround(fake(`garbage${DA1}`).io)).toBeUndefined();
 });
 
+/** Every way the exchange can end: answered, refused, timed out, unreadable. */
+const ENDINGS: (string | undefined)[] = [
+  `\x1b]11;${LIGHT}${ST}`,
+  `\x1b]11;${DARK}${BEL}`,
+  DA1,
+  undefined,
+  `\x1b]11;rgb:zz/zz/zz${ST}${DA1}`,
+];
+
 test("raw mode is put back however the exchange ends", async () => {
-  const cases: (string | undefined)[] = [
-    `\x1b]11;${LIGHT}${ST}`,
-    `\x1b]11;${DARK}${BEL}`,
-    DA1,
-    undefined,
-    `\x1b]11;rgb:zz/zz/zz${ST}${DA1}`,
-  ];
-  for (const reply of cases) {
+  for (const reply of ENDINGS) {
     const { io, raw } = fake(reply);
     await detectGround(io);
     expect(raw, JSON.stringify(reply)).toEqual([true, false]);
   }
 });
 
+test("the read is stopped however the exchange ends", async () => {
+  // A read left running holds the event loop open, so every command that pays
+  // for the probe would print its output and then never exit.
+  for (const reply of ENDINGS) {
+    const { io, stopped } = fake(reply);
+    await detectGround(io);
+    // Stopped once, and with the exchange's own listener already taken off, so
+    // a stream handed back to `attach` or a prompt carries nothing of ours.
+    expect(stopped, JSON.stringify(reply)).toEqual([0]);
+  }
+});
+
 test("a terminal that cannot be written to is not an error", async () => {
-  const { io, raw } = fake();
+  const { io, raw, stopped } = fake();
   const broken = {
     ...io,
     output: {
@@ -125,4 +155,5 @@ test("a terminal that cannot be written to is not an error", async () => {
   };
   expect(await detectGround(broken)).toBeUndefined();
   expect(raw).toEqual([true, false]);
+  expect(stopped).toEqual([0]);
 });

@@ -4,3 +4,4 @@
 - [Platform-code selection traps](platform-code-selection-traps.md): no OS condition in exports; an unset feature() flag is false
 - [chalk downsamples pastels to white](reference-chalk-downsamples-to-white.md): at level 1 hex() answers SGR 37/97
 - [session-daemon platform risk](session-daemon-platform-risk.md): platformCapabilities is wire-visible; three tests need Windows or root
+- [Testing a TTY-only path](testing-a-tty-only-path.md): give the CLI a pty from `script`; removing a data listener does not stop the read
