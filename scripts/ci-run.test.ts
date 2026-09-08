@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   LANES,
   UsageError,
@@ -118,5 +120,31 @@ describe("remoteSha", () => {
   test("reports nothing for an empty answer", () => {
     expect(remoteSha("")).toBeNull();
     expect(remoteSha("\n  \n")).toBeNull();
+  });
+});
+
+// The help text names the runners the `native` matrix runs on, so it can drift
+// away from the workflow silently. Read both sets off their own source and
+// compare them, which pins the labels without pinning a word of the prose.
+describe("the help and the workflow name the same runners", () => {
+  const runnerLabels = (text: string) =>
+    new Set(text.match(/\b(?:ubuntu|macos|windows)-[a-z0-9-]+/g) ?? []);
+
+  test("every runner in the native matrix is a lane the help offers", () => {
+    const workflow = readFileSync(
+      path.join(
+        import.meta.dir,
+        "..",
+        ".github",
+        "workflows",
+        "session-libraries.yml",
+      ),
+      "utf8",
+    );
+    const matrix = workflow.match(/os:\s*\$\{\{\s*fromJSON\((.*)\)\s*\}\}/);
+    expect(matrix).not.toBeNull();
+    const inWorkflow = runnerLabels(matrix![1]!);
+    expect(inWorkflow.size).toBeGreaterThan(0);
+    expect([...runnerLabels(usage)].sort()).toEqual([...inWorkflow].sort());
   });
 });

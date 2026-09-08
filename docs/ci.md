@@ -9,12 +9,12 @@ its pull request, or because someone asked for a run by name.
 
 ## The lanes
 
-| Lane      | Runner                                              | What it is for                                                         |
-| --------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
-| `native`  | `ubuntu-latest`, `macos-15-intel`, `windows-latest` | The whole suite on each supported platform                             |
-| `musl`    | Alpine 3.22 in a job container                      | `bun:ffi` and a compiled binary finding a libc where there is no glibc |
-| `browser` | `ubuntu-latest`                                     | Playwright chromium against `examples/session-web`                     |
-| `soak`    | a self-hosted Linux x64 runner                      | A run longer than a hosted job's six-hour cap                          |
+| Lane      | Runner                                            | What it is for                                                         |
+| --------- | ------------------------------------------------- | ---------------------------------------------------------------------- |
+| `native`  | `ubuntu-latest`, `macos-latest`, `windows-latest` | The whole suite on each supported platform                             |
+| `musl`    | Alpine 3.22 in a job container                    | `bun:ffi` and a compiled binary finding a libc where there is no glibc |
+| `browser` | `ubuntu-latest`                                   | Playwright chromium against `examples/session-web`                     |
+| `soak`    | a self-hosted Linux x64 runner                    | A run longer than a hosted job's six-hour cap                          |
 
 The `native` matrix keeps `fail-fast: false`. One platform failing should not
 cancel the evidence the other two were about to produce.
@@ -138,6 +138,21 @@ The three `native` lanes fail for three unrelated causes, one each, tracked as
 #21, #22 and #23. Windows fails at the first step after `bun install`, so
 nothing behind `bun run build` has yet been observed on that platform. The
 number of Windows problems is unknown rather than one.
+
+`native (macos-latest)` runs on arm64, the architecture `macos-latest` names;
+the label tracks GitHub's current GA image, which is macOS 26 today, so the lane
+does not need bumping by hand. No x64 macOS lane runs alongside it. That is the
+owner's direction rather than an omission: x64 macOS is not exercised here.
+
+The lane reaches `bun run test` and fails there, at
+`packages/session-daemon/test/supervise.test.ts:258` — a client waiting for a
+live daemon whose endpoint is missing, which gives up after its five-second
+startup timeout with `Daemon <pid> is alive but its endpoint is missing` and
+fails all three attempts. Two runs on `macos-26-arm64` showed it, and #30
+records the same message and the same code path on x64 macOS, so it does not
+look like an architecture difference — though nothing has established that the
+two share a cause. Everything above that step passes: `build`, `typecheck` and
+`bun test scripts` are all green on arm64.
 
 How much any of this should hold up other work is in
 [platforms.md](platforms.md).

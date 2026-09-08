@@ -42,7 +42,7 @@ jobs:
       # evidence the other two were about to produce.
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(inputs.lanes == 'linux' && '["ubuntu-latest"]' || inputs.lanes == 'macos' && '["macos-15-intel"]' || inputs.lanes == 'windows' && '["windows-latest"]' || '["ubuntu-latest","macos-15-intel","windows-latest"]') }}
+        os: ${{ fromJSON(inputs.lanes == 'linux' && '["ubuntu-latest"]' || inputs.lanes == 'macos' && '["macos-latest"]' || inputs.lanes == 'windows' && '["windows-latest"]' || '["ubuntu-latest","macos-latest","windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:

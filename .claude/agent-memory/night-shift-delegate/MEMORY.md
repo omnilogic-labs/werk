@@ -1,3 +1,4 @@
 - [No pinned literals in tests](feedback-no-help-output-snapshots.md) — never pin help text or a colour hex; read the expected value off its source of truth
 - [Browser lane not gradeable locally](browser-lane-not-gradeable-locally.md) — pinned Playwright refuses chromium on this host; grade test:browser UNVERIFIED, don't install
 - [Where the plain-writing skill lives](reference-plain-writing-skill.md) — not in ~/.claude/skills; read the files from the agent-skills repo
+- [Grading workflow changes](grading-workflow-changes.md) — dispatch a real CI run for any workflow edit; dispatch both the lane and `all`; which reds are baseline

@@ -38,7 +38,7 @@ export const usage = `Start a CI run at GitHub for a branch it already has.
 Lanes:
   all       every lane except soak (the default)
   linux     the native matrix, ubuntu-latest only
-  macos     the native matrix, macos-15-intel only
+  macos     the native matrix, macos-latest only
   windows   the native matrix, windows-latest only
   musl      the Alpine container lane
   browser   the Playwright lane
