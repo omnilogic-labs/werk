@@ -1,9 +1,12 @@
 # Continue: the werk pitch sites
 
-A handoff. Four branding concepts for werk exist as published pitch pages. They
-are good on copy and on decorative imagery, and thin on pictures of the product
-itself. This doc says what is there, where the material lives, and what the next
-session should do.
+**Nobody has picked a lane.** That is the one live item here, and no further
+work on the pages substitutes for it.
+
+Four branding concepts for werk exist as published pitch pages, across two
+rounds. They are good on copy and on decorative imagery, and thin on pictures of
+the product itself. This doc says what is there, where the material lives, and
+what the next session should do.
 
 > **This is working material, not product doctrine.** Everything in
 > `concepts/` and on the four pages is pitch copy: aspirational, written to
@@ -29,8 +32,7 @@ own terminal, you monitor everything on one list, and the commits come back.
 Coding agents are the workload that matters, and they happen to be command-line
 programs, so werk dispatches and monitors them with no per-agent integration.
 
-**The reach ladder is the strategic spine of all four pitches.** Every page
-climbs it, and the top rung is the crescendo:
+Every page climbs this ladder, and the top rung is where each one ends:
 
 | Rung            | What it is                                                                             | Built?  |
 | --------------- | -------------------------------------------------------------------------------------- | ------- |
@@ -82,10 +84,11 @@ vocabulary rather than a shared kit.
 | C       | Four benches, browser chrome                   | "Pull up a stool" — terminal, then Priya's browser          | "The floor" — tree with carets, detail pane                          |
 | D       | Fleet list (rung 1, terminal-native)           | Granting terminal beside the shared browser page            | Four people, nine sessions, twelve subagents; CSS-only row selection |
 
-The surface split: rung 1 and the CLI are terminal-native, and the fleet list
-and reattach are drawn as shells. Rung 2 and everything above it are browser
-surfaces, so the drilldown and the shared link are web applications with a live
-terminal embedded as a pane inside the page. That embedding is what `werk serve` already does.
+Which screens are terminals and which are web pages: rung 1 and the CLI are
+terminal-native, and the fleet list and reattach are drawn as shells. Rung 2 and
+everything above it are web pages, so the drilldown and the shared link are web
+applications with a live terminal embedded as a pane inside the page. That
+embedding is what `werk serve` already does.
 
 ### The imagery
 
@@ -114,10 +117,10 @@ result to the concept's existing URL with `favicon` and `contract` omitted.
 Worth keeping straight, because the whole point of four concepts is that they
 answer open question 15 (the monetisation thesis) four different ways.
 
-- **A Substrate.** Claims the seam between a process and a machine, the way
-  Tailscale claimed the seam between a host and a network. Wins the senior
-  engineer alone on a Tuesday. Gives up warmth, the viral demo, and every
-  non-technical buyer.
+- **A Substrate.** Positions werk as the layer that decides where a process
+  runs, as Tailscale positioned itself as the layer deciding how hosts reach
+  each other. Wins the senior engineer alone on a Tuesday. Gives up warmth, the
+  viral demo, and every non-technical buyer.
 - **B Flight Deck.** Bets the pain has already moved from one agent to twelve.
   Wins the tech lead with eleven tabs. Stakes the brand on a rung not yet built.
 - **C Werkstatt.** Casts the reader as someone who now runs a shop. Wins by
@@ -137,7 +140,7 @@ pages are the evidence.
 
 Whatever gets picked, none of it is a decision yet. If a position on this
 material survives contact with an actual discussion, the place for it is
-`docs/product-specification.md` question 15, where the monetisation thesis is
+`docs/open-questions.md` question 15, where the monetisation thesis is
 still open — and it goes there as a decision someone took, with a date and a
 name, not as prose lifted across.
 
@@ -151,9 +154,9 @@ through the middle. A coordinator that generates the images and builds the pages
 itself burns its context for no reason and becomes the bottleneck.
 
 Give each subagent: the product facts, the reach ladder with its built/roadmap
-split, the surface split above, its lane, the path to `art`, the rebuild recipe
-in `tools/`, and the instruction to publish and return only a URL plus a few
-lines.
+split, the note above on which screens are terminals and which are web pages,
+its lane, the path to `art`, the rebuild recipe in `tools/`, and the instruction
+to publish and return only a URL plus a few lines.
 
 ### Generating imagery with `art`
 
@@ -243,5 +246,5 @@ or drawn in HTML and SVG.
 documentation set described in `docs/README.md`, and it should either be folded
 into a real doc or deleted once the pitch work lands. If any of this survives as
 a position the project actually takes, the place for it is
-`docs/product-specification.md` question 15, which is where the monetisation
+`docs/open-questions.md` question 15, which is where the monetisation
 thesis is still open.

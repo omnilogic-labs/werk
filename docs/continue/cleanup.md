@@ -1,8 +1,9 @@
 # Making the browser lane run locally
 
 Handoff from the night-shift run of 2026-09-08. The run itself is finished and
-landed; `main` is `c699c1d` and matches `origin`. This is the one piece left
-open, plus the tickets the run filed.
+landed at `c699c1d`. `main` has moved on since, so every verdict below describes
+that commit rather than the current tip. This is the one piece left open, plus
+the tickets the run filed.
 
 ## The state on disk
 
@@ -105,14 +106,14 @@ which saves a 168 MB download.
 
 ## Tickets the run filed, none of them started
 
-| Issue                                                            | What it is                                                                                 |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| [#43](https://github.com/omnilogic-labs/werk/issues/43)          | The pty test guarding #42 runs on one CI lane and skips silently on the other three        |
-| [#44](https://github.com/omnilogic-labs/werk/issues/44)          | Agent memory is a harness feature rooted at the repository; the rules around it assume not |
-| [#45](https://github.com/omnilogic-labs/werk/issues/45)          | The soak lane needs a self-hosted runner and none is registered, so it has never run       |
-| [#46](https://github.com/omnilogic-labs/werk/issues/46)          | This document's subject                                                                    |
-| [#47](https://github.com/omnilogic-labs/werk/issues/47)          | `posixSummary` runs `Bun.spawnSync` on the daemon's loop, once a second per session        |
-| [agent-skills#5](https://github.com/is4co/agent-skills/issues/5) | The other half of #44, in the repository that sets `memory: project`                       |
+| Issue                                                            | What it is                                                                                        |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| [#43](https://github.com/omnilogic-labs/werk/issues/43)          | The pty test guarding #42 runs on one CI lane and skips silently on the other three               |
+| [#44](https://github.com/omnilogic-labs/werk/issues/44)          | Agent memory is a harness feature rooted at the repository; the rules around it assume not        |
+| [#45](https://github.com/omnilogic-labs/werk/issues/45)          | The soak lane needs a self-hosted runner and none is registered, so it has never run              |
+| [#46](https://github.com/omnilogic-labs/werk/issues/46)          | The browser lane can run locally: Playwright's refusal is a host allowlist, not a missing browser |
+| [#47](https://github.com/omnilogic-labs/werk/issues/47)          | `posixSummary` runs `Bun.spawnSync` on the daemon's loop, once a second per session               |
+| [agent-skills#5](https://github.com/is4co/agent-skills/issues/5) | The other half of #44, in the repository that sets `memory: project`                              |
 
 #44 and agent-skills#5 want deciding together and neither has a lean worth
 acting on yet.

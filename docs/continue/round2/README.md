@@ -29,9 +29,10 @@ on shipped features, riveted maker's plates, and section tags plus a ledger.
 
 ## The imagery
 
-Thirty-three images, generated with `art`, eight or nine per page. Each page's
-set grew from one judged anchor image passed to its siblings with `--ref`, so a
-page reads as one shoot rather than eight unrelated renders.
+Thirty-two images, generated with `art`: nine for the broadsheet, eight each for
+the field manual and the night shift, and seven for the machine hall. Each
+page's set grew from one judged anchor image passed to its siblings with
+`--ref`, so a page reads as one shoot rather than a set of unrelated renders.
 
 Both kinds were required and both were checked: images of the product in use —
 a lit screen with content, someone using it — and atmospheric plates. Verified

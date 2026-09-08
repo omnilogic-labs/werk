@@ -48,9 +48,9 @@ So werk assigns the eight it is not given, by nearest hue: mauve and rosewater
 to 5, maroon and flamingo to 1, peach to 3, sky and sapphire to 6, and lavender
 to 4.
 
-Catppuccin has no position on this, because its ports do not degrade at all:
-they require 24-bit colour and several name the terminals they will not work
-on. What werk shows a reader who has sixteen colours is werk's own decision,
+Catppuccin has no position on this. Its ports do not degrade at all: they
+require 24-bit colour and several name the terminals they will not work on.
+What werk shows a reader who has sixteen colours is werk's own decision,
 and `test/palette.test.ts` holds the eight in a table of their own so that
 moving one is a deliberate edit.
 

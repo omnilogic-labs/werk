@@ -24,13 +24,14 @@ cssVariables(theme); // ":root{--werk-flavour:mocha;…}"
 Catppuccin's model is a flavour plus an accent, and `roles(flavour, accent)`
 composes the two. The flavour is Latte, Frappé, Macchiato or Mocha, and it
 decides the ground and the twelve-step ramp of greys above it. The accent is one
-of the fourteen chromatic colours, and it marks the thing being attended to.
+of the fourteen chromatic colours, and it marks what the reader should look at.
 
-Nothing here decides which to wear. There is no `dark` and no `light` export,
-because a flavour fixed when the module loads is a flavour nothing can choose;
-`defaultRoles` is Mocha with a mauve accent and exists to be a default argument.
-Who picks, and how, belongs to the consumer: the CLI resolves it from its
-configuration and, where it can, from the terminal's own background.
+This package never chooses a colour scheme. There is no `dark` and no `light`
+export, because a flavour fixed when the module loads is one nothing can choose
+afterwards. `defaultRoles` is Mocha with a mauve accent and exists to be a
+default argument. Who picks, and how, belongs to the consumer: the CLI resolves
+it from its configuration and, where it can, from the terminal's own
+background.
 
 The accent reaches `accent`, `borderActive` and `heading`. It reaches nothing
 that carries meaning, so an error is red and a success is green whatever accent
@@ -46,7 +47,7 @@ where it has an opinion — Base is the page, Text is body copy, Green is succes
 Yellow is a warning, Red is an error, Blue is a link, Rosewater is a cursor,
 Overlay 2 is a selection — and werk's reading where it does not.
 
-## Three forms, because the surfaces are not alike
+## Three forms, because three kinds of consumer need different ones
 
 A `Swatch` carries the same colour three ways, and which one a surface reads
 says something about that surface.
