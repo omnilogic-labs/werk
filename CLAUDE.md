@@ -109,6 +109,30 @@ as leans rather than rulings in [docs/platforms.md](docs/platforms.md). The epic
 at https://github.com/omnilogic-labs/werk/issues/24 carries the philosophy and
 the work tracked under it.
 
+### A change is proved on a branch before it lands
+
+Commit the work, publish the branch to `origin`, dispatch a CI run against that
+branch, read what the runners report and fix it, and merge to the base branch
+last. Merging first in order to find out whether something works is the wrong
+way round.
+
+GitHub will run any ref `origin` already holds. A branch needs no merge and no
+pull request to be tested. `bun scripts/ci-run.ts <lane>` starts the run and
+watches it, and [docs/ci.md](docs/ci.md) has the lanes, the flags and the step
+order.
+
+A passing local suite is evidence about one machine. werk targets Linux, macOS
+and Windows, and the machine a change is written on covers at most one of them.
+
+So publish the branch you are working on. Never push `main`, and do not open a
+pull request unless you were asked for one.
+
+`main` carries known lane failures today, so the bar is a run no worse than the
+base: the lanes that could observe the change pass, and nothing fails that was
+not failing already. [docs/platforms.md](docs/platforms.md) weighs a failure on
+each platform. Which lanes a change must run, and whether a documentation-only
+change needs one, are leans rather than rulings, so say which lanes you ran.
+
 ### Prose style
 
 British spelling, plain sentences, no filler. Tables where a table is genuinely

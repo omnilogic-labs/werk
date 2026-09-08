@@ -4,8 +4,11 @@ One workflow, `.github/workflows/session-libraries.yml`, carries every lane. It
 runs automatically on a pull request and on a push to `main`, and on demand
 against any branch GitHub already holds.
 
-A bare push of a feature branch starts nothing. The branch reaches CI through
-its pull request, or because someone asked for a run by name.
+A change is proved on its branch before it is merged, not after. Publish the
+branch, start a run against it, fix what the runners report, and merge to the
+base branch last. A bare push of a feature branch starts nothing on its own: the
+branch reaches CI through its pull request, or because someone asked for a run
+by name, which is what "Starting a run on demand" below is for.
 
 ## The lanes
 
