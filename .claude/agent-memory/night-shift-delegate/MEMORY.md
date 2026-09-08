@@ -5,3 +5,4 @@
 - [chalk downsamples pastels to white](reference-chalk-downsamples-to-white.md): at level 1 hex() answers SGR 37/97
 - [session-daemon platform risk](session-daemon-platform-risk.md): platformCapabilities is wire-visible; three tests need Windows or root
 - [Testing a TTY-only path](testing-a-tty-only-path.md): give the CLI a pty from `script`; removing a data listener does not stop the read
+- [Reading a retried test failure](reading-a-retried-test-failure.md): the error on the last attempt may belong to an earlier one; check the timings before the line number

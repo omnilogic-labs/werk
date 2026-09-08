@@ -21,4 +21,7 @@ first URL before dispatching the second; repeating a lane on one branch cancels
 the run in flight.
 
 Read the result against the open issues, not a remembered list of red lanes.
-#30 on macOS and #31 on Windows are open.
+#30 on macOS and #31 on Windows are open. Before calling a lane intermittent,
+put the commit beside every outcome: the browser lane once looked green and
+red at the same code, and it was four runs on four commits, see
+[[reading-a-retried-test-failure]].

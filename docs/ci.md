@@ -84,6 +84,31 @@ gh run rerun --failed <run-id>
 If a non-test step is ever seen flaking, a retry loop around that step is
 probably the next layer rather than a third-party retry action.
 
+### What a retried failure looks like
+
+Bun prints one `(fail)` line per test and it belongs to the last attempt, so the
+attempts before it appear as errors with no summary line of their own. Two
+things follow. A gap the length of a test's timeout, ending in `killed N
+dangling processes`, is an attempt that was abandoned rather than one that
+passed. And a duration far shorter than the test takes to reach its first
+assertion, a few hundred milliseconds against several seconds, marks an error
+that came from an earlier attempt: read it as a consequence of the failure above
+it, not as a failure of its own.
+
+That second case is possible because Bun's test timeout does not run the test's
+`finally`. An attempt that ends there cleans up nothing and leaves its
+subprocesses for Bun to kill, which is what the `killed N dangling processes`
+line reports. Whatever the attempt was awaiting is still pending, and it rejects
+once those subprocesses die, by which time `--retry` has moved on, so the
+rejection is charged to the attempt that happens to be running.
+
+**So a test's own waits need a ceiling below its timeout.** Then a stall stays a
+failure of that wait, at that line, in the attempt that caused it. The browser
+test is the case that needs this: Playwright's default ceiling is 30 seconds and
+matches the test timeout exactly, so
+`examples/session-web/test/browser.test.ts` calls `page.setDefaultTimeout` to
+bring every page wait down to 10 seconds.
+
 ## Starting a run on demand
 
 GitHub can only run a ref it already holds, so the branch has to be on `origin`

@@ -69,6 +69,19 @@ test("built browser paints DOM, reconnects, resizes and lazily swaps to beamterm
   });
   try {
     const page = await browser.newPage();
+    // Every wait below has to give up well before the test's own timeout, or a
+    // wait that never settles is reported as something else entirely.
+    // Playwright's default ceiling is 30 seconds and this test's is 30 seconds
+    // too, so a stalled wait loses the race to the test timeout. Bun's timeout
+    // prints nothing for that attempt, leaves the `finally` below unrun, and
+    // kills the browser under the abandoned wait; the wait then rejects with
+    // "Target page, context or browser has been closed" against whichever
+    // attempt `--retry` is running by then. The reader gets a silent
+    // thirty-second gap and an error naming a line that attempt never reached.
+    // A ceiling a third of the way down keeps a stalled wait a failure of that
+    // wait, at that line, inside the attempt that caused it. Nothing here takes
+    // more than a second on a runner, so the headroom is about tenfold.
+    page.setDefaultTimeout(10_000);
     const failures: string[] = [];
     const assets: string[] = [];
     page.on("pageerror", (error) => failures.push(error.message));
