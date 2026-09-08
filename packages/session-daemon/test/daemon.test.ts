@@ -168,10 +168,9 @@ test("two sessions running one command get names that tell them apart", async ()
   // given: three shells and a termination is not work the default 5s covers on
   // the slowest platform.
 }, 20000);
-// Skipped on Windows because a refused request is not answered there at all.
-// The reply never arrives and the client times out instead, which this lane
-// already does to the PERMISSION_DENIED and LIMIT assertions further down the
-// file — the refusal being a name conflict has nothing to do with it. That
+// Skipped on Windows for #31: a refused request is not answered there at all,
+// whatever the refusal, so the client times out instead of seeing the error.
+// The refusal being a name conflict has nothing to do with it. That
 // `uniqueSessionName` refuses a name already held is proved on every platform
 // by the unit test above.
 test.skipIf(process.platform === "win32")(
