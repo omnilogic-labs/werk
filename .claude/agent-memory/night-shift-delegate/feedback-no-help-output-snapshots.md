@@ -29,3 +29,21 @@ prose, assert properties that survive rewording:
 
 Exact-match assertions are still fine for narrow machine-facing things: a single
 table cell, an empty stderr, a JSON error code.
+
+**The one trap, learned in #8.** A property assertion covers placement, not
+truth. `help-format.test.ts` had the `--json` footer pasted as a constant; it
+was changed to import `JSON_FOOTER` from `runtime/help.ts`, which correctly
+stopped the test pinning wording. In the same pass the footer was reworded to
+"Every command takes --json and prints its result as JSON", which is false for
+`attach` and `watch` — both stream and neither calls `result()`. No test could
+have caught it, because the test now asserts only that the last line of every
+page equals whatever the module says. A verifier found it by reading the string
+against `commands/attach.ts`.
+
+So: when a string makes a factual claim about behaviour, the property assertion
+is not enough on its own. Either assert the claim against the behaviour (that
+every command the footer covers really does return a result), or accept that
+the sentence's truth is a review question rather than a test question, and put
+it in front of a reviewer. Prefer wording that is true by construction: "Every
+command accepts --json" is checkable from the flag table; "prints its result as
+JSON" is a claim about every command's implementation.
