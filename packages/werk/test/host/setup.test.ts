@@ -199,29 +199,37 @@ describe("what a copy may be", () => {
     await expect(walkCopy(missing)).rejects.toThrow(missing);
   });
 
-  test("a link out of the tree is named rather than dropped", async () => {
-    const dir = path.join(root, "dots");
-    await fs.mkdir(dir, { recursive: true });
-    await fs.symlink("../../etc/passwd", path.join(dir, "secrets"));
-    const failed = walkCopy(dir);
-    await expect(failed).rejects.toBeInstanceOf(ConfigError);
-    await expect(failed).rejects.toThrow("secrets");
-  });
+  // A symbolic link needs a privilege on Windows that a runner may not have, and
+  // whether a setup should carry one there is not worked out.
+  test.skipIf(process.platform === "win32")(
+    "a link out of the tree is named rather than dropped",
+    async () => {
+      const dir = path.join(root, "dots");
+      await fs.mkdir(dir, { recursive: true });
+      await fs.symlink("../../etc/passwd", path.join(dir, "secrets"));
+      const failed = walkCopy(dir);
+      await expect(failed).rejects.toBeInstanceOf(ConfigError);
+      await expect(failed).rejects.toThrow("secrets");
+    },
+  );
 
-  test("a link inside the tree travels as the link it is", async () => {
-    const dir = path.join(root, "dots");
-    await fs.mkdir(path.join(dir, "bin"), { recursive: true });
-    await fs.writeFile(path.join(dir, "bin", "run.sh"), "echo\n");
-    await fs.symlink("bin/run.sh", path.join(dir, "here"));
-    const found = await walkCopy(dir);
-    expect(found.map((entry) => entry.path).sort()).toEqual([
-      "bin/run.sh",
-      "here",
-    ]);
-    expect(found.find((entry) => entry.path === "here")?.link).toBe(
-      "bin/run.sh",
-    );
-  });
+  test.skipIf(process.platform === "win32")(
+    "a link inside the tree travels as the link it is",
+    async () => {
+      const dir = path.join(root, "dots");
+      await fs.mkdir(path.join(dir, "bin"), { recursive: true });
+      await fs.writeFile(path.join(dir, "bin", "run.sh"), "echo\n");
+      await fs.symlink("bin/run.sh", path.join(dir, "here"));
+      const found = await walkCopy(dir);
+      expect(found.map((entry) => entry.path).sort()).toEqual([
+        "bin/run.sh",
+        "here",
+      ]);
+      expect(found.find((entry) => entry.path === "here")?.link).toBe(
+        "bin/run.sh",
+      );
+    },
+  );
 
   test("more entries than the bound is a refusal rather than a transfer", async () => {
     const dir = path.join(root, "many");

@@ -15,7 +15,7 @@
  * builds for it and the login shell a real sshd hands a command to are
  * `scripts/remote-smoke.ts`'s job.
  */
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test as bunTest } from "bun:test";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { defaultRoles } from "@werk/palette";
@@ -32,6 +32,14 @@ import {
 import { spawnRunner, type RemoteRunner } from "../src/host/ssh.js";
 
 const TIMEOUT = 30_000;
+
+/**
+ * Every case here needs a POSIX login shell and a `/tmp`, because that is what
+ * a setup script is: `sh -lc` with a `$HOME` moved out of the way. Windows has
+ * neither, and running a setup there is not something anybody has worked out —
+ * `docs/platforms.md` has the tiering this sits under.
+ */
+const test = bunTest.skipIf(process.platform === "win32");
 
 let home: string;
 let stateDir: string;
