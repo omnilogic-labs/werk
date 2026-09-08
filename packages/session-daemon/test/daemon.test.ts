@@ -168,38 +168,27 @@ test("two sessions running one command get names that tell them apart", async ()
   // given: three shells and a termination is not work the default 5s covers on
   // the slowest platform.
 }, 20000);
-// Skipped on Windows for #31: a refused request is not answered there at all,
-// whatever the refusal, so the client times out instead of seeing the error.
-// The refusal being a name conflict has nothing to do with it. That
-// `uniqueSessionName` refuses a name already held is proved on every platform
-// by the unit test above.
-test.skipIf(process.platform === "win32")(
-  "a name that was asked for and is already held is refused",
-  async () => {
-    const t = await setup();
-    try {
-      const first = await t.client.create({
+test("a name that was asked for and is already held is refused", async () => {
+  const t = await setup();
+  try {
+    const first = await t.client.create({
+      argv: shellArgv,
+      size: { cols: 80, rows: 24 },
+    });
+    await expect(
+      t.client.create({
         argv: shellArgv,
         size: { cols: 80, rows: 24 },
-      });
-      await expect(
-        t.client.create({
-          argv: shellArgv,
-          size: { cols: 80, rows: 24 },
-          name: first.name,
-        }),
-      ).rejects.toMatchObject({ code: "CONFLICT" });
-      // Refused before anything was spawned for it, so the session that holds
-      // the name is the only one there is.
-      expect((await t.client.list({})).map((s) => s.name)).toEqual([
-        first.name,
-      ]);
-    } finally {
-      await t.close();
-    }
-  },
-  20000,
-);
+        name: first.name,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    // Refused before anything was spawned for it, so the session that holds
+    // the name is the only one there is.
+    expect((await t.client.list({})).map((s) => s.name)).toEqual([first.name]);
+  } finally {
+    await t.close();
+  }
+}, 20000);
 test("PTY survives clients, grants, size ownership, watch and retained recovery", async () => {
   const t = await setup();
   try {
