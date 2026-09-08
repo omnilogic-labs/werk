@@ -401,19 +401,47 @@ function hostBlock(name: string, host: Host): string[] {
 }
 
 /**
- * The four kinds of value werk writes, and nothing else. A key is never quoted:
- * `CONFIG_KEYS` are camelCase and a host name has already been through
- * `isHostName`, so both are bare keys by construction.
+ * The kinds of value werk writes, and nothing else. The key of a setting or a
+ * block is never quoted: `CONFIG_KEYS` are camelCase and a host name has
+ * already been through `isBlockName`, so both are bare keys by construction. A
+ * key inside a table is whatever somebody wrote — `env` holds variable names —
+ * so that one is quoted when it is not bare.
+ *
+ * A table is written inline, on one line, and never as a
+ * `[hosts.<name>.env]` sub-table. `spliceHost` replaces the span of
+ * `[hosts.<name>]`, and `spanOf` ends that span at the next header: a sub-table
+ * written after the block would be orphaned by the next rewrite, or would
+ * define the table twice. Reading one somebody wrote by hand works, because
+ * `Bun.TOML.parse` puts it in the same place; only writing one is refused.
+ *
+ * One level deep. A table inside a table has no key werk writes today, and the
+ * spelling it would need — quoted keys and a nested `{ }` in a line that must
+ * stay parseable — is not worth inventing before something wants it.
  */
-function literal(value: unknown): string {
+function literal(value: unknown, inside = false): string {
   if (typeof value === "string") return quote(value);
   if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number" && Number.isInteger(value))
     return String(value);
   if (Array.isArray(value) && value.every((one) => typeof one === "string"))
     return `[${value.map((one) => quote(one as string)).join(", ")}]`;
+  if (!inside && isTable(value)) {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return "{}";
+    const written = entries.map(
+      ([key, one]) => `${bareOrQuoted(key)} = ${literal(one, true)}`,
+    );
+    return `{ ${written.join(", ")} }`;
+  }
   throw refuse(`werk has no spelling for ${JSON.stringify(value) ?? "that"}`);
 }
+
+const isTable = (value: unknown): boolean =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const BARE_KEY = /^[A-Za-z0-9_-]+$/;
+const bareOrQuoted = (key: string): string =>
+  BARE_KEY.test(key) ? key : quote(key);
 
 const ESCAPES: Record<string, string> = {
   '"': '\\"',

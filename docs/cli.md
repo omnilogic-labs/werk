@@ -684,6 +684,7 @@ rule rather than a list, so a new setting gets its variable for free.
 | `stateDir`        | `WERK_STATE_DIR`        | Where checkpoints, logs and the daemon record live |
 | `scrollbackBytes` | `WERK_SCROLLBACK_BYTES` | Bytes of output a new session keeps                |
 | `defaultHost`     | `WERK_DEFAULT_HOST`     | Which host werk puts work on when nobody names one |
+| `workspaceSetup`  | `WERK_WORKSPACE_SETUP`  | Which `[setup.<name>]` block a new workspace gets  |
 | `colour`          | `WERK_COLOUR`           | `auto`, `always` or `never`                        |
 | `flavour`         | `WERK_FLAVOUR`          | `auto` or a Catppuccin flavour                     |
 | `flavourDark`     | `WERK_FLAVOUR_DARK`     | What `auto` wears on a dark terminal               |
@@ -700,6 +701,11 @@ Only settings that describe something werk already does appear in that table. A
 key invented for a feature that does not exist yet reads back later as a decision
 somebody took. `defaultHost` is what a command acts on when `--host` names none,
 which is `local` until somebody writes a host block and points it somewhere else.
+
+`workspaceSetup` is the one key with no value underneath it. Every other setting
+has a default, and `config list` shows it as `unset` until a file names a
+`[setup.<name>]` block. Naming one records which block a new workspace would
+get; nothing runs it yet.
 
 Every command acts on the resolved configuration, so a `runtimeDir` set in
 `~/.werk/config.toml` is the directory `werk info` reports and the one
@@ -749,14 +755,26 @@ sshHost = "beast"
 kind = "ssh"
 sshHost = "mike@10.0.0.7"
 workspaceRoot = "/srv/werk/workspaces"
+env = { EDITOR = "werk edit --wait" }
+setup = "my-boxes"
 ```
 
-| Key             | Kind  | What it is                                                    |
-| --------------- | ----- | ------------------------------------------------------------- |
-| `kind`          | both  | `local` or `ssh`                                              |
-| `sshHost`       | `ssh` | An ssh destination, spelled as it would be typed after `ssh`  |
-| `workspaceRoot` | both  | Where workspaces go on that host                              |
-| `provider`      | both  | The name of whatever made the host. Recorded, not interpreted |
+| Key             | Kind  | What it is                                                             |
+| --------------- | ----- | ---------------------------------------------------------------------- |
+| `kind`          | both  | `local` or `ssh`                                                       |
+| `sshHost`       | `ssh` | An ssh destination, spelled as it would be typed after `ssh`           |
+| `workspaceRoot` | both  | Where workspaces go on that host                                       |
+| `provider`      | both  | The name of whatever made the host. Recorded, not interpreted          |
+| `env`           | both  | Variables every session on that host is started with                   |
+| `setup`         | both  | The `[setup.<name>]` block that sets the host up. Nothing runs one yet |
+
+`env` is an overlay on whatever a session would have been started with, and it
+wins over it. Six names are refused rather than ignored — `TERM`, `COLORTERM`,
+`TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `WERK_SESSION` and `WERK_DAEMON` — because
+the daemon writes those last for every session and a value here would be
+discarded in silence. Write it as an inline table on one line: werk reads a
+`[hosts.<name>.env]` sub-table but refuses to write over a block that has one.
+[hosts.md](hosts.md#variables-for-every-session-on-a-host) has the rest.
 
 `defaultHost` names one of them, and `--host` overrides it for one command.
 
@@ -787,11 +805,50 @@ A block werk cannot read never stops it starting. `werk config list` shows the
 row as `unreadable`, `werk config sources` says what is wrong and which file it
 is in, and only a command that actually wants that host fails.
 
-A block holds what the machine is called and where werk may put things, and
-nothing else. There is no `werkPath` and no `shell`, and no probe result is
-stored: a fact about a machine written into a file is a fact that was true once,
-and it goes stale silently while `ssh beast` keeps working. `werk config check`
-asks the machine instead, every time.
+A block holds what somebody decided about the machine: what it is called, where
+werk may put things, what every session on it is started with, and which block
+sets it up. What werk found out about the machine is not in there. There is no
+`werkPath` and no `shell`, and no probe result is stored: a fact about a machine
+written into a file is a fact that was true once, and it goes stale silently
+while `ssh beast` keeps working. `werk config check` asks the machine instead,
+every time.
+
+### Setting a machine or a workspace up
+
+A `[setup.<name>]` table says what to put somewhere and what to run there. A
+host block names one with `setup`, and the `workspaceSetup` setting names one
+for a workspace that has just been made. `werk config list` shows them under the
+hosts, keyed `setup.<name>`, with the layer each came from.
+
+```toml
+workspaceSetup = "bootstrap"
+
+[setup.bootstrap]
+run = ["bun install"]
+
+[setup.my-boxes]
+copy = "~/dotfiles/werk-host"
+to = ".local/share/werk/setup"
+run = ["~/.local/share/werk/setup/install.sh"]
+rerunOnChange = true
+```
+
+| Key             | What it is                                                                |
+| --------------- | ------------------------------------------------------------------------- |
+| `copy`          | What to send: a path on the machine werk is running on. `~/` is expanded. |
+| `to`            | Where it lands, relative to the home directory over there                 |
+| `run`           | The commands to run there, in order. Required.                            |
+| `rerunOnChange` | Whether it is worth running again once what it copies has changed         |
+
+`copy` and `to` are required together, `to` may not be absolute or contain
+`..`, and an unknown key is refused the way it is in a host block. A block also
+merges the way a host does: by name, never by field, with `werk config sources`
+reporting one a stronger layer replaced.
+
+**Nothing runs a setup block.** werk reads them, merges them and prints them;
+what would copy the files or run the commands is not built.
+[hosts.md](hosts.md#setting-a-machine-up-as-configuration) says the same in
+more detail.
 
 ### The remote layer, and the unimplemented `extends` hook
 

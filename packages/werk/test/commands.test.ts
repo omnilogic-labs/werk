@@ -494,6 +494,8 @@ const merged = (over: Partial<MergedConfig> = {}): MergedConfig => ({
   ) as MergedConfig["from"],
   hosts: {},
   hostFrom: {},
+  setups: {},
+  setupFrom: {},
   shadowed: [],
   problems: [],
   layers: [],
@@ -539,6 +541,7 @@ test("a host block werk could not read is a row that says so", () => {
     hostRows({
       problems: [
         {
+          table: "hosts",
           name: "broken",
           layer: "project",
           file: "/repo/.werk/config.toml",
@@ -557,6 +560,33 @@ test("a host block werk could not read is a row that says so", () => {
     value: null,
     layer: "project",
   });
+});
+test("config list carries a setup block on the same terms as a host", () => {
+  const ctx = context();
+  const shown = listResult(
+    hostRows({
+      setups: {
+        bootstrap: { run: ["bun install"] },
+        boxes: { copy: "/home/nobody/dotfiles", to: "setup", run: ["a", "b"] },
+      },
+      setupFrom: { bootstrap: "project", boxes: "user" },
+    }),
+    ctx,
+  );
+  const text = shown.human(ctx);
+  expect(text).toContain("setup.bootstrap\t1 command\tproject file");
+  expect(text).toContain(
+    "setup.boxes\tcopy /home/nobody/dotfiles; 2 commands\tuser file",
+  );
+  // The whole block in the machine shape, because summarising it is a thing a
+  // person wants and a script does not.
+  expect(shown.json.find((row) => row.key === "setup.bootstrap")).toEqual({
+    key: "setup.bootstrap",
+    value: { run: ["bun install"] },
+    layer: "project",
+  });
+  // A setting with no value reads as unset rather than as the word undefined.
+  expect(text).toContain("workspaceSetup\tunset\tdefaults");
 });
 test("config sources says which host block lost and which one could not be read", () => {
   const ctx = context();
@@ -588,9 +618,17 @@ test("config sources says which host block lost and which one could not be read"
           ],
         },
       ],
-      shadowed: [{ name: "agent-sandboxes", layer: "user", by: "project" }],
+      shadowed: [
+        {
+          table: "hosts",
+          name: "agent-sandboxes",
+          layer: "user",
+          by: "project",
+        },
+      ],
       problems: [
         {
+          table: "hosts",
           name: "broken",
           layer: "project",
           file: project,

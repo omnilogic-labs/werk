@@ -37,7 +37,7 @@ import { reachHost, workspaceMakerFor } from "../host/place.js";
 import { reportedSize, type WerkContext } from "../runtime/context.js";
 import { canPrompt, text, type PromptOptions } from "../runtime/interactive.js";
 import { workspaceNames } from "../workspace-name.js";
-import { clientEnvironment, remoteEnvironment } from "../environment.js";
+import { environmentFor } from "../environment.js";
 import { DETACH_HINT, sessionArea } from "../view.js";
 
 /**
@@ -387,13 +387,12 @@ export function buildCreate(): Command {
             const info = await client.create({
               argv: [...argv],
               // A denylist is affordable to a daemon on this machine and not to
-              // one on another: `clientEnvironment` would carry every
+              // one on another: forwarding everything would carry every
               // credential in this shell across a machine boundary, and its
-              // `PATH` and `HOME` would be lies about the far side anyway.
-              env:
-                place.session === undefined
-                  ? clientEnvironment()
-                  : remoteEnvironment(),
+              // `PATH` and `HOME` would be lies about the far side anyway. The
+              // host block's own `env` goes on top of whichever answer that
+              // is, because it is the one part of this nobody had to guess.
+              env: environmentFor(place.host, place.session === undefined),
               cwd: workspace.directory,
               // An attachment on a terminal holds the grid and resizes it to
               // the window less the chrome row as soon as it arrives, so the
