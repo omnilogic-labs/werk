@@ -4,6 +4,6 @@
 - [No pinned literals in tests](feedback-no-help-output-snapshots.md): read the expected value off its source of truth
 - [Platform-code selection traps](platform-code-selection-traps.md): no OS condition in exports; an unset feature() flag is false
 - [chalk downsamples pastels to white](reference-chalk-downsamples-to-white.md): at level 1 hex() answers SGR 37/97
-- [session-daemon platform risk](session-daemon-platform-risk.md): platformCapabilities is wire-visible; three tests need Windows or root
+- [session-daemon platform risk](session-daemon-platform-risk.md): a null platform reader disables its guards; platformCapabilities is wire-visible
 - [Testing a TTY-only path](testing-a-tty-only-path.md): give the CLI a pty from `script`; removing a data listener does not stop the read
 - [Reading a retried test failure](reading-a-retried-test-failure.md): the error on the last attempt may belong to an earlier one; check the timings before the line number

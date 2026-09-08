@@ -101,10 +101,11 @@ numbers drifting upward as a cushion. If it becomes irritating, path-level
 allowlisting without counts is the obvious thing to try instead.
 
 **Whether the seam should become one module per platform.** The daemon's SIGUSR1
-handling, its `/proc` reads and its socket recreation are the largest remaining
-cluster, and they sit on the least testable path in the repository. They probably
-want to move, and there is a good argument that the move should happen where real
-runners can be read rather than on one developer's machine.
+handling, the boot identifier it reads from `/proc`, and its socket recreation
+are the largest remaining cluster, and they sit on the least testable path in
+the repository. They probably want to move, and there is a good argument that
+the move should happen where real runners can be read rather than on one
+developer's machine.
 
 **Whether `scripts/` belongs under the same rule as `packages/*/src`.** It is
 held to it today, on the reasoning that a rule with a hole in it tends to become

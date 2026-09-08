@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
-import { closeSync, openSync, readFileSync, statSync } from "node:fs";
+import { closeSync, openSync, readFileSync } from "node:fs";
 import os from "node:os";
 import { holdSharedDirectoryLock } from "./platform/lock.js";
-import { makePrivate } from "./platform/index.js";
+import { makePrivate, processStartedAt } from "./platform/index.js";
 import type { Logger } from "./log.js";
 
 /**
@@ -49,19 +49,7 @@ export function sameBoot(recorded: string, current = currentBootId()): boolean {
   return a !== null && b !== null && Math.abs(a - b) <= 60;
 }
 
-/**
- * `/proc/<pid>` carries the process start time as its ctime, which catches a pid reused
- * within one boot. Nothing equivalent is read on other platforms, so there the boot
- * identifier and the ownership check below are the whole guard.
- */
-export function processStartedAt(pid: number): number | null {
-  if (process.platform !== "linux") return null;
-  try {
-    return statSync(`/proc/${pid}`).ctimeMs;
-  } catch {
-    return null;
-  }
-}
+export { processStartedAt };
 
 export type RecordLiveness = {
   live: boolean;

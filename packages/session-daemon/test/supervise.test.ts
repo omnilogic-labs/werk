@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import fs from "node:fs/promises";
-import { openSync, closeSync } from "node:fs";
+import { openSync, closeSync, statSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { loadTerminalEngine } from "@werk/terminal/bun";
@@ -16,6 +16,7 @@ import {
   processStartedAt,
 } from "../src/index";
 import { lockableDirectory } from "../src/platform/lock.js";
+import { parseProcessStartLine, psStartedAt } from "../src/platform/posix.js";
 import { endpointCredential, shellArgv } from "./commands.js";
 
 const directories: string[] = [];
@@ -96,20 +97,59 @@ test("liveness separates a live daemon from a record left by a reboot", async ()
   );
 });
 
-test.skipIf(process.platform !== "linux")(
+test.skipIf(process.platform === "win32")(
   "a pid reused within one boot is not mistaken for the recorded daemon",
   () => {
+    // Every platform that has this guard must report a start time for it to read. A
+    // platform whose reader answers null fails here rather than skipping in silence.
+    expect(Number.isFinite(processStartedAt(process.pid))).toBe(true);
     const record = {
       pid: process.pid,
       bootId: currentBootId(),
       // The record claims a process that started an hour before this one did.
-      startedAt: (processStartedAt(process.pid) ?? Date.now()) - 3600_000,
+      startedAt: processStartedAt(process.pid)! - 3600_000,
       runtimeDir: "/tmp/werk-1",
       stateDir: "/tmp/werk-state",
       endpoint: null,
       version: "0.1.0",
     };
     expect(recordedDaemonLiveness(record).reason).toBe("pid-reused");
+  },
+);
+
+test("the line ps prints for a process start is read as an instant in UTC", () => {
+  expect(parseProcessStartLine("Tue Sep  8 05:26:49 2026")).toBe(
+    Date.UTC(2026, 8, 8, 5, 26, 49),
+  );
+  // A two-digit day takes one space where a single-digit day takes two.
+  expect(parseProcessStartLine("Wed Dec 31 23:59:59 2025\n")).toBe(
+    Date.UTC(2025, 11, 31, 23, 59, 59),
+  );
+  expect(parseProcessStartLine("")).toBe(null);
+  expect(parseProcessStartLine("not a date")).toBe(null);
+  expect(parseProcessStartLine("Tue Sep  8 05:26:49")).toBe(null);
+  expect(parseProcessStartLine("Tue Foo  8 05:26:49 2026")).toBe(null);
+});
+
+test.skipIf(process.platform !== "linux")(
+  "the ps reader answers a start time that agrees with /proc",
+  () => {
+    const reported = psStartedAt(process.pid);
+    expect(reported).not.toBe(null);
+    // This proves the ps spawn works and returns a plausible instant. It does not
+    // prove Linux ps is accurate, because `processStartedAt` reads /proc on Linux
+    // and never calls ps. Linux ps derives its answer from `btime + starttime/HZ`,
+    // and btime moves by seconds whenever the clock is stepped, so a tight bound
+    // would flake on a long-uptime or clock-adjusted host. A minute stays stable
+    // and still catches every mistake the parser could make: a mishandled zone
+    // lands at least fifteen minutes out, and a wrong month or year far further.
+    // The zone handling itself is asserted directly, and without depending on the
+    // host, by the test above, which compares `parseProcessStartLine` against
+    // `Date.UTC`.
+    expect(
+      Math.abs(reported! - statSync(`/proc/${process.pid}`).ctimeMs),
+    ).toBeLessThan(60_000);
+    expect(psStartedAt(0x7fff_0000)).toBe(null);
   },
 );
 

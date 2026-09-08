@@ -172,37 +172,62 @@ the same second could attach it to the wrong one.
 
 ## Where the platforms stand
 
-At `60cf9ed`, in run
-[34174478378](https://github.com/omnilogic-labs/werk/actions/runs/34174478378):
+At `3e7b06e` on branch `issue-30`, in run
+[34192546207](https://github.com/omnilogic-labs/werk/actions/runs/34192546207):
 
-| Lane                      | Outcome | Where it stopped                                                                  |
-| ------------------------- | ------- | --------------------------------------------------------------------------------- |
-| `browser`                 | pass    |                                                                                   |
-| `musl`                    | pass    |                                                                                   |
-| `native (ubuntu-latest)`  | fail    | `bun run test:artefacts`, [#21](https://github.com/omnilogic-labs/werk/issues/21) |
-| `native (macos-15-intel)` | fail    | `bun run test`, [#22](https://github.com/omnilogic-labs/werk/issues/22)           |
-| `native (windows-latest)` | fail    | `bun run build`, [#23](https://github.com/omnilogic-labs/werk/issues/23)          |
-| `soak`                    | not run | its self-hosted runner has never been provisioned                                 |
+| Lane                      | Outcome | Where it stopped                                  |
+| ------------------------- | ------- | ------------------------------------------------- |
+| `browser`                 | pass    |                                                   |
+| `musl`                    | pass    |                                                   |
+| `native (ubuntu-latest)`  | pass    |                                                   |
+| `native (macos-latest)`   | fail    | `bun run test`, `daemon.test.ts:581`              |
+| `native (windows-latest)` | fail    | `bun run test`, `daemon.test.ts:118`              |
+| `soak`                    | not run | its self-hosted runner has never been provisioned |
 
-The three `native` lanes fail for three unrelated causes, one each, tracked as
-#21, #22 and #23. Windows fails at the first step after `bun install`, so
-nothing behind `bun run build` has yet been observed on that platform. The
-number of Windows problems is unknown rather than one.
+Both failing lanes stop in `packages/session-daemon/test/daemon.test.ts`, for
+two different reasons. Neither has an issue of its own yet.
+
+Windows cannot make a directory private. `privateWindowsDirectory`
+(`src/platform/win32.ts:146`) throws `Cannot restrict Windows directory` with
+nothing after the colon, meaning the command it ran failed and said nothing. It
+is reached through `makePrivate` and `ensurePrivateDirectory` from
+`serveSessionDaemon`, called from the test's setup at the line the trace names,
+`daemon.test.ts:118`. The test that asks for it, "PTY survives clients, grants,
+size ownership, watch and retained recovery", fails on its third attempt under
+`--retry=2` after timing out at five seconds. The log records that one throw and
+that one timeout, so whether the throw is what leaves the test hanging is a
+guess, and what the first two attempts did is not recorded either. The run bails
+after that failure, reporting 34 tests across four files with the failing one
+among them, and the step exits with code 1. `bun run format:check` is skipped on
+Windows; `build`, `typecheck` and `bun test scripts` all pass.
+
+Windows stopped somewhere else in the run before this one, at `8bd72f6`: four
+requests that should have been refused timed out instead, at lines 165, 214, 344
+and 401 of the same file, and the step exited with code 3. Two runs on the same
+branch have therefore produced two different Windows failures, and the number of
+Windows problems is unknown rather than one.
+
+macOS stops on an unhandled error between tests rather than on a failing
+assertion, and every test in `daemon.test.ts` passed on that lane. It stops
+once, at line 581, where a burst of fifty writes has to reach the screen and
+three watching tiles before the `until` helper's deadline and does not. It looks intermittent rather than settled. The run before it,
+[34191444466](https://github.com/omnilogic-labs/werk/actions/runs/34191444466)
+at `8bd72f6`, passed the whole macOS lane, and no file under `src/` changed
+between the two commits. A loaded runner is a guess; nobody has measured it.
+
+`packages/session-daemon/test/supervise.test.ts` passes on macOS in both runs.
+Twelve of its tests run and two skip, and none fails, including the client that
+waits for a live daemon rather than spawning a second one.
 
 `native (macos-latest)` runs on arm64, the architecture `macos-latest` names;
 the label tracks GitHub's current GA image, which is macOS 26 today, so the lane
 does not need bumping by hand. No x64 macOS lane runs alongside it. That is the
 owner's direction rather than an omission: x64 macOS is not exercised here.
 
-The lane reaches `bun run test` and fails there, at
-`packages/session-daemon/test/supervise.test.ts:258` — a client waiting for a
-live daemon whose endpoint is missing, which gives up after its five-second
-startup timeout with `Daemon <pid> is alive but its endpoint is missing` and
-fails all three attempts. Two runs on `macos-26-arm64` showed it, and #30
-records the same message and the same code path on x64 macOS, so it does not
-look like an architecture difference — though nothing has established that the
-two share a cause. Everything above that step passes: `build`, `typecheck` and
-`bun test scripts` are all green on arm64.
+The measurement above is taken on a branch rather than on `main`, which carries
+the risk that a lane passes there for a reason the branch supplies. The branch
+carries one behaviour change over its base, in how a process start time is read;
+everything else on it is tests and documentation.
 
 How much any of this should hold up other work is in
 [platforms.md](platforms.md).

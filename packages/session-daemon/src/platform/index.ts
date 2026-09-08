@@ -5,6 +5,7 @@ import { createWindowsTree, privateWindowsDirectory } from "./win32.js";
 
 export { privateWindowsDirectory } from "./win32.js";
 export { socketPathTooLong, notPrivateToOwner } from "./rules.js";
+export { processStartedAt } from "./posix.js";
 
 /**
  * Restrict a directory to the current user. Windows has no mode to set, so the

@@ -245,9 +245,10 @@ export async function ensureSessionDaemon(options: {
   const record = await readDaemonRecord(paths.record);
   if (record && recordedDaemonLiveness(record).live) {
     // SIGUSR1 terminates a process that does not handle it, so it goes only where the
-    // pid's own start time confirms the record. Elsewhere the daemon's periodic check
-    // does the same work a few seconds later, inside the startup deadline.
-    if (process.platform !== "win32" && processStartedAt(record.pid) !== null) {
+    // pid's own start time confirms the record. Where no start time is reported the
+    // daemon's periodic check does the same work a few seconds later, inside the
+    // startup deadline.
+    if (processStartedAt(record.pid) !== null) {
       try {
         process.kill(record.pid, "SIGUSR1");
       } catch {}

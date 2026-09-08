@@ -58,9 +58,9 @@ export const SEQUESTERED = "packages/session-daemon/src/platform/";
 export const EXCEPTIONS: Exception[] = [
   {
     path: "packages/session-daemon/src/local.ts",
-    allowed: 8,
+    allowed: 7,
     reason:
-      "The runtime directory default takes its platform as a parameter and is exercised both ways. The mode-0700 rule, the SIGUSR1 guard before a daemon is asked to relisten, and the detached daemon's working directory are each a single site on the daemon startup path.",
+      "The runtime directory default takes its platform as a parameter and is exercised both ways. The mode-0700 and ownership rule, and the detached daemon's working directory, are each a single site on the daemon startup path.",
     disposition: "wants-moving",
   },
   {
@@ -72,9 +72,9 @@ export const EXCEPTIONS: Exception[] = [
   },
   {
     path: "packages/session-daemon/src/supervise.ts",
-    allowed: 4,
+    allowed: 3,
     reason:
-      "Process start times come from /proc on Linux and nowhere else, and SIGUSR1 is registered and removed only where the signal exists.",
+      "The runtime directory's owner is compared with the current uid, and SIGUSR1 is registered and removed only where the signal exists.",
     disposition: "wants-moving",
   },
   {

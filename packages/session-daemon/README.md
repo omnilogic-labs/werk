@@ -40,10 +40,12 @@ close. `bootId` is the kernel's boot identifier on Linux and the derived boot
 instant elsewhere, so a record left behind by a machine that has since rebooted
 is not read as a live daemon. `ensureSessionDaemon` reads the record when its
 probe fails: where the recorded pid is alive under this boot, is owned by the
-current user, and on Linux started when the record says it did, it sends
-`SIGUSR1`, waits for the endpoint to come back and never spawns a second
-daemon, reporting `Daemon <pid> is alive but its endpoint is missing` if it
-does not.
+current user, and started when the record says it did, it sends `SIGUSR1`,
+waits for the endpoint to come back and never spawns a second daemon, reporting
+`Daemon <pid> is alive but its endpoint is missing` if it does not. The start
+time comes from `/proc/<pid>` on Linux and from `ps` on macOS. Windows reports
+none, so there the pid and the boot identifier are the whole guard and the
+`SIGUSR1` request is never sent.
 
 Every five seconds, and immediately on `SIGUSR1`, the daemon compares its
 socket's inode with the one it bound and recreates whatever has gone: the
