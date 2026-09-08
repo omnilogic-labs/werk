@@ -17,7 +17,11 @@ whatever is being built.
 
 **How to apply:** when a unit's criteria include the browser leg, grade it
 `UNVERIFIED (environment)` with that error quoted, rather than `FAIL`. Let the
-`browser` CI lane grade it instead — it was green on the last observed run.
+`browser` CI lane grade it instead: publish the branch and dispatch a run with
+`bun scripts/ci-run.ts browser` (`docs/ci.md`). No merge and no pull request is
+needed, and a green lane on a real run is the only acceptance evidence this leg
+has. Do not assume the lane is green because it was green last time — #33 exists
+because #18 turned it red on `main` and nothing local noticed.
 
 Do not reach for `bunx playwright install chromium` as a workaround. It succeeds,
 but installs a _newer_ Playwright's browser build (a different numbered

@@ -3,10 +3,19 @@ import { chromium } from "playwright";
 import { serveSessionDaemon, openLocalTransport } from "@werk/session-daemon";
 import { loadTerminalEngine } from "@werk/terminal/bun";
 import { connectSessionClient } from "@werk/session";
+import { dark } from "@werk/palette";
 import { mkdtemp, rm, cp, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const executablePath = process.env.CHROMIUM_PATH;
+// `getComputedStyle` reports colour as `rgb(r, g, b)`; the palette carries hex.
+// Every colour this file expects is read out of `@werk/palette` and converted
+// here rather than typed as a literal, because a literal cannot notice the
+// palette moving underneath it and this lane is the only place it would show.
+const rgb = (hex: string): string => {
+  const value = Number.parseInt(hex.slice(1), 16);
+  return `rgb(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255})`;
+};
 test("built browser paints DOM, reconnects, resizes and lazily swaps to beamterm", async () => {
   const root = await mkdtemp(join(tmpdir(), "werk-browser-"));
   // Reproduce the package file allowlists outside the checkout. In particular,
@@ -93,7 +102,10 @@ test("built browser paints DOM, reconnects, resizes and lazily swaps to beamterm
       });
     expect(styled.rowHeight).toBeGreaterThan(10);
     expect(styled.cellWidth).toBeGreaterThan(5);
-    expect(styled.color).not.toBe("rgb(216, 222, 233)");
+    // The marker carries SGR 31, so it is painted something other than the
+    // replica's default foreground. That default is werk's rather than the
+    // engine's, so the colour it must not be comes from the palette.
+    expect(styled.color).not.toBe(rgb(dark.terminal.foreground.hex));
     await page.locator("#screen").press("ArrowUp");
     await page.waitForFunction(() =>
       document.querySelector("#screen")?.textContent?.includes("HEX:1b4f41"),
@@ -124,11 +136,16 @@ test("built browser paints DOM, reconnects, resizes and lazily swaps to beamterm
         .querySelector("#tiles .tile-screen")
         ?.textContent?.includes("HEX:"),
     );
+    // The preview strip decodes SGR itself, so the marker's SGR 31 becomes
+    // slot 1 of the palette's terminal table. `page.evaluate` does not close
+    // over this scope, so the expected colour is passed in as an argument.
     expect(
-      await page.evaluate(() =>
-        [...document.querySelectorAll("#tiles .tile-screen span")].some(
-          (span) => getComputedStyle(span).color === "rgb(224, 108, 117)",
-        ),
+      await page.evaluate(
+        (expected) =>
+          [...document.querySelectorAll("#tiles .tile-screen span")].some(
+            (span) => getComputedStyle(span).color === expected,
+          ),
+        rgb(dark.terminal.ansi[1]),
       ),
     ).toBe(true);
     expect(await page.locator("#tiles .tile").count()).toBe(1);

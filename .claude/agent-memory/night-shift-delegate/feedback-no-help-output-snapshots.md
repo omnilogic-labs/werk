@@ -1,6 +1,6 @@
 ---
 name: feedback-no-help-output-snapshots
-description: Do not write tests that match CLI help or other user-facing prose verbatim; assert properties instead
+description: Do not pin user-facing prose or colour literals in tests; read the expected value off the source of truth it comes from
 metadata:
   type: feedback
 ---
@@ -29,6 +29,20 @@ prose, assert properties that survive rewording:
 
 Exact-match assertions are still fine for narrow machine-facing things: a single
 table cell, an empty stderr, a JSON error code.
+
+**The same rule reaches colour, learned in #33.** A test may assert an exact
+colour — that is a machine-facing value — but it must read it out of
+`@werk/palette` rather than type the hex or the `rgb(...)` string. Two
+assertions in `examples/session-web/test/browser.test.ts` pinned the palette
+werk used before Catppuccin; #18 moved the palette and one of them went red on
+`main`, while the other went quietly vacuous (`not.toBe(<a colour nothing
+paints any more>)` passes whatever the page does). The vacuous one is the worse
+failure: nobody would have found it.
+
+Derive from the same route the code under test takes — the preview strip maps
+SGR 31 through `dark.terminal.ansi[1]`, so the test does too. Note that
+`page.evaluate` does not close over the test's scope, so a derived value has to
+be passed in as an argument rather than referenced inside the callback.
 
 **The one trap, learned in #8.** A property assertion covers placement, not
 truth. `help-format.test.ts` had the `--json` footer pasted as a constant; it

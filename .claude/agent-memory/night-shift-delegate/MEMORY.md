@@ -1,3 +1,3 @@
-- [No help-output snapshots](feedback-no-help-output-snapshots.md) — never pin CLI help or prose verbatim in tests; assert properties read off the source of truth
+- [No pinned literals in tests](feedback-no-help-output-snapshots.md) — never pin help text or a colour hex; read the expected value off its source of truth
 - [Browser lane not gradeable locally](browser-lane-not-gradeable-locally.md) — pinned Playwright refuses chromium on this host; grade test:browser UNVERIFIED, don't install
 - [Where the plain-writing skill lives](reference-plain-writing-skill.md) — not in ~/.claude/skills; read the files from the agent-skills repo
