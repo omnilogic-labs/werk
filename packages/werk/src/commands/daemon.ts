@@ -32,10 +32,16 @@ import {
   daemonCommand,
   type DaemonPaths,
 } from "../runtime/daemon.js";
-import { werkVersion } from "../runtime/version.js";
+import { compiledWerk, werkVersion } from "../runtime/version.js";
 import type { WerkContext } from "../runtime/context.js";
 
 async function serve(ctx: WerkContext): Promise<void> {
+  // Every session this daemon starts gets werk's own directory on its `PATH`,
+  // so a program in one can run `werk edit`. Only this side knows whether the
+  // running process is a werk of its own — a `bun` from source would put bun's
+  // directory there and no werk at all — so the answer is written into the
+  // daemon's environment here rather than worked out over there.
+  if (compiledWerk()) process.env.WERK_BIN_DIR = path.dirname(process.execPath);
   const logLevel = parseLogLevel(ctx.logLevel);
   const log = createLogger({
     file: path.join(ctx.stateDir, "daemon.log"),

@@ -633,15 +633,34 @@ What has been run is the suite, on one machine: a session, a daemon, an
 attached client and `cp` standing in for the editor. Every sentence above about
 what VS Code does with what it is handed is reasoning rather than evidence.
 
-Two pieces of the setup are not wired up. `EDITOR` has to be set inside the
-session for a program there to reach `werk edit` at all, which is a job for the
-session's environment rather than for this command — a per-host `env` map is
-the likely place for it — and the two would compose without either knowing
-about the other. And the binary werk installs on a host lives at
-`~/.local/share/werk/bin/<target>-<stamp>/werk` and is on nobody's `PATH`, so
-`werk edit` inside a session on that machine finds nothing to run unless a
-person has put werk there themselves. Whether werk should put something on the
-session's `PATH`, and what else would belong there if it did, is not worked out.
+**`werk` is on a session's `PATH`, and that is what makes any of it
+reachable.** The binary werk installs on a host lives at
+`~/.local/share/werk/bin/<target>-<stamp>/werk`, which is on nobody's `PATH` and
+which nobody could write down, because the stamp in it changes with every build
+of the client that sent it. So the daemon puts its own directory at the front of
+every session's `PATH`. It learns the directory from `WERK_BIN_DIR` in its own
+environment, which the CLI sets when the running process is a werk of its own:
+a `bun` running from source says nothing, because the directory of a `bun` holds
+no werk. The variable is dropped from the session along with every other
+`WERK_*`, so a session sees the effect and not the cause.
+
+The front rather than the back, because the point is to be found, and because a
+session this daemon started should reach this daemon's own build rather than a
+`werk` of another version that happens to be installed.
+
+What is still on the person is `EDITOR`. Nothing sets it, and a
+[`env`](#variables-for-every-session-on-a-host) on the host block is where it
+would go:
+
+```toml
+[hosts.beast]
+env = { EDITOR = "werk edit --wait", VISUAL = "werk edit --wait" }
+```
+
+The two compose without either knowing about the other, which is why neither
+tries to be the other. Whether werk should set `EDITOR` itself when nobody has,
+and what else would belong on a session's `PATH` now that something is, are both
+open.
 
 ### The warm path
 
