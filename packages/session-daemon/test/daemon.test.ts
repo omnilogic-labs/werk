@@ -150,44 +150,31 @@ test("a generated name is unique, and a name that was asked for is not taken twi
 test("two sessions running one command get names that tell them apart", async () => {
   const t = await setup();
   try {
-    const first = await t.client.create({
-      argv: shellArgv,
-      size: { cols: 80, rows: 24 },
-    });
-    const second = await t.client.create({
-      argv: shellArgv,
-      size: { cols: 80, rows: 24 },
-    });
+    const shell = () =>
+      t.client.create({ argv: shellArgv, size: { cols: 80, rows: 24 } });
+    const first = await shell();
+    const second = await shell();
     const leaf = shellArgv[0]!.split(/[\\/]/).pop();
     expect([first.name, second.name]).toEqual([leaf, `${leaf}-2`]);
-    // A name that was asked for and is already held is a conflict, not a
-    // second session nobody can name.
-    await t.client.create({
-      argv: shellArgv,
-      size: { cols: 80, rows: 24 },
-      name: "demo",
-    });
+    // A name that is already held is a conflict rather than a second session
+    // nobody can name, and it is refused before anything is spawned for it.
     await expect(
       t.client.create({
         argv: shellArgv,
         size: { cols: 80, rows: 24 },
-        name: "demo",
+        name: leaf,
       }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
     // Removing a session gives its name back rather than counting past it.
     await t.client.terminate(first.id, "force");
     await until(async () => (await t.client.get(first.id)).state !== "running");
     await t.client.remove(first.id);
-    const third = await t.client.create({
-      argv: shellArgv,
-      size: { cols: 80, rows: 24 },
-    });
-    expect(third.name).toBe(leaf);
+    expect((await shell()).name).toBe(leaf);
   } finally {
     await t.close();
   }
   // The budget every test here that spawns a PTY and waits for it to die is
-  // given: four shells and a termination is not work the default 5s covers on
+  // given: three shells and a termination is not work the default 5s covers on
   // the slowest platform.
 }, 20000);
 test("PTY survives clients, grants, size ownership, watch and retained recovery", async () => {
