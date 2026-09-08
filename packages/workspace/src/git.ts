@@ -25,6 +25,27 @@ export type GitRunner = (
   cwd: string,
 ) => Promise<GitResult>;
 
+/**
+ * The branch a checkout is on, or undefined on a detached HEAD.
+ *
+ * `symbolic-ref` rather than `rev-parse --abbrev-ref HEAD`, because the latter
+ * answers the literal string `HEAD` when nothing is checked out, which is
+ * indistinguishable from a branch somebody called `HEAD`. This one exits
+ * non-zero instead, which is the answer werk wants: there is no branch here.
+ *
+ * It takes the runner rather than calling git itself so that a caller who has
+ * already wrapped git — to decide `GIT_MISSING` once, as both makers do — keeps
+ * that wrapping.
+ */
+export async function branchAt(
+  git: GitRunner,
+  cwd: string,
+): Promise<string | undefined> {
+  const head = await git(["symbolic-ref", "--quiet", "--short", "HEAD"], cwd);
+  const branch = head.stdout.trim();
+  return head.exitCode === 0 && branch !== "" ? branch : undefined;
+}
+
 /** True when a spawn failure means there is no `git` to run, rather than that git ran and refused. */
 export function isMissingExecutable(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;

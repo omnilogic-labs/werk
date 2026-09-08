@@ -93,6 +93,7 @@ test("the tree still holds the commands werk documents", () => {
   expect(paths).toEqual([
     "werk",
     "werk create",
+    "werk land",
     "werk list",
     "werk attach",
     "werk logs",

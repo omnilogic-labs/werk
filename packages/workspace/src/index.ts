@@ -14,6 +14,12 @@
  * creation sits behind `WorkspaceMaker`, and callers ask for a workspace rather
  * than describing how to build one.
  *
+ * `createLander` is the other half: getting the work done in a workspace back
+ * onto the branch it came from. It reads a `WorkspaceRecord` — what werk wrote
+ * down when it made the workspace, which is the only thing that knows which
+ * branch that was — and squashes the change onto a throwaway copy of the parent
+ * before moving a finished commit across.
+ *
  * There are two makers. `createLocalWorktreeMaker` makes a git worktree on the
  * machine werk is running on. `createSshWorkspaceMaker` describes one on another
  * machine — a bare mirror pushed to and a worktree checked out beside it — and
@@ -27,12 +33,27 @@
  * says what it does today and what it does not.
  */
 export type { GitResult, GitRunner } from "./git.js";
-export { runGit } from "./git.js";
+export { branchAt, runGit } from "./git.js";
 export {
   createLocalWorktreeMaker,
   isWorkspaceName,
+  repositorySlot,
   workspaceAt,
 } from "./local.js";
+export { createLander } from "./land.js";
+export type {
+  Lander,
+  LanderOptions,
+  LandCommit,
+  LandConflict,
+  LandPlan,
+  LandProgress,
+  LandResult,
+  LandStep,
+  LandSurvey,
+} from "./land.js";
+export { workspaceRecords } from "./record.js";
+export type { WorkspaceRecord, WorkspaceRecords } from "./record.js";
 export type { LocalWorktreeMakerOptions } from "./local.js";
 export type { RemoteRunner } from "./remote.js";
 export { createSshWorkspaceMaker } from "./ssh.js";

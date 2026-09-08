@@ -160,6 +160,8 @@ const workspace = (name = "fix-login") => ({
   name,
   directory: `/state/werk/workspaces/werk-1a2b3c4d/${name}`,
   branch: name,
+  parent: "main",
+  base: "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432",
   from: { kind: "local-checkout" as const, path: "/home/mike/werk" },
 });
 test("a detached session tells you how to go back to it", () => {
@@ -190,9 +192,17 @@ test("a workspace on another machine reads as name@host:/path in both registers"
     name: "fix-login",
     directory: "/srv/w/x/fix-login",
     branch: "fix-login",
+    // The branch it came from, which is the fact `werk land` needs and the one
+    // nothing can work back out afterwards.
+    parent: "main",
+    base: "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432",
     host: "beast",
     reference: "fix-login@beast:/srv/w/x/fix-login",
   });
+  // A workspace made on a detached HEAD says so with a null rather than by
+  // leaving the key out: werk knew to look and there was no branch to name.
+  const { parent: _none, ...loose } = workspace();
+  expect(workspaceRecord(loose).parent).toBeNull();
   // And the line a person reads, which has been formatting at `full` all along
   // and only now has a host to show.
   expect(renderCreated(session(), context(), away, false)).toContain(

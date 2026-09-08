@@ -73,6 +73,29 @@ row, `werk attach` accepts one as well as a session id or name. Ids beat names
 beat workspaces, and an exact match beats a prefix. See
 [`@werk/workspace`](../workspace/README.md).
 
+`create` also writes down which branch the workspace came from, beside the
+worktree, because `werk land` needs it and nothing can work it out afterwards.
+
+## Landing
+
+```sh
+werk land fix-login            # onto the branch you are standing on
+werk land                      # pick from this repository's workspaces
+werk land fix-login --dry-run  # say what would land, change nothing
+```
+
+`werk land` squashes the commits a workspace made into one and puts it on the
+branch you are standing on, going through a throwaway copy of that branch so
+your checkout is never left mid-merge. If that is not the branch the workspace
+was made from, werk says both names and asks. The workspace and its branch are
+left where they are.
+
+The commit message comes from `--message`, or from the agent named by the
+`agent` setting, or from the workspace's own commits, and your editor opens on
+it unless `--no-edit`. Nothing configures an agent by default: the first landing
+that needs a message asks which one to use and writes the answer down.
+[`docs/cli.md`](../../docs/cli.md#landing-a-workspace) has the rest.
+
 ## Attaching
 
 TTY attachment carries a local snapshot replica and paints cell frames using

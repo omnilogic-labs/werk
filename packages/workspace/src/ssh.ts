@@ -60,7 +60,12 @@
  */
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { isMissingExecutable, runGit, type GitRunner } from "./git.js";
+import {
+  branchAt,
+  isMissingExecutable,
+  runGit,
+  type GitRunner,
+} from "./git.js";
 import { isWorkspaceName } from "./local.js";
 import { reportProgress } from "./progress.js";
 import type { RemoteRunner } from "./remote.js";
@@ -260,6 +265,8 @@ export function createSshWorkspaceMaker(
           "NO_COMMITS",
           `${toplevel} has no commits yet, so there is nothing to branch from`,
         );
+      const base = head.stdout.trim();
+      const parent = await branchAt(run, toplevel);
 
       const identity = await repositoryIdentity(run, toplevel);
       const slot = repositorySlotFor(path.posix.basename(toplevel), identity);
@@ -438,7 +445,15 @@ export function createSshWorkspaceMaker(
       }
       progress("check-out", "end", directory);
 
-      return { name, directory, branch: name, from, host };
+      return {
+        name,
+        directory,
+        branch: name,
+        base,
+        ...(parent === undefined ? {} : { parent }),
+        from,
+        host,
+      };
     },
   };
 }

@@ -11,7 +11,13 @@ import { createStyles, type Styles } from "./style.js";
 import { defaultSessionRuntimeDir } from "@werk/session-daemon";
 import type { Roles } from "@werk/palette";
 import type { RuntimeBasis } from "../commands/shared.js";
-import { defaultStateDir, type WerkConfig } from "../config/schema.js";
+import type { LayerName } from "../config/load.js";
+import {
+  defaultStateDir,
+  type ConfigKey,
+  type LandRoute,
+  type WerkConfig,
+} from "../config/schema.js";
 import {
   builtInHosts,
   DEFAULT_HOST,
@@ -32,6 +38,15 @@ export interface ResolvedConfig {
   readonly config: WerkConfig;
   readonly hosts: Readonly<Record<string, Host>>;
   readonly problems: readonly HostProblem[];
+  /**
+   * The layer that supplied each setting. Absent only on the completion path,
+   * which abandons the layers when they are slow.
+   *
+   * It is here for the one question a default cannot answer: whether a value is
+   * what werk falls back to or what somebody chose. `agent` is empty in both
+   * cases, and `werk land` asks in the first and not in the second.
+   */
+  readonly from?: Readonly<Record<ConfigKey, LayerName>>;
 }
 
 /**
@@ -95,6 +110,18 @@ export interface WerkContext {
   readonly defaultHost: string;
   /** The host `--host` named, when it named one. */
   readonly requestedHost?: string;
+  /**
+   * The agent werk asks for a commit message and for a conflict resolution,
+   * as a command line. Empty means none.
+   */
+  readonly agent: string;
+  /**
+   * True when somebody chose the agent, rather than it being what werk falls
+   * back to. `werk land` asks the first time it needs one and nobody has.
+   */
+  readonly agentChosen: boolean;
+  /** Which of the three landing routes is in force. */
+  readonly landRoute: LandRoute;
 }
 /**
  * A terminal that cannot say how big it is. `process.stdout.columns` and
@@ -200,6 +227,12 @@ export function createContext(
     hosts: resolved?.hosts ?? builtInHosts(),
     hostProblems: resolved?.problems ?? [],
     defaultHost: config?.defaultHost ?? DEFAULT_HOST,
+    agent: config?.agent ?? "",
+    // Absent provenance is the completion path, which never lands anything.
+    // Reading it as "chosen" there is the direction that asks nothing.
+    agentChosen:
+      resolved?.from === undefined ? true : resolved.from.agent !== "defaults",
+    landRoute: config?.landRoute ?? "parent",
     ...(flags.host === undefined ? {} : { requestedHost: flags.host }),
   };
 }

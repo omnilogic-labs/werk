@@ -98,6 +98,13 @@ export const EXCEPTIONS: Exception[] = [
     disposition: "stays",
   },
   {
+    path: "packages/werk/src/runtime/editor.ts",
+    allowed: 2,
+    reason:
+      "`git var GIT_EDITOR` answers a shell command rather than a program, so it has to be handed to a shell, and which shell that is differs. One branch, on one line, choosing the interpreter and its flag.",
+    disposition: "wants-moving",
+  },
+  {
     path: "packages/werk/src/host/install.ts",
     allowed: 1,
     reason:

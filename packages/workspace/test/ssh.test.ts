@@ -47,6 +47,7 @@ function scriptedGit(
     ...rows,
     ["rev-parse --show-toplevel", ok("/repo\n")],
     ["rev-parse --verify HEAD", ok("2b1c9f\n")],
+    ["symbolic-ref --quiet --short HEAD", ok("main\n")],
     ["config --local --get werk.repo-id", ok(`${REPO_ID}\n`)],
     ["config --local werk.repo-id", ok()],
     ["status --porcelain", ok("")],
@@ -147,6 +148,10 @@ test("a workspace on another machine is a mirror, a push and a locked worktree",
     name: "demo",
     directory: DIRECTORY,
     branch: "demo",
+    // What the branch started at, and the branch it started from: the two facts
+    // landing needs and the two nothing can recover afterwards.
+    base: "2b1c9f",
+    parent: "main",
     from: { kind: "local-checkout", path: "/repo/packages/werk" },
     host: "beast",
   });
@@ -156,6 +161,10 @@ test("a workspace on another machine is a mirror, a push and a locked worktree",
   expect(h.calls).toEqual([
     { args: ["rev-parse", "--show-toplevel"], cwd: "/repo/packages/werk" },
     { args: ["rev-parse", "--verify", "HEAD"], cwd: "/repo" },
+    {
+      args: ["symbolic-ref", "--quiet", "--short", "HEAD"],
+      cwd: "/repo",
+    },
     { args: ["config", "--local", "--get", "werk.repo-id"], cwd: "/repo" },
     { args: ["status", "--porcelain"], cwd: "/repo" },
     {

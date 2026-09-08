@@ -18,6 +18,7 @@ import { Command, InvalidArgumentError } from "@commander-js/extra-typings";
 import type { SessionInfo } from "@werk/session";
 import {
   formatWorkspaceReference,
+  workspaceRecords,
   workspaceReference,
   WorkspaceError,
   type CreateWorkspaceOptions,
@@ -39,6 +40,7 @@ import { canPrompt, text, type PromptOptions } from "../runtime/interactive.js";
 import { workspaceNames } from "../workspace-name.js";
 import { clientEnvironment, remoteEnvironment } from "../environment.js";
 import { DETACH_HINT, sessionArea } from "../view.js";
+import { gitToplevel } from "../config/load.js";
 
 /**
  * A count, rejected here rather than by the daemon so the message names the flag
@@ -187,9 +189,58 @@ export function workspaceRecord(workspace: Workspace) {
     name: workspace.name,
     directory: workspace.directory,
     branch: workspace.branch,
+    // The branch it came from, which is what `werk land` puts it back on. Null
+    // rather than absent when the checkout was on a detached HEAD: there was
+    // no branch to name, and a reader of the record should be told that rather
+    // than left to wonder whether werk forgot.
+    parent: workspace.parent ?? null,
+    base: workspace.base,
     ...(workspace.host === undefined ? {} : { host: workspace.host }),
     reference: formatWorkspaceReference(workspaceReference(workspace), "full"),
   };
+}
+
+/**
+ * Write down what was just made, so that `werk land` can find it later.
+ *
+ * The record goes with the client that made it, under its own state directory,
+ * keyed by the checkout the workspace was derived from. It holds the one fact
+ * that cannot be recovered afterwards: which branch the workspace came from.
+ * The costs of keeping it here rather than on the host are
+ * [question 19](../../../../docs/open-questions.md#19-where-does-the-record-of-a-workspace-live).
+ *
+ * A record that cannot be written is said and not raised. The workspace exists
+ * and the session is about to start in it; failing the create because a JSON
+ * file would not save would throw away work that was already done, and what is
+ * lost is that `werk land` will not find it by name.
+ */
+async function remember(
+  ctx: WerkContext,
+  workspace: Workspace,
+  source: string,
+): Promise<void> {
+  try {
+    const toplevel = gitToplevel(source);
+    if (toplevel === undefined) return;
+    await workspaceRecords(path.join(ctx.stateDir, "workspaces"), toplevel).put(
+      {
+        name: workspace.name,
+        directory: workspace.directory,
+        branch: workspace.branch,
+        ...(workspace.parent === undefined ? {} : { parent: workspace.parent }),
+        base: workspace.base,
+        source: toplevel,
+        ...(workspace.host === undefined ? {} : { host: workspace.host }),
+        createdAt: Date.now(),
+      },
+    );
+  } catch (error) {
+    ctx.writeError(
+      `${ctx.style.warning("werk could not write down this workspace")}, so \`werk land ${workspace.name}\` will not find it: ${
+        error instanceof Error ? error.message : String(error)
+      }\n`,
+    );
+  }
 }
 
 /**
@@ -370,6 +421,11 @@ export function buildCreate(): Command {
                 ...(progress ? { onProgress: progress.onProgress } : {}),
               },
             );
+            // Written down before the daemon is asked for anything: the
+            // workspace exists from here on whether or not a session ever
+            // starts in it, and a record made only on the happy path would be
+            // missing for exactly the workspaces somebody has to clear up.
+            await remember(ctx, workspace, here);
             // The connection is under the spinner too. On a machine werk has
             // not been to, this is the install and the daemon start, which is
             // the longest silence there is.

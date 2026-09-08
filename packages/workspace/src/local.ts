@@ -18,7 +18,12 @@
  */
 import { mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
-import { isMissingExecutable, runGit, type GitRunner } from "./git.js";
+import {
+  branchAt,
+  isMissingExecutable,
+  runGit,
+  type GitRunner,
+} from "./git.js";
 import { reportProgress } from "./progress.js";
 import type { WorkspaceReference } from "./reference.js";
 import { repositorySlotFor } from "./slot.js";
@@ -190,6 +195,8 @@ export function createLocalWorktreeMaker(
           "NO_COMMITS",
           `${toplevel} has no commits yet, so there is nothing to branch from`,
         );
+      const base = head.stdout.trim();
+      const parent = await branchAt(run, toplevel);
 
       const branch = name;
       const existing = await run(
@@ -229,7 +236,14 @@ export function createLocalWorktreeMaker(
 
       // No `host`: this is the machine werk is running on, and an absent host
       // is what says so.
-      return { name, directory, branch, from };
+      return {
+        name,
+        directory,
+        branch,
+        base,
+        ...(parent === undefined ? {} : { parent }),
+        from,
+      };
     },
   };
 }

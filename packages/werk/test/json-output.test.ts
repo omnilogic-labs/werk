@@ -120,6 +120,41 @@ test(
   TIMEOUT,
 );
 test(
+  "land answers with the landing, and the dry run with the survey",
+  async () => {
+    // Its own workspace, with a commit in it, because landing needs something
+    // to land. The sandbox root is the repository, so this is `create` and
+    // `land` run from the same place a person would run them from.
+    const created = (await runJson(
+      "create",
+      "--workspace",
+      "landable",
+      "--",
+      "/bin/true",
+    )) as { id: string; workspace: { directory: string } };
+    const where = created.workspace.directory;
+    await Bun.write(join(where, "change.txt"), "change\n");
+    await git(where, "add", "-A");
+    await git(where, "commit", "-q", "-m", "a change to land");
+
+    expect(await runJson("land", "landable", "--dry-run")).toMatchObject({
+      workspace: "landable",
+      onto: "main",
+      landed: false,
+    });
+    expect(await runJson("land", "landable", "--no-edit")).toMatchObject({
+      onto: "main",
+      squashed: 1,
+      landed: true,
+    });
+    // `/bin/true` has already exited, so the session is only a record. It is
+    // forgotten here so that the list this file later requires to be empty is
+    // about the session that test made and not about this one.
+    await runJson("remove", created.id);
+  },
+  TIMEOUT,
+);
+test(
   "info and doctor answer with a report",
   async () => {
     expect(await runJson("info")).toBeObject();
@@ -252,6 +287,7 @@ const EXERCISED = [
   "werk completion zsh",
   "werk completion fish",
   "werk create",
+  "werk land",
   "werk list",
   "werk logs",
   "werk kill",
