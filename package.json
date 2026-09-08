@@ -13,6 +13,7 @@
     "typecheck": "bun scripts/typecheck.ts",
     "test": "bun test packages/palette/test packages/terminal/test packages/session/test packages/session-daemon/test packages/werk/test packages/terminal-beamterm/test packages/workspace/test",
     "test:artefacts": "bun scripts/check-artefacts.ts",
+    "check:platform": "bun scripts/check-platform-code.ts",
     "test:browser": "bun run build && bun run --cwd examples/session-web test",
     "test:soak": "bun scripts/session-soak.ts"
   },

@@ -2,3 +2,6 @@
 - [Browser lane not gradeable locally](browser-lane-not-gradeable-locally.md) — pinned Playwright refuses chromium on this host; grade test:browser UNVERIFIED, don't install
 - [Where the plain-writing skill lives](reference-plain-writing-skill.md) — not in ~/.claude/skills; read the files from the agent-skills repo
 - [Grading workflow changes](grading-workflow-changes.md) — dispatch a real CI run for any workflow edit; dispatch both the lane and `all`; which reds are baseline
+- [Platform-code survey findings](platform-code-survey-findings.md) — how mature projects sequester platform code, the firm negatives, and Bun facts verified on this machine
+- [session-daemon platform risk](session-daemon-platform-risk.md) — platformCapabilities is wire-visible; exactly three tests cannot run on a Linux dev box
+- [Push and run real CI](push-and-run-real-ci.md) — push your branch and dispatch a matrix run for platform changes; a green Linux run proves nothing about macOS or Windows

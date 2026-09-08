@@ -26,6 +26,9 @@ baseline that the third document quotes. `continue/` is scratch for work in
 flight — the branding and pitch round and its imagery — rather than part of the
 documentation set.
 
+[platform-code.md](platform-code.md) records where platform-specific code lives
+and how the compatibility surface is kept enumerable.
+
 ## Start here
 
 - New to the project → [product-specification.md](product-specification.md)

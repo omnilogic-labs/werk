@@ -1,6 +1,19 @@
+import fs from "node:fs/promises";
 import type { Size } from "@werk/session";
 import { posixSummary, signalPosixTree } from "./posix.js";
-import { createWindowsTree } from "./win32.js";
+import { createWindowsTree, privateWindowsDirectory } from "./win32.js";
+
+export { privateWindowsDirectory } from "./win32.js";
+export { socketPathTooLong, notPrivateToOwner } from "./rules.js";
+
+/**
+ * Restrict a directory to the current user. Windows has no mode to set, so the
+ * per-user ACL does the work the POSIX bits do everywhere else.
+ */
+export async function makePrivate(directory: string) {
+  if (process.platform === "win32") privateWindowsDirectory(directory);
+  else await fs.chmod(directory, 0o700);
+}
 
 export const platformCapabilities = {
   pty: process.platform !== "win32" || process.arch === "x64",

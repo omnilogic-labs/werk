@@ -8,6 +8,7 @@ import {
   readDaemonRecord,
   recordedDaemonLiveness,
 } from "./supervise.js";
+import { notPrivateToOwner, socketPathTooLong } from "./platform/index.js";
 import { parseLogLevel, type LogLevel } from "./log.js";
 import { daemonEnvironment } from "./environment.js";
 import { connectSessionClient } from "@werk/session";
@@ -33,7 +34,7 @@ export function defaultSessionRuntimeDir(
 }
 class UnsafeLocalPathError extends Error {}
 function validateSocketLength(socket: string) {
-  if (process.platform !== "win32" && Buffer.byteLength(socket) > 103)
+  if (socketPathTooLong(socket))
     throw new UnsafeLocalPathError(
       "Unix socket path exceeds portable length limit (103 bytes)",
     );
@@ -168,10 +169,7 @@ export async function openLocalTransport(
     const stat = await fs.lstat(endpoint.path);
     if (!stat.isSocket() || stat.isSymbolicLink())
       throw new UnsafeLocalPathError("Local endpoint must be a Unix socket");
-    if (
-      process.platform !== "win32" &&
-      (stat.uid !== process.getuid!() || (stat.mode & 0o077) !== 0)
-    )
+    if (notPrivateToOwner(stat))
       throw new UnsafeLocalPathError(
         "Unix socket must be owned by the current user with private permissions",
       );
@@ -215,12 +213,7 @@ export async function ensureSessionDaemon(options: {
   async function probe() {
     await validateRuntimeDirectory(paths.runtimeDir);
     const stat = await fs.lstat(paths.endpoint);
-    if (
-      !stat.isFile() ||
-      stat.isSymbolicLink() ||
-      (process.platform !== "win32" &&
-        (stat.uid !== process.getuid!() || (stat.mode & 0o077) !== 0))
-    )
+    if (!stat.isFile() || stat.isSymbolicLink() || notPrivateToOwner(stat))
       throw new UnsafeLocalPathError(
         "Endpoint record must be a private file owned by the current user",
       );

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import { closeSync, openSync, readFileSync, statSync } from "node:fs";
 import os from "node:os";
 import { holdSharedDirectoryLock } from "./platform/lock.js";
-import { privateWindowsDirectory } from "./platform/win32.js";
+import { makePrivate } from "./platform/index.js";
 import type { Logger } from "./log.js";
 
 /**
@@ -151,8 +151,7 @@ export async function ensurePrivateDirectory(directory: string) {
   const stat = await fs.stat(directory);
   if (process.getuid && stat.uid !== process.getuid())
     throw new Error(`Directory ${directory} belongs to another user`);
-  if (process.platform === "win32") privateWindowsDirectory(directory);
-  else await fs.chmod(directory, 0o700);
+  await makePrivate(directory);
   return created;
 }
 

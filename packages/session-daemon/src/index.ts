@@ -38,13 +38,17 @@ import type {
   TerminalHandle,
   SnapshotEnvelope,
 } from "@werk/terminal";
-import { spawnPty, platformCapabilities } from "./platform/index.js";
+import {
+  spawnPty,
+  platformCapabilities,
+  privateWindowsDirectory,
+  socketPathTooLong,
+} from "./platform/index.js";
 import {
   resolveSessionDaemonPaths,
   socketTransport,
   type LocalEndpoint,
 } from "./local.js";
-import { privateWindowsDirectory } from "./platform/win32.js";
 import {
   acquireDaemonLock,
   lockableDirectory,
@@ -1855,7 +1859,7 @@ export async function serveSessionDaemon(config: DaemonConfig) {
     await ensurePrivateDirectory(paths.runtimeDir);
     // The socket path is checked before anything is created, so a path that cannot work
     // leaves no lock file and no record behind.
-    if (process.platform !== "win32" && Buffer.byteLength(paths.socket) > 103)
+    if (socketPathTooLong(paths.socket))
       throw new Error("Unix socket path exceeds portable length limit");
     // One daemon per state directory. Where the state directory cannot hold a lock at all
     // the runtime directory keeps the weaker "one daemon per runtime directory" guarantee,
