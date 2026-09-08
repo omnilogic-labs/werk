@@ -115,7 +115,7 @@ const workspaceRoot: HostField = {
  * This is a shape rather than a mechanism: nothing makes hosts and nothing
  * reads this value. Something that makes hosts on demand — Kubernetes, Docker,
  * incus, a cloud machine API — probably needs a noun of its own, and the lean in
- * question 1 of the product specification is *provider*. If that holds, a
+ * question 1 of `docs/open-questions.md` is *provider*. If that holds, a
  * `[providers.<name>]` table and the hosts it made would need some way to refer
  * to each other, and a name written down on the host is the smallest thing that
  * would do it. None of that is designed. The value is a string werk carries

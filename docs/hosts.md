@@ -23,10 +23,9 @@ them, or know anything about how they came to exist.
 
 A **provider** would be the thing that makes hosts on demand: incus,
 Kubernetes, Docker, a cloud machine API. Nothing makes hosts today, and
-_provider_ is a lean rather than a name anyone settled. [Question
-1](product-specification.md#1-what-do-we-call-the-thing-that-makes-machines)
+_provider_ is a lean rather than a name anyone settled. [Question 1](open-questions.md#1-what-do-we-call-a-machine-and-what-do-we-call-the-thing-that-makes-machines)
 carries that question and
-[question 2](product-specification.md#2-how-is-a-provider-configured) carries
+[question 2](open-questions.md#2-how-does-a-person-configure-their-hosts-and-providers) carries
 how one would be configured.
 
 A host block takes a `provider` key, which is a string werk carries around and
@@ -112,7 +111,7 @@ Re-expressing any of that in `~/.werk/config.toml` would be a second, worse
 ssh_config that goes stale silently: `ssh beast` would keep working while werk,
 holding its own copy of a port that changed, would not. Whether that is the
 right call is
-[question 29](product-specification.md#29-does-werk-own-how-it-reaches-a-host-or-does-ssh),
+[question 30](open-questions.md#30-does-werk-own-how-it-reaches-a-host-or-does-ssh),
 and it is genuinely open. The cost of the current shape is that werk depends on
 a file it does not own and has nothing to read on a machine where the alias is
 absent.
@@ -173,7 +172,7 @@ Whatever a probe finds is thrown away rather than stored. A host block holds
 what the machine is called and where werk may put things, and everything else is
 asked at the moment it is needed. `claude` being on a login shell's PATH today is
 a fact about today. What werk should store about a machine it has been to is
-[question 24](product-specification.md#24-what-does-werk-store-about-a-host-once-it-has-been-to-one).
+[question 25](open-questions.md#25-what-does-werk-store-about-a-host-once-it-has-been-to-one).
 
 The same command runs from flags alone, with no terminal:
 
@@ -426,7 +425,7 @@ $ werk daemon endpoint --ensure --json
 Treat the comparison as a hint rather than a guarantee. Nothing is signed, and
 nothing stops two trees with the same SHA differing in what was never committed.
 How strict this should be is
-[question 25](product-specification.md#25-what-has-to-match-between-a-client-and-the-daemon-it-ships-to-a-host),
+[question 26](open-questions.md#26-what-has-to-match-between-a-client-and-the-daemon-it-ships-to-a-host),
 and exact equality is the strictest of the three options there rather than the
 agreed one. It costs a 92 MB transfer to every host on every client upgrade.
 
@@ -609,13 +608,13 @@ nothing aggregates across machines today.
 in it is invisible from every machine, including the one it is on. The only
 thing that knows a workspace is there is the daemon holding a session in it.
 Where that record should live is
-[question 19](product-specification.md#19-where-does-the-record-of-a-workspace-live).
+[question 19](open-questions.md#19-where-does-the-record-of-a-workspace-live).
 
 **An unreachable machine is invisible rather than marked unreachable.** There is
 no row saying "beast did not answer". A command aimed at a machine that is
 asleep fails after the timeout, and a machine nobody aimed a command at is not
 mentioned at all. What this should look like is
-[question 28](product-specification.md#28-what-does-a-workspace-on-an-unreachable-host-look-like).
+[question 29](open-questions.md#29-what-does-a-workspace-on-an-unreachable-host-look-like).
 
 **macOS hosts are refused.** See [what werk builds, and what it
 refuses](#what-werk-builds-and-what-it-refuses).
@@ -645,12 +644,12 @@ machine is unreachable when nobody asked it.
 and the machine werk is running on, the moment somebody adds their own desktop
 by its ssh alias. That puts one set of workspaces under two roots of a graph
 that is supposed to be a tree. See
-[question 27](product-specification.md#27-when-are-two-routes-to-the-same-machine-the-same-host).
+[question 28](open-questions.md#28-when-are-two-routes-to-the-same-machine-the-same-host).
 
 **Nothing removes werk from a machine.** werk leaves a binary, a daemon and a
 directory of workspaces on every host it touches, and there is no command that
 takes them off again. See
-[question 26](product-specification.md#26-is-a-host-owned-or-borrowed-and-what-does-that-mean-for-cleanup).
+[question 27](open-questions.md#27-is-a-host-owned-or-borrowed-and-what-does-that-mean-for-cleanup).
 
 **Old binaries are never pruned.** Every client version that reaches a machine
 leaves 92 MB there permanently.
@@ -686,16 +685,17 @@ day it was measured and is untested everywhere else.
 
 ## The questions this raises
 
-Each of these is open in the specification, and none of them is answered here.
+Each of these is open in [open-questions.md](open-questions.md), and none of
+them is answered here.
 
-- [Question 1: what do we call the thing that makes machines?](product-specification.md#1-what-do-we-call-the-thing-that-makes-machines)
-- [Question 2: how is a provider configured?](product-specification.md#2-how-is-a-provider-configured)
-- [Question 3: are a person's hosts shared between their own machines?](product-specification.md#3-are-a-persons-hosts-shared-between-their-own-machines)
-- [Question 19: where does the record of a workspace live?](product-specification.md#19-where-does-the-record-of-a-workspace-live)
-- [Question 23: what is the host component of a workspace reference?](product-specification.md#23-what-is-the-host-component-of-a-workspace-reference)
-- [Question 24: what does werk store about a host once it has been to one?](product-specification.md#24-what-does-werk-store-about-a-host-once-it-has-been-to-one)
-- [Question 25: what has to match between a client and the daemon it ships to a host?](product-specification.md#25-what-has-to-match-between-a-client-and-the-daemon-it-ships-to-a-host)
-- [Question 26: is a host owned or borrowed, and what does that mean for cleanup?](product-specification.md#26-is-a-host-owned-or-borrowed-and-what-does-that-mean-for-cleanup)
-- [Question 27: when are two routes to the same machine the same host?](product-specification.md#27-when-are-two-routes-to-the-same-machine-the-same-host)
-- [Question 28: what does a workspace on an unreachable host look like?](product-specification.md#28-what-does-a-workspace-on-an-unreachable-host-look-like)
-- [Question 29: does werk own how it reaches a host, or does ssh?](product-specification.md#29-does-werk-own-how-it-reaches-a-host-or-does-ssh)
+- [Question 1: what do we call a machine, and what do we call the thing that makes machines?](open-questions.md#1-what-do-we-call-a-machine-and-what-do-we-call-the-thing-that-makes-machines)
+- [Question 2: how does a person configure their hosts and providers?](open-questions.md#2-how-does-a-person-configure-their-hosts-and-providers)
+- [Question 3: are a person's hosts shared between their own machines?](open-questions.md#3-are-a-persons-hosts-shared-between-their-own-machines)
+- [Question 19: where does the record of a workspace live?](open-questions.md#19-where-does-the-record-of-a-workspace-live)
+- [Question 24: what is the host component of a workspace reference?](open-questions.md#24-what-is-the-host-component-of-a-workspace-reference)
+- [Question 25: what does werk store about a host once it has been to one?](open-questions.md#25-what-does-werk-store-about-a-host-once-it-has-been-to-one)
+- [Question 26: what has to match between a client and the daemon it ships to a host?](open-questions.md#26-what-has-to-match-between-a-client-and-the-daemon-it-ships-to-a-host)
+- [Question 27: is a host owned or borrowed, and what does that mean for cleanup?](open-questions.md#27-is-a-host-owned-or-borrowed-and-what-does-that-mean-for-cleanup)
+- [Question 28: when are two routes to the same machine the same host?](open-questions.md#28-when-are-two-routes-to-the-same-machine-the-same-host)
+- [Question 29: what does a workspace on an unreachable host look like?](open-questions.md#29-what-does-a-workspace-on-an-unreachable-host-look-like)
+- [Question 30: does werk own how it reaches a host, or does ssh?](open-questions.md#30-does-werk-own-how-it-reaches-a-host-or-does-ssh)

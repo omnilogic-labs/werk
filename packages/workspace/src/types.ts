@@ -12,7 +12,7 @@
  * deriving a workspace from another workspace, which may live on a different
  * machine, is a second member rather than a changed signature. Whether the
  * checkout a person is standing in is itself a workspace is
- * [question 20](../../../docs/product-specification.md#20-is-the-place-the-client-is-running-a-workspace),
+ * [question 20](../../../docs/open-questions.md#20-is-the-place-the-client-is-running-a-workspace),
  * so `local-checkout` deliberately does not claim it is one.
  */
 export type WorkspaceSource = {
@@ -32,9 +32,9 @@ export interface CreateWorkspaceRequest {
  *
  * Deliberately thin: no identity, no state and no parent pointer. What werk
  * remembers about a workspace, and where that record lives, is
- * [question 19](../../../docs/product-specification.md#19-where-does-the-record-of-a-workspace-live),
+ * [question 19](../../../docs/open-questions.md#19-where-does-the-record-of-a-workspace-live),
  * and the state words are
- * [question 16](../../../docs/product-specification.md#16-which-of-the-old-words-survive).
+ * [question 16](../../../docs/open-questions.md#16-which-of-the-old-words-survive).
  * Inventing fields for either here would read back later as an answer.
  */
 export interface Workspace {
@@ -47,7 +47,7 @@ export interface Workspace {
    * Which machine it is on, named as werk's configuration names it. Absent from
    * anything made on the machine werk is running on, which keeps the lean
    * recorded in
-   * [question 23](../../../docs/product-specification.md#23-what-is-the-host-component-of-a-workspace-reference)
+   * [question 24](../../../docs/open-questions.md#24-what-is-the-host-component-of-a-workspace-reference)
    * — that absence probably reads as "here" — intact rather than answering it.
    */
   readonly host?: string;
@@ -102,7 +102,7 @@ export interface CreateWorkspaceOptions {
  * and nothing needed it: no caller has anything to do with a workspace it cannot
  * run in, and a workspace with a lifecycle would be a set of state words written
  * into code, which is
- * [question 16](../../../docs/product-specification.md#16-which-of-the-old-words-survive).
+ * [question 16](../../../docs/open-questions.md#16-which-of-the-old-words-survive).
  * A maker that wanted to report readiness separately could still grow one later.
  */
 export interface WorkspaceMaker {

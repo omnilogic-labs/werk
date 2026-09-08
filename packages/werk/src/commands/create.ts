@@ -177,7 +177,7 @@ export async function makeWorkspace(
  * The workspace as `--json` reports it.
  *
  * `host` is absent for a workspace on this machine, which is the same thing
- * `Workspace.host` says by being absent: the lean recorded in question 23 is
+ * `Workspace.host` says by being absent: the lean recorded in question 24 is
  * that no host reads as "here", and inventing `"local"` here would answer it.
  * The reference is the one notation, at `full`, so a caller reading this record
  * and a person reading the chrome are looking at one spelling.

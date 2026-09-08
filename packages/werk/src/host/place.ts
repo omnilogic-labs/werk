@@ -15,7 +15,7 @@
  * shows both. Nothing records that a workspace exists, so a workspace with no
  * running session is invisible from every machine including its own. Whether
  * werk should keep such a record is
- * [question 19](../../../docs/product-specification.md#19-where-does-the-record-of-a-workspace-live).
+ * [question 19](../../../docs/open-questions.md#19-where-does-the-record-of-a-workspace-live).
  */
 import {
   createLocalWorktreeMaker,
@@ -59,7 +59,7 @@ export interface HostPlace {
   /**
    * The host to stamp on a workspace reference, so `full` reads
    * `name@host:/path`. Absent for this machine, which keeps the lean recorded
-   * in question 23 — that an absent host reads as "here" — intact.
+   * in question 24 — that an absent host reads as "here" — intact.
    */
   readonly reference?: string;
   /** Let go of the connection. Safe to call more than once. */

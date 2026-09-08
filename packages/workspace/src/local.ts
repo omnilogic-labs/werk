@@ -62,7 +62,7 @@ export function repositorySlot(toplevel: string): string {
  * join so the two cannot drift apart. It answers from the path alone: nothing
  * records which workspaces exist, so there is no index to consult, and where
  * that record should live is
- * [question 19](../../../docs/product-specification.md#19-where-does-the-record-of-a-workspace-live).
+ * [question 19](../../../docs/open-questions.md#19-where-does-the-record-of-a-workspace-live).
  *
  * Reconstruction reaches exactly as far as the layout both makers share:
  * `<root>/<repository slot>/<workspace name>`. One a differently shaped maker

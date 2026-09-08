@@ -289,7 +289,7 @@ Each of these commands talks to **one** daemon: this machine's without `--host`,
 that machine's with it. There is no view across machines. Nothing records that a
 workspace exists, so a workspace with no session running in it is not listed
 anywhere, including on the machine it is on. Where that record should live is
-[question 19](product-specification.md#19-where-does-the-record-of-a-workspace-live).
+[question 19](open-questions.md#19-where-does-the-record-of-a-workspace-live).
 
 ## Referencing a workspace
 
@@ -727,8 +727,9 @@ flags, so a slow layer costs a less accurate completion rather than a shell that
 has stopped responding.
 
 Whether `~/.werk` is the right home for the user layer is not settled. How a
-person configures providers once those exist is open question 2 of the product
-specification; hosts are in these files already.
+person configures providers once those exist is
+[question 2](open-questions.md#2-how-does-a-person-configure-their-hosts-and-providers);
+hosts are in these files already.
 
 ### Hosts
 
