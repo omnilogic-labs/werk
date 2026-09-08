@@ -159,11 +159,14 @@ test("two sessions running one command get names that tell them apart", async ()
     // A name that is already held is a conflict rather than a second session
     // nobody can name, and it is refused before anything is spawned for it.
     await expect(
-      t.client.create({
-        argv: shellArgv,
-        size: { cols: 80, rows: 24 },
-        name: leaf,
-      }),
+      t.client.create(
+        { argv: shellArgv, size: { cols: 80, rows: 24 }, name: leaf },
+        // The refusal is decided before anything is spawned, so this waits on
+        // the daemon getting a word in rather than on any work. It is given
+        // more than the 5s default because a Windows runner with two shells
+        // already streaming has been seen taking longer than that to answer.
+        { timeoutMs: 15000 },
+      ),
     ).rejects.toMatchObject({ code: "CONFLICT" });
     // Removing a session gives its name back rather than counting past it.
     await t.client.terminate(first.id, "force");
