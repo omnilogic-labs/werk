@@ -124,8 +124,8 @@ order.
 A passing local suite is evidence about one machine. werk targets Linux, macOS
 and Windows, and the machine a change is written on covers at most one of them.
 
-So publish the branch you are working on. Never push `main`, and do not open a
-pull request unless you were asked for one.
+So publish the branch you are working on, and do not open a pull request unless
+you were asked for one.
 
 `main` carries known lane failures today, so the bar is a run no worse than the
 base: the lanes that could observe the change pass, and nothing fails that was
