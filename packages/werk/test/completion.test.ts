@@ -82,10 +82,13 @@ test("a partly typed command offers its aliases too", async () => {
   expect(values(reply).sort()).toEqual(["list", "logs", "ls"]);
 });
 test("a hidden command is parsed but not offered", async () => {
-  // `session-daemon` is the older spelling of `daemon serve`; it still works.
-  expect(values(await completionFor(tree(), ["s"], await scratch()))).toEqual(
-    [],
-  );
+  // `complete` answers the shell rather than a person. Its prefix is shared
+  // with three commands that are offered, so naming them is what makes this a
+  // statement about `complete` being absent rather than about `c` matching
+  // nothing.
+  expect(
+    values(await completionFor(tree(), ["c"], await scratch())).sort(),
+  ).toEqual(["completion", "config", "create"]);
 });
 test("a subcommand's own commands are offered under it", async () => {
   expect(

@@ -18,7 +18,7 @@ import { buildRemove } from "./remove.js";
 import { buildWatch } from "./watch.js";
 import { buildInfo, buildDoctor } from "./inspect.js";
 import { buildConfig } from "./config.js";
-import { buildDaemon, buildLegacyDaemon } from "./daemon.js";
+import { buildDaemon } from "./daemon.js";
 import { buildCompletion, buildComplete } from "./completion.js";
 
 export const COMMANDS: readonly (() => Command)[] = [
@@ -37,11 +37,7 @@ export const COMMANDS: readonly (() => Command)[] = [
 ];
 
 /**
- * Accepted but not listed: the machine-facing completion callback, which no
- * person types, and the older spelling of `daemon serve`, kept so a daemon
- * spawned by an earlier binary still starts.
+ * Accepted but not listed: the machine-facing completion callback, which
+ * answers the shell rather than a person.
  */
-export const HIDDEN_COMMANDS: readonly (() => Command)[] = [
-  buildComplete,
-  buildLegacyDaemon,
-];
+export const HIDDEN_COMMANDS: readonly (() => Command)[] = [buildComplete];

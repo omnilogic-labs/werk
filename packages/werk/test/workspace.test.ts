@@ -1,10 +1,11 @@
 /**
- * `create --workspace` end to end: the CLI, a real repository, a real daemon.
+ * `create` end to end: the CLI, a real repository, a real daemon.
  *
- * The unit tests either side of this one settle the rendering and the failure
- * mapping. What only a real run can say is that the worktree is made before the
- * daemon is asked for anything, that the session actually starts in it, and
- * that a workspace which cannot be made fails without leaving a daemon behind.
+ * The unit tests either side of this one settle the rendering, the naming and
+ * the failure mapping. What only a real run can say is that the worktree is
+ * made before the daemon is asked for anything, that the session actually
+ * starts in it, and that a workspace which cannot be made fails without leaving
+ * a daemon behind.
  *
  * Its runtime and state directories are its own, so it does not fight the
  * daemon `json-contract.test.ts` runs in the same `bun test` invocation. They
@@ -86,7 +87,57 @@ async function werk(cwd: string, ...args: string[]): Promise<Ran> {
 const failure = (ran: Ran) => JSON.parse(ran.stderr.trim()).error;
 
 test(
-  "a workspace is made, and the session runs in it",
+  "a workspace is made without being asked for, and the session runs in it",
+  async () => {
+    const source = await repository();
+    const ran = await werk(source, "create", "--", "sleep", "30");
+    expect(ran.code, ran.stderr).toBe(0);
+    const info = JSON.parse(ran.stdout.trim());
+
+    // Nothing named it, so the name is generated from the command and carries
+    // enough entropy to be made twice in one repository.
+    expect(info.workspace.name).toMatch(/^sleep-[0-9a-f]{8}$/);
+    expect(info.workspace.branch).toBe(info.workspace.name);
+    // The session is in the workspace, not in the repository it came from.
+    expect(info.cwd).toBe(info.workspace.directory);
+    expect(info.cwd).not.toBe(source);
+    expect((await stat(info.workspace.directory)).isDirectory()).toBe(true);
+    expect(
+      info.workspace.directory.startsWith(join(stateDir, "workspaces")),
+    ).toBe(true);
+
+    // The repository agrees it is a worktree of its own, on that branch.
+    const listed = await git(source, "worktree", "list", "--porcelain");
+    expect(listed.stdout).toContain(`branch refs/heads/${info.workspace.name}`);
+    // And the committed file is there, so it is a real checkout.
+    expect(await Bun.file(join(info.cwd, "README.md")).text()).toBe(
+      "committed\n",
+    );
+  },
+  TIMEOUT,
+);
+
+test(
+  "creating twice in one repository makes two workspaces",
+  async () => {
+    const source = await repository();
+    const first = await werk(source, "create", "--", "sleep", "30");
+    const second = await werk(source, "create", "--", "sleep", "30");
+    expect(first.code, first.stderr).toBe(0);
+    expect(second.code, second.stderr).toBe(0);
+    const one = JSON.parse(first.stdout.trim());
+    const two = JSON.parse(second.stdout.trim());
+    expect(two.workspace.name).not.toBe(one.workspace.name);
+    expect(two.cwd).not.toBe(one.cwd);
+    const listed = await git(source, "worktree", "list", "--porcelain");
+    expect(listed.stdout).toContain(`branch refs/heads/${one.workspace.name}`);
+    expect(listed.stdout).toContain(`branch refs/heads/${two.workspace.name}`);
+  },
+  TIMEOUT,
+);
+
+test(
+  "--workspace names it, and asking for a name twice is a conflict",
   async () => {
     const source = await repository();
     const ran = await werk(
@@ -100,42 +151,20 @@ test(
     );
     expect(ran.code, ran.stderr).toBe(0);
     const info = JSON.parse(ran.stdout.trim());
+    // Taken as typed: no suffix, because the caller chose the branch name.
+    expect(info.workspace.name).toBe("demo");
+    expect(info.workspace.branch).toBe("demo");
 
-    expect(info.workspace).toEqual({
-      name: "demo",
-      directory: info.workspace.directory,
-      branch: "demo",
-    });
-    // The session is in the workspace, not in the repository it came from.
-    expect(info.cwd).toBe(info.workspace.directory);
-    expect(info.cwd).not.toBe(source);
-    expect((await stat(info.workspace.directory)).isDirectory()).toBe(true);
-    expect(
-      info.workspace.directory.startsWith(join(stateDir, "workspaces")),
-    ).toBe(true);
-
-    // The repository agrees it is a worktree of its own, on that branch.
-    const listed = await git(source, "worktree", "list", "--porcelain");
-    expect(listed.stdout).toContain("branch refs/heads/demo");
-    // And the committed file is there, so it is a real checkout.
-    expect(await Bun.file(join(info.cwd, "README.md")).text()).toBe(
-      "committed\n",
+    const again = await werk(
+      source,
+      "create",
+      "--workspace",
+      "demo",
+      "--",
+      "true",
     );
-  },
-  TIMEOUT,
-);
-
-test(
-  "without the flag nothing is made and the record is what it always was",
-  async () => {
-    const source = await repository();
-    const ran = await werk(source, "create", "--", "sleep", "30");
-    expect(ran.code, ran.stderr).toBe(0);
-    const info = JSON.parse(ran.stdout.trim());
-    expect(info.workspace).toBeUndefined();
-    expect(info.cwd).toBe(source);
-    const listed = await git(source, "worktree", "list", "--porcelain");
-    expect(listed.stdout).not.toContain("refs/heads/demo");
+    expect(again.code).toBe(5);
+    expect(failure(again).code).toBe("BRANCH_EXISTS");
   },
   TIMEOUT,
 );
@@ -157,8 +186,6 @@ test(
           "--state-dir",
           join(alone, "s"),
           "create",
-          "--workspace",
-          "demo",
           "--",
           "sleep",
           "30",
@@ -208,18 +235,25 @@ test(
 );
 
 test(
+  "a command that is not a legal branch name still gets a workspace",
+  async () => {
+    // The generated name comes from argv[0], which is routinely a path. Nothing
+    // a person can type as a command should be able to fail the name rule.
+    const source = await repository();
+    const ran = await werk(source, "create", "--", "/bin/sh", "-c", "sleep 30");
+    expect(ran.code, ran.stderr).toBe(0);
+    const info = JSON.parse(ran.stdout.trim());
+    expect(info.workspace.name).toMatch(/^sh-[0-9a-f]{8}$/);
+  },
+  TIMEOUT,
+);
+
+test(
   "a repository with no commits says so rather than reporting a git failure",
   async () => {
     const empty = await mkdtemp(join(home, "empty-"));
     await git(empty, "init", "-q", "-b", "main", ".");
-    const ran = await werk(
-      empty,
-      "create",
-      "--workspace",
-      "demo",
-      "--",
-      "true",
-    );
+    const ran = await werk(empty, "create", "--", "true");
     expect(ran.code).toBe(2);
     expect(failure(ran).code).toBe("NO_COMMITS");
   },
@@ -242,9 +276,12 @@ test(
       "sleep",
       "30",
     );
+    // `--cwd` says which checkout to branch, and nothing else: the command
+    // runs in the workspace, never in the directory named here.
     expect(ran.code, ran.stderr).toBe(0);
     const info = JSON.parse(ran.stdout.trim());
     expect(info.cwd).toBe(info.workspace.directory);
+    expect(info.cwd).not.toBe(elsewhere);
     const listed = await git(source, "worktree", "list", "--porcelain");
     expect(listed.stdout).toContain("branch refs/heads/from-cwd");
   },

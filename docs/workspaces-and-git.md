@@ -13,19 +13,22 @@ relate, and where the seam goes.
 
 ## What exists today
 
-The session packages own processes, not repositories. A workspace, a host and a
-branch are all absent from the code.
+The session packages own processes, not repositories. `@werk/workspace` owns the
+one piece of this document that is built: `werk create` makes a git worktree on
+a new branch, from the checkout the caller is standing in, and starts the
+session in it. A host is absent from the code, and so is any record of which
+workspaces exist.
 
-The one git call the client makes is `git rev-parse --show-toplevel`, in the
+The other git call the client makes is `git rev-parse --show-toplevel`, in the
 configuration loader, to find the root of the repository the caller is standing
 in so that the project configuration layer can be read from `<repository>/.werk`.
 It is there because asking git is the only way to get the answer git would give
 for a worktree, a submodule or a `.git` file, and it fails softly outside a
-repository. That is the whole of it. There is no clone, no branch, no fetch and
-no push anywhere in the product packages.
+repository. Beyond those two there is no clone, no fetch and no push anywhere in
+the product packages.
 
-So this is a design for something that does not exist yet, written before the
-first line of it, which is the cheapest time to be wrong about it.
+So nearly all of this is a design for something that does not exist yet, written
+before the first line of it, which is the cheapest time to be wrong about it.
 
 ## The containment graph
 

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import path from "node:path";
 import { Chalk } from "chalk";
 import type { SessionInfo, TerminationResult } from "@werk/session";
+import { isWorkspaceName } from "@werk/workspace";
 import type { WerkContext } from "../src/runtime/context.js";
 import { setChildArgv } from "../src/commands/shared.js";
 import {
@@ -11,6 +12,7 @@ import {
   windowSize,
   workspaceHostFor,
   workspaceRoot,
+  workspaceNameFor,
 } from "../src/commands/create.js";
 import {
   buildAttach,
@@ -110,10 +112,17 @@ test("the window is what was asked for, or what the terminal reports", () => {
   expect(own.rows).toBeGreaterThan(0);
   expect(windowSize({ cols: 40 }).rows).toBe(own.rows);
 });
+const workspace = (name = "fix-login") => ({
+  name,
+  directory: `/state/werk/workspaces/werk-1a2b3c4d/${name}`,
+  branch: name,
+  from: { kind: "local-checkout" as const, path: "/home/mike/werk" },
+});
 test("a created session tells you how to go back to it", () => {
   const text = renderCreated(
     session({ argv: ["claude", "-p"], size: { cols: 40, rows: 8 } }),
     context(),
+    workspace(),
   );
   expect(text).toContain("created 8f2c1b04e9d1 demo");
   expect(text).toContain("claude -p · 40x8 in /home/mike");
@@ -255,22 +264,36 @@ test("a session that is not there says so", () => {
   );
 });
 
-test("a created session says which workspace it landed in, when it has one", () => {
+test("a created session says which workspace it landed in", () => {
   const info = session({
     cwd: "/state/werk/workspaces/werk-1a2b3c4d/fix-login",
   });
-  const plain = renderCreated(info, context());
-  expect(plain).not.toContain("on branch");
-  expect(plain.split("\n")).toHaveLength(3);
-  const withWorkspace = renderCreated(info, context(), {
-    name: "fix-login",
-    directory: info.cwd,
-    branch: "fix-login",
-    from: { kind: "local-checkout", path: "/home/mike/werk" },
-  });
-  expect(withWorkspace).toContain("workspace fix-login on branch fix-login");
-  expect(withWorkspace).toContain("created 8f2c1b04e9d1 demo");
-  expect(withWorkspace).toContain("werk attach 8f2c1b04e9d1");
+  const text = renderCreated(info, context(), workspace());
+  expect(text).toContain("workspace fix-login on branch fix-login");
+  expect(text).toContain("created 8f2c1b04e9d1 demo");
+  expect(text).toContain("werk attach 8f2c1b04e9d1");
+  expect(text.split("\n")).toHaveLength(4);
+});
+test("a workspace is named for the caller, or generated from the command", () => {
+  // Typed names are taken as typed, so the branch is the branch that was asked
+  // for and asking twice is the conflict it looks like.
+  expect(workspaceNameFor({ workspace: "fix-login" }, ["claude"])).toBe(
+    "fix-login",
+  );
+  // Generated names carry a readable leaf and enough entropy that a second
+  // `create` in one repository does not collide.
+  const first = workspaceNameFor({}, ["/bin/sh"]);
+  const second = workspaceNameFor({}, ["/bin/sh"]);
+  expect(first).toMatch(/^sh-[0-9a-f]{8}$/);
+  expect(second).not.toBe(first);
+  // The session's name is the better leaf when there is one.
+  expect(workspaceNameFor({ name: "demo" }, ["claude"])).toMatch(
+    /^demo-[0-9a-f]{8}$/,
+  );
+  // Whatever the command was called, the result is a name a branch and a
+  // directory can both carry.
+  for (const argv of [["../weird name"], ["..."], [""], ["-x"]])
+    expect(isWorkspaceName(workspaceNameFor({}, argv))).toBe(true);
 });
 test("workspaces live under the state directory, not a setting of their own", () => {
   const ctx = context({ stateDir: "/state/werk" });

@@ -20,7 +20,7 @@
  */
 export type { GitResult, GitRunner } from "./git.js";
 export { runGit } from "./git.js";
-export { createLocalWorktreeHost } from "./local.js";
+export { createLocalWorktreeHost, isWorkspaceName } from "./local.js";
 export type { LocalWorktreeOptions } from "./local.js";
 export type {
   CreateWorkspaceRequest,

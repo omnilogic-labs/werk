@@ -15,7 +15,8 @@ than as a boundary to build against.
 ## What is decided
 
 - The package exists, and creating a workspace goes through it rather than
-  being written inline wherever a workspace is wanted.
+  being written inline wherever a workspace is wanted. `werk create` makes one
+  every time; there is no mode in which it does not.
 - It makes one kind of workspace: a git worktree on the machine werk is running
   on, branched from the repository it is pointed at.
 - Creation sits behind `WorkspaceHost`, so a caller asks for a workspace and

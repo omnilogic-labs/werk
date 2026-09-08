@@ -9,16 +9,16 @@ This chapter is the reference for the client as it behaves today. What the
 command surface should become for the product is not settled — the capabilities
 in [product/client.md](product/client.md) are deliberately written as
 capabilities rather than commands, and nothing below should be read as a
-commitment about hosts, providers or landing, none of which exist. `create`
-takes a `--workspace` flag that makes a git worktree, which is the smallest
-corner of what a workspace is meant to be; its spelling is no more settled than
+commitment about hosts, providers or landing, none of which exist. The
+workspace `create` makes is a git worktree on this machine, which is the
+smallest corner of what a workspace is meant to be; it is no more settled than
 the rest.
 
 ## The command tree
 
 | Command                 | What it does                                                     |
 | ----------------------- | ---------------------------------------------------------------- |
-| `create -- COMMAND ...` | Start a session running a command, optionally in a new workspace |
+| `create -- COMMAND ...` | Start a session running a command, in a new workspace            |
 | `list` (`ls`)           | List sessions                                                    |
 | `attach [session]`      | Attach to a session; Ctrl-] detaches                             |
 | `logs [session]`        | Print a session's retained screen, or its history                |
@@ -31,10 +31,8 @@ the rest.
 | `completion`            | `bash`, `zsh`, `fish` — print a shell completion script          |
 | `daemon`                | `serve` — serve the daemon in this process until it is signalled |
 
-Two more are accepted and not listed. `complete` answers the shell completion
+One more is accepted and not listed. `complete` answers the shell completion
 protocol and is a wire format rather than something a person types.
-`session-daemon` is the older spelling of `daemon serve`, kept so a daemon
-spawned by an earlier binary still starts.
 
 Help drills down: `werk --help` lists the commands, `werk config --help` lists
 that command's subcommands, and `werk config get --help` describes one leaf.
@@ -90,21 +88,25 @@ Completion stops at the same boundary and offers nothing past it.
 
 ### Making a workspace
 
-`create --workspace NAME` makes a git worktree and starts the command in it,
-rather than in the directory werk was run from. The branch is the workspace
-name, taken from the `HEAD` of the repository `--cwd` is inside — so with the
-flag `--cwd` says which checkout to branch from, and without it `--cwd` keeps
-its usual meaning of where the command runs. Nothing is created without the
-flag, and `werk create` outside a repository behaves as it always has.
+`create` makes a git worktree and starts the command in it. The branch is the
+workspace name, taken from the `HEAD` of the repository `--cwd` is inside;
+`--cwd` says which checkout to branch from and nothing else, because the
+command always runs in the workspace. Outside a repository, or in one with no
+commits, `create` fails and starts nothing.
+
+`--workspace NAME` names the workspace, and the branch, as typed. Without it
+the name is generated: the command's own name, or `--name` when there is one,
+and a short digest — `claude-a3f2b1c9`. The digest is what lets `werk create`
+be run twice in the same repository, so a name that was asked for explicitly is
+a conflict the second time and a generated one is not.
 
 The worktree goes under `$stateDir/workspaces`, in a directory per repository
 named after the repository and the digest of its path, so two checkouts of the
 same project do not collide. `--state-dir` and a `stateDir` in a config file
 move them; there is no setting of their own.
 
-Under `--json` the record gains a `workspace` object — `name`, `directory` and
-`branch` — beside the session's own fields, and has no such key without the
-flag.
+Under `--json` the record carries a `workspace` object — `name`, `directory`
+and `branch` — beside the session's own fields.
 
 The workspace is made before a daemon is asked for anything, so a repository
 that cannot be branched fails without starting one. Nothing removes the worktree
@@ -115,7 +117,8 @@ letters, digits, dot, dash and underscore, starting with a letter or a digit.
 That turns away branch names containing `/`. What werk should eventually record
 about a workspace, and what more it should be able to do with one, is worked
 through in [workspaces-and-git.md](workspaces-and-git.md); `@werk/workspace` is
-explicitly under development and this flag is the whole of what it does today.
+explicitly under development and a local worktree is the whole of what it makes
+today.
 
 ### Choosing a session
 

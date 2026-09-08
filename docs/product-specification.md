@@ -101,6 +101,11 @@ these documents exists yet.
 - The CLI (`packages/werk`) has `create`, `list`, `attach`, `logs`, `kill`,
   `remove`, `watch`, `info`, `doctor`, `config`, `completion` and
   `daemon serve`. Detach is `Ctrl-]`. See [cli.md](cli.md).
+- `create` makes a **workspace** and starts the command in it: a git worktree on
+  this machine, on a branch of its own, branched from the checkout the caller is
+  standing in. That is the whole of what a workspace is today — one host, no
+  record of what exists, and nothing that ends one. `@werk/workspace` owns it
+  and is explicitly under development.
 - Reattach restores the real screen, decoded from a checkpoint by the libghostty
   WASM engine. `examples/session-web` does the same in a browser.
 - Checkpoints are written per session to the state directory. Records of ended
@@ -110,9 +115,10 @@ these documents exists yet.
 - Everything is TypeScript. `bun:ffi` is used for `flock` and for Windows job
   objects. PTYs come from Bun's own spawn support rather than a native addon.
 
-Four things this specification needs that are absent today: git of any kind,
-anything remote (the transport is a Unix socket or loopback TCP), sharing as a
-product feature (the protocol supports it, nothing uses it), and a durable log.
+Four things this specification needs that are absent today: git beyond making a
+worktree and a branch, anything remote (the transport is a Unix socket or
+loopback TCP), sharing as a product feature (the protocol supports it, nothing
+uses it), and a durable log.
 What is on disk now is a bounded screen checkpoint, roughly 10 MB of scrollback
 by default, which is not a record of everything a process printed.
 
@@ -401,3 +407,22 @@ without an assumption about the network or a forge, and the same reasoning
 already decided that the client coordinates landing. Whether a shared remote
 should be used when there is one, as an optimisation rather than a requirement,
 is not worked out.
+
+### 22. Is there a way to run a command without making a workspace?
+
+`werk create` makes a workspace, so it needs a repository and fails without one.
+That is what the core loop describes. It also means the command cannot start a
+process anywhere else — a shell in a home directory, or a long-running job in a
+directory that is not a checkout.
+
+- **Leave it.** A command that sometimes makes a workspace is the thing worth
+  avoiding, and a person who wants a bare process has a terminal multiplexer.
+- **A flag on `create`** that runs the command where the caller is standing.
+- **Treat the checkout the client is running in as a workspace**, which is
+  question 20, so that "here" is a workspace like any other and running in it
+  is not a special case.
+
+The third is the only one that adds no special case, which is a reason to answer
+question 20 before adding a flag. That is a lean about the order to take them
+in, not about the answer. Nobody has hit the failure in use yet, which is the
+evidence this question is short of.

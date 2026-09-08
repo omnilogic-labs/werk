@@ -69,6 +69,30 @@ anyone actually closed. Do not write one unless it was explicitly decided. If
 something genuinely looks unlikely, write down why it looks unlikely and leave
 the door open.
 
+### Nothing is shipped, so nothing is protected
+
+werk is not shipped. There is no shipped contract and no finalised decisions
+really anywhere, the product is barely being used by one person yet, and
+everything is subject to change.
+
+That is true of the code and of the CLI's behaviour, not only of `docs/`.
+Nothing is settled merely because it is currently written that way. There is no
+need to worry about breaking API changes, output shapes or protocols, and no
+work should preserve old behaviour for users who do not exist — no flag to keep
+a command behaving as it did, no older spelling kept alongside a newer one, no
+key withheld from a record so that nothing parsing it has to change.
+
+The repository does assert shapes in places: the JSON contract test in
+`packages/werk/test/json-contract.test.ts`, the two output registers and the
+exit-code table in [docs/cli.md](docs/cli.md), and the session wire protocol in
+`@werk/session`. None of them is a reason to hold back. Naming them here is not
+an instruction to go and change them; it removes them as an excuse.
+
+The scale available is large. You can delete half of the code and rewrite it and
+it will usually not disrupt anything. A change does not have to be small and it
+does not have to be additive: if the right shape is a different shape, write the
+different shape and move everything that meets it.
+
 ### Prose style
 
 British spelling, plain sentences, no filler. Tables where a table is genuinely

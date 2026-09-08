@@ -7,6 +7,7 @@
  * positional at all and reads the child's argv from the same place `main.ts` put
  * it.
  */
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { Command, InvalidArgumentError } from "@commander-js/extra-typings";
 import type { SessionInfo } from "@werk/session";
@@ -65,22 +66,50 @@ export const workspaceRoot = (ctx: WerkContext): string =>
 export const workspaceHostFor = (ctx: WerkContext): WorkspaceHost =>
   createLocalWorktreeHost({ root: workspaceRoot(ctx) });
 
+/** Characters a branch and a directory leaf both carry without being escaped. */
+const unsafe = /[^A-Za-z0-9._-]/g;
+
+/**
+ * What the workspace is called.
+ *
+ * `--workspace` is taken as typed, so a person who names their branch gets the
+ * branch they named and a second `create` under the same name is the conflict
+ * it looks like. Everything else is generated here, in the client, because the
+ * session's own name is not available to borrow: the daemon derives it from
+ * `argv[0]` and nothing makes it unique, so `/bin/sh` is not even a legal
+ * branch name and `claude` would collide on the second session.
+ *
+ * The generated form is a readable leaf and a digest, the same shape
+ * `repositorySlot` uses for a repository's directory: `claude-a3f2b1c9` says
+ * what is running in `git branch` output, and the suffix is what lets
+ * `werk create -- claude` be run twice in one repository.
+ */
+export function workspaceNameFor(
+  opts: { workspace?: string; name?: string },
+  argv: readonly string[],
+): string {
+  if (opts.workspace !== undefined) return opts.workspace;
+  const leaf = path
+    .basename(opts.name ?? argv[0] ?? "")
+    .replace(unsafe, "-")
+    // `..` is refused by the workspace name rule, and a leading dot or dash is
+    // not a first character a branch and a directory both accept.
+    .replace(/\.{2,}/g, ".")
+    .replace(/^[^A-Za-z0-9]+/, "")
+    .slice(0, 32);
+  return `${leaf === "" ? "workspace" : leaf}-${randomBytes(4).toString("hex")}`;
+}
+
 /** What a person is told once the daemon has the session. */
 export function renderCreated(
   info: SessionInfo,
   ctx: WerkContext,
-  workspace?: Workspace,
+  workspace: Workspace,
 ): string {
   const where = `${info.size.cols}x${info.size.rows} in ${info.cwd}`;
   return [
     `${ctx.colour.green("created")} ${info.id} ${ctx.colour.bold(info.name)}`,
-    ...(workspace
-      ? [
-          ctx.colour.dim(
-            `workspace ${workspace.name} on branch ${workspace.branch}`,
-          ),
-        ]
-      : []),
+    ctx.colour.dim(`workspace ${workspace.name} on branch ${workspace.branch}`),
     ctx.colour.dim(`${info.argv.join(" ")} · ${where}`),
     `werk attach ${info.id}`,
   ].join("\n");
@@ -90,18 +119,22 @@ export function buildCreate(): Command {
     name: "create",
     summary: "Start a session running a command",
     description:
-      "Start a command under the daemon and leave it running. The command " +
-      "comes after --, and werk does not parse it, so the child keeps its own " +
-      "flags. Nothing is attached to: the session outlives the terminal that " +
-      "started it and `werk attach` goes back to it.",
+      "Start a command under the daemon and leave it running, in a workspace " +
+      "of its own: a git worktree of the repository you are standing in, on a " +
+      "new branch. The command comes after --, and werk does not parse it, so " +
+      "the child keeps its own flags. Nothing is attached to: the session " +
+      "outlives the terminal that started it and `werk attach` goes back to it.",
     usage: "[options] -- COMMAND [ARGS...]",
     examples: [
-      { run: "werk create -- /bin/sh", note: "a shell, named for you" },
+      {
+        run: "werk create -- /bin/sh",
+        note: "a shell in a workspace, both named for you",
+      },
       { run: "werk create --name demo --label project=werk -- claude" },
       { run: "werk create --scrollback 2000000 -- npm run dev" },
       {
         run: "werk create --workspace fix-login -- claude",
-        note: "a git worktree of its own, branched from where you are",
+        note: "name the workspace, and the branch, yourself",
       },
     ],
     requires: [
@@ -128,10 +161,10 @@ export function buildCreate(): Command {
       "page-memory budget for scrollback; above the daemon's cap fails",
       wholeNumber("--scrollback", " of bytes"),
     )
-    .option("--cwd <PATH>", "working directory for the command")
+    .option("--cwd <PATH>", "which checkout to branch the workspace from")
     .option(
       "--workspace <NAME>",
-      "make a git worktree of this name and run the command in it",
+      "name the workspace instead of taking a generated one",
     )
     .action(
       withContext(
@@ -151,45 +184,39 @@ export function buildCreate(): Command {
           // checked here, so it is reported with everything else wrong with the
           // invocation and the caller sees the usage line and an example.
           const argv = childCommand();
-          // Where the caller is standing. With `--workspace` this is the
-          // checkout the new branch comes from; without it, it is where the
-          // command runs, which is what it has always meant.
+          // The checkout the new branch comes from. `--cwd` says which one; it
+          // never says where the command runs, because the command runs in the
+          // workspace.
           const here = path.resolve(opts.cwd ?? process.cwd());
           // Before the daemon, deliberately: a workspace that cannot be made is
           // a failure that should not have started a daemon on its way to being
           // reported. Nothing removes the worktree if the session then fails to
           // start — rolling a half-made workspace back is one of the things
           // `docs/workspaces-and-git.md` leaves open.
-          const workspace = opts.workspace
-            ? await workspaceHostFor(ctx).create({
-                name: opts.workspace,
-                from: { kind: "local-checkout", path: here },
-              })
-            : undefined;
+          const workspace = await workspaceHostFor(ctx).create({
+            name: workspaceNameFor(opts, argv),
+            from: { kind: "local-checkout", path: here },
+          });
           const client = await connectDaemon(ctx);
           try {
             const info = await client.create({
               argv: [...argv],
               env: clientEnvironment(),
-              cwd: workspace ? workspace.directory : here,
+              cwd: workspace.directory,
               size: windowSize(opts),
               scrollbackBytes: opts.scrollback,
               name: opts.name,
               labels: opts.label,
             });
-            // The machine shape gains a key only when there is a workspace, so
-            // what anything already parsing `create --json` reads is untouched.
             return result(
-              workspace
-                ? {
-                    ...info,
-                    workspace: {
-                      name: workspace.name,
-                      directory: workspace.directory,
-                      branch: workspace.branch,
-                    },
-                  }
-                : info,
+              {
+                ...info,
+                workspace: {
+                  name: workspace.name,
+                  directory: workspace.directory,
+                  branch: workspace.branch,
+                },
+              },
               (c) => renderCreated(info, c, workspace),
             );
           } finally {

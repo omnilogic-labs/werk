@@ -12,8 +12,10 @@
  * deeper than this fails to bind.
  */
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import type { Command } from "@commander-js/extra-typings";
 import { buildProgram } from "../src/app.js";
 
@@ -57,10 +59,32 @@ async function runJson(...args: string[]): Promise<unknown> {
   return JSON.parse(body);
 }
 
+/**
+ * The commands run from a repository because `create` makes a workspace out of
+ * one, and a workspace needs a commit to branch from.
+ */
+const run = promisify(execFile);
+const git = (cwd: string, ...args: string[]) =>
+  run(
+    "git",
+    [
+      "-c",
+      "user.name=werk test",
+      "-c",
+      "user.email=test@example.invalid",
+      "-c",
+      "commit.gpgsign=false",
+      ...args,
+    ],
+    { cwd, encoding: "utf8" },
+  );
+
 beforeAll(async () => {
   home = await mkdtemp("/tmp/wkj-");
   runtimeDir = join(home, "r");
   stateDir = join(home, "s");
+  await git(home, "init", "-q", "-b", "main", ".");
+  await git(home, "commit", "-q", "--allow-empty", "-m", "init");
 });
 afterAll(async () => {
   try {
@@ -92,8 +116,21 @@ test(
       process.execPath,
       "-e",
       "setTimeout(() => {}, 60000)",
-    )) as { id: string; name: string };
+    )) as {
+      id: string;
+      name: string;
+      cwd: string;
+      workspace: { name: string; directory: string; branch: string };
+    };
     expect(info.name).toBe("contract");
+    // The workspace is part of the record every time, not a key that appears
+    // when a flag was passed.
+    expect(Object.keys(info.workspace).sort()).toEqual([
+      "branch",
+      "directory",
+      "name",
+    ]);
+    expect(info.cwd).toBe(info.workspace.directory);
     session = info.id;
   },
   TIMEOUT,
@@ -149,7 +186,6 @@ const EXEMPT: Record<string, string> = {
   "werk watch": "streams",
   // Run the daemon in this process until it is signalled.
   "werk daemon serve": "does not return",
-  "werk session-daemon": "does not return",
   // Answers a shell in the completion wire protocol, which is not JSON and is
   // read by the installed script rather than by a person or a parser.
   "werk complete": "emits the completion protocol",

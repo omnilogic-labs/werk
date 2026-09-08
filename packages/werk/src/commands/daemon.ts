@@ -5,9 +5,6 @@
  * listening, and it is what an operator points systemd or launchd at. It stays
  * visible in help for that second reason: syncthing keeps `serve` documented for
  * the same purpose, and a hidden command is one an operator cannot discover.
- *
- * `session-daemon` remains as a hidden alias so anything already invoking it —
- * including a daemon spawned by an older binary — keeps working.
  */
 import path from "node:path";
 import { Command } from "@commander-js/extra-typings";
@@ -95,18 +92,4 @@ export function buildDaemon(): Command {
     }).action(withContext(async (ctx) => void (await serve(ctx)))),
   );
   return daemon;
-}
-
-/** The pre-`daemon serve` spelling, hidden but still accepted. */
-export function buildLegacyDaemon(): Command {
-  return defineCommand({
-    name: "session-daemon",
-    summary: "Serve the daemon in this process",
-    description:
-      "The pre-`daemon serve` spelling, accepted so a daemon spawned by an " +
-      "earlier binary still starts. `werk daemon serve` is the same thing.",
-    examples: [
-      { run: "werk session-daemon", note: "prefer werk daemon serve" },
-    ],
-  }).action(withContext(async (ctx) => void (await serve(ctx))));
 }

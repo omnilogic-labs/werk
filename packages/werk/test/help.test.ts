@@ -113,6 +113,5 @@ test("the tree still holds the commands werk documents", () => {
     "werk daemon",
     "werk daemon serve",
     "werk complete",
-    "werk session-daemon",
   ]);
 });
