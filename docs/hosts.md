@@ -48,9 +48,10 @@ restated here.
 | `local` | The machine werk is running on | A git worktree under `<stateDir>/workspaces`                         |
 | `ssh`   | A machine reached with `ssh`   | A bare mirror pushed to, and a linked worktree checked out beside it |
 
-`--host` is a global flag, so `create`, `list`, `attach`, `logs`, `kill` and
-`remove` all take it, and each of them acts on that one machine. `werk config`
-has `list`, `get`, `set`, `unset`, `setup`, `check`, `sources` and `path`.
+`--host` is a global flag, so `create`, `list`, `attach`, `logs`, `kill`,
+`remove` and `setup` all take it, and each of them acts on that one machine.
+`werk config` has `list`, `get`, `set`, `unset`, `setup`, `check`, `sources` and
+`path`.
 
 werk cross-compiles the binary it sends to an ssh host, and it builds only for
 Linux: `bun-linux-x64`, `bun-linux-arm64`, and the musl variant of each. A Mac
@@ -79,14 +80,14 @@ env = { EDITOR = "werk edit --wait" }
 setup = "my-boxes"
 ```
 
-| Key             | Required       | What it is                                                                  |
-| --------------- | -------------- | --------------------------------------------------------------------------- |
-| `kind`          | yes            | `local` or `ssh`. It selects which other keys the block takes.              |
-| `sshHost`       | yes, for `ssh` | An ssh destination, spelled exactly as it would be typed after `ssh`        |
-| `workspaceRoot` | no             | Where workspaces go on this machine                                         |
-| `provider`      | no             | The name of whatever made this host. Recorded, never interpreted.           |
-| `env`           | no             | Variables every session on this machine is started with                     |
-| `setup`         | no             | The `[setup.<name>]` block that sets this machine up. Nothing runs one yet. |
+| Key             | Required       | What it is                                                           |
+| --------------- | -------------- | -------------------------------------------------------------------- |
+| `kind`          | yes            | `local` or `ssh`. It selects which other keys the block takes.       |
+| `sshHost`       | yes, for `ssh` | An ssh destination, spelled exactly as it would be typed after `ssh` |
+| `workspaceRoot` | no             | Where workspaces go on this machine                                  |
+| `provider`      | no             | The name of whatever made this host. Recorded, never interpreted.    |
+| `env`           | no             | Variables every session on this machine is started with              |
+| `setup`         | no             | The `[setup.<name>]` block that sets this machine up                 |
 
 A name is bare TOML: letters, digits, dots, dashes and underscores, starting
 with a letter or a digit, up to 64 characters. No `@` and no `:`, because a
@@ -94,9 +95,12 @@ host name appears in the `name@host:/path` workspace reference and both of
 those characters are already separators there. A `[setup.<name>]` block is
 named by the same rule, so a name that works in one table works in the other.
 
-`setup` is checked for spelling and nothing else. Whether a block by that name
-exists is a question about the whole collection rather than about one value, and
-the block may be written in a file the host block has never seen.
+`setup` is checked for spelling where the block is parsed and no further.
+Whether anything defines a block by that name is a question about the whole
+collection rather than about one value, and the block may be written in a file
+the host block has never seen, so it is asked at the moment something is about
+to run one. A name nothing answers is refused there, naming the host, the block
+and the file the host came from.
 
 `local` is supplied by the defaults layer, so it is an ordinary row with an
 ordinary provenance and nothing has to special-case the machine werk is running
@@ -188,7 +192,7 @@ not be read at all.
 `werk config set` and `werk config unset` write single top-level settings.
 Neither writes host blocks; `werk config setup` does that.
 
-## Setting a machine up, as configuration
+## Setting a machine up, and setting a workspace up
 
 A `[setup.<name>]` block says what to put on a machine and what to run there. A
 host block points at one with `setup = "<name>"`, and the top-level
@@ -214,27 +218,163 @@ workspaceSetup = "bootstrap"
 run = ["bun install"]
 ```
 
-| Key             | Required | What it is                                                                |
-| --------------- | -------- | ------------------------------------------------------------------------- |
-| `copy`          | no       | What to send: a path on the machine werk is running on. `~/` is expanded. |
-| `to`            | no       | Where it lands, relative to the home directory over there                 |
-| `run`           | yes      | The commands to run there, in the order they are written                  |
-| `rerunOnChange` | no       | Whether it is worth running again once what it copies has changed         |
+| Key             | Required | What it is                                                                  |
+| --------------- | -------- | --------------------------------------------------------------------------- |
+| `copy`          | no       | The directory to send, on the machine werk is running on. `~/` is expanded. |
+| `to`            | no       | Where it lands: under `$HOME` there, or under the workspace                 |
+| `run`           | yes      | The commands to run there, in the order they are written                    |
+| `rerunOnChange` | no       | Whether it is worth running again once what it copies has changed           |
 
 `copy` and `to` go together: one without the other is refused naming both,
 because half of that pair is either a path with nowhere to go or a place with
-nothing to put in it. `to` is refused if it starts with `/` or has a `..` in it,
-so what a block sends stays under the home directory it names. An unknown key
+nothing to put in it. `copy` names a directory and its _contents_ land under
+`to`, so `to` never gains a level named after the directory it came from. `to`
+is refused if it starts with `/` or has a `..` in it, so what a block sends
+stays under the directory it names. An unknown key
 inside a block is refused, for the same reason it is inside a host block: a
 block that looks configured and does nothing costs a machine somebody thinks is
 set up. A block werk cannot read is a problem rather than a reason to stop, so
 `werk config list` shows the `setup.<name>` row as `unreadable` and `werk config
 sources` says what is wrong and which file it is in.
 
-**Nothing runs any of this.** werk reads these blocks, merges them through the
-layers by name, and prints them. What would copy the files, what would run the
-commands, what `rerunOnChange` is compared against, and when either block runs
-at all are not built and not settled.
+### The two phases
+
+A host block's `setup` runs **on the machine**, before anything is put on it.
+`workspaceSetup` runs **in the workspace**, after the worktree is checked out
+and before the session starts, with the commands' working directory set to the
+worktree and `to` relative to it rather than to `$HOME`.
+
+`werk create` runs both. The host's setup starts as soon as the machine is
+resolved and runs beside the `git push`, because getting the machine ready and
+sending the history have nothing to say to each other; it is awaited before the
+workspace's, which may want whatever it installed. `werk setup` runs the host's
+alone, without making a workspace, starting a daemon or sending a binary.
+
+The commands go over in **one invocation, under a login shell**, and stop at the
+first one that fails. The login shell is the same call `werk daemon endpoint
+--ensure` makes: on the machines werk is aimed at `claude` lives in
+`~/.local/bin` and is on the login PATH and no other, and a setup script that
+cannot find what it is configuring is worse than useless. Whatever `copy` names
+is sent first, as a `tar` pipe carrying the directory's contents.
+
+The environment the commands get is the one a session on that host would get:
+the allowlist for another machine or the denylist for this one, with the host
+block's own [`env`](#variables-for-every-session-on-a-host) over the top.
+
+**A local host runs the same block**, with `sh -lc` in place of the ssh. There is
+no second code path: a machine is reached through one seam, and the local answer
+to that seam spawns a process here.
+
+Everything the commands print goes to **stderr**, as it arrives. That keeps
+`--json` one value on stdout with no special-casing, and it means a slow `bun
+install` looks like a slow `bun install` rather than a hang.
+
+### The stamp says what a machine already has
+
+The machine keeps `~/.local/share/werk/setup/<block>/stamp`, holding a
+fingerprint of the block that wrote it: sha256 over the commands in order, the
+resolved `to`, and the bytes of everything `copy` names, shown as twelve hex
+characters. It is written **last**, after every command has succeeded, so a run
+that stopped part-way leaves no stamp and the next one runs again.
+
+**The machine is the authority**, and that is the whole point of putting it
+there. A second laptop that has never touched the machine reaches the same
+answer as the first, without either of them knowing the other exists.
+
+Beside it, `<stateDir>/hosts/<name>.setup.json` records what this client last
+saw, so the ordinary case costs no round trip at all. It is a separate file from
+`<stateDir>/hosts/<name>.json`, which holds [the warm path](#the-warm-path)'s
+answers: that one is discarded whenever the client's build changes, and
+upgrading werk must not re-run somebody's setup.
+
+**Both files are caches.** Losing the hint costs a round trip; losing the stamp
+costs the block being run again. Neither is a record of what werk knows about a
+host, and neither is meant to grow into one —
+[question 25](open-questions.md#25-what-does-werk-store-about-a-host-once-it-has-been-to-one)
+is open and this does not answer it.
+
+| Stamp                    | `rerunOnChange`   | What happens                                                                 |
+| ------------------------ | ----------------- | ---------------------------------------------------------------------------- |
+| absent                   | either            | Run. werk has not set this machine up before.                                |
+| equal to the fingerprint | either            | Nothing, and no round trip where the hint already said so.                   |
+| different                | `true`            | Run.                                                                         |
+| different                | absent or `false` | Ask: "The setup for beast has changed since werk last ran it. Run it again?" |
+
+With no terminal to ask in, that last row is **skipped with a note on stderr
+naming `--yes`**, rather than refused. A refusal would fail an unattended `werk
+create` over an edit to a config file, and werk already prefers a statement
+where a prompt would break `--json`: the count of uncommitted files `create`
+reports is the same call. Under `--json` the skip is a field in the record
+rather than a line. `werk setup --force` runs the block whatever the stamp says.
+
+### A repository's own setup is asked about once
+
+`workspaceSetup` usually lives in the repository's `.werk/config.toml`, so it
+travels with the branch. That makes it code from a branch, run automatically:
+checking out a colleague's branch would otherwise run their commands as you,
+before anybody had read them.
+
+So werk asks, once per repository:
+
+```
+werk wants to run its own setup before the session starts:
+
+    bun install
+
+Run it? [y/N]
+```
+
+The answer is recorded in `<stateDir>/trust/<repo-id>.json`, against the
+fingerprint that was trusted, so a change to the block asks again. `--yes`
+answers it. With no terminal and no `--yes` the setup is **skipped with a note**
+rather than run, which is the safe direction for this one.
+
+It is keyed by the repository's
+[`werk.repo-id`](#werkrepo-id-is-the-first-thing-werk-writes-into-a-users-repository)
+and stored in werk's own state directory rather than in git's configuration.
+That line is the only thing werk writes into a person's git config and it is
+worth keeping true, and a decision about whether to run a branch's code is not
+one to hand to whoever can push to the branch.
+
+### What a failure is
+
+| Where           | Code                     | What happens                                            |
+| --------------- | ------------------------ | ------------------------------------------------------- |
+| Host setup      | `HOST_SETUP_FAILED`      | `create` fails.                                         |
+| Workspace setup | `WORKSPACE_SETUP_FAILED` | `create` fails, and the workspace is deliberately left. |
+
+Both name the machine, the command that failed and what the far side printed,
+and both exit 1. Which command failed comes from a trap the script sets for
+itself: one invocation has one exit status, and a person told only that "the
+setup failed" has to go and run each line by hand to find out which.
+
+The workspace is left because the push happened and the branch is real work.
+Destroying it to tidy up after a failed `bun install` would lose more than it
+saved, and the message says so. Anything the push had already made when a _host_
+setup fails is left for the same reason, since the two run beside each other.
+
+### What is refused before anything is sent
+
+A `copy` that is not there, a `copy` that is not a directory, and a symbolic
+link inside one whose target points outside it are each refused by name. A link
+out of the tree is named rather than dropped in silence, because a setup that
+quietly sent half of what somebody meant would leave a machine looking
+configured.
+
+A `copy` of more than 2,000 entries or 32 MB is refused too, so a path pointed
+at the wrong directory costs a message rather than a long transfer.
+
+### What is not settled
+
+Nothing prunes a stamp for a block that no longer exists, and nothing removes
+what a setup put on a machine — that sits under
+[question 27](open-questions.md#27-is-a-host-owned-or-borrowed-and-what-does-that-mean-for-cleanup).
+Two host blocks naming one machine and one block set it up once, which is right
+when they are the same machine and is
+[question 28](open-questions.md#28-when-are-two-routes-to-the-same-machine-the-same-host)
+when nothing can tell. Whether a workspace should get a stamp of its own so that
+re-entering one does not re-run its setup is not worked out; a workspace is made
+once today, so the question has not come up.
 
 ## The wizard
 
@@ -745,10 +885,10 @@ by its ssh alias. That puts one set of workspaces under two roots of a graph
 that is supposed to be a tree. See
 [question 28](open-questions.md#28-when-are-two-routes-to-the-same-machine-the-same-host).
 
-**Nothing runs a `[setup.<name>]` block.** A block can be written, read, merged
-and printed. Nothing copies what it names or runs what it lists, on a machine or
-in a workspace. See [setting a machine up, as
-configuration](#setting-a-machine-up-as-configuration).
+**Nothing prunes a setup's stamp, or takes back what a setup put there.** A
+block renamed in a config file leaves its old stamp on every machine it ever ran
+on, and whatever it installed stays installed. See [setting a machine up, and
+setting a workspace up](#setting-a-machine-up-and-setting-a-workspace-up).
 
 **Nothing removes werk from a machine.** werk leaves a binary, a daemon and a
 directory of workspaces on every host it touches, and there is no command that
@@ -765,11 +905,13 @@ leaves 92 MB there permanently.
 below that involves ssh was run by one person, on a LAN, between two Linux
 boxes.
 
-| What                                                                                                                                  | Where                                 | What it proves                                                                                                 |
-| ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| The failure table, every git argv, the shape of the remote scripts                                                                    | `packages/workspace/test/ssh.test.ts` | Against a scripted runner. No machine involved.                                                                |
-| The scripts actually running: `git init --bare`, the numbered refusals, `worktree add --lock`, the rollback, a mirror pushed to twice | `packages/werk/test/loopback.test.ts` | `sh -c` in a temporary `$HOME`, a filesystem push URL, a relay onto a local daemon socket. No network, no ssh. |
-| ssh itself: the connection, its failures, the forward, the install, the daemon start, keystroke latency                               | `scripts/remote-smoke.ts`             | A real second machine. Run by hand.                                                                            |
+| What                                                                                                                                  | Where                                   | What it proves                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| The failure table, every git argv, the shape of the remote scripts                                                                    | `packages/workspace/test/ssh.test.ts`   | Against a scripted runner. No machine involved.                                                                |
+| The scripts actually running: `git init --bare`, the numbered refusals, `worktree add --lock`, the rollback, a mirror pushed to twice | `packages/werk/test/loopback.test.ts`   | `sh -c` in a temporary `$HOME`, a filesystem push URL, a relay onto a local daemon socket. No network, no ssh. |
+| A setup actually running: the script, the tar pipe, the stamp written and read back, a command that fails                             | `packages/werk/test/setup-run.test.ts`  | A real shell in a temporary `$HOME`. No network, no ssh.                                                       |
+| Every command werk builds for a setup, and each row of the decision table                                                             | `packages/werk/test/host/setup.test.ts` | Against a scripted runner. No machine involved.                                                                |
+| ssh itself: the connection, its failures, the forward, the install, the daemon start, keystroke latency, a setup on a real `$HOME`    | `scripts/remote-smoke.ts`               | A real second machine. Run by hand.                                                                            |
 
 `scripts/remote-smoke.ts` is not part of `bun test`: it needs a box reachable
 with key authentication and it starts processes there.

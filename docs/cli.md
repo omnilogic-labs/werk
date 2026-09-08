@@ -30,6 +30,7 @@ alone, and what each dependency is for.
 | `kill [session]`                                                             | Ask a session's process to stop                                               |
 | `remove` (`rm`)                                                              | Forget a session that has stopped                                             |
 | `watch`                                                                      | Print daemon events as JSON lines until interrupted                           |
+| `setup`                                                                      | Run a machine's setup block without making a workspace                        |
 | `info`                                                                       | Print where werk keeps things and what the daemon says                        |
 | `doctor`                                                                     | Check the local daemon and print the end of its log                           |
 | `config`                                                                     | `list`, `get`, `set`, `unset`, `setup`, `check`, `sources`, `path`            |
@@ -138,10 +139,18 @@ error code on stderr is the workspace reason itself, so `NOT_A_REPOSITORY`,
 
 Configuration is mapped the same way. A host block that does not parse, a name
 nothing defines and a file that is not the TOML it claims to be are all "what
-werk was told is wrong", which is exit 2. A file werk could not write, or would
-not write because it could not make the change cleanly, is exit 1: the machine
-did not do it. No new statuses; nothing scripting werk should have to learn a
-number to find out that a config file has a typo in it.
+werk was told is wrong", which is exit 2. That covers a `setup` or a
+`workspaceSetup` naming a block nothing defines, and a `copy` naming a path that
+is not there. A file werk could not write, or would not write because it could
+not make the change cleanly, is exit 1: the machine did not do it. No new
+statuses; nothing scripting werk should have to learn a number to find out that
+a config file has a typo in it.
+
+A setup command that refused is exit 1, under `HOST_SETUP_FAILED` for a
+machine's block and `WORKSPACE_SETUP_FAILED` for a repository's. Neither is a
+usage mistake and neither is a machine that did not answer: werk reached it, and
+something somebody wrote there exited non-zero. A machine that stopped answering
+part-way through a setup still reports `HOST_UNREACHABLE` and exits 7.
 
 ## Starting a session
 
@@ -242,7 +251,32 @@ same project do not collide. `--state-dir` and a `stateDir` in a config file
 move them; there is no setting of their own.
 
 Under `--json` the record carries a `workspace` object — `name`, `directory`,
-`branch` and `reference` — beside the session's own fields.
+`branch` and `reference` — beside the session's own fields, and a `setup` object
+holding what each of the two setups came to:
+
+```json
+{
+  "setup": {
+    "host": {
+      "state": "current",
+      "block": "my-boxes",
+      "fingerprint": "9f2c1b04e9d1",
+      "asked": false
+    },
+    "workspace": {
+      "state": "ran",
+      "block": "bootstrap",
+      "fingerprint": "3a71c0de5b22",
+      "commands": 1
+    }
+  }
+}
+```
+
+`state` is `none` where nothing named a block, `current` where the machine
+already has it, `ran` where it ran, and `skipped` where werk left it alone and
+`why` says what would have answered the question. Both keys are always there, so
+a caller reads a state rather than an absence.
 
 The workspace is made before a daemon is asked for anything, so a repository
 that cannot be branched fails without starting one. Nothing removes the worktree
@@ -704,8 +738,8 @@ which is `local` until somebody writes a host block and points it somewhere else
 
 `workspaceSetup` is the one key with no value underneath it. Every other setting
 has a default, and `config list` shows it as `unset` until a file names a
-`[setup.<name>]` block. Naming one records which block a new workspace would
-get; nothing runs it yet.
+`[setup.<name>]` block. There is no block werk would run in a new workspace by
+default, and an empty name is not a name.
 
 Every command acts on the resolved configuration, so a `runtimeDir` set in
 `~/.werk/config.toml` is the directory `werk info` reports and the one
@@ -759,14 +793,14 @@ env = { EDITOR = "werk edit --wait" }
 setup = "my-boxes"
 ```
 
-| Key             | Kind  | What it is                                                             |
-| --------------- | ----- | ---------------------------------------------------------------------- |
-| `kind`          | both  | `local` or `ssh`                                                       |
-| `sshHost`       | `ssh` | An ssh destination, spelled as it would be typed after `ssh`           |
-| `workspaceRoot` | both  | Where workspaces go on that host                                       |
-| `provider`      | both  | The name of whatever made the host. Recorded, not interpreted          |
-| `env`           | both  | Variables every session on that host is started with                   |
-| `setup`         | both  | The `[setup.<name>]` block that sets the host up. Nothing runs one yet |
+| Key             | Kind  | What it is                                                    |
+| --------------- | ----- | ------------------------------------------------------------- |
+| `kind`          | both  | `local` or `ssh`                                              |
+| `sshHost`       | `ssh` | An ssh destination, spelled as it would be typed after `ssh`  |
+| `workspaceRoot` | both  | Where workspaces go on that host                              |
+| `provider`      | both  | The name of whatever made the host. Recorded, not interpreted |
+| `env`           | both  | Variables every session on that host is started with          |
+| `setup`         | both  | The `[setup.<name>]` block that sets the host up              |
 
 `env` is an overlay on whatever a session would have been started with, and it
 wins over it. Six names are refused rather than ignored — `TERM`, `COLORTERM`,
@@ -833,22 +867,27 @@ run = ["~/.local/share/werk/setup/install.sh"]
 rerunOnChange = true
 ```
 
-| Key             | What it is                                                                |
-| --------------- | ------------------------------------------------------------------------- |
-| `copy`          | What to send: a path on the machine werk is running on. `~/` is expanded. |
-| `to`            | Where it lands, relative to the home directory over there                 |
-| `run`           | The commands to run there, in order. Required.                            |
-| `rerunOnChange` | Whether it is worth running again once what it copies has changed         |
+| Key             | What it is                                                                  |
+| --------------- | --------------------------------------------------------------------------- |
+| `copy`          | The directory to send, on the machine werk is running on. `~/` is expanded. |
+| `to`            | Where it lands: under `$HOME` there, or under the workspace                 |
+| `run`           | The commands to run there, in order. Required.                              |
+| `rerunOnChange` | Whether it is worth running again once what it copies has changed           |
 
 `copy` and `to` are required together, `to` may not be absolute or contain
 `..`, and an unknown key is refused the way it is in a host block. A block also
 merges the way a host does: by name, never by field, with `werk config sources`
 reporting one a stronger layer replaced.
 
-**Nothing runs a setup block.** werk reads them, merges them and prints them;
-what would copy the files or run the commands is not built.
-[hosts.md](hosts.md#setting-a-machine-up-as-configuration) says the same in
-more detail.
+A host's block runs on the machine, before anything is put on it; a
+`workspaceSetup` runs in the workspace, after the worktree is checked out and
+before the session starts. `werk create` runs both, and `werk setup` runs the
+host's alone. The machine keeps a stamp of what was last run on it, so a second
+run does nothing; a repository's own setup is asked about once and the answer is
+recorded against the repository.
+[hosts.md](hosts.md#setting-a-machine-up-and-setting-a-workspace-up) has the
+whole of it: the stamp and the hint, the four outcomes, the trust prompt, and
+what a failure is.
 
 ### The remote layer, and the unimplemented `extends` hook
 
