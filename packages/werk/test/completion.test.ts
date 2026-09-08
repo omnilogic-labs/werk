@@ -17,7 +17,7 @@ import {
 import { Directive, renderReply } from "../src/completion/protocol.js";
 import { completes } from "../src/completion/hooks.js";
 
-const SCRIPTS = new URL("../src/completion/scripts/", import.meta.url).pathname;
+const SCRIPTS = path.join(import.meta.dir, "../src/completion/scripts");
 
 /**
  * The tree as werk really builds it. `attach` and the other three session

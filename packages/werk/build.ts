@@ -1,9 +1,17 @@
 import { mkdir } from "node:fs/promises";
-await mkdir(new URL("./dist/", import.meta.url), { recursive: true });
+import { join } from "node:path";
+// `import.meta.dir` is the absolute filesystem path of this directory. The
+// `pathname` of `import.meta.url` is not one: on Windows a `file://` URL keeps
+// a slash in front of the drive letter, so `D:\a\werk` comes back as
+// `/D:/a/werk`, which nothing on that platform can open.
+const here = import.meta.dir;
+const entrypoint = join(here, "src", "main.ts");
+const outdir = join(here, "dist");
+await mkdir(outdir, { recursive: true });
 const result = await Bun.build({
-  entrypoints: [new URL("./src/main.ts", import.meta.url).pathname],
+  entrypoints: [entrypoint],
   target: "bun",
-  outdir: new URL("./dist/", import.meta.url).pathname,
+  outdir,
   define: { WERK_COMPILED: "false" },
 });
 if (!result.success)
@@ -13,7 +21,7 @@ const child = Bun.spawn(
     process.execPath,
     "build",
     "--compile",
-    new URL("./src/main.ts", import.meta.url).pathname,
+    entrypoint,
     "--define",
     "WERK_COMPILED=true",
     // Bun compiles dotenv autoloading in by default, so the binary would read a
@@ -23,7 +31,7 @@ const child = Bun.spawn(
     // would ship that repository's secrets into every session it starts.
     "--no-compile-autoload-dotenv",
     "--outfile",
-    new URL("./dist/werk", import.meta.url).pathname,
+    join(outdir, "werk"),
   ],
   { stdout: "inherit", stderr: "inherit" },
 );

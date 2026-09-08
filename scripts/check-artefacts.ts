@@ -1,4 +1,5 @@
 import {
+  mkdir,
   mkdtemp,
   copyFile,
   readFile,
@@ -70,6 +71,37 @@ await writeFile(
 );
 const runtimeDir = join(directory, "runtime"),
   stateDir = join(directory, "state");
+// `werk create` makes a workspace, and a workspace is a git worktree, so it
+// needs a repository with a commit to branch from. The point of this check is
+// that the binary works away from this checkout, so it brings its own rather
+// than borrowing one. The identity flags let it commit on a runner that has
+// none configured.
+const checkout = join(directory, "checkout");
+await mkdir(checkout, { recursive: true });
+async function git(...args: string[]) {
+  const child = Bun.spawn(
+    [
+      "git",
+      "-c",
+      "user.name=werk artefact check",
+      "-c",
+      "user.email=artefact@example.invalid",
+      "-c",
+      "commit.gpgsign=false",
+      ...args,
+    ],
+    { cwd: checkout, stdout: "ignore", stderr: "pipe" },
+  );
+  assert.equal(
+    await child.exited,
+    0,
+    `git ${args.join(" ")}: ${await new Response(child.stderr).text()}`,
+  );
+}
+await git("init", "-q", "-b", "main", ".");
+await writeFile(join(checkout, "README.md"), "committed\n");
+await git("add", "README.md");
+await git("commit", "-q", "-m", "init");
 const globalArgs = ["--runtime-dir", runtimeDir, "--state-dir", stateDir];
 let pid: number | undefined;
 let client: Awaited<ReturnType<typeof connectSessionClient>> | undefined;
@@ -148,6 +180,24 @@ try {
   assert.match(await cli("help"), /create/);
   await cli("list");
   pid = await daemonPid();
+  // Outside a repository there is nothing to branch from, and the binary says
+  // so rather than starting a session anyway. This is the refusal that made the
+  // check need a checkout of its own.
+  const refused = Bun.spawn(
+    [
+      binary,
+      "create",
+      "--json",
+      ...globalArgs,
+      "--",
+      process.execPath,
+      fixture,
+    ],
+    { cwd: directory, stdout: "ignore", stderr: "pipe" },
+  );
+  const refusal = await new Response(refused.stderr).text();
+  assert.equal(await refused.exited, 2, refusal);
+  assert.equal(JSON.parse(refusal.trim()).error.code, "NOT_A_REPOSITORY");
   // The copied binary starts a detached owner using only its embedded assets.
   const createdProcess = Bun.spawn(
     [
@@ -167,7 +217,7 @@ try {
       process.execPath,
       fixture,
     ],
-    { cwd: directory, stdout: "pipe", stderr: "pipe" },
+    { cwd: checkout, stdout: "pipe", stderr: "pipe" },
   );
   const createdOutput = await new Response(createdProcess.stdout).text();
   assert.equal(
@@ -177,6 +227,11 @@ try {
   );
   const created = JSON.parse(createdOutput);
   assert.equal(created.name, "artefact");
+  // The packaged binary branched the repository it was run in and put the
+  // session in the worktree it made, rather than in the directory it was run
+  // from.
+  assert.equal(created.cwd, created.workspace.directory);
+  assert.notEqual(created.cwd, checkout);
   assert.match(await cli("info", "--json"), /capabilities/);
   client = await connect();
   await waitFor(
@@ -299,7 +354,7 @@ try {
       "-e",
       "process.exit(3)",
     ],
-    { cwd: directory, stdout: "pipe", stderr: "pipe" },
+    { cwd: checkout, stdout: "pipe", stderr: "pipe" },
   );
   const exitingOutput = await new Response(exiting.stdout).text();
   assert.equal(
@@ -329,7 +384,7 @@ try {
   await cli("remove", created.id);
   assert.deepEqual(JSON.parse(await cli("list", "--json")), []);
   console.log(
-    "Compiled binary outside checkout: detached create, stdin input, reconnect, resize, abrupt-death lost-screen recovery, ended-session outcome reporting and removal passed. Browser boundaries, assets and built declarations passed.",
+    "Compiled binary outside checkout: workspace creation, detached create, stdin input, reconnect, resize, abrupt-death lost-screen recovery, ended-session outcome reporting and removal passed. Browser boundaries, assets and built declarations passed.",
   );
 } finally {
   await client?.close();

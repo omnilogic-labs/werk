@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
-const MAIN = new URL("../src/main.ts", import.meta.url).pathname;
+const MAIN = join(import.meta.dir, "../src/main.ts");
 const TIMEOUT = 30000;
 
 const home = await mkdtemp("/tmp/wka-");

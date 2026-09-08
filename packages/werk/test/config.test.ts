@@ -21,8 +21,17 @@ import {
 import { UsageError } from "../src/runtime/exit.js";
 
 const temporary: string[] = [];
+/**
+ * A fresh directory, spelled the way the filesystem spells it. On macOS the
+ * temporary directory sits under `/var`, which is a symlink to `/private/var`,
+ * so a path built from `os.tmpdir()` and the path anything that resolves it
+ * reports back are the same place spelled two ways. Resolving here means the
+ * tests can compare whole paths rather than leaves.
+ */
 function tmpdir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "werk-config-"));
+  const dir = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "werk-config-")),
+  );
   temporary.push(dir);
   return dir;
 }

@@ -9,7 +9,7 @@ const endpoint = (await Bun.file(endpointPath).json()) as LocalEndpoint;
 const bridge = await startWebBridge({
   endpoint,
   port: Number(Bun.argv[3] ?? 4319),
-  assetsDir: new URL("./", import.meta.url).pathname,
+  assetsDir: import.meta.dir,
 });
 console.log(`Session browser: http://127.0.0.1:${bridge.port}`);
 process.on("SIGINT", () => {

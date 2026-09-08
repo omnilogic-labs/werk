@@ -19,7 +19,7 @@ import { promisify } from "node:util";
 import type { Command } from "@commander-js/extra-typings";
 import { buildProgram } from "../src/app.js";
 
-const MAIN = new URL("../src/main.ts", import.meta.url).pathname;
+const MAIN = join(import.meta.dir, "../src/main.ts");
 const TIMEOUT = 30000;
 let home = "";
 let runtimeDir = "";
