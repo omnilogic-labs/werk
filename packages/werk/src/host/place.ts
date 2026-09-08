@@ -32,7 +32,7 @@ import {
   type SshHost,
 } from "../config/hosts.js";
 import type { WerkContext } from "../runtime/context.js";
-import { askWorkspaceRoot } from "./probe.js";
+import { askWorkspaceRoot } from "./ssh-probe.js";
 import {
   openHostSession,
   type HostSession,

@@ -30,7 +30,7 @@ import { mergeLayers, type MergedConfig } from "../src/config/load.js";
 import { builtInDefaults } from "../src/config/schema.js";
 import { builtInHosts, type Host } from "../src/config/hosts.js";
 import type { ConfigEdit } from "../src/config/toml-edit.js";
-import { noProbe, type HostProbe } from "../src/hosts/probe.js";
+import { noProbe, type HostProbe } from "../src/host/probe.js";
 
 function context(overrides: Partial<WerkContext> = {}): WerkContext {
   return {

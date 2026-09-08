@@ -51,7 +51,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { LocalEndpoint } from "@werk/session-daemon";
 import type { SshHost } from "../config/hosts.js";
-import type { HostProbe, ProbeOptions, ProbeResult } from "../hosts/probe.js";
+import type { HostProbe, ProbeOptions, ProbeAnswer } from "./probe.js";
 import {
   SOURCE_IDENTITY,
   compiledWerk,
@@ -59,7 +59,7 @@ import {
 } from "../runtime/version.js";
 import { openForward, type Forward } from "./forward.js";
 import { ensureRemoteWerk, type Installed } from "./install.js";
-import { probeHost, sshProbe } from "./probe.js";
+import { probeFacts, sshProbe } from "./ssh-probe.js";
 import {
   requireConnection,
   shellQuote,
@@ -184,7 +184,7 @@ export function openHostSession(options: HostSessionOptions): HostSession {
   }
 
   async function cold(): Promise<HostReady> {
-    const facts = await probeHost(sshHost, runner, EXEC_TIMEOUT_MS);
+    const facts = await probeFacts(sshHost, runner, EXEC_TIMEOUT_MS);
     const target = targetFor(sshHost, facts, options.target);
     const installed = await ensureRemoteWerk({
       sshHost,
@@ -278,7 +278,10 @@ export function openHostSession(options: HostSessionOptions): HostSession {
       })();
       return warm;
     },
-    run(command: string, probeOptions?: ProbeOptions): Promise<ProbeResult> {
+    run(
+      command: readonly string[],
+      probeOptions: ProbeOptions,
+    ): Promise<ProbeAnswer> {
       return probe.run(command, probeOptions);
     },
     async close() {

@@ -1,242 +1,288 @@
 /**
- * Everything werk needs to know about a machine, in one round trip.
+ * Asking a machine about itself, through whatever can reach it.
  *
- * One round trip rather than one question per fact, because at 50 ms of latency
- * ten questions is half a second of nothing happening and the shape scales the
- * wrong way: every fact anybody adds later costs another round trip forever.
- * So the script below runs once, under a login shell, and prints its answers.
+ * A host block holds what the machine is called and where werk may put things.
+ * Everything else werk asks the machine, at the moment it needs to know, and
+ * throws the answer away. That is the whole reason this exists: a `werkPath` or
+ * a `shell` written into a config file is a fact that was true once, and it
+ * goes stale silently while `ssh beast` keeps working.
  *
- * ## Why lines and not JSON
+ * The seam is one method. A transport that could not connect answers `ok:
+ * false` with no `code`; a command that ran and exited non-zero answers `ok:
+ * true` with the code, because a command that failed is an answer. Nothing here
+ * throws for a status.
  *
- * The obvious thing is to `printf` a JSON object out of `sh`. Do not. Quoting a
- * `$HOME` that contains a quote, a backslash or a newline is a bug nobody finds
- * until the one person whose home directory has an apostrophe in it tries werk,
- * and `sh` has no JSON escaper. One value per line in a fixed order has no
- * escaping problem for anything werk actually asks about, and a field that grew
- * a newline would fail the field count rather than silently mean something
- * else.
- *
- * ## Why the markers
- *
- * A login shell runs the person's profile, and profiles print things — a MOTD,
- * a version manager's greeting, a fortune. Everything before the opening marker
- * is discarded, so a banner costs nothing. The closing marker earns its place
- * separately: the last two fields can legitimately be empty, so without an end
- * to measure against there is no way to tell an empty last field from a missing
- * one.
- *
- * ## Why musl is detected by looking for a file
- *
- * Running `ldd --version` to ask means running the dynamic loader and parsing
- * prose that differs between glibc, musl and every distribution's patched
- * build; musl's `ldd` writes its answer to stderr and exits 1. The loader
- * itself is a file with a fixed name, and a machine that has `ld-musl-*.so.1`
- * is a musl machine.
+ * `noProbe` answers "unknown" to everything, in the same shape and for the same
+ * reason as `unconfiguredSource` in `config/sources.ts`: it makes the seam
+ * usable before anything is behind it, and it makes the report say "unknown"
+ * rather than pretending.
  */
-import {
-  requireConnection,
-  sshExecArgv,
-  type RemoteRunner,
-  EXEC_TIMEOUT_MS,
-} from "./ssh.js";
-import { HostError, type RemoteFacts } from "./types.js";
-import type { HostProbe, ProbeOptions, ProbeResult } from "../hosts/probe.js";
 
-export const PROBE_START = "WERK-PROBE-1";
-export const PROBE_END = "WERK-PROBE-END";
+export interface ProbeAnswer {
+  /** Whether the command was run at all. */
+  readonly ok: boolean;
+  /** Its exit status, or null when nothing ran. */
+  readonly code: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}
 
-/** The fields the script prints, in the order it prints them. */
-export const PROBE_FIELDS = [
-  "uname",
-  "arch",
-  "libc",
-  "home",
-  "uid",
-  "git",
-  "rsync",
-  "loginPath",
-  "claudeConfig",
-  "installed",
-] as const;
+export interface ProbeOptions {
+  /** How long this one command may take. */
+  readonly timeoutMs: number;
+  /**
+   * Whether the command wants a login shell's environment. The commands below
+   * spell that themselves with `sh -lc`, so this is a hint for a transport that
+   * would rather arrange it another way.
+   */
+  readonly login?: boolean;
+}
+
+export interface HostProbe {
+  run(command: readonly string[], options: ProbeOptions): Promise<ProbeAnswer>;
+}
+
+/** Answers nothing to everything, so a report says "unknown" and not a guess. */
+export const noProbe: HostProbe = {
+  async run() {
+    return { ok: false, code: null, stdout: "", stderr: "" };
+  },
+};
 
 /**
- * The script itself. Deliberately POSIX `sh`: it has to run under whatever the
- * account's shell is, and werk has no way to know that a machine has bash until
- * after it has asked.
+ * The machine werk is running on. It exists so `werk config check local` says
+ * something true rather than six unknowns, and it is the one transport that
+ * needs nothing built: the commands below are the same ones a remote probe
+ * runs, so whatever this reports is what the seam is expected to report.
  */
-export const PROBE_SCRIPT = [
-  `echo ${PROBE_START}`,
-  `uname -s`,
-  `uname -m`,
-  // An unmatched glob stays literal in `sh`, and `[ -e ]` on a literal is
-  // false, so this needs no `nullglob` and no subshell.
-  `libc=glibc`,
-  `for f in /lib/ld-musl-*.so.1 /usr/lib/ld-musl-*.so.1; do [ -e "$f" ] && libc=musl; done`,
-  `echo "$libc"`,
-  `printf "%s\\n" "$HOME"`,
-  `id -u`,
-  `command -v git || echo`,
-  `command -v rsync || echo`,
-  `printf "%s\\n" "$PATH"`,
-  `c=""`,
-  `[ -e "$HOME/.claude.json" ] && c="$HOME/.claude.json"`,
-  `[ -d "$HOME/.claude" ] && c="$HOME/.claude"`,
-  `printf "%s\\n" "$c"`,
-  `v=""`,
-  `command -v werk >/dev/null 2>&1 && v=$(werk --version 2>/dev/null | head -1)`,
-  `printf "%s\\n" "$v"`,
-  `echo ${PROBE_END}`,
-].join("\n");
+export const localProbe: HostProbe = {
+  async run(command, options) {
+    try {
+      const child = Bun.spawn([...command], {
+        stdout: "pipe",
+        stderr: "pipe",
+        stdin: "ignore",
+      });
+      const deadline = setTimeout(() => child.kill(), options.timeoutMs);
+      const [stdout, stderr] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      const code = await child.exited;
+      clearTimeout(deadline);
+      return { ok: true, code, stdout, stderr };
+    } catch (error) {
+      // The command is not on this machine at all, which is nothing having run
+      // rather than something having failed.
+      return {
+        ok: false,
+        code: null,
+        stdout: "",
+        stderr: error instanceof Error ? error.message : String(error),
+      };
+    }
+  },
+};
 
-/** The lines between the two markers, or null when they are not both there. */
-export function probeBody(stdout: string): string[] | null {
-  const lines = stdout.replaceAll("\r", "").split("\n");
-  const start = lines.indexOf(PROBE_START);
-  if (start < 0) return null;
-  const end = lines.indexOf(PROBE_END, start + 1);
-  if (end < 0) return null;
-  return lines.slice(start + 1, end);
+/**
+ * Which probe a caller here gets for a host.
+ *
+ * An ssh host gets {@link noProbe}, so a caller must say "not checked" rather
+ * than "unreachable". That is a gap rather than a limit: `sshProbe` in
+ * `ssh-probe.ts` implements the seam and `werk create --host` uses it, and what
+ * is missing is only handing one to `config check` and to the wizard. Doing it
+ * needs a destination as well as a kind, which is why this signature does not
+ * fit it yet.
+ */
+export const probeFor = (kind: "local" | "ssh"): HostProbe =>
+  kind === "local" ? localProbe : noProbe;
+
+/** What one check found. `unknown` is what a probe that could not run says. */
+export interface Check {
+  readonly name: string;
+  readonly state: "yes" | "no" | "unknown";
+  /** What it found, for a check that answers with a value rather than a fact. */
+  readonly detail?: string;
 }
+
+export interface ProbeReport {
+  readonly reachable: "yes" | "no" | "unknown";
+  readonly checks: readonly Check[];
+  /**
+   * The workspace root the machine's own environment implies, computed on that
+   * machine by the same rule the local host uses.
+   */
+  readonly workspaceRoot?: string;
+  /** Whether that directory exists yet. werk would create it if it does not. */
+  readonly workspaceRootExists?: boolean;
+  /** Whether it, or the nearest existing parent, can be written to. */
+  readonly workspaceRootUsable?: boolean;
+  /** Findings worth saying out loud, in the order they were made. */
+  readonly notes: readonly string[];
+}
+
+/** Ten seconds to answer at all; the rest are quick once a connection is up. */
+const REACH_MS = 10_000;
+const QUICK_MS = 5_000;
+/** The whole probe, however many checks it makes. */
+export const PROBE_BUDGET_MS = 30_000;
 
 /**
  * The same rule `defaultStateDir` applies locally, spelled for the machine's own
  * shell so the answer is that machine's `$HOME` and its `$XDG_STATE_HOME`.
  */
-export const WORKSPACE_ROOT_COMMAND =
+const WORKSPACE_ROOT_COMMAND =
   'printf %s "${XDG_STATE_HOME:-$HOME/.local/state}/werk/workspaces"';
-
-/**
- * Where workspaces go on a machine, asked of the machine.
- *
- * A host block with no `workspaceRoot` has not said, and werk must not guess:
- * the answer depends on that machine's `$HOME` and its `$XDG_STATE_HOME`, and a
- * path invented here would be wrong the first time either is not what this
- * machine has. The rule is the same one `defaultStateDir` applies locally, and
- * it is the same string `probeHost` reports as the `workspace root` check, so
- * `werk config check` and a `werk create` that had to ask cannot disagree.
- *
- * Returns undefined when the machine answered and said nothing usable. It does
- * not throw: the caller knows which host it was asking and what it wanted the
- * answer for, and a transport that could not connect raises on its own.
- */
-export async function askWorkspaceRoot(
-  probe: HostProbe,
-  timeoutMs = QUICK_MS,
-): Promise<string | undefined> {
-  const answer = await probe.run(["sh", "-c", WORKSPACE_ROOT_COMMAND], {
-    timeoutMs,
-  });
-  const value = answer.stdout.trim();
-  return answer.ok && answer.code === 0 && value !== "" ? value : undefined;
-}
 
 /**
  * Ask a machine the handful of things werk wants to know before putting work on
  * it.
- * Read what the script printed. *
- * `sshHost` is only ever used to name the machine in a failure; nothing here
- * connects to anything.
+ *
+ * **Nothing here creates anything.** A probe that runs `mkdir -p` has changed
+ * somebody's machine before they said yes to anything, so the workspace root is
+ * tested, and its nearest existing parent is tested when it is not there yet.
+ * Whoever is asking says "werk will create it" rather than werk creating it.
+ *
+ * Unreachable is not a failure of the probe. A machine that is asleep is a
+ * legitimate host, and the report says so and stops rather than reporting six
+ * more unknowns.
  */
-export function parseProbe(sshHost: string, stdout: string): RemoteFacts {
-  const body = probeBody(stdout);
-  if (body === null)
-    throw new HostError(
-      "HOST_UNSUPPORTED",
-      sshHost,
-      `${sshHost} did not answer werk's probe. Its shell printed something ` +
-        `werk cannot read instead.`,
-      stdout.replaceAll("\r", "").trim().slice(0, 400),
-    );
-  if (body.length !== PROBE_FIELDS.length)
-    throw new HostError(
-      "HOST_UNSUPPORTED",
-      sshHost,
-      `${sshHost} answered werk's probe with ${body.length} fields where it ` +
-        `expects ${PROBE_FIELDS.length}.`,
-      body.join("\n").slice(0, 400),
-    );
-  const [
-    uname = "",
-    arch = "",
-    libc = "",
-    home = "",
-    uid = "",
-    git = "",
-    rsync = "",
-    loginPath = "",
-    claudeConfig = "",
-    installed = "",
-  ] = body;
-  const refuse = (why: string) =>
-    new HostError(
-      "HOST_UNSUPPORTED",
-      sshHost,
-      `${sshHost}: ${why}`,
-      body.join("\n"),
-    );
-  if (!uname) throw refuse("its `uname -s` said nothing.");
-  if (!arch) throw refuse("its `uname -m` said nothing.");
-  if (libc !== "glibc" && libc !== "musl")
-    throw refuse(`werk read its C library as ${JSON.stringify(libc)}.`);
-  if (!home.startsWith("/"))
-    throw refuse(
-      `its HOME is ${JSON.stringify(home)}, which is not an absolute path.`,
-    );
-  const uidNumber = Number(uid);
-  if (!Number.isInteger(uidNumber))
-    throw refuse(`its \`id -u\` said ${JSON.stringify(uid)}.`);
-  return {
-    uname,
-    arch,
-    libc,
-    home,
-    uid: uidNumber,
-    ...(git ? { git } : {}),
-    rsync: rsync !== "",
-    loginPath,
-    ...(claudeConfig ? { claudeConfig } : {}),
-    ...(installed ? { installed } : {}),
-    werk: `${home}/.local/share/werk/bin`,
-  };
-}
-
-/** Ask a machine everything, once. */
 export async function probeHost(
-  sshHost: string,
-  runner: RemoteRunner,
-  timeoutMs = EXEC_TIMEOUT_MS,
-): Promise<RemoteFacts> {
-  const outcome = await runner.run(
-    sshExecArgv(sshHost, PROBE_SCRIPT, { login: true }),
-    { timeoutMs },
+  probe: HostProbe,
+  options: { signal?: AbortSignal } = {},
+): Promise<ProbeReport> {
+  const signal = options.signal ?? AbortSignal.timeout(PROBE_BUDGET_MS);
+  const checks: Check[] = [];
+  const notes: string[] = [];
+  const spent = () => signal.aborted;
+
+  const reach = await probe.run(["true"], { timeoutMs: REACH_MS });
+  // No code at all means nothing ran, which is what {@link noProbe} says to
+  // everything and what a transport says when it could not connect. Those two
+  // read differently to a person, and only the caller knows which probe it
+  // handed over, so the distinction is made there rather than guessed at here.
+  const reachable =
+    reach.code === null
+      ? "unknown"
+      : reach.ok && reach.code === 0
+        ? "yes"
+        : "no";
+  checks.push({ name: "reachable", state: reachable });
+  if (reachable !== "yes") {
+    if (reachable === "no" && reach.stderr.trim() !== "")
+      notes.push(reach.stderr.trim().split("\n")[0]!);
+    return { reachable, checks, notes };
+  }
+
+  const ran = async (
+    name: string,
+    command: readonly string[],
+    login = false,
+  ) => {
+    if (spent()) {
+      checks.push({
+        name,
+        state: "unknown",
+        detail: "the probe ran out of time",
+      });
+      return undefined;
+    }
+    const answer = await probe.run(command, {
+      timeoutMs: QUICK_MS,
+      ...(login ? { login: true } : {}),
+    });
+    const value = answer.stdout.trim();
+    const found = answer.ok && answer.code === 0 && value !== "";
+    checks.push({
+      name,
+      state: answer.code === null ? "unknown" : found ? "yes" : "no",
+      ...(found ? { detail: value } : {}),
+    });
+    return found ? value : undefined;
+  };
+
+  await ran("system", ["uname", "-sm"]);
+  await ran("git", ["git", "--version"]);
+  await ran("werk", ["sh", "-c", "command -v werk"]);
+  const root = await ran("workspace root", [
+    "sh",
+    "-c",
+    WORKSPACE_ROOT_COMMAND,
+  ]);
+  const usable =
+    root === undefined ? undefined : await usability(probe, root, spent);
+  if (usable?.exists === false)
+    notes.push(`${root} does not exist yet; werk will create it`);
+  if (usable?.writable === false)
+    notes.push(`nothing under ${root} can be written to as this user`);
+  if (usable !== undefined)
+    checks.push({
+      name: "workspace root usable",
+      state: usable.writable ? "yes" : "no",
+      detail: usable.nearest,
+    });
+
+  const login = await ran(
+    "claude on a login shell",
+    ["sh", "-lc", "command -v claude"],
+    true,
   );
-  requireConnection(sshHost, outcome, `looking at ${sshHost}`);
-  return parseProbe(sshHost, outcome.stdout);
+  const plain = await ran("claude on a plain shell", [
+    "sh",
+    "-c",
+    "command -v claude",
+  ]);
+  if (login !== undefined && plain === undefined)
+    notes.push(
+      `claude is at ${login} on a login shell's PATH and is not on a plain ` +
+        `one, so whatever starts it will have to ask for a login shell`,
+    );
+
+  return {
+    reachable,
+    checks,
+    ...(root === undefined ? {} : { workspaceRoot: root }),
+    ...(usable === undefined
+      ? {}
+      : {
+          workspaceRootExists: usable.exists,
+          workspaceRootUsable: usable.writable,
+        }),
+    notes,
+  };
 }
 
 /**
- * The ssh implementation of `HostProbe`.
- *
- * Nothing here interprets a non-zero status: a command that ran and failed is
- * an answer, and only a connection that could not be made raises.
+ * Whether werk could put a workspace at a path, without making anything. When
+ * the directory is not there yet the nearest existing parent is tested instead,
+ * which is the question that actually matters: `mkdir -p` will work if the
+ * first directory above it that exists can be written to.
  */
-export function sshProbe(sshHost: string, runner: RemoteRunner): HostProbe {
+async function usability(
+  probe: HostProbe,
+  root: string,
+  spent: () => boolean,
+): Promise<
+  { exists: boolean; writable: boolean; nearest: string } | undefined
+> {
+  if (spent()) return undefined;
+  const script =
+    `p=${shellQuote(root)}\n` +
+    `if [ -d "$p" ]; then printf 'here '; else printf 'absent '; fi\n` +
+    `while [ ! -d "$p" ] && [ "$p" != "/" ] && [ "$p" != "." ]; do ` +
+    `p=$(dirname "$p"); done\n` +
+    `if [ -w "$p" ]; then printf 'writable '; else printf 'readonly '; fi\n` +
+    `printf %s "$p"\n`;
+  const answer = await probe.run(["sh", "-c", script], { timeoutMs: QUICK_MS });
+  if (!answer.ok || answer.code !== 0) return undefined;
+  const [there, write, ...rest] = answer.stdout.trim().split(" ");
   return {
-    async run(
-      command: string,
-      options: ProbeOptions = {},
-    ): Promise<ProbeResult> {
-      const outcome = await runner.run(
-        sshExecArgv(sshHost, command, { login: options.login === true }),
-        { timeoutMs: options.timeoutMs ?? EXEC_TIMEOUT_MS },
-      );
-      requireConnection(sshHost, outcome, `running a command on ${sshHost}`);
-      return {
-        ok: outcome.code === 0,
-        code: outcome.code,
-        stdout: outcome.stdout.replaceAll("\r", ""),
-        stderr: outcome.stderr.replaceAll("\r", ""),
-      };
-    },
+    exists: there === "here",
+    writable: write === "writable",
+    nearest: rest.join(" "),
   };
 }
+
+/** A path inside single quotes, which is the only shell quoting werk needs. */
+export const shellQuote = (value: string): string =>
+  `'${value.replaceAll("'", `'\\''`)}'`;

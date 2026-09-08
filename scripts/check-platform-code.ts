@@ -122,7 +122,8 @@ export const EXCEPTIONS: Exception[] = [
     path: "packages/workspace/src/ssh.ts",
     allowed: 3,
     reason:
-      "Every path built here is on the far machine, which is posix whatever this one is. Unconditional rather than a branch, and using the host's separator would be the bug.",    disposition: "stays",
+      "Every path built here is on the far machine, which is posix whatever this one is. Unconditional rather than a branch, and using the host's separator would be the bug.",
+    disposition: "stays",
   },
   {
     path: "scripts/session-soak.ts",

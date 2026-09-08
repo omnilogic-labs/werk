@@ -18,24 +18,25 @@ the rest.
 [cli-internals.md](cli-internals.md) has the parts that only matter to somebody
 changing the CLI: how a command is declared, why a missing option value reports
 alone, and what each dependency is for.
+
 ## The command tree
 
-| Command                 | What it does                                                                  |
-| ----------------------- | ----------------------------------------------------------------------------- |
-| `create -- COMMAND ...` | Start a session running a command, in a new workspace, and attach to it       |
-| `list` (`ls`)           | List sessions                                                                 |
-| `attach [session]`      | Go back to a running session; Ctrl-] detaches                                 |
-| `logs [session]`        | Print what a session has on screen, or what it has kept                       |
-| `kill [session]`        | Ask a session's process to stop                                               |
-| `remove` (`rm`)         | Forget a session that has stopped                                             |
-| `watch`                 | Print daemon events as JSON lines until interrupted                           |
-| `info`                  | Print where werk keeps things and what the daemon says                        |
-| `doctor`                | Check the local daemon and print the end of its log                           |
-| `config`                | `list`, `get`, `set`, `unset`, `setup`, `check`, `sources`, `path`            |
-| `completion`            | `bash`, `zsh`, `fish`: print a shell completion script                        |
-| `daemon`                | `serve`: run the daemon in this process; `endpoint`: print what to connect to |
-One more is accepted and not listed. `complete` answers the shell completion
-protocol and is a wire format rather than something a person types.
+| Command                                                                      | What it does                                                                  |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `create -- COMMAND ...`                                                      | Start a session running a command, in a new workspace, and attach to it       |
+| `list` (`ls`)                                                                | List sessions                                                                 |
+| `attach [session]`                                                           | Go back to a running session; Ctrl-] detaches                                 |
+| `logs [session]`                                                             | Print what a session has on screen, or what it has kept                       |
+| `kill [session]`                                                             | Ask a session's process to stop                                               |
+| `remove` (`rm`)                                                              | Forget a session that has stopped                                             |
+| `watch`                                                                      | Print daemon events as JSON lines until interrupted                           |
+| `info`                                                                       | Print where werk keeps things and what the daemon says                        |
+| `doctor`                                                                     | Check the local daemon and print the end of its log                           |
+| `config`                                                                     | `list`, `get`, `set`, `unset`, `setup`, `check`, `sources`, `path`            |
+| `completion`                                                                 | `bash`, `zsh`, `fish`: print a shell completion script                        |
+| `daemon`                                                                     | `serve`: run the daemon in this process; `endpoint`: print what to connect to |
+| One more is accepted and not listed. `complete` answers the shell completion |
+| protocol and is a wire format rather than something a person types.          |
 
 Help drills down: `werk --help` lists the commands, `werk config --help` lists
 that command's subcommands, and `werk config get --help` describes one leaf.
@@ -770,6 +771,7 @@ and it goes stale silently while `ssh beast` keeps working. `werk config check`
 asks the machine instead, every time.
 
 ### The remote layer, and the unimplemented `extends` hook
+
 A portal is expected to supply some of a client's configuration once that client
 registers with it. Which settings it takes over, what happens to settings the
 client already had, how a person sees what has been taken over, and whether

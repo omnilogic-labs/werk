@@ -46,7 +46,7 @@ import {
   probeHost,
   PROBE_BUDGET_MS,
   type ProbeReport,
-} from "../hosts/probe.js";
+} from "../host/probe.js";
 import type { WerkContext } from "../runtime/context.js";
 import type { Result } from "../runtime/output.js";
 

@@ -64,7 +64,7 @@ import {
   PROBE_BUDGET_MS,
   type HostProbe,
   type ProbeReport,
-} from "../hosts/probe.js";
+} from "../host/probe.js";
 
 /* --------------------------------------------------------------- the report */
 

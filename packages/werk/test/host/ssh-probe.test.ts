@@ -5,9 +5,9 @@ import {
   PROBE_SCRIPT,
   PROBE_START,
   parseProbe,
-  probeHost,
+  probeFacts,
   sshProbe,
-} from "../../src/host/probe.js";
+} from "../../src/host/ssh-probe.js";
 import { HostError } from "../../src/host/types.js";
 import { fakeRunner } from "./fake-runner.js";
 
@@ -164,7 +164,7 @@ describe("the script itself", () => {
 
 test("the probe runs under a login shell, once", async () => {
   const runner = fakeRunner(() => ({ stdout: answer({}) }));
-  const facts = await probeHost("beast", runner);
+  const facts = await probeFacts("beast", runner);
   expect(facts.home).toBe("/home/mike");
   expect(runner.calls).toHaveLength(1);
   expect(runner.calls[0]!.argv.at(-1)).toContain("-lc");
@@ -174,7 +174,10 @@ test("the probe runs under a login shell, once", async () => {
 describe("the HostProbe over ssh", () => {
   test("a non-zero status is an answer and not a failure", async () => {
     const runner = fakeRunner(() => ({ code: 1, stderr: "not found" }));
-    const result = await sshProbe("beast", runner).run("command -v git");
+    const result = await sshProbe("beast", runner).run(
+      ["command", "-v", "git"],
+      { timeoutMs: 5_000 },
+    );
     expect(result.ok).toBe(false);
     expect(result.code).toBe(1);
     expect(result.stderr).toBe("not found");
@@ -184,16 +187,20 @@ describe("the HostProbe over ssh", () => {
       code: 255,
       stderr: "ssh: Could not resolve hostname beast",
     }));
-    await expect(sshProbe("beast", runner).run("true")).rejects.toThrow(
-      HostError,
-    );
+    await expect(
+      sshProbe("beast", runner).run(["true"], { timeoutMs: 5_000 }),
+    ).rejects.toThrow(HostError);
   });
   test("login is asked for rather than assumed", async () => {
     const runner = fakeRunner();
     const probe = sshProbe("beast", runner);
-    await probe.run("true");
-    await probe.run("true", { login: true });
-    expect(runner.calls[0]!.argv.at(-1)).toBe("true");
+    await probe.run(["true"], { timeoutMs: 5_000 });
+    await probe.run(["true"], { timeoutMs: 5_000, login: true });
+    // The command reaches the far side either way; what differs is whether a
+    // login shell is asked for, so that is what this asserts rather than the
+    // exact quoting the seam applies.
+    expect(runner.calls[0]!.argv.at(-1)).toContain("true");
+    expect(runner.calls[0]!.argv.join(" ")).not.toContain("-lc");
     expect(runner.calls[1]!.argv.at(-1)).toContain("-lc");
   });
 });

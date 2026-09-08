@@ -89,13 +89,13 @@ from. Its root is wherever the client is executing, and an edge means "was
 derived from": the child's branch starts at the parent's branch, and the child's
 changes are expected to go back to it.
 
-|                         | Containment                           | Derivation                                |
-| ----------------------- | ------------------------------------- | ----------------------------------------- |
+|                      | Containment                                      | Derivation                                       |
+| -------------------- | ------------------------------------------------ | ------------------------------------------------ |
 | Nodes                | Hosts, providers, workspaces, terminal processes | Workspaces, and the place the client runs        |
 | Roots                | What werk reaches directly                       | Wherever the client is executing                 |
 | An edge means        | Lives on, was made by, or runs in                | Was derived from                                 |
 | Relates two machines | Only when one contains the other                 | Freely, including two with no route between them |
-| Shape                   | A tree, necessarily                   | Probably a tree at first, see question 18 |
+| Shape                | A tree, necessarily                              | Probably a tree at first, see question 18        |
 
 A workspace on a Fly.io machine can be derived from a workspace on a Mac mini in
 someone's house. That edge is invisible in the containment graph, where the two

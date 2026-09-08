@@ -24,24 +24,25 @@ commit `42d3475` and any of them can still be read, for example with
 
 ## Words used in these documents
 
-| Word                  | What it means here                                                                                | Where it stands today                                                                                                                      |
-| --------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| **workspace**         | A named, isolated place for work: somewhere to run, a copy of the repository, its own branch.     | `werk create` makes one: a git worktree on this machine.                                                                                   |
-| **terminal process**  | One long-lived process with a terminal, inside a workspace. A workspace holds several.            | The code calls this a session.                                                                                                             |
-| **host**              | A machine a workspace runs on, whether somebody already had it or a provider made it.             | Absent from the code. See [what we are currently trying](#what-we-are-currently-trying).                                                                                                                      |
+| Word                  | What it means here                                                                                | Where it stands today                                                                                                                   |
+| --------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **workspace**         | A named, isolated place for work: somewhere to run, a copy of the repository, its own branch.     | `werk create` makes one: a git worktree on this machine.                                                                                |
+| **terminal process**  | One long-lived process with a terminal, inside a workspace. A workspace holds several.            | The code calls this a session.                                                                                                          |
+| **host**              | A machine a workspace runs on, whether somebody already had it or a provider made it.             | Absent from the code. See [what we are currently trying](#what-we-are-currently-trying).                                                |
 | **provider**          | Something that creates and manages hosts, such as incus, Kubernetes, Docker or a cloud VM API.    | Nothing makes hosts. See [question 1](open-questions.md#1-what-do-we-call-a-machine-and-what-do-we-call-the-thing-that-makes-machines). |
-| **parent**            | The branch a workspace was created from, and the branch its changes go back to.                   | `create` records the checkout a workspace was branched from.                                                                               |
-| **land**              | Get the changes made in a workspace onto its parent branch.                                       | Nothing lands anything yet. The route is meant to be configurable; see [Landing](product/landing.md).                                      |
-| **mapper**            | A component that reports what a running process is doing, using more than its terminal output.    | Nothing reports this yet.                                                                                                                  |
-| **daemon**            | The long-lived process on a host that owns the terminal processes. Shorthand `werkd`.             | One runs, started by `werk daemon serve`. The binary is `werk`.                                                                            |
-| **portal**            | The thing a company installs to configure hosts, workspaces, terminals and agents for its people. | Nothing of it exists.                                                                                                                      |
-| **transcript**        | The record of what happened in a terminal process, readable after the process has ended.          | Does not exist yet.                                                                                                                        |
-| **containment graph** | Hosts and any providers that made them, the workspaces on those hosts, and the processes in them. | Nothing computes it. See [Workspaces and git](workspaces-and-git.md).                                                                      |
-| **derivation graph**  | Workspaces and the workspaces they were derived from, wherever those live.                        | Nothing computes it. See [Workspaces and git](workspaces-and-git.md).                                                                      |
-| **workspace record**  | Whatever werk stores about a workspace: where it is, what it came from, what state it is in.      | Nothing is stored. See [question 19](open-questions.md#19-where-does-the-record-of-a-workspace-live).                                      |
-| **log**               | The record of who did what to a shared terminal, kept for review.                                 | Does not exist yet.                                                                                                                        |
-| **chrome**            | The status row werk paints on the bottom line of the terminal while an attachment holds it.       | `werk attach` paints one. See [cli.md](cli.md#the-chrome).                                                                                 |
-| **output mode**       | Which shape a command's answer takes: text for a person, or one JSON value for a machine.         | Both are built; `--json` selects the second. See [cli.md](cli.md#two-output-modes).                                                        |
+| **parent**            | The branch a workspace was created from, and the branch its changes go back to.                   | `create` records the checkout a workspace was branched from.                                                                            |
+| **land**              | Get the changes made in a workspace onto its parent branch.                                       | Nothing lands anything yet. The route is meant to be configurable; see [Landing](product/landing.md).                                   |
+| **mapper**            | A component that reports what a running process is doing, using more than its terminal output.    | Nothing reports this yet.                                                                                                               |
+| **daemon**            | The long-lived process on a host that owns the terminal processes. Shorthand `werkd`.             | One runs, started by `werk daemon serve`. The binary is `werk`.                                                                         |
+| **portal**            | The thing a company installs to configure hosts, workspaces, terminals and agents for its people. | Nothing of it exists.                                                                                                                   |
+| **transcript**        | The record of what happened in a terminal process, readable after the process has ended.          | Does not exist yet.                                                                                                                     |
+| **containment graph** | Hosts and any providers that made them, the workspaces on those hosts, and the processes in them. | Nothing computes it. See [Workspaces and git](workspaces-and-git.md).                                                                   |
+| **derivation graph**  | Workspaces and the workspaces they were derived from, wherever those live.                        | Nothing computes it. See [Workspaces and git](workspaces-and-git.md).                                                                   |
+| **workspace record**  | Whatever werk stores about a workspace: where it is, what it came from, what state it is in.      | Nothing is stored. See [question 19](open-questions.md#19-where-does-the-record-of-a-workspace-live).                                   |
+| **log**               | The record of who did what to a shared terminal, kept for review.                                 | Does not exist yet.                                                                                                                     |
+| **chrome**            | The status row werk paints on the bottom line of the terminal while an attachment holds it.       | `werk attach` paints one. See [cli.md](cli.md#the-chrome).                                                                              |
+| **output mode**       | Which shape a command's answer takes: text for a person, or one JSON value for a machine.         | Both are built; `--json` selects the second. See [cli.md](cli.md#two-output-modes).                                                     |
+
 ## What werk is
 
 werk starts a process somewhere and lets you come back to it later.
@@ -122,8 +123,8 @@ Three things this specification needs are absent today:
 - git beyond making a worktree and a branch;
 - sharing as a product feature, which the protocol supports and nothing uses;
 - a durable log.
-What is on disk now is a bounded screen checkpoint, roughly 10 MB of scrollback
-by default, which is not a record of everything a process printed.
+  What is on disk now is a bounded screen checkpoint, roughly 10 MB of scrollback
+  by default, which is not a record of everything a process printed.
 
 ## What we are currently trying
 

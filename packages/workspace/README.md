@@ -53,8 +53,8 @@ a path.
 
 | Export                                       | What it does                                                            |
 | -------------------------------------------- | ----------------------------------------------------------------------- |
-| `createLocalWorktreeMaker({ root, git? })`    | A `WorkspaceMaker` that makes git worktrees on this machine              |
-| `workspaceAt(root, directory, host?)`  | Which workspace a directory is, for a caller holding a path and no name |
+| `createLocalWorktreeMaker({ root, git? })`   | A `WorkspaceMaker` that makes git worktrees on this machine             |
+| `workspaceAt(root, directory, host?)`        | Which workspace a directory is, for a caller holding a path and no name |
 | `isWorkspaceName(name)`                      | Whether a string is a name a branch and a directory can share           |
 | `workspaceReference(workspace)`              | Turn a `Workspace` into a `WorkspaceReference`                          |
 | `formatWorkspaceReference(reference, level)` | Write one at `"name"`, `"path"` or `"full"`                             |
@@ -141,14 +141,14 @@ asking for a workspace will hit.
 
 ## What it does not do
 
-| Gap                                                                                                                                                                                  | Where it is open                                                                                   |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| Gap                                                                                                                                                                             | Where it is open                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | **What werk remembers about a workspace, and where that record lives.** Nothing is written here except the worktree itself, so `workspaceAt` reads a path rather than an index. | [question 19](../../docs/open-questions.md#19-where-does-the-record-of-a-workspace-live)           |
-| **Which machine a workspace is on.** A reference has room for a host and nothing supplies one, so the component is absent everywhere.                                                | [question 24](../../docs/open-questions.md#24-what-is-the-host-component-of-a-workspace-reference) |
-| **The state a workspace can be in.** `Workspace` has no state field, because the words for one are not settled.                                                                      | [question 16](../../docs/open-questions.md#16-which-of-the-old-words-survive)                      |
-| **Whether the checkout the client is standing in is itself a workspace.** `WorkspaceSource` calls it a `local-checkout` and does not claim either way.                               | [question 20](../../docs/open-questions.md#20-is-the-place-the-client-is-running-a-workspace)      |
-| **What ends a workspace.** Nothing here removes one.                                                                                                                                 | [question 14](../../docs/open-questions.md#14-what-ends-a-workspace)                               |
-| **Reading a reference back from a string.** The grammar is built to be read back, and nothing needs it yet.                                                                          | Not raised as a question; every caller starts from a directory or a workspace                      |
+| **Which machine a workspace is on.** A reference has room for a host and nothing supplies one, so the component is absent everywhere.                                           | [question 24](../../docs/open-questions.md#24-what-is-the-host-component-of-a-workspace-reference) |
+| **The state a workspace can be in.** `Workspace` has no state field, because the words for one are not settled.                                                                 | [question 16](../../docs/open-questions.md#16-which-of-the-old-words-survive)                      |
+| **Whether the checkout the client is standing in is itself a workspace.** `WorkspaceSource` calls it a `local-checkout` and does not claim either way.                          | [question 20](../../docs/open-questions.md#20-is-the-place-the-client-is-running-a-workspace)      |
+| **What ends a workspace.** Nothing here removes one.                                                                                                                            | [question 14](../../docs/open-questions.md#14-what-ends-a-workspace)                               |
+| **Reading a reference back from a string.** The grammar is built to be read back, and nothing needs it yet.                                                                     | Not raised as a question; every caller starts from a directory or a workspace                      |
 
 Two more are open without a numbered question behind them.
 

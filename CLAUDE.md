@@ -123,6 +123,7 @@ made.** "werk is not X", "X is out of scope", "we will never Y" all read as
 closed doors and are almost never things anyone actually closed. Do not write
 one unless it was explicitly decided. If something genuinely looks unlikely,
 write down why it looks unlikely and leave the door open.
+
 ### Nothing is shipped, so nothing is protected
 
 werk has one user and no released contract, so nothing needs backwards
