@@ -27,6 +27,7 @@ import { createTerminalReplica } from "@werk/terminal";
 import { loadTerminalEngine } from "@werk/terminal/bun";
 import { withContext } from "./shared.js";
 import { defineCommand } from "./define.js";
+import { editorArgv, editorHost } from "../editor.js";
 import { wholeNumber, windowSize } from "./create.js";
 import { workspaceAt } from "@werk/workspace";
 import { sessionArgument, withSession } from "./session-argument.js";
@@ -130,6 +131,55 @@ export async function attachSession(
       })
     : undefined;
   const replica = createTerminalReplica(await loadTerminalEngine(), view);
+  // What this attachment could not do, said once the alternate screen is gone.
+  // Saying it while attached would paint over the session.
+  const notes: string[] = [];
+  /**
+   * Open a path the session asked for, on this machine.
+   *
+   * The configured command is split into words before `{host}` and `{path}`
+   * are filled in, so a path with a space, a quote or a semicolon in it is one
+   * argument and can never become a second command; see `editor.ts`. There is
+   * no shell here: the argv is handed to the operating system.
+   *
+   * The child gets none of this terminal. Standard input and output are thrown
+   * away, because this attachment owns the alternate screen and the keyboard
+   * and a program writing into either would paint over the session, and
+   * standard error is kept and drained so a failure has something to say and a
+   * chatty editor cannot fill a pipe and stop.
+   */
+  async function openLocally(event: {
+    openId: string;
+    path: string;
+    wait: boolean;
+  }): Promise<void> {
+    let failure: string | undefined;
+    try {
+      const argv = editorArgv(ctx.editor, {
+        host: editorHost(place.host),
+        path: event.path,
+      });
+      const child = Bun.spawn(argv, {
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "pipe",
+      });
+      const [status, said] = await Promise.all([
+        child.exited,
+        new Response(child.stderr as ReadableStream).text(),
+      ]);
+      const first = said.trim().split("\n")[0];
+      if (status !== 0)
+        failure = `${argv[0]} exited with status ${status}${first ? `: ${first}` : ""}`;
+    } catch (error) {
+      failure = error instanceof Error ? error.message : String(error);
+    }
+    if (failure) notes.push(`could not open ${event.path}: ${failure}`);
+    // Only a caller that asked to wait is owed an answer; without one the
+    // daemon has already told it the request was taken.
+    if (event.wait)
+      await client.finishOpen(event.openId, failure).catch(() => {});
+  }
   let attachment: Attachment | undefined;
   let finish!: () => void;
   let stopped = false;
@@ -226,6 +276,9 @@ export async function attachSession(
               state.cwd = String(event.effect.payload);
               view?.refresh();
             }
+            // The work is on this machine and takes as long as an editor
+            // takes, so it runs beside the stream rather than in it.
+            if (event.type === "open") void openLocally(event);
             if (event.type === "exit") outcome = event.exit;
             if (event.type === "ended") {
               endReason = event.reason;
@@ -318,6 +371,7 @@ export async function attachSession(
       );
     ctx.writeError(`werk: ${outcomeNote(id, outcome, recorded)}\n`);
   }
+  for (const note of notes) ctx.writeError(`werk: ${note}\n`);
   if (dropped && place.reference !== undefined)
     ctx.writeError(`werk: ${remoteDropNote(place.reference, id)}\n`);
 }

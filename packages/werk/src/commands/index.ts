@@ -13,6 +13,7 @@ import { buildCreate } from "./create.js";
 import { buildList } from "./list.js";
 import { buildAttach } from "./attach.js";
 import { buildLogs } from "./logs.js";
+import { buildEdit } from "./edit.js";
 import { buildKill } from "./kill.js";
 import { buildRemove } from "./remove.js";
 import { buildWatch } from "./watch.js";
@@ -26,6 +27,7 @@ export const COMMANDS: readonly (() => Command)[] = [
   buildList,
   buildAttach,
   buildLogs,
+  buildEdit,
   buildKill,
   buildRemove,
   buildWatch,

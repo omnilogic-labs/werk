@@ -127,6 +127,34 @@ test("malformed binary headers, tables, references, JSON and message shapes fail
   }
 });
 
+test("an open event carries a path and an id, and is refused without them", () => {
+  const event = (over: Record<string, unknown> = {}) => ({
+    type: "event",
+    event: {
+      type: "open",
+      attachmentId: "a",
+      generation: 1,
+      position: 0,
+      openId: "o1",
+      // A path is untrusted text and the framing says nothing about what may
+      // be in one: a space, a quote and a newline all survive the round trip.
+      path: "/tmp/a file 'with' quotes\nand a newline",
+      wait: true,
+      ...over,
+    },
+  });
+  const decoded = new FrameDecoder().push(raw(event()));
+  expect(decoded).toEqual([event() as unknown as WireMessage]);
+  for (const broken of [
+    { openId: "" },
+    { openId: 1 },
+    { path: "" },
+    { path: null },
+    { wait: "yes" },
+  ])
+    expect(() => new FrameDecoder().push(raw(event(broken)))).toThrow();
+});
+
 test("sendFrame preserves encoded bytes, enforces queue bounds and releases capacity", async () => {
   let release!: () => void;
   const received: Uint8Array[] = [];

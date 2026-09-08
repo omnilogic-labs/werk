@@ -32,6 +32,7 @@ import {
   type DaemonEvent,
   type Size,
   type EndReason,
+  type OpenOutcome,
 } from "@werk/session";
 import type {
   TerminalEngineFactory,
@@ -116,6 +117,8 @@ export interface DaemonConfig {
     checkpointMaxBytes?: number;
     scrollbackMaxBytes?: number;
     terminalIdleMs?: number;
+    /** How long a waiting `openPath` is held before it is given up on. */
+    openWaitMs?: number;
     superviseIntervalMs?: number;
     touchIntervalMs?: number;
   };
@@ -204,6 +207,27 @@ type Stream = {
   ended: boolean;
   lastResync: number;
 };
+/**
+ * An `openPath` whose caller asked to wait, held until an attached client says
+ * it has finished with the file.
+ *
+ * It is a request the daemon has not answered yet, so it is bounded three
+ * ways: by the timer, by every attachment it was sent to going away, and by
+ * the connection that asked going away. Holding it also holds that
+ * connection's request loop, which is what keeps one client from stacking up
+ * waits: a connection can be waiting on at most one.
+ */
+type OpenWait = {
+  id: string;
+  /** How many attachments were told, carried into the answer. */
+  attachments: number;
+  /** The attachments still able to answer; empty means nobody is left. */
+  viewers: Set<string>;
+  /** The connection that asked, and is being held. */
+  connection: Connection;
+  timer: ReturnType<typeof setTimeout>;
+  settle(outcome: OpenOutcome | SessionError): void;
+};
 type Connection = {
   wire: FramedTransport;
   principal: Principal;
@@ -240,6 +264,42 @@ export function sizeValid(size: Size) {
     throw new SessionError(
       "INVALID_ARGUMENT",
       "Terminal dimensions must be integers from 1 to 1000",
+    );
+}
+/**
+ * The rule every path handed to `openPath` has to meet, exported for the same
+ * reason `sizeValid` is: a client that checks its own input against a
+ * restatement of this ends up asking for something that is refused on arrival.
+ *
+ * Absolute, because the path names a file on the daemon's machine and a
+ * relative one would be resolved against whatever directory the client that
+ * opens it happens to be in — another machine, usually. NUL is refused because
+ * it ends a path everywhere, and the length is bounded because the string
+ * arrives from a caller werk does not control.
+ *
+ * Nothing else in it is refused. A space, a quote, a newline and a semicolon
+ * are all legal in a filename, and a client hands the path to a program as one
+ * argument rather than to a shell, so none of them can become a second command.
+ * Refusing them here would reject real files and would still not be what makes
+ * the client safe.
+ */
+export function openPathValid(value: unknown): asserts value is string {
+  if (typeof value !== "string" || value === "")
+    throw new SessionError(
+      "INVALID_ARGUMENT",
+      "A path to open must be a nonempty string",
+    );
+  if (value.includes("\0"))
+    throw new SessionError(
+      "INVALID_ARGUMENT",
+      "A path to open cannot contain NUL",
+    );
+  if (Buffer.byteLength(value) > 4096)
+    throw new SessionError("LIMIT", "A path to open exceeds 4096 bytes");
+  if (!path.isAbsolute(value))
+    throw new SessionError(
+      "INVALID_ARGUMENT",
+      "A path to open must be absolute on the machine the daemon is on",
     );
 }
 /**
@@ -302,6 +362,11 @@ export async function createSessionDaemon(config: DaemonConfig) {
     checkpointMaxBytes: 32 * 1024 * 1024,
     scrollbackMaxBytes: 10_000_000,
     terminalIdleMs: 60_000,
+    // Long enough to write a commit message in and short enough that a caller
+    // blocked on `--wait` hears something the same day. A caller that never
+    // returns is worse than one that fails, and nothing here can tell a person
+    // still typing from a client that stopped listening.
+    openWaitMs: 60 * 60 * 1000,
     ...config.limits,
   };
   for (const [key, value] of Object.entries(limits))
@@ -331,12 +396,16 @@ export async function createSessionDaemon(config: DaemonConfig) {
         : [],
       snapshots: config.engineFactory.capabilities.snapshot,
       scrollbackMaxBytes: limits.scrollbackMaxBytes,
+      // What a client waiting on `openPath` has to outlast, so it can set its
+      // own deadline from this rather than from a copy of it.
+      openWaitMs: limits.openWaitMs,
       ...platformCapabilities,
     },
   };
   const records = new Map<string, RecordState>(),
     viewers = new Map<string, Viewer>(),
-    connections = new Set<Connection>();
+    connections = new Set<Connection>(),
+    opens = new Map<string, OpenWait>();
   let pendingCreates = 0;
   let closing = false,
     generation = 0;
@@ -356,12 +425,24 @@ export async function createSessionDaemon(config: DaemonConfig) {
       throw new SessionError("PERMISSION_DENIED", `${action} refused`);
     return grant;
   }
+  /** Answer a held `openPath`, once. */
+  function settleOpen(open: OpenWait, outcome: OpenOutcome | SessionError) {
+    if (!opens.delete(open.id)) return;
+    clearTimeout(open.timer);
+    open.settle(outcome);
+  }
   function dropConnection(c: Connection) {
     if (c.closed) return;
     c.closed = true;
     connections.delete(c);
     for (const v of [...viewers.values()])
       if (v.connection === c) end(v, "connection-closed");
+    // The caller has gone, so the answer has nowhere to land. Settling is
+    // still necessary: its request loop is parked on this promise and would
+    // never reach the end of the stream otherwise.
+    for (const open of [...opens.values()])
+      if (open.connection === c)
+        settleOpen(open, new SessionError("CLOSED", "Connection closed"));
     c.control = [];
     c.controlBytes = 0;
     c.streams.clear();
@@ -894,6 +975,18 @@ export async function createSessionDaemon(config: DaemonConfig) {
   }
   function end(v: Viewer, reason: EndReason) {
     viewers.delete(v.info.id);
+    // A client that was asked to open something and then left cannot answer.
+    // The last one leaving is what turns a wait into a refusal, rather than
+    // leaving the caller parked until the timer.
+    for (const open of [...opens.values()])
+      if (open.viewers.delete(v.info.id) && !open.viewers.size)
+        settleOpen(
+          open,
+          new SessionError(
+            "CONFLICT",
+            "Every client that was opening the file has gone",
+          ),
+        );
     const preview = v.record.preview;
     if (preview?.viewers.delete(v)) {
       if (preview.viewers.size) previewInterval(preview);
@@ -1572,6 +1665,36 @@ export async function createSessionDaemon(config: DaemonConfig) {
       }
       return { result: null };
     }
+    if (method === "finishOpen") {
+      const open = opens.get(p.openId);
+      if (!open)
+        throw new SessionError(
+          "NOT_FOUND",
+          "Nothing is waiting on that open request",
+        );
+      // Only a connection holding one of the attachments the daemon told may
+      // answer, so nothing else can end somebody else's wait.
+      if (![...open.viewers].some((id) => viewers.get(id)?.connection === c))
+        throw new SessionError(
+          "PERMISSION_DENIED",
+          "This connection was not asked to open anything",
+        );
+      if (
+        p.error !== undefined &&
+        (typeof p.error !== "string" || p.error.length > 1024)
+      )
+        throw new SessionError(
+          "INVALID_ARGUMENT",
+          "An open failure must be a string of at most 1024 characters",
+        );
+      settleOpen(open, {
+        openId: open.id,
+        attachments: open.attachments,
+        finished: true,
+        ...(p.error === undefined ? {} : { error: p.error }),
+      });
+      return { result: null };
+    }
     if (method === "endAttachment") {
       const v = viewers.get(p.attachmentId);
       if (!v) throw new SessionError("NOT_FOUND", "Attachment not found");
@@ -1590,6 +1713,73 @@ export async function createSessionDaemon(config: DaemonConfig) {
             ? terminal.readScreen()
             : terminal.readHistory(),
       };
+    }
+    if (method === "openPath") {
+      openPathValid(p.path);
+      if (p.wait !== undefined && typeof p.wait !== "boolean")
+        throw new SessionError("INVALID_ARGUMENT", "wait must be a boolean");
+      const wait = p.wait === true;
+      // A tile is a picture on a timer with nobody sitting at it, so it is not
+      // asked; every other attachment is somebody with the session in front of
+      // them on a machine that could open the file.
+      const told = [...viewers.values()].filter(
+        (v) => v.record === r && v.representation !== "preview",
+      );
+      // Refused rather than queued. A record keeps no list of things to open
+      // for whoever attaches next, and somebody who has detached cannot open
+      // anything, so an answer now is worth more than one that never comes.
+      if (!told.length)
+        throw new SessionError(
+          "CONFLICT",
+          "Nothing is attached to this session, so there is nobody to open it",
+        );
+      // A held request holds its connection's request loop with it, so a
+      // connection waiting on its own attachment could never read the answer
+      // it is waiting for. Refused now rather than hung until the timer.
+      if (wait && told.every((v) => v.connection === c))
+        throw new SessionError(
+          "CONFLICT",
+          "The only attachment able to open it is on this connection, which cannot answer while it waits",
+        );
+      const openId = randomUUID();
+      const answer: OpenOutcome = {
+        openId,
+        attachments: told.length,
+        finished: false,
+      };
+      // Registered before the event goes out, so an answer cannot arrive
+      // before there is anything to answer.
+      const held = wait
+        ? new Promise<OpenOutcome>((resolve, reject) => {
+            const open: OpenWait = {
+              id: openId,
+              attachments: told.length,
+              viewers: new Set(told.map((v) => v.info.id)),
+              connection: c,
+              timer: setTimeout(
+                () =>
+                  settleOpen(
+                    open,
+                    new SessionError(
+                      "TIMEOUT",
+                      `No client reported ${p.path} finished within ${limits.openWaitMs}ms`,
+                    ),
+                  ),
+                limits.openWaitMs,
+              ),
+              settle: (outcome) =>
+                outcome instanceof SessionError
+                  ? reject(outcome)
+                  : resolve(outcome),
+            };
+            // A wait must not be what keeps this process alive; the socket is.
+            open.timer.unref?.();
+            opens.set(openId, open);
+          })
+        : undefined;
+      for (const v of told)
+        emit(v, { type: "open", openId, path: p.path, wait });
+      return { result: held ? await held : answer };
     }
     if (method === "terminate") {
       if (!["interrupt", "terminate", "force"].includes(p.intent))

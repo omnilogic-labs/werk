@@ -19,6 +19,8 @@ import {
   type RequestOptions,
   type CreateSessionOptions,
   type ListOptions,
+  type OpenOptions,
+  type OpenOutcome,
   type SessionInfo,
   type Size,
   type TerminationIntent,
@@ -416,6 +418,35 @@ export class SessionClient {
   }
   endAttachment(attachmentId: string, request?: RequestOptions) {
     return this.request<void>("endAttachment", { attachmentId }, request);
+  }
+  /**
+   * Ask whoever is attached to this session to open a path on the daemon's
+   * machine.
+   *
+   * A session with nothing attached is a `CONFLICT`: somebody who has detached
+   * cannot open anything, and saying so is better than an answer that never
+   * comes. With `wait`, the daemon holds the answer until a client reports it
+   * finished, so give the request a deadline to match — the daemon's own bound
+   * is `daemonInfo().capabilities.openWaitMs`.
+   */
+  openPath(sessionId: string, path: string, options: OpenOptions = {}) {
+    return this.request<OpenOutcome>(
+      "openPath",
+      { sessionId, path, wait: options.wait === true },
+      options,
+    );
+  }
+  /**
+   * Report that an open this client was asked for has finished, with what went
+   * wrong if anything did. Only a client holding one of the attachments the
+   * daemon told may answer, and only until the daemon's bound expires.
+   */
+  finishOpen(openId: string, error?: string, request?: RequestOptions) {
+    return this.request<void>(
+      "finishOpen",
+      { openId, ...(error === undefined ? {} : { error }) },
+      request,
+    );
   }
   async attach(sessionId: string, options: AttachOptions): Promise<Attachment> {
     let attachment!: Attachment;

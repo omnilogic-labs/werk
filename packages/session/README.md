@@ -116,7 +116,8 @@ build does not refuse a connection.
 ## Sessions and watching
 
 `create`, `list`, `get`, `readScreen`, `readHistory`, `terminate`, `remove`,
-`daemonInfo` and `endAttachment` all work without an attachment.
+`daemonInfo`, `openPath`, `finishOpen` and `endAttachment` all work without an
+attachment.
 
 `watch(callback)` returns a stop function that is idempotent and that also
 carries a `ready` promise. Await `watch().ready` before calling `list()`, or
@@ -167,6 +168,25 @@ screen, then the recorded outcome as an `exit` where the daemon has one, then
 appears among the session's attachments, and refuses input and resize. A `lost`
 record ends without an `exit`, because its outcome is unknown; read its state
 from `get` or from the watch stream.
+
+## Opening a path
+
+`openPath(sessionId, path, { wait })` asks the clients attached to a session to
+open a path on the daemon's machine. It reaches them as an `open` event
+carrying an `openId`, the path and whether the caller is waiting; a preview
+attachment is never told, because there is nobody sitting at one. What opening
+means is the client's, and a path never carries content.
+
+Nothing attached is a `CONFLICT` rather than a wait, and the path is refused
+unless it is absolute on the daemon's machine, free of NUL and at most 4096
+bytes.
+
+With `wait`, the answer is held until a client that was told calls
+`finishOpen(openId, error?)`. It also ends when the last such attachment goes
+away, and when the daemon's own bound — `capabilities.openWaitMs` — expires.
+The daemon holds the request on the connection that made it and reads nothing
+else from that connection meanwhile, so a connection cannot wait on an
+attachment of its own: that is refused rather than left to hang.
 
 ## Size ownership
 
