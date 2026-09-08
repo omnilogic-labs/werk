@@ -80,6 +80,18 @@ const BY_WORKSPACE_CODE: Record<WorkspaceErrorCode, number> = {
   HOST_BOOTSTRAP_FAILED: EXIT_FAILURE,
   REMOTE_GIT_MISSING: EXIT_FAILURE,
   TRANSFER_FAILED: EXIT_FAILURE,
+  // The landing half, in the same statuses. Naming a workspace nothing knows
+  // about is a name that resolves to nothing, which is what exit 3 already
+  // means for a session; standing on a detached HEAD and asking for a route
+  // werk cannot take are things the caller can put right, which is exit 2. A
+  // change already on the branch and a checkout with work in it are both "that
+  // is already the case", which is the status BRANCH_EXISTS uses.
+  NO_SUCH_WORKSPACE: 3,
+  WORKSPACE_ELSEWHERE: EXIT_FAILURE,
+  DETACHED_HEAD: EXIT_USAGE,
+  NOTHING_TO_LAND: 5,
+  WORKTREE_DIRTY: 5,
+  LAND_CONFLICT: EXIT_FAILURE,
 };
 
 /**

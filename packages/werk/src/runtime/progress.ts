@@ -1,5 +1,5 @@
 /**
- * Saying what is happening while a workspace is being made on another machine.
+ * Saying what is happening while a workspace is being made, or landed.
  *
  * `werk create` against a machine is probe, install, start a daemon, prepare a
  * repository, push a history and check out. On a cold machine over a slow link
@@ -23,7 +23,12 @@
  * because the deadline and the cancel-sentinel conversion those wrappers do are
  * the two things that must never be skipped.
  */
-import type { WorkspaceProgress, WorkspaceStep } from "@werk/workspace";
+import type {
+  LandProgress,
+  LandStep,
+  WorkspaceProgress,
+  WorkspaceStep,
+} from "@werk/workspace";
 import type { WerkContext } from "./context.js";
 import { spinner } from "./interactive.js";
 
@@ -60,9 +65,36 @@ export function progressLine(
   return event.detail === undefined ? text : `${text} (${event.detail})`;
 }
 
+/**
+ * What each stage of a landing is called.
+ *
+ * A landing is quick on this machine and the stages still have somewhere to go:
+ * the same three registers, so a landing that has to fetch a history back from
+ * another machine one day says so without a second renderer being written for
+ * it.
+ */
+export const landStepText = (step: LandStep): string =>
+  ({
+    copy: "taking a copy of the parent",
+    apply: "applying the change to the copy",
+    resolve: "resolving the conflict",
+    commit: "committing on the copy",
+    move: "moving the commit across",
+    "clean-up": "putting the copy away",
+  })[step];
+
+/** One stage of a landing, in the register the caller is in. */
+export function landLine(event: LandProgress): string | undefined {
+  if (event.state !== "begin") return undefined;
+  const text = landStepText(event.step);
+  return event.detail === undefined ? text : `${text} (${event.detail})`;
+}
+
 export interface ProgressReporter {
   /** Handed to a `WorkspaceMaker` as its `onProgress`. */
   onProgress(event: WorkspaceProgress): void;
+  /** Handed to a `Lander` as its `onProgress`. */
+  onLandProgress(event: LandProgress): void;
   /** Something outside the maker's vocabulary, said the same way. */
   say(message: string): void;
   /**
@@ -83,12 +115,22 @@ export function createProgress(
   ctx: WerkContext,
   host: string,
 ): ProgressReporter {
-  if (ctx.json) return { onProgress: () => {}, say: () => {}, stop: () => {} };
+  if (ctx.json)
+    return {
+      onProgress: () => {},
+      onLandProgress: () => {},
+      say: () => {},
+      stop: () => {},
+    };
   if (ctx.noInput) {
     const line = (message: string) => ctx.writeError(`${message}\n`);
     return {
       onProgress: (event) => {
         const text = progressLine(event, host);
+        if (text !== undefined) line(text);
+      },
+      onLandProgress: (event) => {
+        const text = landLine(event);
         if (text !== undefined) line(text);
       },
       say: line,
@@ -107,6 +149,10 @@ export function createProgress(
   return {
     onProgress: (event) => {
       const text = progressLine(event, host);
+      if (text !== undefined) show(text);
+    },
+    onLandProgress: (event) => {
+      const text = landLine(event);
       if (text !== undefined) show(text);
     },
     say: show,

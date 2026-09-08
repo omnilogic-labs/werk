@@ -112,7 +112,7 @@ test("the first word offers the commands werk has", async () => {
 test("a partly typed command offers its aliases too", async () => {
   const reply = await completionFor(tree(), ["l"], await scratch());
   // `ls` is `list`'s alias and is offered beside it, not instead of it.
-  expect(values(reply).sort()).toEqual(["list", "logs", "ls"]);
+  expect(values(reply).sort()).toEqual(["land", "list", "logs", "ls"]);
 });
 test("a hidden command is parsed but not offered", async () => {
   // `complete` answers the shell rather than a person. Its prefix is shared

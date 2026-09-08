@@ -5,12 +5,14 @@
  * here runs until the tree is built, and the completion walker sees exactly the
  * same tree the parser does.
  *
- * The order is the order someone meets them: make a session, see what is there,
- * go back to one, then the things done to a session, then the machinery. `setup`
- * sits with the machinery because it acts on a machine rather than a session.
+ * The order is the order someone meets them: make a session, land what it did,
+ * see what is there, go back to one, then the things done to a session, then the
+ * machinery. `setup` sits with the machinery because it acts on a machine rather
+ * than a session.
  */
 import type { Command } from "@commander-js/extra-typings";
 import { buildCreate } from "./create.js";
+import { buildLand } from "./land.js";
 import { buildList } from "./list.js";
 import { buildAttach } from "./attach.js";
 import { buildLogs } from "./logs.js";
@@ -26,6 +28,7 @@ import { buildCompletion, buildComplete } from "./completion.js";
 
 export const COMMANDS: readonly (() => Command)[] = [
   buildCreate,
+  buildLand,
   buildList,
   buildAttach,
   buildLogs,

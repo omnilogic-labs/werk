@@ -42,6 +42,19 @@ export interface Workspace {
   /** Absolute path to the working directory, on whichever machine `host` names. */
   readonly directory: string;
   readonly branch: string;
+  /**
+   * The branch the workspace was made from, which is what
+   * [landing](../../../docs/product/landing.md) calls the parent. Absent when
+   * the checkout was on a detached HEAD: there was a commit to branch from and
+   * no branch name to say it by.
+   *
+   * A maker answers this because it is the only thing that can. Afterwards it
+   * cannot be worked back out — several branches share a merge base, and the
+   * reflog says `branch: Created from HEAD` without naming what HEAD was.
+   */
+  readonly parent?: string;
+  /** The commit the branch started at. */
+  readonly base: string;
   readonly from: WorkspaceSource;
   /**
    * Which machine it is on, named as werk's configuration names it. Absent from
@@ -161,7 +174,25 @@ export type WorkspaceErrorCode =
    */
   | "REMOTE_GIT_MISSING"
   /** The history did not get there. Its own code because its remedy is "try again". */
-  | "TRANSFER_FAILED";
+  | "TRANSFER_FAILED"
+  /**
+   * The landing half. They are in the same union as the creation codes because
+   * a caller turning either into an exit status reads one list, and because
+   * `NOT_A_REPOSITORY`, `NO_COMMITS`, `GIT_MISSING` and `GIT_FAILED` mean the
+   * same thing on both sides and are not worth spelling twice.
+   */
+  /** Nothing here is a workspace werk has a record of. */
+  | "NO_SUCH_WORKSPACE"
+  /** The workspace is on another machine, which landing does not reach yet. */
+  | "WORKSPACE_ELSEWHERE"
+  /** The checkout being landed onto is on a detached HEAD, so there is no branch to land on. */
+  | "DETACHED_HEAD"
+  /** The workspace has no commits the branch being landed onto does not already have. */
+  | "NOTHING_TO_LAND"
+  /** Something uncommitted is in the way of moving the branch being landed onto. */
+  | "WORKTREE_DIRTY"
+  /** The change does not apply cleanly, and nothing resolved it. */
+  | "LAND_CONFLICT";
 
 export class WorkspaceError extends Error {
   readonly name = "WorkspaceError";

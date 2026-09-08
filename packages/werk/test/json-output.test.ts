@@ -69,6 +69,11 @@ const git = (cwd: string, ...args: string[]) =>
 beforeAll(async () => {
   box = await sandbox("wkj");
   await git(box.root, "init", "-q", "-b", "main", ".");
+  // `land` commits through werk rather than through this file's `git` helper,
+  // so the identity has to be in the repository. A runner has none configured,
+  // which is what git refuses on.
+  await git(box.root, "config", "user.name", "werk test");
+  await git(box.root, "config", "user.email", "test@example.invalid");
   await git(box.root, "commit", "-q", "--allow-empty", "-m", "init");
 });
 afterAll(() => box.dispose());
@@ -116,6 +121,46 @@ test(
       `${info.workspace.name}:${info.workspace.directory}`,
     );
     session = info.id;
+  },
+  TIMEOUT,
+);
+test(
+  "land answers with the landing, and the dry run with the survey",
+  async () => {
+    // Its own workspace, with a commit in it, because landing needs something
+    // to land. The sandbox root is the repository, so this is `create` and
+    // `land` run from the same place a person would run them from.
+    const created = (await runJson(
+      "create",
+      "--workspace",
+      "landable",
+      "--",
+      // Not `/bin/true`: macOS has it at `/usr/bin/true` and Windows has no
+      // such thing. The process running the suite is the one executable every
+      // platform is guaranteed to have.
+      process.execPath,
+      "-e",
+      "",
+    )) as { id: string; workspace: { directory: string } };
+    const where = created.workspace.directory;
+    await Bun.write(join(where, "change.txt"), "change\n");
+    await git(where, "add", "-A");
+    await git(where, "commit", "-q", "-m", "a change to land");
+
+    expect(await runJson("land", "landable", "--dry-run")).toMatchObject({
+      workspace: "landable",
+      onto: "main",
+      landed: false,
+    });
+    expect(await runJson("land", "landable", "--no-edit")).toMatchObject({
+      onto: "main",
+      squashed: 1,
+      landed: true,
+    });
+    // The command has already exited, so the session is only a record. It is
+    // forgotten here so that the list this file later requires to be empty is
+    // about the session that test made and not about this one.
+    await runJson("remove", created.id);
   },
   TIMEOUT,
 );
@@ -270,6 +315,7 @@ const EXERCISED = [
   "werk completion zsh",
   "werk completion fish",
   "werk create",
+  "werk land",
   "werk list",
   "werk logs",
   "werk kill",

@@ -36,6 +36,17 @@ import { splitCommand } from "../editor.js";
 export type ColourPreference = "auto" | "always" | "never";
 
 /**
+ * How a landing gets the change onto the parent.
+ *
+ * The three routes [landing](../../../../docs/product/landing.md) describes,
+ * named so that the two that are not built have somewhere to arrive rather than
+ * changing the shape of this key when they do. `werk land` refuses the two it
+ * cannot do, in those words; it does not silently fall back to `parent`, which
+ * would land something the caller asked to have reviewed.
+ */
+export type LandRoute = "parent" | "pull-request" | "external";
+
+/**
  * Which Catppuccin flavour to wear, or `auto` to ask the terminal.
  *
  * `auto` resolves through `flavourLight` and `flavourDark` rather than to a
@@ -84,6 +95,25 @@ export interface WerkConfig {
    * wants `code` for every host.
    */
   editor: string;
+  /**
+   * The agent werk asks to write a commit message and to resolve a conflict
+   * when a landing does not apply cleanly, run one-shot with the prompt on its
+   * stdin.
+   *
+   * A bare `claude` means `claude -p`, which is the one-shot spelling
+   * [landing](../../../../docs/product/landing.md) names. Anything with a space
+   * in it is a command line run as typed, so an agent werk has never heard of
+   * still works. Empty means werk asks nothing: it writes the commit message
+   * from the workspace's own commits and reports a conflict rather than trying
+   * to resolve it.
+   *
+   * Empty is also what the built-in default is, and `werk land` can tell the
+   * two apart — nobody has been asked yet, against somebody who was asked and
+   * said no — because the merge records which layer supplied every value.
+   */
+  agent: string;
+  /** Which of the three routes a landing takes. Only `parent` is built. */
+  landRoute: LandRoute;
 }
 export type ConfigKey = keyof WerkConfig;
 export type ConfigValue = WerkConfig[ConfigKey];
@@ -97,6 +127,7 @@ export interface ConfigField<K extends ConfigKey> {
 }
 
 const LOG_LEVELS = ["error", "warn", "info", "debug"] as const;
+export const LAND_ROUTES = ["parent", "pull-request", "external"] as const;
 const COLOURS = ["auto", "always", "never"] as const;
 const FLAVOURS = Object.keys(flavours) as readonly FlavourName[];
 const FLAVOUR_PREFERENCES = [
@@ -134,12 +165,30 @@ function byteCount(key: string) {
 }
 
 /**
+ * A command werk will run, or the empty string for "run nothing".
+ *
+ * Only the shape is checked here. Whether the program exists is a fact about
+ * the moment it is run rather than about the moment the config was read, and a
+ * config layer that refused to load because an agent was uninstalled would stop
+ * every other command as well.
+ */
+function commandLine(key: string) {
+  return (raw: unknown): string => {
+    if (typeof raw === "string") return raw.trim();
+    throw new ConfigError(
+      "CONFIG_UNREADABLE",
+      `${key} must be a command, or empty for none`,
+    );
+  };
+}
+
+/**
  * A command line for the client's editor.
  *
  * Checked here rather than where it is run, so a command that could never open
  * anything is refused by `werk config set` instead of failing inside somebody's
- * attachment an hour later. It has to split into words, which an unclosed
- * quote stops it doing, and it has to say where the path goes.
+ * attachment an hour later. It has to split into words, which an unclosed quote
+ * stops it doing, and it has to say where the path goes.
  */
 function editorCommand(key: string) {
   return (raw: unknown): string => {
@@ -232,6 +281,16 @@ export const FIELDS: { readonly [K in ConfigKey]: ConfigField<K> } = {
     describe: "what this machine runs to open a file from a session",
     parse: editorCommand("editor"),
   },
+  agent: {
+    env: "WERK_AGENT",
+    describe: "the agent werk asks for commit messages and conflict resolution",
+    parse: commandLine("agent"),
+  },
+  landRoute: {
+    env: "WERK_LAND_ROUTE",
+    describe: "how a landing gets the change onto the parent",
+    parse: oneOf<LandRoute>("landRoute", LAND_ROUTES),
+  },
 };
 export const CONFIG_KEYS = Object.keys(FIELDS) as readonly ConfigKey[];
 
@@ -291,6 +350,12 @@ export function builtInDefaults(
     flavourLight: "latte",
     accent: DEFAULT_ACCENT,
     editor: DEFAULT_EDITOR,
+    // Nothing, and `werk land` asks once rather than guessing at which agent
+    // somebody has. An agent named here would be a claim about what is
+    // installed, and running one the caller never chose is the wrong direction
+    // to be wrong in.
+    agent: "",
+    landRoute: "parent",
   };
 }
 

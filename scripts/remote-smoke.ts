@@ -794,9 +794,12 @@ async function main(): Promise<number> {
       defaultHost: "smoke",
       setups: { [setupBlock]: block },
       hostOrigin: {},
-      // Nothing here opens a file; the field is required and the default is the
-      // honest answer for a context that will never be asked for it.
+      // Nothing here opens a file or lands anything; these are required, and
+      // the defaults are the honest answer for a context never asked for them.
       editor: builtInDefaults().editor,
+      agent: builtInDefaults().agent,
+      agentChosen: true,
+      landRoute: builtInDefaults().landRoute,
     };
     const setupHost = {
       kind: "ssh" as const,

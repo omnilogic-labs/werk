@@ -9,11 +9,13 @@ This chapter is the reference for the client as it behaves today. What the
 command surface should become for the product is not settled. The capabilities
 in [product/client.md](product/client.md) are deliberately written as
 capabilities rather than commands, and nothing below should be read as a
-commitment about providers or landing, neither of which exists. Hosts do exist,
-and [hosts.md](hosts.md) is their reference. The workspace `create` makes is a
-git worktree, on this machine or on the machine `--host` names, which is the
+commitment about providers, which do not exist. Hosts do exist, and
+[hosts.md](hosts.md) is their reference. The workspace `create` makes is a git
+worktree, on this machine or on the machine `--host` names, which is the
 smallest corner of what a workspace is meant to be; it is no more settled than
-the rest.
+the rest. `land` is the first of the three routes
+[product/landing.md](product/landing.md) describes and the only one built, and
+that document is a set of leans rather than a design anyone has agreed.
 
 [cli-internals.md](cli-internals.md) has the parts that only matter to somebody
 changing the CLI: how a command is declared, why a missing option value reports
@@ -24,6 +26,7 @@ alone, and what each dependency is for.
 | Command                                                                      | What it does                                                                  |
 | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `create -- COMMAND ...`                                                      | Start a session running a command, in a new workspace, and attach to it       |
+| `land [workspace]`                                                           | Put a workspace's changes onto the branch you are standing on                 |
 | `list` (`ls`)                                                                | List sessions                                                                 |
 | `attach [session]`                                                           | Go back to a running session; Ctrl-] detaches                                 |
 | `logs [session]`                                                             | Print what a session has on screen, or what it has kept                       |
@@ -137,6 +140,14 @@ already uses. git being absent at either end, a history that did not get there,
 and git refusing for an unanticipated reason all exit 1. Under `--json` the
 error code on stderr is the workspace reason itself, so `NOT_A_REPOSITORY`,
 `BRANCH_EXISTS` and `HOST_UNREACHABLE` reach a script as themselves.
+
+Landing reuses those statuses rather than adding any. A name werk has no record
+of exits 3, the status that already means "no such thing". Standing on a
+detached HEAD, and asking for a landing route werk cannot take, exit 2: both are
+things the caller can put right. A change that is already on the branch, and a
+checkout with tracked changes in it, exit 5, the status that already means "that
+is already the case". A change that does not apply cleanly and nothing resolved
+it exits 1.
 
 Configuration is mapped the same way. A host block that does not parse, a name
 nothing defines and a file that is not the TOML it claims to be are all "what
@@ -252,8 +263,25 @@ same project do not collide. `--state-dir` and a `stateDir` in a config file
 move them; there is no setting of their own.
 
 Under `--json` the record carries a `workspace` object — `name`, `directory`,
-`branch` and `reference` — beside the session's own fields, and a `setup` object
-holding what each of the two setups came to:
+`branch`, `parent`, `base` and `reference` — beside the session's own fields.
+`parent` is the branch the workspace was made from and `base` is the commit it
+started at. `parent` is `null` when the checkout was on a detached HEAD: werk
+looked and there was no branch to name.
+
+The same facts are written to `$stateDir/workspaces/<repository slot>/<name>.json`,
+because `werk land` needs to know which branch a workspace came from and nothing
+can work that out afterwards — several branches share a merge base, and the
+reflog says `branch: Created from HEAD` without saying what HEAD was. The record
+lives with the client that made it, which is the first of the three places
+[question 19](open-questions.md#19-where-does-the-record-of-a-workspace-live)
+lays out and carries that option's costs: a second machine knows nothing about
+it, and losing the directory loses the answer. A workspace whose record is
+missing is still a worktree and a branch; it is `werk land <name>` that no
+longer finds it. If writing the record fails, `create` says so and carries on,
+because the workspace already exists by then.
+
+The record also carries a `setup` object, holding what each of the two setups
+came to:
 
 ```json
 {
@@ -325,6 +353,111 @@ that machine's with it. There is no view across machines. Nothing records that a
 workspace exists, so a workspace with no session running in it is not listed
 anywhere, including on the machine it is on. Where that record should live is
 [question 19](open-questions.md#19-where-does-the-record-of-a-workspace-live).
+
+## Landing a workspace
+
+`werk land <workspace>` takes the commits a workspace made, squashes them into
+one, and puts that commit on the branch you are standing on. Where the command
+is run from is what the change lands on; the workspace's record says which
+branch it was made from, and when those two are not the same branch werk says so
+and asks:
+
+```
+$ werk land fix-login
+fix-login was made from main, and you are landing it onto release. Land it
+anyway?
+```
+
+`--yes` answers that, and without a terminal to ask in werk refuses rather than
+guessing. A workspace made on a detached HEAD gets a different sentence, because
+that is werk not knowing rather than the caller probably meaning something else.
+
+The change is applied to a copy first. werk checks out a throwaway worktree at
+the tip of the branch being landed onto, squashes the workspace's branch into
+it, settles the commit message and any conflict there, and only then
+fast-forwards the branch onto the finished commit. So the checkout is never left
+mid-merge, and a landing that fails leaves a directory that can be deleted
+rather than a repository to put back together. The copies go under
+`$stateDir/landings`, and werk takes each one away as it finishes; a conflict is
+the one failure that leaves its copy where it is, holding the conflict as git
+wrote it, and the error says where it is and how to delete it.
+
+`--ff-only` is what makes the last step safe: the commit sits directly on the
+tip the branch was at, so either the branch has not moved and gains exactly that
+commit, or something moved it while the landing was being prepared and git
+refuses.
+
+What werk will not do:
+
+| Refusal                                           | Why                                                                                  |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Tracked changes in the checkout being landed onto | The fast-forward writes the working tree. Untracked files are not counted            |
+| A detached HEAD                                   | There is no branch to land onto                                                      |
+| Nothing the branch does not already have          | There is no change to squash                                                         |
+| A workspace on another machine                    | Its history is over there and nothing fetches it back yet                            |
+| A `landRoute` other than `parent`                 | The other two routes are not built, and falling back would land something unreviewed |
+
+Uncommitted work in the workspace does not land. werk says how many files that
+is and asks, which is the same rule `create --host` follows when it sends a
+repository to another machine: only committed work travels.
+
+The workspace and its branch are untouched afterwards, and werk says so.
+Nothing here ends a workspace, because what ends one is
+[question 14](open-questions.md#14-what-ends-a-workspace). Nothing writes a
+marker into the commit either, which is the strongest candidate for
+[question 5](open-questions.md#5-how-does-a-workspace-tell-that-its-changes-have-already-landed)
+and has nothing reading one yet — so werk does not currently notice that a
+workspace's change has already reached the branch by some other route.
+
+`--dry-run` prints the survey and changes nothing: which workspace, onto what,
+the commits, the files, what is uncommitted and what is in the way. Under
+`--json` it is the same record with `landed: false`.
+
+### The commit message
+
+The message comes from one of three places, in this order:
+
+1. `--message TEXT`, which skips both of the others, and the editor with them.
+   It does not stop an agent you have already configured from resolving a
+   conflict; it stops werk asking you for one you have not.
+2. The agent named by the `agent` setting, run one-shot with the prompt on its
+   stdin and the diff in it.
+3. The workspace's own commits: the oldest subject, then a list of all of them.
+
+Then your editor opens on the draft, and what you leave is what gets committed —
+the same gesture `git commit` is, using the same editor, because `git var
+GIT_EDITOR` is what werk asks. Lines starting with `#` are dropped and an empty
+message stops the landing. `--no-edit` keeps the draft as it is; werk also opens
+nothing where there is no terminal, or under `--json`.
+
+An agent that is not installed, that exits badly, or that says nothing falls
+through to the commits and werk says why. A landing is not worth failing over an
+agent that was not there.
+
+### The agent
+
+`agent` names what werk runs. A bare `claude` means `claude -p`, which is the
+one-shot spelling; anything with a space in it is a command line run as typed,
+so an agent werk has never heard of works without werk learning about it. There
+is no shell in the middle: the words are split on whitespace and the program is
+spawned directly.
+
+Nothing is configured by default. The first landing that needs a commit message
+asks which agent to use, offers `claude`, something else, or none, and writes
+the answer to `~/.werk/config.toml` so it is asked once rather than every time.
+Answering **none** writes `agent = ""`, which is a different state from nobody
+having answered, and werk does not ask again. Without a terminal werk does not
+ask and uses no agent.
+
+The same agent resolves conflicts. When the squash does not apply cleanly, werk
+runs it in the copy with the conflicted paths and asks it to resolve and stage
+them, then checks whether anything is still unmerged. With no agent configured,
+a conflict is reported rather than resolved.
+
+Where the agent should run is
+[question 4](open-questions.md#4-where-does-the-landing-agent-run). It runs on
+the client because that is where the copy is, which is what is being tried
+rather than an answer.
 
 ## Referencing a workspace
 
@@ -777,6 +910,8 @@ rule rather than a list, so a new setting gets its variable for free.
 | `flavourLight`    | `WERK_FLAVOUR_LIGHT`    | What `auto` wears on a light terminal                |
 | `accent`          | `WERK_ACCENT`           | Which Catppuccin accent marks the active thing       |
 | `editor`          | `WERK_EDITOR`           | What this machine runs to open a file from a session |
+| `agent`           | `WERK_AGENT`            | The agent `land` asks for a commit message           |
+| `landRoute`       | `WERK_LAND_ROUTE`       | How `land` gets the change onto the parent           |
 
 An empty variable is treated as unset, so `WERK_LOG_LEVEL= werk list` gets the
 layer below rather than a parse error. A key werk does not know is ignored
@@ -793,6 +928,12 @@ which is `local` until somebody writes a host block and points it somewhere else
 has a default, and `config list` shows it as `unset` until a file names a
 `[setup.<name>]` block. There is no block werk would run in a new workspace by
 default, and an empty name is not a name.
+
+`agent` is empty by default, and `werk land` asks once rather than guessing.
+Naming an agent in the defaults would be a claim about what is installed. Note
+that an empty variable is unset, by the rule above, so `WERK_AGENT=` does not
+mean "ask nobody" — writing `agent = ""` in a config file does, and that is what
+answering the question with **none** writes.
 
 Every command acts on the resolved configuration, so a `runtimeDir` set in
 `~/.werk/config.toml` is the directory `werk info` reports and the one

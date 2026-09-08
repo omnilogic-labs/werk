@@ -40,8 +40,15 @@ finished workspace: returning one that is not ready yet was the other shape
 available and nothing needed it.
 
 `create` resolves to a `Workspace`: a `name`, an absolute `directory`, a
-`branch`, and the `from` it was made from. There is no identity, no state and no
-parent pointer, because each of those is one of the open questions below.
+`branch`, the `base` commit that branch started at, the `parent` branch it was
+made from, and the `from` it was made from. `parent` is absent on a detached
+HEAD, which is a real state rather than a failure. There is no identity and no
+state, because each of those is one of the open questions below.
+
+`parent` and `base` are there because landing needs the parent branch and
+nothing can work it out afterwards: several branches share a merge base, and the
+reflog says `branch: Created from HEAD` without naming what HEAD was. Only the
+maker is in a position to answer it.
 
 `WorkspaceSource` is a union discriminated on `kind`, with one member today,
 `local-checkout`. Deriving a workspace from another workspace, which may be on
@@ -54,7 +61,12 @@ a path.
 | Export                                       | What it does                                                            |
 | -------------------------------------------- | ----------------------------------------------------------------------- |
 | `createLocalWorktreeMaker({ root, git? })`   | A `WorkspaceMaker` that makes git worktrees on this machine             |
+| `createSshWorkspaceMaker(options)`           | One that makes them on a machine an injected runner reaches             |
+| `createLander({ root, scratchRoot, git? })`  | Surveys and performs a landing: a workspace's commits onto a branch     |
+| `workspaceRecords(root, toplevel)`           | Read and write what werk wrote down about a repository's workspaces     |
 | `workspaceAt(root, directory, host?)`        | Which workspace a directory is, for a caller holding a path and no name |
+| `repositorySlot(toplevel)`                   | The directory a repository's workspaces and records share               |
+| `branchAt(git, cwd)`                         | The branch a checkout is on, or undefined on a detached HEAD            |
 | `isWorkspaceName(name)`                      | Whether a string is a name a branch and a directory can share           |
 | `workspaceReference(workspace)`              | Turn a `Workspace` into a `WorkspaceReference`                          |
 | `formatWorkspaceReference(reference, level)` | Write one at `"name"`, `"path"` or `"full"`                             |
@@ -109,6 +121,19 @@ is what said it.
 | `GIT_MISSING`      | There is no git to run.                                            |
 | `GIT_FAILED`       | git ran and refused for a reason this package did not anticipate.  |
 
+The landing half uses the same union, because a caller turning either into an
+exit status reads one list, and because the four rows above that mean the same
+thing on both sides are not worth spelling twice.
+
+| Code                  | What happened                                                         |
+| --------------------- | --------------------------------------------------------------------- |
+| `NO_SUCH_WORKSPACE`   | Nothing here is a workspace werk has a record of.                     |
+| `WORKSPACE_ELSEWHERE` | It is on another machine, which landing does not reach yet.           |
+| `DETACHED_HEAD`       | The checkout being landed onto is on no branch.                       |
+| `NOTHING_TO_LAND`     | The workspace has no commits that branch does not already have.       |
+| `WORKTREE_DIRTY`      | Something tracked and uncommitted is in the way of moving the branch. |
+| `LAND_CONFLICT`       | The change does not apply cleanly, and nothing resolved it.           |
+
 These are decided by asking the repository before running `git worktree add`,
 not by reading git's stderr. The wording moves between git versions and locales,
 and the exit status of a refusal is not dependable either: a branch that already
@@ -138,17 +163,28 @@ asking for a workspace will hit.
   injected runner, so this package still imports nothing but `node:*`.
 - A workspace failing to be made is a set of named reasons rather than git's
   exit status, so a client can turn each one into its own message.
+- It lands a workspace on this machine. `createLander` surveys what would land —
+  the commits, the files, what is uncommitted, whether the branch being landed
+  onto is the one the workspace came from — and then squashes the change onto a
+  throwaway worktree at that branch's tip and fast-forwards the branch onto the
+  result. The commit message and whatever resolves a conflict are the caller's,
+  handed in, because which agent writes a message and whether a person gets to
+  read it are the client's business. It is the first of the three routes
+  [landing](../../docs/product/landing.md) describes.
+- It writes a record per workspace, holding the branch that workspace came from.
+  That is the one fact landing needs and cannot recover. It is not the workspace
+  record the design document describes, and it does not close question 19.
 
 ## What it does not do
 
-| Gap                                                                                                                                                                             | Where it is open                                                                                   |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| **What werk remembers about a workspace, and where that record lives.** Nothing is written here except the worktree itself, so `workspaceAt` reads a path rather than an index. | [question 19](../../docs/open-questions.md#19-where-does-the-record-of-a-workspace-live)           |
-| **Which machine a workspace is on.** A reference has room for a host and nothing supplies one, so the component is absent everywhere.                                           | [question 24](../../docs/open-questions.md#24-what-is-the-host-component-of-a-workspace-reference) |
-| **The state a workspace can be in.** `Workspace` has no state field, because the words for one are not settled.                                                                 | [question 16](../../docs/open-questions.md#16-which-of-the-old-words-survive)                      |
-| **Whether the checkout the client is standing in is itself a workspace.** `WorkspaceSource` calls it a `local-checkout` and does not claim either way.                          | [question 20](../../docs/open-questions.md#20-is-the-place-the-client-is-running-a-workspace)      |
-| **What ends a workspace.** Nothing here removes one.                                                                                                                            | [question 14](../../docs/open-questions.md#14-what-ends-a-workspace)                               |
-| **Reading a reference back from a string.** The grammar is built to be read back, and nothing needs it yet.                                                                     | Not raised as a question; every caller starts from a directory or a workspace                      |
+| Gap                                                                                                                                                                                                | Where it is open                                                                                   |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| **What werk remembers about a workspace, and where that record lives.** `workspaceRecords` writes what landing needs and no more, on the client only, and nothing reads it back for `workspaceAt`. | [question 19](../../docs/open-questions.md#19-where-does-the-record-of-a-workspace-live)           |
+| **Which machine a workspace is on.** A reference has room for a host and nothing supplies one, so the component is absent everywhere.                                                              | [question 24](../../docs/open-questions.md#24-what-is-the-host-component-of-a-workspace-reference) |
+| **The state a workspace can be in.** `Workspace` has no state field, because the words for one are not settled.                                                                                    | [question 16](../../docs/open-questions.md#16-which-of-the-old-words-survive)                      |
+| **Whether the checkout the client is standing in is itself a workspace.** `WorkspaceSource` calls it a `local-checkout` and does not claim either way.                                             | [question 20](../../docs/open-questions.md#20-is-the-place-the-client-is-running-a-workspace)      |
+| **What ends a workspace.** Nothing here removes one.                                                                                                                                               | [question 14](../../docs/open-questions.md#14-what-ends-a-workspace)                               |
+| **Reading a reference back from a string.** The grammar is built to be read back, and nothing needs it yet.                                                                                        | Not raised as a question; every caller starts from a directory or a workspace                      |
 
 Two more are open without a numbered question behind them.
 

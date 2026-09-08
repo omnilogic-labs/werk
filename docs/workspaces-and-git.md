@@ -15,16 +15,26 @@ code that makes one.
 ## What exists today
 
 The session packages own processes, not repositories. `@werk/workspace` owns the
-one piece of this document that is built: `werk create` makes a git worktree on
-a new branch, from the checkout the caller is standing in, and starts the
-session in it. A host is absent from the code, and so is any record of which
-workspaces exist.
+two pieces of this document that are built. `werk create` makes a git worktree
+on a new branch, from the checkout the caller is standing in, and starts the
+session in it; `--host` makes the same thing on a machine reached over ssh.
+`werk land` takes the commits made in a workspace on this machine, squashes them
+onto a throwaway copy of the branch the caller is standing on, and fast-forwards
+that branch onto the result. [Landing](product/landing.md) is what it is the
+first route of.
+
+`create` also writes a small record beside the worktree, on the machine werk was
+run on, holding the branch the workspace was made from and the commit it started
+at. That exists because landing needs the parent branch and nothing can recover
+it afterwards. It is not the workspace record this document describes below, and
+[question 19](open-questions.md#19-where-does-the-record-of-a-workspace-live)
+is not closed by it: it holds no state, carries no derivation, and nothing
+reconciles it with anything.
 
 There is one notation for writing a workspace down, at three levels of
-verbosity, and everywhere that names a workspace uses it. Because nothing
-records which workspaces exist, the places that hold a directory rather than a
-workspace work back to one from the path, which reaches as far as this host's
-own layout. The host half of the notation has nothing to read from yet and is
+verbosity, and everywhere that names a workspace uses it. Nothing reads the
+record above for this: the places that hold a directory rather than a workspace
+work back to one from the path, which reaches as far as this host's own layout. The host half of the notation has nothing to read from yet and is
 absent; question 24 carries what its absence should mean.
 
 The other git call the client makes is `git rev-parse --show-toplevel`, in the
@@ -32,8 +42,8 @@ configuration loader, to find the root of the repository the caller is standing
 in so that the project configuration layer can be read from `<repository>/.werk`.
 It is there because asking git is the only way to get the answer git would give
 for a worktree, a submodule or a `.git` file, and it fails softly outside a
-repository. Beyond those two there is no clone, no fetch and no push anywhere in
-the product packages.
+repository. Beyond those there is no clone and no fetch anywhere in the product packages,
+and the only push is the one that sends a history to a machine `--host` named.
 
 So nearly all of this is a design for something that does not exist yet, written
 before the first line of it, which is the cheapest time to be wrong about it.
@@ -176,7 +186,10 @@ That package would probably own:
 - **The creation interface** described above, and the implementations behind it.
 - **The git operations werk performs on its own behalf**: making a branch from a
   parent, moving a change between workspaces, and whatever
-  [landing](product/landing.md) needs, which is the largest consumer.
+  [landing](product/landing.md) needs, which is the largest consumer. Two of
+  those are there: the branch, and a landing onto a parent in the same
+  repository. Moving a change between two workspaces is not, and it is the one
+  that would cross a host boundary.
 - **The workspace record.** Whatever werk knows about a workspace: which host it
   is on, what it was derived from, which branch it holds, what state it is in.
   Where that record lives is

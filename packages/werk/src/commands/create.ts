@@ -20,6 +20,7 @@ import {
   formatWorkspaceReference,
   repositoryIdentity,
   runGit,
+  workspaceRecords,
   workspaceReference,
   WorkspaceError,
   type CreateWorkspaceOptions,
@@ -253,9 +254,58 @@ export function workspaceRecord(workspace: Workspace) {
     name: workspace.name,
     directory: workspace.directory,
     branch: workspace.branch,
+    // The branch it came from, which is what `werk land` puts it back on. Null
+    // rather than absent when the checkout was on a detached HEAD: there was
+    // no branch to name, and a reader of the record should be told that rather
+    // than left to wonder whether werk forgot.
+    parent: workspace.parent ?? null,
+    base: workspace.base,
     ...(workspace.host === undefined ? {} : { host: workspace.host }),
     reference: formatWorkspaceReference(workspaceReference(workspace), "full"),
   };
+}
+
+/**
+ * Write down what was just made, so that `werk land` can find it later.
+ *
+ * The record goes with the client that made it, under its own state directory,
+ * keyed by the checkout the workspace was derived from. It holds the one fact
+ * that cannot be recovered afterwards: which branch the workspace came from.
+ * The costs of keeping it here rather than on the host are
+ * [question 19](../../../../docs/open-questions.md#19-where-does-the-record-of-a-workspace-live).
+ *
+ * A record that cannot be written is said and not raised. The workspace exists
+ * and the session is about to start in it; failing the create because a JSON
+ * file would not save would throw away work that was already done, and what is
+ * lost is that `werk land` will not find it by name.
+ */
+async function remember(
+  ctx: WerkContext,
+  workspace: Workspace,
+  source: string,
+): Promise<void> {
+  try {
+    const toplevel = gitToplevel(source);
+    if (toplevel === undefined) return;
+    await workspaceRecords(path.join(ctx.stateDir, "workspaces"), toplevel).put(
+      {
+        name: workspace.name,
+        directory: workspace.directory,
+        branch: workspace.branch,
+        ...(workspace.parent === undefined ? {} : { parent: workspace.parent }),
+        base: workspace.base,
+        source: toplevel,
+        ...(workspace.host === undefined ? {} : { host: workspace.host }),
+        createdAt: Date.now(),
+      },
+    );
+  } catch (error) {
+    ctx.writeError(
+      `${ctx.style.warning("werk could not write down this workspace")}, so \`werk land ${workspace.name}\` will not find it: ${
+        error instanceof Error ? error.message : String(error)
+      }\n`,
+    );
+  }
 }
 
 /**
@@ -451,6 +501,13 @@ export function buildCreate(): Command {
                 ...(staged ? { onProgress: staged.onProgress } : {}),
               },
             );
+            // Written down before the daemon is asked for anything: the
+            // workspace exists from here on whether or not a session ever
+            // starts in it, and a record made only on the happy path would be
+            // missing for exactly the workspaces somebody has to clear up.
+            // Before the setups for the same reason — a setup that fails leaves
+            // a workspace, and the record is what says where it is.
+            await remember(ctx, workspace, here);
             // Awaited before the workspace's own setup, which may want whatever
             // the machine's put there.
             const host = (await settingUp)();
