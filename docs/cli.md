@@ -27,6 +27,7 @@ alone, and what each dependency is for.
 | `list` (`ls`)                                                                | List sessions                                                                 |
 | `attach [session]`                                                           | Go back to a running session; Ctrl-] detaches                                 |
 | `logs [session]`                                                             | Print what a session has on screen, or what it has kept                       |
+| `edit <path>`                                                                | From inside a session, open a file where the person is sitting                |
 | `kill [session]`                                                             | Ask a session's process to stop                                               |
 | `remove` (`rm`)                                                              | Forget a session that has stopped                                             |
 | `watch`                                                                      | Print daemon events as JSON lines until interrupted                           |
@@ -98,7 +99,7 @@ Completion stops at the same boundary and offers nothing past it.
 | 2    | A usage mistake: a bad flag, an unknown command, `INVALID_ARGUMENT`         |
 | 3    | `NOT_FOUND` — no such session                                               |
 | 4    | `PERMISSION_DENIED`                                                         |
-| 5    | `CONFLICT` — a session or workspace name already taken                      |
+| 5    | `CONFLICT` — the state refuses it: a name already taken, nobody attached    |
 | 6    | `LIMIT` — a cap was exceeded                                                |
 | 7    | Nothing answered: `TIMEOUT`, `CLOSED`, `HOST_DAEMON_MISSING`                |
 | 130  | Cancelled: SIGINT, or a prompt nobody answered                              |
@@ -383,6 +384,57 @@ characters and the separator costs 3, so a narrower window leaves fewer than 4
 columns for a name, and a name cut down to one letter says less than the key
 that gets you out. `identity` in `packages/werk/src/view.ts` is where that is
 decided.
+
+## Opening a file where you are sitting
+
+`werk edit <path>`, run **inside** a session, asks whoever is attached to that
+session to open the file in their own editor.
+
+```sh
+werk edit src/main.ts
+EDITOR="werk edit --wait" git commit
+```
+
+What crosses the wire is a path and never a file. `werk edit` resolves the path
+on the machine the session is on, reads `WERK_SESSION` from its own
+environment, and hands both to the daemon there; the daemon relays them to
+every client attached to that session, and each client runs its own `editor`
+command with `{host}` and `{path}` filled in. In the default configuration that
+is `code --remote ssh-remote+beast /srv/work/main.ts`, so the editor reaches
+the file over ssh itself. [hosts.md](hosts.md#opening-a-file-from-a-session-on-another-machine)
+has why forwarding a path is the shape being tried rather than anything simpler.
+
+- The daemon it talks to is the one on the machine it is running on, always,
+  because that is the daemon holding the session. It takes no `--host`, and
+  says so rather than acting on somebody else's machine.
+- Nothing attached is a refusal, exit 5, rather than a wait. Somebody who has
+  detached cannot open anything, and no list of files to open later is kept.
+- Every attached client is asked, so a session watched from two places opens
+  the file in both.
+- `--wait` returns when the client's editor command exits. Without it the
+  command returns as soon as the daemon has relayed the request.
+- A client that could not run its editor reports why, and `werk edit` fails
+  with that reason on stderr.
+
+**What `--wait` guarantees is werk's half of it.** werk holds the request until
+the attached client's `editor` command exits, and the daemon bounds that at an
+hour, after which the caller is told nobody answered rather than being left
+blocked. Whether the editor exits when the file is closed is the editor's
+business: `code` needs its own `--wait` in the setting, and whether that
+composes with `--remote` is untested here. A configuration that wants blocking
+is worth trying before anything depends on it.
+
+The command werk runs is split into words before `{host}` and `{path}` are
+substituted, and the words are handed to the operating system rather than to a
+shell. A path with a space, a quote or a semicolon in it is therefore one
+argument and cannot become a second command. The cost is that the setting is a
+command line rather than a shell fragment: `sh -c '...' _ {path}` is how to ask
+for a shell, and the path still arrives as one word.
+
+`werk edit` is meant to be what `$EDITOR` is set to inside a session. What sets
+it there is the session's own environment rather than anything this command
+does — a per-host `env` map is the likely place for it — and the two compose:
+`EDITOR="werk edit --wait"` on the session, and `editor` on the client.
 
 ## Naming a session
 
@@ -711,19 +763,20 @@ project layer outside a repository.
 Every key answers to `WERK_` plus its name in screaming snake case. That is a
 rule rather than a list, so a new setting gets its variable for free.
 
-| Key               | Variable                | What it is                                         |
-| ----------------- | ----------------------- | -------------------------------------------------- |
-| `logLevel`        | `WERK_LOG_LEVEL`        | Daemon log level                                   |
-| `runtimeDir`      | `WERK_RUNTIME_DIR`      | Where the daemon socket and endpoint live          |
-| `stateDir`        | `WERK_STATE_DIR`        | Where checkpoints, logs and the daemon record live |
-| `scrollbackBytes` | `WERK_SCROLLBACK_BYTES` | Bytes of output a new session keeps                |
-| `defaultHost`     | `WERK_DEFAULT_HOST`     | Which host werk puts work on when nobody names one |
-| `workspaceSetup`  | `WERK_WORKSPACE_SETUP`  | Which `[setup.<name>]` block a new workspace gets  |
-| `colour`          | `WERK_COLOUR`           | `auto`, `always` or `never`                        |
-| `flavour`         | `WERK_FLAVOUR`          | `auto` or a Catppuccin flavour                     |
-| `flavourDark`     | `WERK_FLAVOUR_DARK`     | What `auto` wears on a dark terminal               |
-| `flavourLight`    | `WERK_FLAVOUR_LIGHT`    | What `auto` wears on a light terminal              |
-| `accent`          | `WERK_ACCENT`           | Which Catppuccin accent marks the active thing     |
+| Key               | Variable                | What it is                                           |
+| ----------------- | ----------------------- | ---------------------------------------------------- |
+| `logLevel`        | `WERK_LOG_LEVEL`        | Daemon log level                                     |
+| `runtimeDir`      | `WERK_RUNTIME_DIR`      | Where the daemon socket and endpoint live            |
+| `stateDir`        | `WERK_STATE_DIR`        | Where checkpoints, logs and the daemon record live   |
+| `scrollbackBytes` | `WERK_SCROLLBACK_BYTES` | Bytes of output a new session keeps                  |
+| `defaultHost`     | `WERK_DEFAULT_HOST`     | Which host werk puts work on when nobody names one   |
+| `workspaceSetup`  | `WERK_WORKSPACE_SETUP`  | Which `[setup.<name>]` block a new workspace gets    |
+| `colour`          | `WERK_COLOUR`           | `auto`, `always` or `never`                          |
+| `flavour`         | `WERK_FLAVOUR`          | `auto` or a Catppuccin flavour                       |
+| `flavourDark`     | `WERK_FLAVOUR_DARK`     | What `auto` wears on a dark terminal                 |
+| `flavourLight`    | `WERK_FLAVOUR_LIGHT`    | What `auto` wears on a light terminal                |
+| `accent`          | `WERK_ACCENT`           | Which Catppuccin accent marks the active thing       |
+| `editor`          | `WERK_EDITOR`           | What this machine runs to open a file from a session |
 
 An empty variable is treated as unset, so `WERK_LOG_LEVEL= werk list` gets the
 layer below rather than a parse error. A key werk does not know is ignored
@@ -749,6 +802,24 @@ overrides it for that one session. The daemon's own limit is 10,000,000 bytes,
 and it refuses a larger request rather than quietly reducing it: the error is
 `LIMIT`, `scrollbackBytes exceeds the daemon cap of 10000000`, and the exit
 status is 6.
+
+`editor` is what an attached client runs when a session asks for a file to be
+opened, and it defaults to `code --remote ssh-remote+{host} {path}`. It is a
+setting of the client rather than of a host because the command runs where the
+person is sitting: somebody driving Windows VS Code from WSL sets `code.exe`
+once and it serves every machine they reach.
+
+`{path}` is the file, on the machine the session is on. `{host}` is that
+machine's ssh destination, spelled as it would be typed after `ssh`. A session
+on the machine the client is already sitting at has no destination, so `{host}`
+becomes that machine's own hostname — which keeps the default command a real
+remote authority rather than an empty one, and asks the editor to reach this
+machine over ssh, the long way round. Somebody whose sessions are mostly local
+should set something with no `{host}` in it, such as `code {path}`.
+
+A command that cannot open anything is refused when it is set rather than when
+it is run, so `werk config set editor` says no to a command with no `{path}` in
+it and to one with a quote left open.
 
 The layers are read once, before parsing begins, rather than by each command.
 Commander prints a help page during the parse, so a `flavour` set in a file has

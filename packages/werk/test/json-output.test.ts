@@ -241,10 +241,11 @@ test(
 );
 
 /**
- * The commands that answer with something other than a value, each named so the
- * exemption is a decision someone took rather than a command nobody got round
- * to. A new command is in neither list and fails the test below until it is
- * classified.
+ * The commands this file does not run, each named so the exemption is a
+ * decision someone took rather than a command nobody got round to. Most of
+ * them answer with something other than a value; the one that does answer with
+ * one cannot be made to answer from here. A new command is in neither list and
+ * fails the test below until it is classified.
  */
 const EXEMPT: Record<string, string> = {
   // Write a stream of terminal output or of events until they are interrupted;
@@ -256,6 +257,11 @@ const EXEMPT: Record<string, string> = {
   // Answers a shell in the completion wire protocol, which is not JSON and is
   // read by the installed script rather than by a person or a parser.
   "werk complete": "emits the completion protocol",
+  // Runs inside a session, and answers only while a second process is attached
+  // to that session to open the file. Standing that up is the whole of
+  // `edit.test.ts`, which asserts the same one-value-on-stdout rule this file
+  // does rather than leaving the command uncovered.
+  "werk edit": "needs a session, and a client attached to it",
 };
 const EXERCISED = [
   // Its human rendering is the bare script, so `eval "$(werk completion bash)"`

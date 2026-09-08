@@ -593,6 +593,56 @@ a default, so it is sent as well and it wins: the names in it are ones somebody
 wrote down against that machine, where everything the allowlist decides is werk
 guessing about names it has never seen.
 
+### Opening a file from a session on another machine
+
+Somebody in a session on `beast` types `$EDITOR notes.md` and wants the editor
+on the laptop in front of them to open it. `werk edit notes.md` is what is
+being tried for that, and [cli.md](cli.md#opening-a-file-where-you-are-sitting)
+is the reference for the command. What it forwards is a path: the session's
+daemon relays `/srv/work/notes.md` to whoever is attached, and that client runs
+`code --remote ssh-remote+beast /srv/work/notes.md` locally, so the editor
+reaches the file over ssh itself and no file content crosses werk's wire. The
+same message drives `zed ssh://beast/...` or a `jetbrains://` link; the client
+decides.
+
+**No `$EDITOR` string can do this, which is why it is a message rather than a
+command.** The setup this is aimed at is Windows VS Code, driven from WSL, with
+the session on a third machine, and two things stop a string spanning it:
+
+- VS Code's remote `code` shim talks HTTP over a Unix socket named by
+  `VSCODE_IPC_HOOK_CLI`. That socket is per-window, a new one is made every
+  time a window reloads, and stale ones are never cleaned up. A werk session
+  outlives the client that started it, so it can never hold a live handle to
+  one.
+- VS Code cannot chain remote authorities, so Windows client → WSL → a third
+  machine has no VS Code path at all.
+
+Forwarding the path sidesteps both: the session holds nothing, and the editor
+makes one hop of its own to a machine it can reach. It also means werk needs
+nothing on the session's side beyond a way to say "this file", which is what
+makes `werk edit` a small command.
+
+None of this is settled. It rests on the client having an ssh destination for
+the machine that the editor can use as well, which is true when werk reached
+the machine by an ssh_config alias and is not true of a host reached some other
+way. It says nothing about a machine werk provisioned rather than one somebody
+wrote down.
+
+**Nothing has forwarded a path to a real editor on a real second machine.**
+What has been run is the suite, on one machine: a session, a daemon, an
+attached client and `cp` standing in for the editor. Every sentence above about
+what VS Code does with what it is handed is reasoning rather than evidence.
+
+Two pieces of the setup are not wired up. `EDITOR` has to be set inside the
+session for a program there to reach `werk edit` at all, which is a job for the
+session's environment rather than for this command — a per-host `env` map is
+the likely place for it — and the two would compose without either knowing
+about the other. And the binary werk installs on a host lives at
+`~/.local/share/werk/bin/<target>-<stamp>/werk` and is on nobody's `PATH`, so
+`werk edit` inside a session on that machine finds nothing to run unless a
+person has put werk there themselves. Whether werk should put something on the
+session's `PATH`, and what else would belong there if it did, is not worked out.
+
 ### The warm path
 
 The cold path is four round trips and about a second of them at any real
@@ -898,6 +948,11 @@ takes them off again. See
 **Old binaries are never pruned.** Every client version that reaches a machine
 leaves 92 MB there permanently.
 
+**The werk on a host is not on a session's `PATH`.** So `werk edit`, which is
+meant to be run from inside a session, cannot be run from inside one on a
+machine werk installed itself onto. See [opening a file from a session on
+another machine](#opening-a-file-from-a-session-on-another-machine).
+
 ## What has been observed
 
 **No CI lane has ever seen werk reach a second machine.** The lanes are
@@ -905,13 +960,14 @@ leaves 92 MB there permanently.
 below that involves ssh was run by one person, on a LAN, between two Linux
 boxes.
 
-| What                                                                                                                                  | Where                                   | What it proves                                                                                                 |
-| ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| The failure table, every git argv, the shape of the remote scripts                                                                    | `packages/workspace/test/ssh.test.ts`   | Against a scripted runner. No machine involved.                                                                |
-| The scripts actually running: `git init --bare`, the numbered refusals, `worktree add --lock`, the rollback, a mirror pushed to twice | `packages/werk/test/loopback.test.ts`   | `sh -c` in a temporary `$HOME`, a filesystem push URL, a relay onto a local daemon socket. No network, no ssh. |
-| A setup actually running: the script, the tar pipe, the stamp written and read back, a command that fails                             | `packages/werk/test/setup-run.test.ts`  | A real shell in a temporary `$HOME`. No network, no ssh.                                                       |
-| Every command werk builds for a setup, and each row of the decision table                                                             | `packages/werk/test/host/setup.test.ts` | Against a scripted runner. No machine involved.                                                                |
-| ssh itself: the connection, its failures, the forward, the install, the daemon start, keystroke latency, a setup on a real `$HOME`    | `scripts/remote-smoke.ts`               | A real second machine. Run by hand.                                                                            |
+| What                                                                                                                                  | Where                                                                          | What it proves                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| The failure table, every git argv, the shape of the remote scripts                                                                    | `packages/workspace/test/ssh.test.ts`                                          | Against a scripted runner. No machine involved.                                                                |
+| The scripts actually running: `git init --bare`, the numbered refusals, `worktree add --lock`, the rollback, a mirror pushed to twice | `packages/werk/test/loopback.test.ts`                                          | `sh -c` in a temporary `$HOME`, a filesystem push URL, a relay onto a local daemon socket. No network, no ssh. |
+| A setup actually running: the script, the tar pipe, the stamp written and read back, a command that fails                             | `packages/werk/test/setup-run.test.ts`                                         | A real shell in a temporary `$HOME`. No network, no ssh.                                                       |
+| Every command werk builds for a setup, and each row of the decision table                                                             | `packages/werk/test/host/setup.test.ts`                                        | Against a scripted runner. No machine involved.                                                                |
+| ssh itself: the connection, its failures, the forward, the install, the daemon start, keystroke latency, a setup on a real `$HOME`    | `scripts/remote-smoke.ts`                                                      | A real second machine. Run by hand.                                                                            |
+| Opening a file: the wire, the refusals, the argv splitting, and an attached client running an editor                                  | `packages/session-daemon/test/open.test.ts`, `packages/werk/test/edit.test.ts` | One machine, with `cp` standing in for the editor. No second machine and no editor.                            |
 
 `scripts/remote-smoke.ts` is not part of `bun test`: it needs a box reachable
 with key authentication and it starts processes there.

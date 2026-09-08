@@ -22,6 +22,7 @@ import {
   sizeIntent,
 } from "../src/commands/attach.js";
 import { buildKill, renderTermination } from "../src/commands/kill.js";
+import { renderOpen, waitTimeoutMs } from "../src/commands/edit.js";
 import { renderInspection, type Inspection } from "../src/commands/inspect.js";
 import { describeEndpoint, renderEndpoint } from "../src/commands/daemon.js";
 import { aliasesOf, resolveSession } from "../src/commands/session-argument.js";
@@ -51,6 +52,7 @@ function context(overrides: Partial<WerkContext> = {}): WerkContext {
     defaultHost: "local",
     setups: {},
     hostOrigin: {},
+    editor: builtInDefaults().editor,
     ...overrides,
   };
 }
@@ -240,6 +242,31 @@ test("termination reports delivery and outcome as the separate facts they are", 
     "interrupt sent to s1",
     "session s1 has ended with status 130",
   ]);
+});
+test("an open says who was asked, or that they have finished", () => {
+  const ctx = context();
+  const outcome = {
+    openId: "o1",
+    attachments: 2,
+    finished: false,
+  };
+  expect(renderOpen(outcome, "/tmp/a b.txt", ctx)).toBe(
+    "asked 2 attached clients to open /tmp/a b.txt",
+  );
+  expect(renderOpen({ ...outcome, attachments: 1 }, "/tmp/x", ctx)).toContain(
+    "1 attached client ",
+  );
+  expect(renderOpen({ ...outcome, finished: true }, "/tmp/x", ctx)).toBe(
+    "/tmp/x was opened and reported finished",
+  );
+});
+test("a --wait outlasts the daemon's own bound, and never waits forever", () => {
+  // The client's deadline is the daemon's plus slack, so the daemon's failure
+  // is the one that gets reported rather than a bare client timeout.
+  expect(waitTimeoutMs({ openWaitMs: 1000 })).toBeGreaterThan(1000);
+  // A daemon that says nothing, or something unusable, still gets a bound.
+  for (const capabilities of [{}, { openWaitMs: "soon" }, { openWaitMs: 0 }])
+    expect(waitTimeoutMs(capabilities)).toBeGreaterThan(0);
 });
 const inspection = (over: Partial<Inspection> = {}): Inspection => ({
   version: "0.1.0",

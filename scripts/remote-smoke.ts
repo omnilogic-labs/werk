@@ -41,6 +41,7 @@ import { HostError } from "../packages/werk/src/host/types.js";
 import type { SetupBlock } from "../packages/werk/src/config/setup.js";
 import type { WerkContext } from "../packages/werk/src/runtime/context.js";
 import { createStyles } from "../packages/werk/src/runtime/style.js";
+import { builtInDefaults } from "../packages/werk/src/config/schema.js";
 import { roles } from "../packages/palette/dist/index.js";
 
 export type Options = {
@@ -793,6 +794,9 @@ async function main(): Promise<number> {
       defaultHost: "smoke",
       setups: { [setupBlock]: block },
       hostOrigin: {},
+      // Nothing here opens a file; the field is required and the default is the
+      // honest answer for a context that will never be asked for it.
+      editor: builtInDefaults().editor,
     };
     const setupHost = {
       kind: "ssh" as const,

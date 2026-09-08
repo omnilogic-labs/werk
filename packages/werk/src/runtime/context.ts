@@ -11,7 +11,11 @@ import { createStyles, type Styles } from "./style.js";
 import { defaultSessionRuntimeDir } from "@werk/session-daemon";
 import type { Roles } from "@werk/palette";
 import type { RuntimeBasis } from "../commands/shared.js";
-import { defaultStateDir, type WerkConfig } from "../config/schema.js";
+import {
+  DEFAULT_EDITOR,
+  defaultStateDir,
+  type WerkConfig,
+} from "../config/schema.js";
 import {
   builtInHosts,
   DEFAULT_HOST,
@@ -114,6 +118,11 @@ export interface WerkContext {
   readonly workspaceSetup?: string;
   /** Where that name was written. */
   readonly workspaceSetupFrom?: string;
+  /**
+   * What this machine runs to open a file a session asked to have opened. An
+   * attached client is the only reader; see `commands/attach.ts`.
+   */
+  readonly editor: string;
 }
 /**
  * A terminal that cannot say how big it is. `process.stdout.columns` and
@@ -219,6 +228,7 @@ export function createContext(
     hosts: resolved?.hosts ?? builtInHosts(),
     hostProblems: resolved?.problems ?? [],
     defaultHost: config?.defaultHost ?? DEFAULT_HOST,
+    editor: config?.editor ?? DEFAULT_EDITOR,
     ...(flags.host === undefined ? {} : { requestedHost: flags.host }),
     setups: resolved?.setups ?? {},
     hostOrigin: resolved?.hostOrigin ?? {},
