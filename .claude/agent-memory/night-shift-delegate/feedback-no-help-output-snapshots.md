@@ -8,9 +8,8 @@ metadata:
 Do not write tests that must match help output — or any user-facing prose —
 verbatim. No golden files, no snapshots, no frozen blocks of rendered text.
 
-**Why:** werk is early and unshipped, and `CLAUDE.md` records that nothing in it
-is settled: user-facing prose is expected to be rewritten constantly, and #8
-exists to rewrite all of it again. A snapshot that
+**Why:** the owner's words during issue #7: "literally every change we make in
+the early product development will need to update this text". A snapshot that
 gets regenerated on every ordinary change stops being read and starts being
 reset, so it catches nothing while still costing a diff every time. This
 overrode work already committed — `packages/werk/test/help.golden.txt` was
