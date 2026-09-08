@@ -16,16 +16,18 @@
  * writing the repository, so the add is still classified, and `GIT_FAILED`
  * carries git's own stderr for everything this file did not anticipate.
  */
-import { createHash } from "node:crypto";
 import { mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 import { isMissingExecutable, runGit, type GitRunner } from "./git.js";
+import { reportProgress } from "./progress.js";
 import type { WorkspaceReference } from "./reference.js";
+import { repositorySlotFor } from "./slot.js";
 import {
   WorkspaceError,
+  type CreateWorkspaceOptions,
   type CreateWorkspaceRequest,
   type Workspace,
-  type WorkspaceHost,
+  type WorkspaceMaker,
 } from "./types.js";
 
 /**
@@ -41,29 +43,20 @@ export const WORKSPACE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 export const isWorkspaceName = (name: string): boolean =>
   WORKSPACE_NAME.test(name) && !name.includes("..");
 
-/** Characters a directory leaf carries everywhere werk runs, Windows included. */
-const unsafe = /[^A-Za-z0-9._-]/g;
-
 /**
  * Where a repository's workspaces live under the root.
  *
- * The repository's own directory name is there so a person browsing the root
- * can tell what they are looking at, and the digest is there because that name
- * is not unique: two checkouts of the same project would otherwise put their
- * `fix-login` workspaces in the same place.
+ * The checkout's absolute path is what is digested, which is exactly right for
+ * a worktree on this machine and exactly wrong for one anywhere else — see
+ * `slot.ts`.
  */
 export function repositorySlot(toplevel: string): string {
   const absolute = path.resolve(toplevel);
-  const digest = createHash("sha256")
-    .update(absolute)
-    .digest("hex")
-    .slice(0, 8);
-  const leaf = path.basename(absolute).replace(unsafe, "-");
-  return `${leaf === "" ? "repository" : leaf}-${digest}`;
+  return repositorySlotFor(path.basename(absolute), absolute);
 }
 
 /**
- * The workspace a directory is, when this host's layout is what put it there.
+ * The workspace a directory is, when a werk layout is what put it there.
  *
  * The inverse of the join `create` performs below, and it lives beside that
  * join so the two cannot drift apart. It answers from the path alone: nothing
@@ -71,30 +64,47 @@ export function repositorySlot(toplevel: string): string {
  * that record should live is
  * [question 19](../../../docs/product-specification.md#19-where-does-the-record-of-a-workspace-live).
  *
- * Reconstruction reaches exactly as far as this host's layout. A workspace on
- * another machine, or one a differently shaped host laid out, has no route
- * through here, which is one of the things question 19 costs.
+ * Reconstruction reaches exactly as far as the layout both makers share:
+ * `<root>/<repository slot>/<workspace name>`. One a differently shaped maker
+ * laid out has no route through here, which is one of the things question 19
+ * costs.
  *
  * A path is a workspace when it is a direct child of a repository slot, so
  * `root/slot/leaf` answers and `root/slot`, `root/slot/leaf/src` and anything
  * outside `root` do not. The slot itself is not checked beyond its position:
  * the digest in it is not recomputable without the checkout it was made from.
+ *
+ * `host` names the machine the path is on, and is stamped onto the answer. It
+ * also decides which path grammar the strings are read with: a path on another
+ * machine is not a path on this one, so a Windows client reading
+ * `/srv/werk/workspaces/repo-a3f2b1c9/fix-login` would split it on `\` and find
+ * nothing. A host being given means the posix grammar, which is what every
+ * machine werk reaches over ssh uses; a Windows machine reached that way is a
+ * thing to work out when there is one.
  */
-export function localWorkspaceAt(
+export function workspaceAt(
   root: string,
   directory: string,
+  host?: string,
 ): WorkspaceReference | undefined {
-  const absolute = path.resolve(directory);
-  const relative = path.relative(path.resolve(root), absolute);
-  if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative))
+  const p = host === undefined ? path : path.posix;
+  const absolute = host === undefined ? path.resolve(directory) : directory;
+  const relative = p.relative(
+    host === undefined ? path.resolve(root) : root,
+    absolute,
+  );
+  if (relative === "" || relative.startsWith("..") || p.isAbsolute(relative))
     return undefined;
-  const parts = relative.split(path.sep);
+  const parts = relative.split(p.sep);
   if (parts.length !== 2) return undefined;
   const name = parts[1]!;
-  return isWorkspaceName(name) ? { name, directory: absolute } : undefined;
+  if (!isWorkspaceName(name)) return undefined;
+  return host === undefined
+    ? { name, directory: absolute }
+    : { name, directory: absolute, host };
 }
 
-export interface LocalWorktreeOptions {
+export interface LocalWorktreeMakerOptions {
   /**
    * The directory workspaces are made under. Passed in rather than resolved
    * here: where werk keeps its own files is the client's business, and a test
@@ -123,9 +133,9 @@ async function nothingInTheWay(directory: string): Promise<boolean> {
   }
 }
 
-export function createLocalWorktreeHost(
-  options: LocalWorktreeOptions,
-): WorkspaceHost {
+export function createLocalWorktreeMaker(
+  options: LocalWorktreeMakerOptions,
+): WorkspaceMaker {
   const git = options.git ?? runGit;
   const root = path.resolve(options.root);
 
@@ -145,7 +155,11 @@ export function createLocalWorktreeHost(
 
   return {
     kind: "local-worktree",
-    async create(request: CreateWorkspaceRequest): Promise<Workspace> {
+    async create(
+      request: CreateWorkspaceRequest,
+      options?: CreateWorkspaceOptions,
+    ): Promise<Workspace> {
+      const progress = reportProgress(options?.onProgress);
       const { name, from } = request;
       if (!isWorkspaceName(name))
         throw new WorkspaceError(
@@ -153,6 +167,10 @@ export function createLocalWorktreeHost(
           `${JSON.stringify(name)} is not a workspace name: use letters, digits, dot, dash and underscore, starting with a letter or a digit`,
         );
 
+      // Two of the seven stages, because two is what a worktree on this machine
+      // costs. They are emitted rather than skipped so that a caller rendering
+      // progress is exercised by the maker that runs in every test.
+      progress("resolve-source", "begin");
       const source = path.resolve(from.path);
       const top = await run(["rev-parse", "--show-toplevel"], source);
       const toplevel = top.stdout.trim();
@@ -185,6 +203,7 @@ export function createLocalWorktreeHost(
         );
 
       const directory = path.join(root, repositorySlot(toplevel), name);
+      progress("resolve-source", "end", toplevel);
       if (!(await nothingInTheWay(directory)))
         throw new WorkspaceError(
           "DIRECTORY_EXISTS",
@@ -192,6 +211,7 @@ export function createLocalWorktreeHost(
         );
 
       await mkdir(path.dirname(directory), { recursive: true });
+      progress("check-out", "begin");
       // `HEAD` rather than the current branch's name: it is what "branch from
       // where I am standing" means, and it is the only spelling that works on
       // a detached HEAD.
@@ -205,7 +225,10 @@ export function createLocalWorktreeHost(
           `git worktree add failed for ${directory}`,
           added.stderr.trim() || added.stdout.trim(),
         );
+      progress("check-out", "end", directory);
 
+      // No `host`: this is the machine werk is running on, and an absent host
+      // is what says so.
       return { name, directory, branch, from };
     },
   };

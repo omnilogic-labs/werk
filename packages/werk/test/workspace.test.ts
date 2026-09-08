@@ -17,7 +17,7 @@ import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { localWorkspaceAt } from "@werk/workspace";
+import { workspaceAt } from "@werk/workspace";
 
 const run = promisify(execFile);
 const MAIN = join(import.meta.dir, "../src/main.ts");
@@ -114,7 +114,7 @@ test(
     );
     // The reference a real run produced is one the package recovers from the
     // directory alone, which is the route `werk list` and the chrome take.
-    expect(localWorkspaceAt(join(stateDir, "workspaces"), info.cwd)).toEqual({
+    expect(workspaceAt(join(stateDir, "workspaces"), info.cwd)).toEqual({
       name: info.workspace.name,
       directory: info.workspace.directory,
     });

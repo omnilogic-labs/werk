@@ -39,39 +39,97 @@ export interface CreateWorkspaceRequest {
  */
 export interface Workspace {
   readonly name: string;
-  /** Absolute path to the working directory. */
+  /** Absolute path to the working directory, on whichever machine `host` names. */
   readonly directory: string;
   readonly branch: string;
   readonly from: WorkspaceSource;
+  /**
+   * Which machine it is on, named as werk's configuration names it. Absent from
+   * anything made on the machine werk is running on, which keeps the lean
+   * recorded in
+   * [question 23](../../../docs/product-specification.md#23-what-is-the-host-component-of-a-workspace-reference)
+   * — that absence probably reads as "here" — intact rather than answering it.
+   */
+  readonly host?: string;
+}
+
+/**
+ * The stages a maker can be in, in the order a remote creation walks them.
+ *
+ * A local worktree passes through two of these and a machine that has to be
+ * reached, given a werk, given a daemon and given a history passes through most
+ * of them. They are one list rather than one per maker so that a caller can
+ * render any maker's progress without knowing which maker it has.
+ */
+export type WorkspaceStep =
+  | "resolve-source"
+  | "reach-host"
+  | "install-werk"
+  | "start-daemon"
+  | "prepare-repository"
+  | "transfer"
+  | "check-out";
+
+export interface WorkspaceProgress {
+  readonly step: WorkspaceStep;
+  readonly state: "begin" | "end";
+  /** A sentence for a person — "sending 84 MiB". Absent when there is nothing to add. */
+  readonly detail?: string;
+}
+
+export interface CreateWorkspaceOptions {
+  /** Abandons the creation. What a maker leaves behind when it does is the maker's to say. */
+  readonly signal?: AbortSignal;
+  /**
+   * Called as the maker moves between stages. It never throws into the maker:
+   * every call is wrapped, so a caller whose renderer breaks does not turn a
+   * working creation into a failure.
+   */
+  readonly onProgress?: (event: WorkspaceProgress) => void;
 }
 
 /**
  * The seam. One method, because creating a workspace is the one thing werk
  * needs done to a place it does not yet have.
  *
- * It returns a promise of a finished workspace, which is the shape that fits
- * `git worktree add` and probably not the shape that fits provisioning a
- * machine. `docs/workspaces-and-git.md` leans towards creation eventually
- * reporting progress, or handing back a workspace that is not ready yet, and
- * neither is built here. The shape leaves room for both: an options argument
- * carrying a signal or a progress callback would fit, and so would widening what
- * `create` resolves to.
+ * `create` still resolves to a finished workspace. Making one on another
+ * machine is probe, ship a binary, start a daemon, prepare a repository, push a
+ * history and check out, so a silent await of all that is not something a person
+ * would sit through — hence the options argument, which carries a progress
+ * callback and a signal.
+ *
+ * Handing back a workspace that is not ready yet was the other shape available,
+ * and nothing needed it: no caller has anything to do with a workspace it cannot
+ * run in, and a workspace with a lifecycle would be a set of state words written
+ * into code, which is
+ * [question 16](../../../docs/product-specification.md#16-which-of-the-old-words-survive).
+ * A maker that wanted to report readiness separately could still grow one later.
  */
-export interface WorkspaceHost {
+export interface WorkspaceMaker {
   /** Which kind of place this makes workspaces in, for a caller reporting what it did. */
   readonly kind: string;
-  create(request: CreateWorkspaceRequest): Promise<Workspace>;
+  create(
+    request: CreateWorkspaceRequest,
+    options?: CreateWorkspaceOptions,
+  ): Promise<Workspace>;
 }
 
 /**
  * Why a workspace could not be made.
  *
- * These are the caller's failures and git's, separated, because a client
- * turning them into an exit status and a message wants to tell "you are not in
- * a repository" from "git is not installed". They are decided by asking the
- * repository before running `git worktree add` rather than by reading git's
- * stderr: that wording moves between git versions and locales, and the exit
- * status of a refusal is not dependable either.
+ * These are the caller's failures, git's and the machine's, separated, because
+ * a client turning them into an exit status and a message wants to tell "you
+ * are not in a repository" from "git is not installed" from "that machine did
+ * not answer". They are decided by asking the repository before running
+ * `git worktree add`, and by giving a remote script a distinct exit per
+ * refusal, rather than by reading git's stderr: that wording moves between git
+ * versions and locales, and the exit status of a refusal is not dependable
+ * either.
+ *
+ * The `HOST_` codes and `REMOTE_GIT_MISSING` say something about a computer the
+ * person reading the message is not sitting at, which is the reason they are
+ * their own rows rather than shades of `GIT_FAILED`: the remedy is somewhere
+ * else.
  */
 export type WorkspaceErrorCode =
   /** The name is not one a branch and a directory can share. */
@@ -84,10 +142,26 @@ export type WorkspaceErrorCode =
   | "BRANCH_EXISTS"
   /** The target directory is already there and is not empty. */
   | "DIRECTORY_EXISTS"
-  /** There is no git to run. */
+  /** There is no git to run on the machine werk is running on. */
   | "GIT_MISSING"
   /** git ran and refused, for a reason this package did not anticipate. */
-  | "GIT_FAILED";
+  | "GIT_FAILED"
+  /** The machine did not answer. */
+  | "HOST_UNREACHABLE"
+  /** The machine answered and would not let werk in. */
+  | "HOST_AUTH_DENIED"
+  /** The machine answered and is not one this maker knows how to use. */
+  | "HOST_UNSUPPORTED"
+  /** Getting werk onto the machine, or starting it there, did not work. */
+  | "HOST_BOOTSTRAP_FAILED"
+  /**
+   * There is no git to run on the far machine. Separate from `GIT_MISSING`
+   * because the remedy is on a different computer from the one reading the
+   * message.
+   */
+  | "REMOTE_GIT_MISSING"
+  /** The history did not get there. Its own code because its remedy is "try again". */
+  | "TRANSFER_FAILED";
 
 export class WorkspaceError extends Error {
   readonly name = "WorkspaceError";

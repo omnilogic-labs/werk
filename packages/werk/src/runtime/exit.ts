@@ -48,12 +48,17 @@ const BY_CODE: Record<ErrorCode, number> = {
 };
 
 /**
- * A workspace that could not be made, in the same three registers the daemon's
+ * A workspace that could not be made, in the same registers the daemon's
  * refusals already use: what the caller asked for is wrong, something is
- * already there, or the machine could not do it. Without this a person standing
- * outside a repository would be told `INTERNAL` and given exit 1, which is the
- * status a daemon refusal uses — exactly the collision this file exists to
- * prevent.
+ * already there, nothing answered, werk was not let in, or the machine could
+ * not do it. Without this a person standing outside a repository would be told
+ * `INTERNAL` and given exit 1, which is the status a daemon refusal uses —
+ * exactly the collision this file exists to prevent.
+ *
+ * No new statuses for the machine a workspace is being made on. "That host did
+ * not answer" and "the daemon did not answer" are the same thing to a script
+ * deciding whether to retry, and being refused by ssh is being refused, so both
+ * reuse the number that already means it.
  */
 const BY_WORKSPACE_CODE: Record<WorkspaceErrorCode, number> = {
   INVALID_NAME: EXIT_USAGE,
@@ -65,6 +70,15 @@ const BY_WORKSPACE_CODE: Record<WorkspaceErrorCode, number> = {
   DIRECTORY_EXISTS: 5,
   GIT_MISSING: EXIT_FAILURE,
   GIT_FAILED: EXIT_FAILURE,
+  // The status that already means "nothing answered", which is the same fact a
+  // caller retrying wants from a machine as from a daemon.
+  HOST_UNREACHABLE: 7,
+  // The same status a daemon uses for PERMISSION_DENIED: werk was not let in.
+  HOST_AUTH_DENIED: 4,
+  HOST_UNSUPPORTED: EXIT_FAILURE,
+  HOST_BOOTSTRAP_FAILED: EXIT_FAILURE,
+  REMOTE_GIT_MISSING: EXIT_FAILURE,
+  TRANSFER_FAILED: EXIT_FAILURE,
 };
 
 /**

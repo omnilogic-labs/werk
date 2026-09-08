@@ -20,7 +20,7 @@ import type {
 } from "@commander-js/extra-typings";
 import path from "node:path";
 import type { SessionInfo } from "@werk/session";
-import { localWorkspaceAt } from "@werk/workspace";
+import { workspaceAt } from "@werk/workspace";
 import { connectExistingDaemon } from "../runtime/daemon.js";
 import {
   providerFor,
@@ -100,7 +100,7 @@ export const sessionCandidates: CandidateProvider = async (partial, ctx) => {
   for (const session of sessions) {
     const description = `${session.state} · ${session.argv.join(" ")}`;
     if (session.name) candidates.push({ value: session.name, description });
-    const workspace = localWorkspaceAt(root, session.cwd)?.name;
+    const workspace = workspaceAt(root, session.cwd)?.name;
     // Offered only when it says something the name did not; a workspace named
     // after its session would otherwise be two identical rows.
     if (workspace && workspace !== session.name)

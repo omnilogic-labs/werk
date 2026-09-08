@@ -18,11 +18,11 @@ import path from "node:path";
 import { Command, InvalidArgumentError } from "@commander-js/extra-typings";
 import type { SessionInfo } from "@werk/session";
 import {
-  createLocalWorktreeHost,
+  createLocalWorktreeMaker,
   formatWorkspaceReference,
   workspaceReference,
   type Workspace,
-  type WorkspaceHost,
+  type WorkspaceMaker,
 } from "@werk/workspace";
 import { childCommand, withContext } from "./shared.js";
 import { defineCommand } from "./define.js";
@@ -88,9 +88,12 @@ export function windowSize(
 export const workspaceRoot = (ctx: WerkContext): string =>
   path.join(ctx.stateDir, "workspaces");
 
-/** The one kind of workspace werk can make today. */
-export const workspaceHostFor = (ctx: WerkContext): WorkspaceHost =>
-  createLocalWorktreeHost({ root: workspaceRoot(ctx) });
+/**
+ * The kind of workspace the CLI makes today. `@werk/workspace` also describes
+ * one on a machine reached over ssh, and nothing here reaches a machine yet.
+ */
+export const workspaceMakerFor = (ctx: WerkContext): WorkspaceMaker =>
+  createLocalWorktreeMaker({ root: workspaceRoot(ctx) });
 
 /** Characters a branch and a directory leaf both carry without being escaped. */
 const unsafe = /[^A-Za-z0-9._-]/g;
@@ -239,7 +242,7 @@ export function buildCreate(): Command {
           // reported. Nothing removes the worktree if the session then fails to
           // start — rolling a half-made workspace back is one of the things
           // `docs/workspaces-and-git.md` leaves open.
-          const workspace = await workspaceHostFor(ctx).create({
+          const workspace = await workspaceMakerFor(ctx).create({
             name: workspaceNameFor(opts, argv),
             from: { kind: "local-checkout", path: here },
           });

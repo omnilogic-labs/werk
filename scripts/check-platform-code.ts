@@ -105,6 +105,20 @@ export const EXCEPTIONS: Exception[] = [
     disposition: "stays",
   },
   {
+    path: "packages/workspace/src/local.ts",
+    allowed: 1,
+    reason:
+      "`workspaceAt` reads a path on whichever machine holds it, so a host being given is what chooses the grammar. Not a branch on the machine the code is running on: it answers the same on every platform, which is what the test asserts.",
+    disposition: "stays",
+  },
+  {
+    path: "packages/workspace/src/ssh.ts",
+    allowed: 3,
+    reason:
+      "Every path built here is on the far machine, which is posix whatever this one is. Unconditional rather than a branch, and using the host's separator would be the bug.",
+    disposition: "stays",
+  },
+  {
     path: "scripts/session-soak.ts",
     allowed: 2,
     reason:

@@ -19,18 +19,25 @@ than as a boundary to build against.
 ## The interface
 
 ```ts
-import { createLocalWorktreeHost } from "@werk/workspace";
+import { createLocalWorktreeMaker } from "@werk/workspace";
 
-const host = createLocalWorktreeHost({ root: "/state/werk/workspaces" });
-const workspace = await host.create({
+const maker = createLocalWorktreeMaker({ root: "/state/werk/workspaces" });
+const workspace = await maker.create({
   name: "fix-login",
   from: { kind: "local-checkout", path: process.cwd() },
 });
 ```
 
-`WorkspaceHost` has one method and one property: `create(request)`, and a
-`readonly kind: string` saying which kind of place this host makes workspaces
-in, for a caller reporting what it did.
+`WorkspaceMaker` has one method and one property: `create(request, options?)`,
+and a `readonly kind: string` saying which kind of place this one makes
+workspaces in, for a caller reporting what it did.
+
+`options` carries an `AbortSignal` and an `onProgress` callback. Making a
+workspace on another machine is a probe, an install, a daemon start, a
+repository, a push and a check-out, and a caller that could say nothing for a
+minute and a half is not one anybody would ship. `create` still resolves to a
+finished workspace: returning one that is not ready yet was the other shape
+available and nothing needed it.
 
 `create` resolves to a `Workspace`: a `name`, an absolute `directory`, a
 `branch`, and the `from` it was made from. There is no identity, no state and no
@@ -46,8 +53,8 @@ a path.
 
 | Export                                       | What it does                                                            |
 | -------------------------------------------- | ----------------------------------------------------------------------- |
-| `createLocalWorktreeHost({ root, git? })`    | A `WorkspaceHost` that makes git worktrees on this machine              |
-| `localWorkspaceAt(root, directory)`          | Which workspace a directory is, for a caller holding a path and no name |
+| `createLocalWorktreeMaker({ root, git? })`    | A `WorkspaceMaker` that makes git worktrees on this machine              |
+| `workspaceAt(root, directory, host?)`  | Which workspace a directory is, for a caller holding a path and no name |
 | `isWorkspaceName(name)`                      | Whether a string is a name a branch and a directory can share           |
 | `workspaceReference(workspace)`              | Turn a `Workspace` into a `WorkspaceReference`                          |
 | `formatWorkspaceReference(reference, level)` | Write one at `"name"`, `"path"` or `"full"`                             |
@@ -60,12 +67,12 @@ There is one notation for writing a workspace down, at three levels of
 verbosity, so a column, a status row and a JSON record spell a workspace the
 same way.
 
-`localWorkspaceAt` is the inverse of the join `create` performs, and it reaches
+`workspaceAt` is the inverse of the join `create` performs, and it reaches
 only as far as this host's layout.
 
 ## The local worktree host
 
-`createLocalWorktreeHost({ root, git })` makes workspaces under `root`, one
+`createLocalWorktreeMaker({ root, git })` makes workspaces under `root`, one
 directory per repository: `<root>/<repository name>-<8 hex of the digest of its
 absolute path>/<workspace name>`. The digest is there because the repository's
 own directory name is not unique, so two checkouts of the same project would
@@ -123,8 +130,12 @@ asking for a workspace will hit.
   time. Whether there should also be a way to run a command without making one
   is
   [question 22](../../docs/open-questions.md#22-is-there-a-way-to-run-a-command-without-making-a-workspace).
-- It makes one kind of workspace: a git worktree on the machine werk is running
-  on, branched from the repository it is pointed at.
+- It makes two kinds of workspace. `createLocalWorktreeMaker` makes a git
+  worktree on the machine werk is running on. `createSshWorkspaceMaker` makes
+  one on another machine: a bare mirror the client pushes to, and a locked
+  worktree checked out from it. Both branch from the repository they are
+  pointed at. Everything that touches that machine goes through an
+  injected runner, so this package still imports nothing but `node:*`.
 - A workspace failing to be made is a set of named reasons rather than git's
   exit status, so a client can turn each one into its own message.
 
@@ -132,7 +143,7 @@ asking for a workspace will hit.
 
 | Gap                                                                                                                                                                                  | Where it is open                                                                                   |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| **What werk remembers about a workspace, and where that record lives.** Nothing is written here except the worktree itself, so `localWorkspaceAt` reads a path rather than an index. | [question 19](../../docs/open-questions.md#19-where-does-the-record-of-a-workspace-live)           |
+| **What werk remembers about a workspace, and where that record lives.** Nothing is written here except the worktree itself, so `workspaceAt` reads a path rather than an index. | [question 19](../../docs/open-questions.md#19-where-does-the-record-of-a-workspace-live)           |
 | **Which machine a workspace is on.** A reference has room for a host and nothing supplies one, so the component is absent everywhere.                                                | [question 24](../../docs/open-questions.md#24-what-is-the-host-component-of-a-workspace-reference) |
 | **The state a workspace can be in.** `Workspace` has no state field, because the words for one are not settled.                                                                      | [question 16](../../docs/open-questions.md#16-which-of-the-old-words-survive)                      |
 | **Whether the checkout the client is standing in is itself a workspace.** `WorkspaceSource` calls it a `local-checkout` and does not claim either way.                               | [question 20](../../docs/open-questions.md#20-is-the-place-the-client-is-running-a-workspace)      |

@@ -4,7 +4,7 @@ import {
   fitWorkspaceReference,
   formatWorkspaceReference,
   isWorkspaceName,
-  localWorkspaceAt,
+  workspaceAt,
   workspaceReference,
   WORKSPACE_REFERENCE_LEVELS,
   type WorkspaceReference,
@@ -74,19 +74,19 @@ test("the workspace a directory is, when this host's layout put it there", () =>
   const root = path.resolve("/state/werk/workspaces");
   const slot = repositorySlot("/home/someone/werk");
   const directory = path.join(root, slot, "fix-login");
-  expect(localWorkspaceAt(root, directory)).toEqual({
+  expect(workspaceAt(root, directory)).toEqual({
     name: "fix-login",
     directory,
   });
   // A slot with no workspace under it is not a workspace.
-  expect(localWorkspaceAt(root, path.join(root, slot))).toBeUndefined();
+  expect(workspaceAt(root, path.join(root, slot))).toBeUndefined();
   // Nor is somewhere further down inside one.
   expect(
-    localWorkspaceAt(root, path.join(directory, "packages", "werk")),
+    workspaceAt(root, path.join(directory, "packages", "werk")),
   ).toBeUndefined();
   // Nor is anywhere outside the root at all.
-  expect(localWorkspaceAt(root, "/home/someone/werk")).toBeUndefined();
-  expect(localWorkspaceAt(root, root)).toBeUndefined();
+  expect(workspaceAt(root, "/home/someone/werk")).toBeUndefined();
+  expect(workspaceAt(root, root)).toBeUndefined();
   // A leaf that is not a legal workspace name did not come from here. The
   // leaves are read against `isWorkspaceName` rather than assumed illegal, and
   // each one is checked to still sit directly under the slot, so the call
@@ -96,8 +96,33 @@ test("the workspace a directory is, when this host's layout put it there", () =>
     expect(isWorkspaceName(leaf)).toBe(false);
     const illegal = path.join(root, slot, leaf);
     expect(path.dirname(illegal)).toBe(path.join(root, slot));
-    expect(localWorkspaceAt(root, illegal)).toBeUndefined();
+    expect(workspaceAt(root, illegal)).toBeUndefined();
   }
+});
+
+test("a workspace on another machine is read with that machine's path grammar", () => {
+  // The whole point: this must answer the same on Windows, where `path.sep` is
+  // `\\` and splitting a Linux path on it finds nothing. The host is what says
+  // the strings are posix, so the platform running the test never comes into it.
+  const root = "/srv/werk/workspaces";
+  const directory = "/srv/werk/workspaces/werk-1a2b3c4d/fix-login";
+  expect(workspaceAt(root, directory, "beast")).toEqual({
+    name: "fix-login",
+    directory,
+    host: "beast",
+  });
+  // The same rules as locally, one level up and one level down.
+  expect(
+    workspaceAt(root, "/srv/werk/workspaces/werk-1a2b3c4d", "beast"),
+  ).toBeUndefined();
+  expect(
+    workspaceAt(root, `${directory}/packages/werk`, "beast"),
+  ).toBeUndefined();
+  expect(workspaceAt(root, "/srv/elsewhere/thing", "beast")).toBeUndefined();
+  // And the reference it makes is one the notation writes at full verbosity.
+  expect(
+    formatWorkspaceReference(workspaceAt(root, directory, "beast")!, "full"),
+  ).toBe(`fix-login@beast:${directory}`);
 });
 
 test("the reference recovered from a directory is the one the notation writes", () => {
@@ -107,7 +132,7 @@ test("the reference recovered from a directory is the one the notation writes", 
     repositorySlot("/home/someone/werk"),
     "fix-login",
   );
-  const recovered = localWorkspaceAt(root, directory)!;
+  const recovered = workspaceAt(root, directory)!;
   expect(formatWorkspaceReference(recovered, "path")).toBe(
     `fix-login:${directory}`,
   );

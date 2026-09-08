@@ -82,22 +82,23 @@ Completion stops at the same boundary and offers nothing past it.
 
 ## Exit codes
 
-| Code | Meaning                                                                     |
-| ---- | --------------------------------------------------------------------------- |
-| 0    | Success, an asked-for `--help` and `--version` included                     |
-| 1    | A failure with no more specific code: `PROTOCOL`, `INTERNAL`, `UNSUPPORTED` |
-| 2    | A usage mistake: a bad flag, an unknown command, `INVALID_ARGUMENT`         |
-| 3    | `NOT_FOUND` — no such session                                               |
-| 4    | `PERMISSION_DENIED`                                                         |
-| 5    | `CONFLICT` — a session or workspace name already taken                      |
-| 6    | `LIMIT` — a cap was exceeded                                                |
-| 7    | `TIMEOUT` or `CLOSED` — the daemon is not answering                         |
-| 130  | Cancelled: SIGINT, or a prompt nobody answered                              |
+| Code | Meaning                                                                         |
+| ---- | ------------------------------------------------------------------------------- |
+| 0    | Success, an asked-for `--help` and `--version` included                         |
+| 1    | A failure with no more specific code: `PROTOCOL`, `INTERNAL`, `UNSUPPORTED`     |
+| 2    | A usage mistake: a bad flag, an unknown command, `INVALID_ARGUMENT`             |
+| 3    | `NOT_FOUND` — no such session                                                   |
+| 4    | `PERMISSION_DENIED`                                                             |
+| 5    | `CONFLICT` — a session or workspace name already taken                          |
+| 6    | `LIMIT` — a cap was exceeded                                                    |
+| 7    | `TIMEOUT`, `CLOSED` or `HOST_UNREACHABLE` — a host or a daemon is not answering |
+| 130  | Cancelled: SIGINT, or a prompt nobody answered                                  |
 
 3 through 7 are the error vocabulary of `@werk/session`, mapped rather than
 judged, so "the session is gone" and "the daemon never answered" are different
-answers to a script. 7 covers both timeout and a closed connection, which a
-caller retries differently from a refusal the daemon actually gave.
+answers to a script. 7 covers a timeout, a closed connection, and a machine a
+workspace was to be made on that did not answer — all things a caller retries
+differently from a refusal something actually gave.
 
 An attached `create` reports the session's outcome on stderr and exits 0 itself,
 so the status is werk's account of werk. See
@@ -112,9 +113,12 @@ and a script that tested for success would otherwise be told it succeeded.
 that cannot be made because of what was asked for — an unusable name, a
 directory that is not a repository, a repository with no commits — exits 2. One
 refused because something is already there — the branch, or a non-empty
-directory — exits 5. git being absent, or refusing for an unanticipated reason,
-exits 1. Under `--json` the error code on stderr is the workspace reason itself,
-so `NOT_A_REPOSITORY` and `BRANCH_EXISTS` reach a script as themselves.
+directory — exits 5. A machine that did not answer exits 7 and one that would
+not let werk in exits 4, which are the statuses a daemon that did the same
+already uses. git being absent at either end, a history that did not get there,
+and git refusing for an unanticipated reason all exit 1. Under `--json` the
+error code on stderr is the workspace reason itself, so `NOT_A_REPOSITORY`,
+`BRANCH_EXISTS` and `HOST_UNREACHABLE` reach a script as themselves.
 
 ## Starting a session
 

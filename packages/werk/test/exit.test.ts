@@ -93,6 +93,15 @@ test("a workspace failure is told apart from a daemon refusal", () => {
     DIRECTORY_EXISTS: 5,
     GIT_MISSING: 1,
     GIT_FAILED: 1,
+    // A machine that did not answer and a daemon that did not answer are the
+    // same fact to a script deciding whether to try again, and being refused
+    // by ssh is being refused, so both reuse the status that already means it.
+    HOST_UNREACHABLE: 7,
+    HOST_AUTH_DENIED: 4,
+    HOST_UNSUPPORTED: 1,
+    HOST_BOOTSTRAP_FAILED: 1,
+    REMOTE_GIT_MISSING: 1,
+    TRANSFER_FAILED: 1,
   };
   for (const [code, status] of Object.entries(expected))
     expect(

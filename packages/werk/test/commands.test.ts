@@ -15,7 +15,7 @@ import {
   renderCreated,
   wholeNumber,
   windowSize,
-  workspaceHostFor,
+  workspaceMakerFor,
   workspaceRoot,
   workspaceNameFor,
 } from "../src/commands/create.js";
@@ -457,7 +457,7 @@ test("workspaces live under the state directory, not a setting of their own", ()
   expect(workspaceRoot(context({ stateDir: "/elsewhere" }))).toBe(
     path.join("/elsewhere", "workspaces"),
   );
-  expect(workspaceHostFor(ctx).kind).toBe("local-worktree");
+  expect(workspaceMakerFor(ctx).kind).toBe("local-worktree");
 });
 
 /**

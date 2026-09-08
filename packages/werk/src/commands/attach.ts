@@ -28,7 +28,7 @@ import { loadTerminalEngine } from "@werk/terminal/bun";
 import { withContext } from "./shared.js";
 import { defineCommand } from "./define.js";
 import { wholeNumber, windowSize, workspaceRoot } from "./create.js";
-import { localWorkspaceAt } from "@werk/workspace";
+import { workspaceAt } from "@werk/workspace";
 import { sessionArgument, withSession } from "./session-argument.js";
 import type { WerkContext } from "../runtime/context.js";
 import {
@@ -174,7 +174,7 @@ export async function attachSession(
           // The directory the session was started in is the workspace, when
           // this host's layout is what put it there. A session started
           // somewhere else recovers none and the chrome keeps the name.
-          state.workspace = localWorkspaceAt(workspaceRoot(ctx), info.cwd);
+          state.workspace = workspaceAt(workspaceRoot(ctx), info.cwd);
           state.cwd = info.reportedCwd;
           view?.refresh();
         },

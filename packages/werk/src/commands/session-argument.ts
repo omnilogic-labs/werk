@@ -15,7 +15,7 @@
  */
 import { Argument } from "@commander-js/extra-typings";
 import type { SessionClient, SessionInfo } from "@werk/session";
-import { localWorkspaceAt } from "@werk/workspace";
+import { workspaceAt } from "@werk/workspace";
 import { workspaceRoot } from "./create.js";
 import { completes } from "../completion/hooks.js";
 import { sessionCandidates } from "../completion/candidates.js";
@@ -84,7 +84,7 @@ export function aliasesOf(
   return sessions.map((s) => ({
     id: s.id,
     name: s.name,
-    workspace: localWorkspaceAt(root, s.cwd)?.name,
+    workspace: workspaceAt(root, s.cwd)?.name,
   }));
 }
 

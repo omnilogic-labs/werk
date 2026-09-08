@@ -139,15 +139,20 @@ each time it does.
 What that interface would have to survive, if the rest of this document is
 roughly right:
 
-- **Creation becoming slow and multi-step**, so the interface probably cannot be
-  a function that returns a workspace. Something that reports progress, or
-  returns a workspace that is not ready yet, seems more likely.
-- **Creation failing partway**, with a machine made and no checkout on it.
-  Whether the caller sees a half-made workspace or nothing at all is a choice
-  the interface makes, and nobody has made it.
-- **More than one kind of host behind it**, since a Mac mini reached over ssh
-  and a machine an API creates on demand have almost nothing in common except
-  the result. The nouns for those two are
+- **Creation becoming slow and multi-step**, which is why `create` takes an
+  options argument carrying a progress callback and a signal. It still resolves
+  to a finished workspace; returning one that is not ready yet was the other
+  shape available and nothing needed it, so a workspace has no lifecycle and
+  [question 16](open-questions.md#16-which-of-the-old-words-survive) stays open.
+- **Creation failing partway**, with a machine made and no checkout on it. The
+  ssh maker undoes what it made, in reverse and best-effort, and leaves the bare
+  mirror alone because every workspace of that repository shares it. Whether a
+  caller should ever see a half-made workspace instead is still a choice nobody
+  has made.
+- **More than one way of getting a host**, since a Mac mini that already exists
+  and is reached over ssh, and a container something makes on demand, have
+  almost nothing in common except the result. What to call the thing that makes
+  machines is
   [question 1](open-questions.md#1-what-do-we-call-a-machine-and-what-do-we-call-the-thing-that-makes-machines).
 - **Deriving from a workspace that is somewhere else**, which turns creation
   into an operation involving two hosts rather than one.

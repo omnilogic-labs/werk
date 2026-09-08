@@ -11,7 +11,7 @@ import {
   Option,
 } from "@commander-js/extra-typings";
 import type { SessionInfo, SessionState } from "@werk/session";
-import { localWorkspaceAt } from "@werk/workspace";
+import { workspaceAt } from "@werk/workspace";
 import { withContext } from "./shared.js";
 import { workspaceRoot } from "./create.js";
 import { defineCommand } from "./define.js";
@@ -109,7 +109,7 @@ export function buildList(): Command {
               sessions.map((s) => [
                 s.id.slice(0, 12),
                 s.name,
-                localWorkspaceAt(root, s.cwd)?.name ?? "",
+                workspaceAt(root, s.cwd)?.name ?? "",
                 stateText(s, paint),
                 age(s.createdAt),
                 s.argv.join(" "),
