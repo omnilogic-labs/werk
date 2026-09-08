@@ -261,7 +261,7 @@ dirties those rows.
 ## Run the consumers
 
 ```sh
-packages/werk/dist/werk create --name demo --scrollback 2000000 -- /bin/sh
+packages/werk/dist/werk create --detach --name demo --scrollback 2000000 -- /bin/sh
 packages/werk/dist/werk list
 packages/werk/dist/werk watch
 packages/werk/dist/werk attach SESSION_ID

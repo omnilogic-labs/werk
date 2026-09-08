@@ -6,9 +6,10 @@ The compiled binary contains the terminal WASM and can run outside the checkout.
 reference for the command surface, output, exit codes, configuration and shell
 completion. This file records what the client does with a session.
 
-`werk create -- /bin/sh` starts a session and prints its id, name and command;
-`--json` gives the whole record. Use the id or the name with `werk attach ID`;
-Ctrl-] detaches while the process continues. `werk list` and `werk watch` need
+`werk create -- /bin/sh` starts a session and attaches to it; Ctrl-] detaches
+while the process continues. `--detach` starts it and returns instead, printing
+its id, name and command, and `--json` answers with the whole record without
+attaching. Use the id or the name with `werk attach ID` to go back. `werk list` and `werk watch` need
 no attachment. `attach`, `logs`, `kill` and `remove` given no session offer a
 picker when there is a terminal to ask in, and fail as a usage error when there
 is not.

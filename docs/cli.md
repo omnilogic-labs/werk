@@ -16,20 +16,20 @@ the rest.
 
 ## The command tree
 
-| Command                 | What it does                                                  |
-| ----------------------- | ------------------------------------------------------------- |
-| `create -- COMMAND ...` | Start a session running a command, in a new workspace         |
-| `list` (`ls`)           | List sessions                                                 |
-| `attach [session]`      | Go back to a running session; Ctrl-] detaches                 |
-| `logs [session]`        | Print what a session has on screen, or what it has kept       |
-| `kill [session]`        | Ask a session's process to stop                               |
-| `remove` (`rm`)         | Forget a session that has stopped                             |
-| `watch`                 | Print daemon events as JSON lines until interrupted           |
-| `info`                  | Print where werk keeps things and what the daemon says        |
-| `doctor`                | Check the local daemon and print the end of its log           |
-| `config`                | `list`, `get <key>`, `sources`, `path`                        |
-| `completion`            | `bash`, `zsh`, `fish`: print a shell completion script        |
-| `daemon`                | `serve`: run the daemon in this process until it is signalled |
+| Command                 | What it does                                                            |
+| ----------------------- | ----------------------------------------------------------------------- |
+| `create -- COMMAND ...` | Start a session running a command, in a new workspace, and attach to it |
+| `list` (`ls`)           | List sessions                                                           |
+| `attach [session]`      | Go back to a running session; Ctrl-] detaches                           |
+| `logs [session]`        | Print what a session has on screen, or what it has kept                 |
+| `kill [session]`        | Ask a session's process to stop                                         |
+| `remove` (`rm`)         | Forget a session that has stopped                                       |
+| `watch`                 | Print daemon events as JSON lines until interrupted                     |
+| `info`                  | Print where werk keeps things and what the daemon says                  |
+| `doctor`                | Check the local daemon and print the end of its log                     |
+| `config`                | `list`, `get <key>`, `sources`, `path`                                  |
+| `completion`            | `bash`, `zsh`, `fish`: print a shell completion script                  |
+| `daemon`                | `serve`: run the daemon in this process until it is signalled           |
 
 One more is accepted and not listed. `complete` answers the shell completion
 protocol and is a wire format rather than something a person types.
@@ -92,6 +92,45 @@ werk create --name demo -- claude --dangerously-skip-permissions
 
 `create` reads its command from there and takes no positional of its own.
 Completion stops at the same boundary and offers nothing past it.
+
+### Starting a session
+
+`create` starts the command and then attaches to it, so starting something and
+being in it are one gesture rather than two. Ctrl-] detaches and leaves the
+session running, exactly as it does from `attach`, and `werk attach` goes back
+to it afterwards.
+
+The summary — the id, the name, the workspace and its branch — is written to
+stderr before the attachment takes the screen. It is status rather than the
+session's output, so it stays out of a piped stdout, and on a terminal it is
+written to the normal screen, still there when the alternate screen is given
+back. It carries no `werk attach ID` line, because somebody about to be put
+inside the session does not need to be told how to get to it.
+
+Two flags start the session and return instead:
+
+| Flag       | Effect                                                        |
+| ---------- | ------------------------------------------------------------- |
+| `--detach` | Start it and return; the summary goes to stdout with the hint |
+| `--json`   | Answer with the record, which is what a machine asked for     |
+
+`--json` implies `--detach` rather than conflicting with it: an attachment
+writes the session's own bytes to stdout, and one stream cannot carry those and
+the single JSON value the machine register promises. Passing both is the same
+request said twice.
+
+Without a terminal, an attached `create` degrades the way `attach` does — the
+screen and then the live output go to stdout as plain bytes — so
+`werk create -- npm test | tee log` captures the run. `CI` being set does not
+change this; it governs prompting, and attaching does not prompt.
+
+An attached session's own exit status is not werk's. `werk create -- false`
+exits 0 and reports `session ID has ended with status 1` on stderr, the same
+note `attach` writes, because 3 through 7 and 130 already mean specific things
+in werk's own vocabulary and a child's status landing among them would make
+"the command failed" indistinguishable from "no such session". Whether werk
+should ever adopt it — behind a flag, or offset out of the way — is not
+settled.
 
 ### Making a workspace
 
@@ -169,6 +208,10 @@ Three commands opt out by writing continuously rather than returning a value:
 | `watch`        | Writes daemon events as JSON lines, with or without `--json` |
 | `daemon serve` | Runs until it is signalled                                   |
 
+`create` writes continuously too while it is attached, but it is not in that
+table: under `--json` it does not attach, so it still answers with exactly one
+value and stays in the exhaustive lane below.
+
 `werk logs` answers with text, so its `--json` form is a JSON string:
 `werk logs ID --json | jq -r .` is the same bytes the plain form prints, escaped
 so they can travel inside a larger document. `werk completion bash` prints the
@@ -233,6 +276,10 @@ an exemption is a decision someone wrote down.
 judged, so "the session is gone" and "the daemon never answered" are different
 answers to a script. 7 covers both timeout and a closed connection, which a
 caller retries differently from a refusal the daemon actually gave.
+
+An attached `create` reports the session's outcome on stderr and exits 0 itself,
+so the status is werk's account of werk. See
+[Starting a session](#starting-a-session).
 
 Commander reports a `--help` somebody asked for and a parent command given no
 subcommand under the same code, separating them by exit status, so the status is

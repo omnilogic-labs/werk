@@ -118,15 +118,22 @@ const workspace = (name = "fix-login") => ({
   branch: name,
   from: { kind: "local-checkout" as const, path: "/home/mike/werk" },
 });
-test("a created session tells you how to go back to it", () => {
+test("a detached session tells you how to go back to it", () => {
   const text = renderCreated(
     session({ argv: ["claude", "-p"], size: { cols: 40, rows: 8 } }),
     context(),
     workspace(),
+    true,
   );
   expect(text).toContain("created 8f2c1b04e9d1 demo");
   expect(text).toContain("claude -p · 40x8 in /home/mike");
   expect(text).toContain("werk attach 8f2c1b04e9d1");
+});
+test("an attached session is not told how to get to where it already is", () => {
+  const text = renderCreated(session(), context(), workspace(), false);
+  expect(text).toContain("created 8f2c1b04e9d1 demo");
+  expect(text).not.toContain("werk attach ");
+  expect(text.split("\n")).toHaveLength(3);
 });
 test("termination reports delivery and outcome as the separate facts they are", () => {
   const ctx = context();
@@ -268,7 +275,7 @@ test("a created session says which workspace it landed in", () => {
   const info = session({
     cwd: "/state/werk/workspaces/werk-1a2b3c4d/fix-login",
   });
-  const text = renderCreated(info, context(), workspace());
+  const text = renderCreated(info, context(), workspace(), true);
   expect(text).toContain("workspace fix-login on branch fix-login");
   expect(text).toContain("created 8f2c1b04e9d1 demo");
   expect(text).toContain("werk attach 8f2c1b04e9d1");

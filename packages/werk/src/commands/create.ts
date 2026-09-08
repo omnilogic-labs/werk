@@ -1,5 +1,11 @@
 /**
- * Starting a session.
+ * Starting a session, and going straight into it.
+ *
+ * Creating and attaching are one gesture: the session is started and then this
+ * command hands the terminal to it, by calling the attachment `attach` already
+ * owns rather than growing a second one. `--detach` starts it and returns, and
+ * `--json` does the same, because a machine asked for the record and the
+ * session's own bytes cannot share that stream with it.
  *
  * The command werk runs is not an argument: it is everything after `--`, split
  * off before commander sees the argv (see `runtime/argv.ts`), so a child's own
@@ -18,11 +24,13 @@ import {
 } from "@werk/workspace";
 import { childCommand, withContext } from "./shared.js";
 import { defineCommand } from "./define.js";
+import { attachSession } from "./attach.js";
 import { collectLabel } from "./list.js";
 import { result } from "../runtime/output.js";
 import { connectDaemon } from "../runtime/daemon.js";
 import type { WerkContext } from "../runtime/context.js";
 import { clientEnvironment } from "../environment.js";
+import { DETACH_HINT, sessionArea } from "../view.js";
 
 /**
  * A count, rejected here rather than by the daemon so the message names the flag
@@ -100,18 +108,25 @@ export function workspaceNameFor(
   return `${leaf === "" ? "workspace" : leaf}-${randomBytes(4).toString("hex")}`;
 }
 
-/** What a person is told once the daemon has the session. */
+/**
+ * What a person is told once the daemon has the session.
+ *
+ * `hint` is whether to say how to come back, which is only worth saying to
+ * somebody who is not about to be put inside it. Attached, the last line would
+ * be advice about a thing already happening.
+ */
 export function renderCreated(
   info: SessionInfo,
   ctx: WerkContext,
   workspace: Workspace,
+  hint: boolean,
 ): string {
   const where = `${info.size.cols}x${info.size.rows} in ${info.cwd}`;
   return [
     `${ctx.colour.green("created")} ${info.id} ${ctx.colour.bold(info.name)}`,
     ctx.colour.dim(`workspace ${workspace.name} on branch ${workspace.branch}`),
     ctx.colour.dim(`${info.argv.join(" ")} · ${where}`),
-    `werk attach ${info.id}`,
+    ...(hint ? [`werk attach ${info.id}`] : []),
   ].join("\n");
 }
 export function buildCreate(): Command {
@@ -119,12 +134,14 @@ export function buildCreate(): Command {
     name: "create",
     summary: "Start a session running a command",
     description:
-      "Start a command under the daemon and leave it running. It gets a " +
+      "Start a command under the daemon and attach to it. It gets a " +
       "workspace of its own: a git worktree of the repository you are standing " +
       "in, on a new branch. Put the command after --. werk does not parse " +
-      "anything after that, so the child keeps its own flags. create does not " +
-      "attach, so the session outlives the terminal that started it and " +
-      "`werk attach` goes back to it.",
+      "anything after that, so the child keeps its own flags. The session " +
+      "outlives the terminal that started it, and `werk attach` goes back to " +
+      "it. --detach starts the session and returns instead. --json does the " +
+      "same, because the session's output and the one JSON value cannot share " +
+      "stdout.",
     usage: "[options] -- COMMAND [ARGS...]",
     examples: [
       {
@@ -137,7 +154,12 @@ export function buildCreate(): Command {
         run: "werk create --workspace fix-login -- claude",
         note: "choose the workspace name, which is also the branch name",
       },
+      {
+        run: "werk create --detach -- npm run dev",
+        note: "start it and come back later",
+      },
     ],
+    notes: `${DETACH_HINT} and leaves the session running.`,
     requires: [
       {
         need: "name the command to run after --, as in `werk create -- claude`",
@@ -145,6 +167,7 @@ export function buildCreate(): Command {
       },
     ],
   })
+    .option("--detach", "start the session and return instead of attaching")
     .option("--name <NAME>", "name the session; werk generates one otherwise")
     .option(
       "--label <KEY=VALUE>",
@@ -169,6 +192,7 @@ export function buildCreate(): Command {
         async (
           ctx,
           opts: {
+            detach?: boolean;
             name?: string;
             label: Record<string, string>;
             cols?: number;
@@ -195,28 +219,47 @@ export function buildCreate(): Command {
             name: workspaceNameFor(opts, argv),
             from: { kind: "local-checkout", path: here },
           });
+          // `--json` does not attach, and does not have to say so: the caller
+          // asked for the record and got the whole of it. The session's own
+          // bytes are what an attachment writes to stdout, and one stream
+          // cannot carry both and still be the single value the machine
+          // register promises.
+          const detached = opts.detach === true || ctx.json;
+          const window = windowSize(opts);
           const client = await connectDaemon(ctx);
           try {
             const info = await client.create({
               argv: [...argv],
               env: clientEnvironment(),
               cwd: workspace.directory,
-              size: windowSize(opts),
+              // An attachment on a terminal holds the grid and resizes it to
+              // the window less the chrome row as soon as it arrives, so the
+              // session is asked for that grid now rather than being resized
+              // before the child has drawn anything.
+              size: !detached && ctx.stdoutTTY ? sessionArea(window) : window,
               scrollbackBytes: opts.scrollback,
               name: opts.name,
               labels: opts.label,
             });
-            return result(
-              {
-                ...info,
-                workspace: {
-                  name: workspace.name,
-                  directory: workspace.directory,
-                  branch: workspace.branch,
+            if (detached)
+              return result(
+                {
+                  ...info,
+                  workspace: {
+                    name: workspace.name,
+                    directory: workspace.directory,
+                    branch: workspace.branch,
+                  },
                 },
-              },
-              (c) => renderCreated(info, c, workspace),
-            );
+                (c) => renderCreated(info, c, workspace, true),
+              );
+            // The summary is status rather than session output, so it goes to
+            // stderr for the reason `attach`'s outcome note does: a piped
+            // stdout then carries only the screen. It is written here rather
+            // than returned because `withContext` prints a returned value after
+            // the action finishes, which for this one is after the detach.
+            ctx.writeError(renderCreated(info, ctx, workspace, false) + "\n");
+            await attachSession(ctx, client, info.id, {});
           } finally {
             await client.close();
           }
