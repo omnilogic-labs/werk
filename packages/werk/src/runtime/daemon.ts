@@ -34,8 +34,7 @@ import {
   resolveSessionDaemonPaths,
   type LocalEndpoint,
 } from "@werk/session-daemon";
-import { openHostSession, type HostSession } from "../host/session.js";
-import type { SshHost } from "../config/hosts.js";
+import type { HostSession } from "../host/session.js";
 import { compiledWerk } from "./version.js";
 
 export interface DaemonPaths {
@@ -44,14 +43,6 @@ export interface DaemonPaths {
   logLevel?: string;
   /** Absolute path of the entry module; see {@link daemonCommand}. */
   entry: string;
-  /**
-   * The machine to reach, when it is not this one.
-   *
-   * Optional and unset by everything today: naming a host on the command line
-   * is being built beside this. The seam is here so that wiring it is a matter
-   * of filling this in rather than of teaching every command what a machine is.
-   */
-  host?: { name: string; host: SshHost; target?: string };
 }
 
 /**
@@ -82,47 +73,54 @@ export interface DaemonConnection {
   close(): Promise<void>;
 }
 
-/** Connect, starting a daemon if none is running. */
+/**
+ * Connect, starting a daemon if none is running.
+ *
+ * The session is passed in rather than opened here, because an invocation
+ * reaches its machine for more than the daemon: `create` also makes a workspace
+ * on it, and a second `HostSession` would mean a second probe, a second
+ * install check and a second forward. `host/place.ts` opens the one, and this
+ * dials through it.
+ *
+ * A connection that fails lets go of the session on its way out. The caller
+ * that supplied it usually closes it too, and closing twice is a no-op — a
+ * leaked `ssh -N` is a far worse failure than a redundant close.
+ */
 export async function connectDaemon(
   paths: DaemonPaths,
+  host?: HostSession,
 ): Promise<DaemonConnection> {
-  const target = paths.host;
-  const host = target
-    ? openHostSession({
-        name: target.name,
-        host: target.host,
-        runtimeDir: paths.runtimeDir,
-        stateDir: paths.stateDir,
-        entry: paths.entry,
-        ...(target.target === undefined ? {} : { target: target.target }),
-      })
-    : undefined;
-  const endpoint: LocalEndpoint = host
-    ? await host.endpoint()
-    : (
-        await ensureSessionDaemon({
-          runtimeDir: paths.runtimeDir,
-          stateDir: paths.stateDir,
-          daemonCommand: daemonCommand(paths.entry),
-          logLevel: parseLogLevel(paths.logLevel),
-        })
-      ).endpoint;
-  const client = await connectSessionClient({
-    transport: await openLocalTransport(endpoint),
-    credential: endpoint.kind === "tcp" ? endpoint.credential : undefined,
-    requestTimeoutMs: 5000,
-  });
-  return {
-    client,
-    ...(host ? { host } : {}),
-    async close() {
-      try {
-        await client.close();
-      } finally {
-        await host?.close();
-      }
-    },
-  };
+  try {
+    const endpoint: LocalEndpoint = host
+      ? await host.endpoint()
+      : (
+          await ensureSessionDaemon({
+            runtimeDir: paths.runtimeDir,
+            stateDir: paths.stateDir,
+            daemonCommand: daemonCommand(paths.entry),
+            logLevel: parseLogLevel(paths.logLevel),
+          })
+        ).endpoint;
+    const client = await connectSessionClient({
+      transport: await openLocalTransport(endpoint),
+      credential: endpoint.kind === "tcp" ? endpoint.credential : undefined,
+      requestTimeoutMs: 5000,
+    });
+    return {
+      client,
+      ...(host ? { host } : {}),
+      async close() {
+        try {
+          await client.close();
+        } finally {
+          await host?.close();
+        }
+      },
+    };
+  } catch (error) {
+    await host?.close().catch(() => {});
+    throw error;
+  }
 }
 
 /**

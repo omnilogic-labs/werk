@@ -22,6 +22,7 @@ import path from "node:path";
 import type { SessionInfo } from "@werk/session";
 import { workspaceAt } from "@werk/workspace";
 import { connectExistingDaemon } from "../runtime/daemon.js";
+import { summariseHost } from "../config/hosts.js";
 import {
   providerFor,
   type Candidate,
@@ -137,6 +138,21 @@ export const labelCandidates: CandidateProvider = async (partial, ctx) => {
     .sort()
     .map((key) => ({ value: `${key}=`, description: "label key" }));
 };
+
+/**
+ * The machines `--host` accepts, which is every `[hosts.<name>]` in force plus
+ * the built-in `local`.
+ *
+ * The one provider here that reaches nothing. The names came out of the same
+ * config read `complete` already does under its own budget, so a TAB on
+ * `--host` costs no daemon, no ssh and no second read; a completion that
+ * abandoned the layers offers nothing rather than a stale list.
+ */
+export const hostCandidates: CandidateProvider = (_partial, ctx) =>
+  Object.entries(ctx.hosts ?? {}).map(([name, host]) => ({
+    value: name,
+    description: summariseHost(host),
+  }));
 
 /* -------------------------------------------------------------- tree walk */
 

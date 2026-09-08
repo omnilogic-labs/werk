@@ -11,6 +11,7 @@ import {
   HOST_FIELDS,
   HOST_KINDS,
   builtInHosts,
+  hostFor,
   isHostName,
   parseHost,
   parseHosts,
@@ -293,4 +294,89 @@ test("the machine shape reports a config code as itself", () => {
   expect(payload.error.message).toBe(
     "unknown key sshHosts in hosts.beast (/home/x/.werk/config.toml)",
   );
+});
+
+/* --------------------------------------- which host a command acts on */
+
+/** The three answers `hostFor` reads, without a context anywhere near it. */
+const selection = (
+  hosts: Record<string, Host>,
+  over: { defaultHost?: string; requestedHost?: string } = {},
+) => ({
+  hosts,
+  hostProblems: [],
+  defaultHost: over.defaultHost ?? "local",
+  ...(over.requestedHost === undefined
+    ? {}
+    : { requestedHost: over.requestedHost }),
+});
+
+test("the flag beats defaultHost, and defaultHost answers when nothing does", () => {
+  const hosts: Record<string, Host> = {
+    local: { kind: "local" },
+    beast: { kind: "ssh", sshHost: "beast" },
+    spare: { kind: "ssh", sshHost: "spare" },
+  };
+  expect(hostFor(selection(hosts, { defaultHost: "beast" })).name).toBe(
+    "beast",
+  );
+  expect(
+    hostFor(selection(hosts, { defaultHost: "beast", requestedHost: "spare" }))
+      .name,
+  ).toBe("spare");
+  // An argument beats both, which is what lets a caller resolve a name it got
+  // from somewhere other than the command line.
+  expect(
+    hostFor(
+      selection(hosts, { defaultHost: "beast", requestedHost: "spare" }),
+      "local",
+    ).host.kind,
+  ).toBe("local");
+});
+
+test("a host nothing defines names what is defined, because it is usually a typo", () => {
+  const hosts: Record<string, Host> = {
+    local: { kind: "local" },
+    beast: { kind: "ssh", sshHost: "beast" },
+  };
+  let raised: unknown;
+  try {
+    hostFor(selection(hosts, { requestedHost: "beest" }));
+  } catch (error) {
+    raised = error;
+  }
+  expect(raised).toBeInstanceOf(ConfigError);
+  expect((raised as ConfigError).code).toBe("UNKNOWN_HOST");
+  expect((raised as ConfigError).message).toContain("beest");
+  expect((raised as ConfigError).message).toContain("beast");
+  expect((raised as ConfigError).message).toContain("local");
+  // A mistyped name is a mistake in what werk was told, which is exit 2.
+  expect(exitCodeFor(raised)).toBe(2);
+});
+
+test("a host block that could not be read fails with why, and not as unknown", () => {
+  const file = "/home/nobody/.werk/config.toml";
+  let raised: unknown;
+  try {
+    hostFor({
+      hosts: builtInHosts(),
+      hostProblems: [
+        {
+          name: "beast",
+          file,
+          message: `unknown key sshHosts in hosts.beast (${file})`,
+        },
+      ],
+      defaultHost: "local",
+      requestedHost: "beast",
+    });
+  } catch (error) {
+    raised = error;
+  }
+  expect(raised).toBeInstanceOf(ConfigError);
+  expect((raised as ConfigError).code).toBe("HOST_INVALID");
+  // The sentence `parseHosts` already wrote, file and all, rather than a
+  // second, vaguer one.
+  expect((raised as ConfigError).message).toContain("sshHosts");
+  expect((raised as ConfigError).message).toContain(file);
 });

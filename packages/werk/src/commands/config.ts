@@ -218,6 +218,7 @@ export function buildConfig(): Command {
     examples: [
       { run: "werk config check" },
       { run: "werk config check beast" },
+      { run: "werk config check --host beast", note: "the same thing" },
       {
         run: "werk config check --json | jq '.[] | select(.reachable != \"yes\")'",
       },
@@ -228,7 +229,10 @@ export function buildConfig(): Command {
   );
   config.addCommand(check);
   check.action(
-    withContext(async (ctx, _opts, name?: string) => {
+    withContext(async (ctx, _opts, positional?: string) => {
+      // The positional and the global `--host` name the same thing, so both
+      // are read rather than one of them being silently ignored.
+      const name = positional ?? ctx.requestedHost;
       const merged = await load(check);
       if (name !== undefined && merged.hosts[name] === undefined)
         throw new UsageError(

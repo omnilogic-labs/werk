@@ -4,9 +4,8 @@
  * Only settings that describe something werk already does appear here. A key
  * invented for a feature that does not exist yet reads back later as a decision
  * somebody took, so this grows when the behaviour does and not before.
- * `defaultHost` is the awkward one: nothing resolves a host yet, and it earns
- * its place because its value says where every `werk create` already puts work
- * rather than promising anywhere else.
+ * `defaultHost` is what a command acts on when `--host` names nothing, which is
+ * `local` until somebody writes a host block and points it somewhere else.
  *
  * Nothing under `src/config/` imports a value from `src/runtime/` or
  * `src/commands/` — `load.ts` names the `GlobalFlags` type and nothing else,
@@ -30,7 +29,7 @@ import {
 } from "@werk/palette";
 import { defaultSessionRuntimeDir, type LogLevel } from "@werk/session-daemon";
 import { ConfigError } from "./errors.js";
-import { isHostName } from "./hosts.js";
+import { DEFAULT_HOST, isHostName } from "./hosts.js";
 
 /** What to do about colour when the terminal has not already settled it. */
 export type ColourPreference = "auto" | "always" | "never";
@@ -54,11 +53,8 @@ export interface WerkConfig {
   /** Bytes of output a new session asks to keep. The daemon caps this. */
   scrollbackBytes: number;
   /**
-   * The machine `werk create` puts work on when nobody names one.
-   *
-   * Nothing resolves it yet — choosing a host is not written — but the value
-   * describes exactly what happens today: every `werk create` places work on
-   * this machine, which is the host `local`.
+   * The machine a command acts on when `--host` names none. It has to be a
+   * host somebody defined; `hostFor` refuses a name nothing does.
    */
   defaultHost: string;
   colour: ColourPreference;
@@ -214,9 +210,9 @@ export function builtInDefaults(
     // The daemon refuses anything above its own cap, so asking for more than
     // this would only ever be refused.
     scrollbackBytes: 10_000_000,
-    // Every `werk create` runs on this machine, so this is a description of
-    // the present rather than a plan for anything else.
-    defaultHost: "local",
+    // A `werk create` that names no host runs on this machine, so this is a
+    // description of the present rather than a plan for anything else.
+    defaultHost: DEFAULT_HOST,
     colour: "auto",
     // Mocha and mauve are Catppuccin's conventional defaults, and dark is what
     // every tool that probes a terminal falls back to when it learns nothing.

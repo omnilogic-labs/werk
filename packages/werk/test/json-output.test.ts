@@ -97,11 +97,24 @@ test(
       id: string;
       name: string;
       cwd: string;
-      workspace: { name: string; directory: string; branch: string };
+      workspace: {
+        name: string;
+        directory: string;
+        branch: string;
+        reference: string;
+        host?: string;
+      };
     };
     expect(info.name).toBe("probe");
     expect(info.workspace).toBeObject();
     expect(info.cwd).toBe(info.workspace.directory);
+    // No host on a workspace made on this machine: absent is what the workspace
+    // model says by leaving `Workspace.host` off, and the reference reads the
+    // same way, with no `@` in it.
+    expect(info.workspace.host).toBeUndefined();
+    expect(info.workspace.reference).toBe(
+      `${info.workspace.name}:${info.workspace.directory}`,
+    );
     session = info.id;
   },
   TIMEOUT,

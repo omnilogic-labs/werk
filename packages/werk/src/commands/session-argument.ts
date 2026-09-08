@@ -16,10 +16,10 @@
 import { Argument } from "@commander-js/extra-typings";
 import type { SessionClient, SessionInfo } from "@werk/session";
 import { workspaceAt } from "@werk/workspace";
-import { workspaceRoot } from "./create.js";
 import { completes } from "../completion/hooks.js";
 import { sessionCandidates } from "../completion/candidates.js";
 import { connectDaemon } from "../runtime/daemon.js";
+import { reachHost, type HostPlace } from "../host/place.js";
 import { canPrompt, selectSession } from "../runtime/interactive.js";
 import { UsageError } from "../runtime/exit.js";
 import type { WerkContext } from "../runtime/context.js";
@@ -31,33 +31,47 @@ export const sessionArgument = (): Argument =>
   );
 
 /**
- * Run `work` against a client, on the session named or the session picked.
+ * Run `work` against a client, on the session named or the session picked, on
+ * whichever machine the command acts on.
  *
  * The daemon is not reached at all when the answer is already known to be a
- * usage error, and the client is closed whichever way `work` ends.
+ * usage error, and both the client and the machine are let go of whichever way
+ * `work` ends.
+ *
+ * It is one daemon and not a fleet: with no `--host` this is the machine werk
+ * is running on, with `--host beast` it is that one, and a session on a third
+ * machine is not in the list either way. Nothing records where sessions are, so
+ * there is nothing to aggregate over.
  */
 export async function withSession<T>(
   ctx: WerkContext,
   given: string | undefined,
   message: string,
   /** `picked` says the session came from the list rather than the command line. */
-  work: (client: SessionClient, id: string, picked: boolean) => Promise<T>,
+  work: (
+    client: SessionClient,
+    id: string,
+    picked: boolean,
+    place: HostPlace,
+  ) => Promise<T>,
 ): Promise<T> {
   if (given === undefined && !canPrompt(ctx))
     throw new UsageError("name a session; there is no terminal to pick one in");
-  const daemon = await connectDaemon(ctx);
+  const place = await reachHost(ctx);
+  const daemon = await connectDaemon(ctx, place.session);
   const { client } = daemon;
   try {
     const id =
       given === undefined
         ? await selectSession(ctx, await client.list({}), message)
         : resolveSession(
-            aliasesOf(await client.list({}), workspaceRoot(ctx)),
+            aliasesOf(await client.list({}), place.root, place.reference),
             given,
           );
-    return await work(client, id, given === undefined);
+    return await work(client, id, given === undefined, place);
   } finally {
     await daemon.close();
+    await place.close().catch(() => {});
   }
 }
 
@@ -77,15 +91,22 @@ export interface SessionAlias {
   workspace?: string;
 }
 
-/** The aliases of a session as the daemon describes it. */
+/**
+ * The aliases of a session as the daemon describes it.
+ *
+ * `root` is where workspaces go on the machine that daemon is on, and `host`
+ * decides which path grammar the directories are read with — a path on another
+ * machine is not a path on this one.
+ */
 export function aliasesOf(
   sessions: readonly SessionInfo[],
   root: string,
+  host?: string,
 ): SessionAlias[] {
   return sessions.map((s) => ({
     id: s.id,
     name: s.name,
-    workspace: workspaceAt(root, s.cwd)?.name,
+    workspace: workspaceAt(root, s.cwd, host)?.name,
   }));
 }
 

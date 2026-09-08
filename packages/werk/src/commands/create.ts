@@ -18,11 +18,9 @@ import path from "node:path";
 import { Command, InvalidArgumentError } from "@commander-js/extra-typings";
 import type { SessionInfo } from "@werk/session";
 import {
-  createLocalWorktreeMaker,
   formatWorkspaceReference,
   workspaceReference,
   type Workspace,
-  type WorkspaceMaker,
 } from "@werk/workspace";
 import { childCommand, withContext } from "./shared.js";
 import { defineCommand } from "./define.js";
@@ -30,8 +28,11 @@ import { attachSession } from "./attach.js";
 import { collectLabel } from "./list.js";
 import { result } from "../runtime/output.js";
 import { connectDaemon } from "../runtime/daemon.js";
+import { createProgress } from "../runtime/progress.js";
+import { CancelledError } from "../runtime/exit.js";
+import { reachHost, workspaceMakerFor } from "../host/place.js";
 import { reportedSize, type WerkContext } from "../runtime/context.js";
-import { clientEnvironment } from "../environment.js";
+import { clientEnvironment, remoteEnvironment } from "../environment.js";
 import { DETACH_HINT, sessionArea } from "../view.js";
 
 /**
@@ -79,22 +80,6 @@ export function windowSize(
     rows: opts.rows ?? reportedSize(reported.rows, FALLBACK_WINDOW.rows),
   };
 }
-/**
- * Where werk puts the workspaces it makes. It hangs off the state directory
- * rather than off a setting of its own, so `--state-dir` and a `stateDir` in a
- * config file already move it and no configuration key has to be invented for
- * a package that is still finding its shape.
- */
-export const workspaceRoot = (ctx: WerkContext): string =>
-  path.join(ctx.stateDir, "workspaces");
-
-/**
- * The kind of workspace the CLI makes today. `@werk/workspace` also describes
- * one on a machine reached over ssh, and nothing here reaches a machine yet.
- */
-export const workspaceMakerFor = (ctx: WerkContext): WorkspaceMaker =>
-  createLocalWorktreeMaker({ root: workspaceRoot(ctx) });
-
 /** Characters a branch and a directory leaf both carry without being escaped. */
 const unsafe = /[^A-Za-z0-9._-]/g;
 
@@ -131,6 +116,25 @@ export function workspaceNameFor(
 }
 
 /**
+ * The workspace as `--json` reports it.
+ *
+ * `host` is absent for a workspace on this machine, which is the same thing
+ * `Workspace.host` says by being absent: the lean recorded in question 23 is
+ * that no host reads as "here", and inventing `"local"` here would answer it.
+ * The reference is the one notation, at `full`, so a caller reading this record
+ * and a person reading the chrome are looking at one spelling.
+ */
+export function workspaceRecord(workspace: Workspace) {
+  return {
+    name: workspace.name,
+    directory: workspace.directory,
+    branch: workspace.branch,
+    ...(workspace.host === undefined ? {} : { host: workspace.host }),
+    reference: formatWorkspaceReference(workspaceReference(workspace), "full"),
+  };
+}
+
+/**
  * What a person is told once the daemon has the session.
  *
  * `hint` is whether to say how to come back, which is only worth saying to
@@ -153,7 +157,14 @@ export function renderCreated(
     ctx.style.muted(
       `${info.argv.join(" ")} · ${info.size.cols}x${info.size.rows}`,
     ),
-    ...(hint ? [`werk attach ${info.id}`] : []),
+    // The command to come back with names the machine when it is not this one:
+    // a bare `werk attach` would look at this machine's daemon and find
+    // nothing.
+    ...(hint
+      ? [
+          `werk attach${workspace.host === undefined ? "" : ` --host ${workspace.host}`} ${info.id}`,
+        ]
+      : []),
   ].join("\n");
 }
 export function buildCreate(): Command {
@@ -162,13 +173,15 @@ export function buildCreate(): Command {
     summary: "Start a session running a command",
     description:
       "Start a command under the daemon and attach to it. It gets a " +
-      "workspace of its own: a git worktree of the repository you are standing " +
-      "in, on a new branch. Put the command after --. werk does not parse " +
-      "anything after that, so the child keeps its own flags. The session " +
-      "outlives the terminal that started it, and `werk attach` goes back to " +
-      "it. --detach starts the session and returns instead. --json does the " +
-      "same, because the session's output and the one JSON value cannot share " +
-      "stdout.",
+      "workspace of its own: a worktree of the repository you are standing " +
+      "in, on a new branch. --host puts both on another machine, as a mirror " +
+      "of the repository pushed over and a worktree checked out beside it; " +
+      "only committed work travels. Put the command after --. werk does not " +
+      "parse anything after that, so the child keeps its own flags. The " +
+      "session outlives the terminal that started it, and `werk attach` goes " +
+      "back to it. --detach starts the session and returns instead. --json " +
+      "does the same, because the session's output and the one JSON value " +
+      "cannot share stdout.",
     usage: "[options] -- COMMAND [ARGS...]",
     examples: [
       {
@@ -184,6 +197,10 @@ export function buildCreate(): Command {
       {
         run: "werk create --detach -- npm run dev",
         note: "start it and come back later",
+      },
+      {
+        run: "werk create --host beast -- claude",
+        note: "on another machine; `werk attach --host beast` goes back to it",
       },
     ],
     notes: `${DETACH_HINT} and leaves the session running.`,
@@ -237,15 +254,24 @@ export function buildCreate(): Command {
           // never says where the command runs, because the command runs in the
           // workspace.
           const here = path.resolve(opts.cwd ?? process.cwd());
-          // Before the daemon, deliberately: a workspace that cannot be made is
-          // a failure that should not have started a daemon on its way to being
-          // reported. Nothing removes the worktree if the session then fails to
-          // start — rolling a half-made workspace back is one of the things
-          // `docs/workspaces-and-git.md` leaves open.
-          const workspace = await workspaceMakerFor(ctx).create({
-            name: workspaceNameFor(opts, argv),
-            from: { kind: "local-checkout", path: here },
-          });
+          // Which machine, resolved before anything is made, so a mistyped
+          // `--host` costs no repository work and no network. Reaching an ssh
+          // host starts here, and the probe it kicks off overlaps the workspace
+          // below.
+          const place = await reachHost(ctx);
+          // A local create is instant, so nothing is said about it. The maker
+          // reports its stages either way; this only decides who listens.
+          const progress =
+            place.session === undefined
+              ? undefined
+              : createProgress(ctx, place.name);
+          // Ctrl-C reaches the maker as an abort rather than killing the
+          // process where it stands, so a maker that got as far as a branch and
+          // a worktree on another machine gets to take them back.
+          const cancelling = new AbortController();
+          const cancel = () =>
+            cancelling.abort(new CancelledError("cancelled"));
+          process.once("SIGINT", cancel);
           // `--json` does not attach, and does not have to say so: the caller
           // asked for the record and got the whole of it. The session's own
           // bytes are what an attachment writes to stdout, and one stream
@@ -253,12 +279,48 @@ export function buildCreate(): Command {
           // register promises.
           const detached = opts.detach === true || ctx.json;
           const window = windowSize(opts);
-          const daemon = await connectDaemon(ctx);
+          let daemon;
+          let workspace: Workspace;
+          try {
+            // Before the daemon, deliberately: a workspace that cannot be made
+            // is a failure that should not have started a daemon on its way to
+            // being reported. Nothing removes the worktree if the session then
+            // fails to start — rolling a half-made workspace back is one of the
+            // things `docs/workspaces-and-git.md` leaves open.
+            workspace = await workspaceMakerFor(place).create(
+              {
+                name: workspaceNameFor(opts, argv),
+                from: { kind: "local-checkout", path: here },
+              },
+              {
+                signal: cancelling.signal,
+                ...(progress ? { onProgress: progress.onProgress } : {}),
+              },
+            );
+            // The connection is under the spinner too. On a machine werk has
+            // not been to, this is the install and the daemon start, which is
+            // the longest silence there is.
+            progress?.say(`reaching the daemon on ${place.name}`);
+            daemon = await connectDaemon(ctx, place.session);
+          } catch (error) {
+            progress?.stop();
+            await place.close().catch(() => {});
+            throw error;
+          } finally {
+            process.off("SIGINT", cancel);
+          }
           const { client } = daemon;
           try {
             const info = await client.create({
               argv: [...argv],
-              env: clientEnvironment(),
+              // A denylist is affordable to a daemon on this machine and not to
+              // one on another: `clientEnvironment` would carry every
+              // credential in this shell across a machine boundary, and its
+              // `PATH` and `HOME` would be lies about the far side anyway.
+              env:
+                place.session === undefined
+                  ? clientEnvironment()
+                  : remoteEnvironment(),
               cwd: workspace.directory,
               // An attachment on a terminal holds the grid and resizes it to
               // the window less the chrome row as soon as it arrives, so the
@@ -272,22 +334,12 @@ export function buildCreate(): Command {
               name: opts.name,
               labels: opts.label,
             });
+            // Before anything is printed, and well before an attachment takes
+            // the alternate screen.
+            progress?.stop();
             if (detached)
               return result(
-                {
-                  ...info,
-                  workspace: {
-                    name: workspace.name,
-                    directory: workspace.directory,
-                    branch: workspace.branch,
-                    // The one notation, so a caller reading this record and a
-                    // person reading the chrome are looking at one spelling.
-                    reference: formatWorkspaceReference(
-                      workspaceReference(workspace),
-                      "full",
-                    ),
-                  },
-                },
+                { ...info, workspace: workspaceRecord(workspace) },
                 (c) => renderCreated(info, c, workspace, true),
               );
             // The summary is status rather than session output, so it goes to
@@ -296,9 +348,11 @@ export function buildCreate(): Command {
             // than returned because `withContext` prints a returned value after
             // the action finishes, which for this one is after the detach.
             ctx.writeError(renderCreated(info, ctx, workspace, false) + "\n");
-            await attachSession(ctx, client, info.id, {});
+            await attachSession(ctx, client, info.id, {}, place);
           } finally {
+            progress?.stop();
             await daemon.close();
+            await place.close().catch(() => {});
           }
         },
       ),

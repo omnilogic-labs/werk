@@ -13,15 +13,17 @@ import { setChildArgv } from "../src/commands/shared.js";
 import {
   buildCreate,
   renderCreated,
+  workspaceRecord,
   wholeNumber,
   windowSize,
-  workspaceMakerFor,
-  workspaceRoot,
   workspaceNameFor,
 } from "../src/commands/create.js";
+import { reachHost, workspaceMakerFor } from "../src/host/place.js";
+import { builtInHosts } from "../src/config/hosts.js";
 import {
   buildAttach,
   outcomeNote,
+  remoteDropNote,
   sizeIntent,
 } from "../src/commands/attach.js";
 import { buildKill, renderTermination } from "../src/commands/kill.js";
@@ -49,6 +51,9 @@ function context(overrides: Partial<WerkContext> = {}): WerkContext {
     runtimeDir: "/run/werk",
     stateDir: "/state/werk",
     entry: "/werk/main.ts",
+    hosts: builtInHosts(),
+    hostProblems: [],
+    defaultHost: "local",
     ...overrides,
   };
 }
@@ -178,6 +183,48 @@ test("an attached session is not told how to get to where it already is", () => 
   expect(text).toContain("created 8f2c1b04e9d1 demo");
   expect(text).not.toContain("werk attach ");
   expect(text.split("\n")).toHaveLength(3);
+});
+test("a workspace on another machine reads as name@host:/path in both registers", () => {
+  const away = {
+    ...workspace(),
+    directory: "/srv/w/x/fix-login",
+    host: "beast",
+  };
+  // The record a script reads.
+  expect(workspaceRecord(away)).toEqual({
+    name: "fix-login",
+    directory: "/srv/w/x/fix-login",
+    branch: "fix-login",
+    host: "beast",
+    reference: "fix-login@beast:/srv/w/x/fix-login",
+  });
+  // And the line a person reads, which has been formatting at `full` all along
+  // and only now has a host to show.
+  expect(renderCreated(session(), context(), away, false)).toContain(
+    "workspace fix-login@beast:/srv/w/x/fix-login on branch fix-login",
+  );
+  // And the way back names the machine, because a bare `werk attach` would
+  // look at this machine's daemon and find nothing.
+  expect(renderCreated(session(), context(), away, true)).toContain(
+    "werk attach --host beast 8f2c1b04e9d1",
+  );
+  // A workspace here carries no host at all, in any of the three.
+  expect(workspaceRecord(workspace())).not.toHaveProperty("host");
+  expect(workspaceRecord(workspace()).reference).not.toContain("@");
+  expect(renderCreated(session(), context(), workspace(), true)).toContain(
+    "werk attach 8f2c1b04e9d1",
+  );
+});
+test("a remote connection that drops says which machine, and that the work is still there", () => {
+  // "connection closed" is what a person would otherwise read, and it sends
+  // them to look at the wrong machine: the commonest remote fault is a forward
+  // that came up and then ended the stream at once.
+  const note = remoteDropNote("agent-sandboxes", "8f2c1b04e9d1");
+  expect(note).toContain("lost the connection to agent-sandboxes");
+  expect(note).toContain("still running there");
+  // The way back names the machine, so it is a command that works rather than
+  // one that looks at this machine's daemon and finds nothing.
+  expect(note).toContain("werk attach --host agent-sandboxes 8f2c1b04e9d1");
 });
 test("termination reports delivery and outcome as the separate facts they are", () => {
   const ctx = context();
@@ -450,14 +497,16 @@ test("a workspace is named for the caller, or generated from the command", () =>
   for (const argv of [["../weird name"], ["..."], [""], ["-x"]])
     expect(isWorkspaceName(workspaceNameFor({}, argv))).toBe(true);
 });
-test("workspaces live under the state directory, not a setting of their own", () => {
-  const ctx = context({ stateDir: "/state/werk" });
-  expect(workspaceRoot(ctx)).toBe(path.join("/state/werk", "workspaces"));
+test("workspaces live under the state directory, not a setting of their own", async () => {
+  const here = await reachHost(context({ stateDir: "/state/werk" }));
+  expect(here.root).toBe(path.join("/state/werk", "workspaces"));
+  expect(here.session).toBeUndefined();
+  expect(here.reference).toBeUndefined();
   // Moving the state directory moves them, which is why no config key was added.
-  expect(workspaceRoot(context({ stateDir: "/elsewhere" }))).toBe(
+  expect((await reachHost(context({ stateDir: "/elsewhere" }))).root).toBe(
     path.join("/elsewhere", "workspaces"),
   );
-  expect(workspaceMakerFor(ctx).kind).toBe("local-worktree");
+  expect(workspaceMakerFor(here).kind).toBe("local-worktree");
 });
 
 /**

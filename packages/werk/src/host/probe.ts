@@ -99,8 +99,41 @@ export function probeBody(stdout: string): string[] | null {
 }
 
 /**
- * Read what the script printed.
+ * The same rule `defaultStateDir` applies locally, spelled for the machine's own
+ * shell so the answer is that machine's `$HOME` and its `$XDG_STATE_HOME`.
+ */
+export const WORKSPACE_ROOT_COMMAND =
+  'printf %s "${XDG_STATE_HOME:-$HOME/.local/state}/werk/workspaces"';
+
+/**
+ * Where workspaces go on a machine, asked of the machine.
  *
+ * A host block with no `workspaceRoot` has not said, and werk must not guess:
+ * the answer depends on that machine's `$HOME` and its `$XDG_STATE_HOME`, and a
+ * path invented here would be wrong the first time either is not what this
+ * machine has. The rule is the same one `defaultStateDir` applies locally, and
+ * it is the same string `probeHost` reports as the `workspace root` check, so
+ * `werk config check` and a `werk create` that had to ask cannot disagree.
+ *
+ * Returns undefined when the machine answered and said nothing usable. It does
+ * not throw: the caller knows which host it was asking and what it wanted the
+ * answer for, and a transport that could not connect raises on its own.
+ */
+export async function askWorkspaceRoot(
+  probe: HostProbe,
+  timeoutMs = QUICK_MS,
+): Promise<string | undefined> {
+  const answer = await probe.run(["sh", "-c", WORKSPACE_ROOT_COMMAND], {
+    timeoutMs,
+  });
+  const value = answer.stdout.trim();
+  return answer.ok && answer.code === 0 && value !== "" ? value : undefined;
+}
+
+/**
+ * Ask a machine the handful of things werk wants to know before putting work on
+ * it.
+ * Read what the script printed. *
  * `sshHost` is only ever used to name the machine in a failure; nothing here
  * connects to anything.
  */

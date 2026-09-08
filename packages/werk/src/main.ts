@@ -122,7 +122,8 @@ async function resolveBasis(
   // table that hoisted them. `--flavour` and `--accent` are ordinary settings
   // and reach the merge as the flags layer, like `--runtime-dir` does.
   const flags = globalFlagValues(argv) as GlobalFlags;
-  const { config } = await loadWerkConfig({ flags, env });
+  const merged = await loadWerkConfig({ flags, env });
+  const { config } = merged;
   const level = colourLevelFromArgv(argv, {
     isTTY,
     env,
@@ -138,7 +139,9 @@ async function resolveBasis(
     entry,
     level,
     theme: roles(choice.flavour, choice.accent),
-    config,
+    // The whole merge, settings and hosts together: a command that names a
+    // machine needs the blocks as much as it needs the keys.
+    config: merged,
   };
 }
 

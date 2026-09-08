@@ -87,6 +87,34 @@ export const SSH_FORWARD_OPTIONS: readonly string[] = [
   "ExitOnForwardFailure=yes",
 ];
 
+/**
+ * Where git should push, for a mirror at `repositoryPath` on `sshHost`.
+ *
+ * `@werk/workspace` builds no URLs and knows no transports, so the one place
+ * that knows werk reaches a machine with ssh builds this. The `ssh://` form
+ * rather than `host:path` because it is unambiguous: an ssh destination can
+ * carry a user and the path is always absolute, so
+ * `ssh://mike@10.0.0.7/srv/x.git` has exactly one reading.
+ */
+export const sshPushUrl =
+  (sshHost: string) =>
+  (repositoryPath: string): string =>
+    `ssh://${sshHost}${repositoryPath}`;
+
+/**
+ * What to put in front of a push so git's own ssh is werk's ssh.
+ *
+ * Without it git spawns a plain `ssh` and inherits none of the options at the
+ * top of this file: a push would prompt on a machine werk never prompts on, and
+ * a `ControlMaster=auto` in the person's config would route it through a shared
+ * master that can hang past any timeout. None of the values carry a space, so
+ * git's shell-like splitting of `core.sshCommand` reads them back unchanged.
+ */
+export const sshGitConfig = (): string[] => [
+  "-c",
+  `core.sshCommand=ssh ${SSH_COMMON_OPTIONS.join(" ")}`,
+];
+
 /** Quote a value for the `sh -c` that sshd hands a remote command to. */
 export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;

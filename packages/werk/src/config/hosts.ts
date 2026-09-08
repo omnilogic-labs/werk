@@ -299,6 +299,13 @@ export const builtInHosts = (): Record<string, Host> => ({
 });
 
 /**
+ * The host a command acts on when nobody names one. Named here rather than
+ * spelled again in `schema.ts`, so the built-in default and the host it points
+ * at cannot drift apart.
+ */
+export const DEFAULT_HOST = "local";
+
+/**
  * Where workspaces go on a host.
  *
  * A local host with nothing said about it resolves to `<stateDir>/workspaces`,
@@ -322,4 +329,59 @@ export function workspaceRootFor(
 ): string | undefined {
   if (host.workspaceRoot !== undefined) return host.workspaceRoot;
   return host.kind === "local" ? path.join(stateDir, "workspaces") : undefined;
+}
+
+/**
+ * What resolving a host needs to know: every block in force, every block that
+ * could not be read, and the two ways a name arrives.
+ *
+ * Structural rather than the CLI's context type, so nothing under `src/config/`
+ * imports a value from `src/runtime/`. A `WerkContext` satisfies it.
+ */
+export interface HostSelection {
+  readonly hosts: Readonly<Record<string, Host>>;
+  readonly hostProblems: readonly HostProblem[];
+  /** The host to act on when nothing names one; the `defaultHost` setting. */
+  readonly defaultHost: string;
+  /** The host named with `--host`, when one was. */
+  readonly requestedHost?: string;
+}
+
+/**
+ * The host a command acts on: the flag, then `defaultHost`.
+ *
+ * This is a question about the whole collection rather than about one key,
+ * which is why it is not a field parser. A parser sees one value and can say
+ * that `beest` is shaped like a host name; only something holding every block
+ * can say that no host is called `beest` and that `beast` is. A typo is the
+ * commonest cause of this failing, so the message names what is defined rather
+ * than only what is not.
+ *
+ * A block that could not be read is a different failure from a name nothing
+ * defines, and separating them is worth the code: the remedy for one is to type
+ * a different name, and for the other to go and fix a file. `parseHosts`
+ * already worked out what is wrong with the block and which file it is in, so
+ * that sentence is carried through rather than restated.
+ */
+export function hostFor(
+  from: HostSelection,
+  requested: string | undefined = from.requestedHost,
+): { name: string; host: Host } {
+  const name = requested ?? from.defaultHost;
+  const host = from.hosts[name];
+  if (host !== undefined) return { name, host };
+  const problem = from.hostProblems.find((entry) => entry.name === name);
+  if (problem !== undefined)
+    throw new ConfigError(
+      "HOST_INVALID",
+      `${name} is configured but werk cannot read it: ${problem.message}`,
+    );
+  const defined = Object.keys(from.hosts).sort();
+  throw new ConfigError(
+    "UNKNOWN_HOST",
+    `no host is called ${name}. ` +
+      (defined.length === 0
+        ? "Nothing defines one; `werk config setup` writes a host block."
+        : `Defined: ${defined.join(", ")}.`),
+  );
 }

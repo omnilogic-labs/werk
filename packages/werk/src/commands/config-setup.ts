@@ -127,9 +127,10 @@ export function buildConfigSetup(): Command {
       "machines you already reach, asks the one you pick about itself, shows " +
       "you the exact TOML it would add, and only then writes it. Re-running " +
       "it offers to change, remove or re-point what is already there. Pass " +
-      "--host and --ssh to answer everything up front, which is how a " +
-      "dotfiles script uses it; without a terminal to ask in, that is the " +
-      "only form it accepts.",
+      "the global --host, which is the name the block will have, together " +
+      "with --ssh, to answer everything up front; that is how a dotfiles " +
+      "script uses it, and without a terminal to ask in it is the only form " +
+      "this accepts.",
     examples: [
       { run: "werk config setup", note: "answer the questions" },
       {
@@ -142,7 +143,11 @@ export function buildConfigSetup(): Command {
       },
     ],
   });
-  setup.option("--host <name>", "what to call the machine");
+  // No `--host` of its own. It is a global flag, so a second declaration here
+  // would be shadowed by the hoist in `runtime/argv.ts` and the two spellings
+  // would mean the same thing anyway: the name a host has in werk's
+  // configuration. This is the command that writes the block rather than one
+  // that reaches an existing machine, which does not make it a different noun.
   setup.option(
     "--ssh <destination>",
     "the ssh destination, as typed after ssh",
@@ -151,7 +156,18 @@ export function buildConfigSetup(): Command {
   setup.option("--default", "make it the host werk uses when nobody names one");
   setup.option("--project", "write the repository's file rather than your own");
   setup.action(
-    withContext(async (ctx, opts: SetupFlags) => runSetup(ctx, opts, {})),
+    withContext(async (ctx, opts: SetupFlags) =>
+      runSetup(
+        ctx,
+        {
+          ...opts,
+          ...(ctx.requestedHost === undefined
+            ? {}
+            : { host: ctx.requestedHost }),
+        },
+        {},
+      ),
+    ),
   );
   return setup;
 }

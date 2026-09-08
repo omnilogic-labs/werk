@@ -47,6 +47,7 @@ page carries worked examples, between its description and its arguments.
 | Flag                   | Effect                                             |
 | ---------------------- | -------------------------------------------------- |
 | `--json`               | Print JSON instead of text                         |
+| `--host <NAME>`        | Which host to act on, by the name in your config   |
 | `--runtime-dir <PATH>` | Where the daemon socket and endpoint live          |
 | `--state-dir <PATH>`   | Where checkpoints, logs and the daemon record live |
 | `--log-level <LEVEL>`  | Daemon log level: `error`, `warn`, `info`, `debug` |
@@ -65,6 +66,12 @@ thing wherever they are typed: `werk --runtime-dir /tmp/r list` and
 `--yes` answers the confirmation `kill` asks before stopping a session that was
 chosen from the picker rather than named. A command line that names its session
 is never asked, so nothing scripted meets it.
+
+`--host` names a `[hosts.<name>]` block, and `defaultHost` answers when nothing
+does. `create`, `list`, `attach`, `logs`, `kill` and `remove` all act on that
+one machine, and `config setup` writes the block for the name it is given.
+A name nothing defines fails with the names that are defined, because that
+failure is nearly always a typo.
 
 ### The `--` boundary
 
@@ -216,6 +223,41 @@ about a workspace, and what more it should be able to do with one, is worked
 through in [workspaces-and-git.md](workspaces-and-git.md); `@werk/workspace` is
 explicitly under development and a local worktree is the whole of what it makes
 today.
+
+## Putting work on another machine
+
+`werk create --host beast -- claude` makes the workspace on `beast` and starts
+the session in the daemon over there. `--host` names a `[hosts.<name>]` block,
+and `defaultHost` answers when the flag does not.
+
+What happens on the far side is a bare mirror of the repository, pushed to, and
+a linked worktree checked out beside it. Only committed history travels;
+anything uncommitted stays on the machine `werk` was typed on and werk says how
+many files that is. Where the mirror and the worktree go is the block's
+`workspaceRoot`, or, when the block does not say, whatever
+`${XDG_STATE_HOME:-$HOME/.local/state}/werk/workspaces` resolves to on that
+machine — asked of the machine rather than guessed at from this one.
+
+A session on another machine gets a narrow environment: `LANG`, the `LC_*`
+variables, `TZ`, `NO_COLOR` and `FORCE_COLOR`, and nothing else. That is an
+allowlist rather than the denylist a local session gets, because a name nobody
+thought of costs a credential when the destination is another computer, and
+because `PATH`, `HOME`, `SHELL`, `TMPDIR` and `SSH_AUTH_SOCK` would be facts
+about the wrong machine. The remote daemon's own environment supplies its
+versions of those.
+
+Making a workspace over there is probe, prepare, push and check out, which is
+not instant. `create` says which stage it is in: a spinner on a terminal, one
+line per stage on stderr under `--no-input`, and nothing at all under `--json`,
+because the machine register is one value on stdout. Ctrl-C during creation
+aborts it, the maker takes back the branch and the worktree it had got as far
+as, and werk exits 130.
+
+Each of these commands talks to **one** daemon: this machine's without `--host`,
+that machine's with it. There is no view across machines. Nothing records that a
+workspace exists, so a workspace with no session running in it is not listed
+anywhere, including on the machine it is on. Where that record should live is
+[question 19](product-specification.md#19-where-does-the-record-of-a-workspace-live).
 
 ## Referencing a workspace
 
@@ -564,7 +606,9 @@ werk config setup --host beast --ssh beast --workspace-root /srv/werk --default 
 ```
 
 That form answers every question up front, which is how a dotfiles script uses
-it. Without a terminal and without those flags the command exits 2 and writes
+it. `--host` there is the global flag: it is the name the block will have, which
+is the same name every other command uses to act on that machine. Without a
+terminal and without `--host` and `--ssh` the command exits 2 and writes
 nothing, because a wizard that guesses at which machine you meant is worse than
 one that stops.
 
@@ -572,9 +616,10 @@ What it writes is only what the machine is called and where werk may put things.
 Everything else werk asks the machine at the moment it needs to know, which is
 what `werk config check` prints: whether the machine answers, what it is
 running, whether git and werk are on it, and where workspaces would go. None of
-that is stored, and nothing on the machine is created to find it out. Nothing
-reaches an ssh host yet, so `config check` reports one as `not checked` rather
-than as unreachable.
+that is stored, and nothing on the machine is created to find it out. The probe
+`config check` runs is not yet wired to the ssh transport, so it reports an ssh
+host as `not checked` rather than as unreachable — `werk list --host <name>` is
+what actually reaches one today.
 
 ### The layers
 
@@ -621,9 +666,8 @@ which is what the tests use.
 
 Only settings that describe something werk already does appear in that table. A
 key invented for a feature that does not exist yet reads back later as a decision
-somebody took. `defaultHost` is the awkward one: nothing resolves a host yet, and
-its value says where every `werk create` already puts work — this machine, which
-is the host `local`.
+somebody took. `defaultHost` is what a command acts on when `--host` names none,
+which is `local` until somebody writes a host block and points it somewhere else.
 
 Every command acts on the resolved configuration, so a `runtimeDir` set in
 `~/.werk/config.toml` is the directory `werk info` reports and the one
@@ -680,9 +724,7 @@ workspaceRoot = "/srv/werk/workspaces"
 | `workspaceRoot` | both  | Where workspaces go on that host                              |
 | `provider`      | both  | The name of whatever made the host. Recorded, not interpreted |
 
-`defaultHost` names one of them. Nothing resolves it yet — choosing a host when
-a session is created is not written — so today it records where work is meant to
-go rather than sending it there.
+`defaultHost` names one of them, and `--host` overrides it for one command.
 
 `local` is a host werk has without being told, supplied by the defaults layer
 like any other built-in value, so nothing special-cases the machine werk is

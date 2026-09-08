@@ -75,7 +75,7 @@ export const REMOTE_FORWARDED = [
  * belongs to the person rather than to either machine: which language to speak
  * in, what time it is where they are, and whether they want colour.
  *
- * Nothing calls this yet.
+ * `create` sends this whenever the daemon it reached is on another machine.
  */
 export function remoteEnvironment(
   source: Record<string, string | undefined> = process.env,

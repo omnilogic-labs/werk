@@ -27,9 +27,10 @@ import { createTerminalReplica } from "@werk/terminal";
 import { loadTerminalEngine } from "@werk/terminal/bun";
 import { withContext } from "./shared.js";
 import { defineCommand } from "./define.js";
-import { wholeNumber, windowSize, workspaceRoot } from "./create.js";
+import { wholeNumber, windowSize } from "./create.js";
 import { workspaceAt } from "@werk/workspace";
 import { sessionArgument, withSession } from "./session-argument.js";
+import type { HostPlace } from "../host/place.js";
 import type { WerkContext } from "../runtime/context.js";
 import {
   createInputPump,
@@ -85,11 +86,25 @@ export function sizeIntent(flags: AttachFlags): HoldSize {
   if (flags.claimSize) return "claim";
   return flags.readOnly ? "never" : "if-free";
 }
+/**
+ * What a person is told when a remote daemon's connection goes away under them.
+ *
+ * "Connection closed" is the commonest remote fault and the least useful thing
+ * to read: a forward pointed at a missing socket comes up fine and then ends
+ * the stream at once, so the message has to say which machine went and that the
+ * work is still on it. The command to get back names the host, because a bare
+ * `werk attach` would look on this machine.
+ */
+export const remoteDropNote = (host: string, id: string): string =>
+  `lost the connection to ${host}. The session is still running there — ` +
+  `\`werk attach --host ${host} ${id}\``;
+
 export async function attachSession(
   ctx: WerkContext,
   client: SessionClient,
   id: string,
   flags: AttachFlags,
+  place: HostPlace,
 ): Promise<void> {
   const tty = ctx.stdoutTTY;
   const window = () => windowSize(flags);
@@ -126,6 +141,7 @@ export async function attachSession(
     };
   });
   let error: unknown;
+  let dropped = false;
   let outcome: ExitOutcome | undefined;
   let endReason: EndReason | undefined;
   let pump!: InputPump;
@@ -174,7 +190,7 @@ export async function attachSession(
           // The directory the session was started in is the workspace, when
           // this host's layout is what put it there. A session started
           // somewhere else recovers none and the chrome keeps the name.
-          state.workspace = workspaceAt(workspaceRoot(ctx), info.cwd);
+          state.workspace = workspaceAt(place.root, info.cwd, place.reference);
           state.cwd = info.reportedCwd;
           view?.refresh();
         },
@@ -266,7 +282,16 @@ export async function attachSession(
     process.stdout.on("resize", resize);
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
     process.stdin.resume();
-    await Promise.race([finished, client.closed]);
+    // Which of the two ended it matters afterwards: a connection that went
+    // away is a different thing to say from a session that finished or a
+    // person who pressed Ctrl-]. The client turns a transport that closed into
+    // an `ended` event with that reason, so the flag below is usually set from
+    // there; the race is what catches a connection that went before any
+    // attachment did.
+    dropped = await Promise.race([
+      finished.then(() => endReason === "connection-closed"),
+      client.closed.then(() => true),
+    ]);
     await pump.drained();
     if (error) throw error;
   } finally {
@@ -293,6 +318,8 @@ export async function attachSession(
       );
     ctx.writeError(`werk: ${outcomeNote(id, outcome, recorded)}\n`);
   }
+  if (dropped && place.reference !== undefined)
+    ctx.writeError(`werk: ${remoteDropNote(place.reference, id)}\n`);
 }
 export function buildAttach(): Command {
   // Typed as the widened `Command` the command table holds: declaring a
@@ -358,7 +385,8 @@ export function buildAttach(): Command {
           ctx,
           given,
           "Attach to which session?",
-          (client, id) => attachSession(ctx, client, id, opts),
+          (client, id, _picked, place) =>
+            attachSession(ctx, client, id, opts, place),
         );
       }),
     );

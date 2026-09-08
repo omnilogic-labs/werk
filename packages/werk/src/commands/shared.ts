@@ -10,6 +10,7 @@ import type { Command } from "@commander-js/extra-typings";
 import {
   createContext,
   type GlobalFlags,
+  type ResolvedConfig,
   type WerkContext,
 } from "../runtime/context.js";
 import type { ColourLevel } from "../runtime/colour.js";
@@ -18,7 +19,6 @@ import { unmetRequirements } from "./define.js";
 import { EXIT_USAGE, UsageError } from "../runtime/exit.js";
 import { loadWerkConfig } from "../config/load.js";
 import { defaultRoles, type Roles } from "@werk/palette";
-import type { WerkConfig } from "../config/schema.js";
 
 /**
  * What `main.ts` settled before commander began parsing, for the actions that
@@ -36,12 +36,15 @@ export interface RuntimeBasis {
   readonly level: ColourLevel;
   readonly theme: Roles;
   /**
+   * The settings and the hosts, resolved together, because a command needs
+   * both and they were read in one pass.
+   *
    * Absent only on the completion path. `complete` never reaches `withContext`
    * at all: it reads the layers itself, under a deadline it can abandon, and
    * builds its own context, because a shell is blocked on it for every
    * keystroke of a TAB and a remote layer that hangs must not hang the shell.
    */
-  readonly config?: WerkConfig;
+  readonly config?: ResolvedConfig;
 }
 let basis: RuntimeBasis = {
   entry: "",
@@ -88,7 +91,7 @@ export function withContext<O, A extends unknown[]>(run: Action<O, A>) {
     // daemon the same way `--runtime-dir` does. `main.ts` reads them once
     // before parsing and carries them on the basis, so the load below is the
     // fallback for a program built without one, as a test does.
-    const config = basis.config ?? (await loadWerkConfig({ flags })).config;
+    const config = basis.config ?? (await loadWerkConfig({ flags }));
     const ctx = createContext(flags, basis, config);
     try {
       emit(ctx, (await run(ctx, opts, ...positionals)) ?? undefined);

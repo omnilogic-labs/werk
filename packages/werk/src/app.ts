@@ -12,13 +12,14 @@
  * `--json` is read from the raw argv for the same reason — a failure during the
  * parse has to know which register to answer in before any flag is parsed.
  */
-import { Command } from "@commander-js/extra-typings";
+import { Command, Option } from "@commander-js/extra-typings";
 import { colourLevelFromArgv } from "./runtime/colour.js";
 import { createStyles } from "./runtime/style.js";
 import type { RuntimeBasis } from "./commands/shared.js";
 import { COMMANDS, HIDDEN_COMMANDS } from "./commands/index.js";
 import { describeRoot } from "./commands/define.js";
 import { GLOBAL_FLAGS } from "./runtime/argv.js";
+import { completes } from "./completion/hooks.js";
 import { errorPayload, UsageError, usageMessage } from "./runtime/exit.js";
 import { helpConfiguration, helpFooter } from "./runtime/help.js";
 import { werkVersion } from "./runtime/version.js";
@@ -95,9 +96,14 @@ export function buildProgram(
     // usage mistakes their own status; see `exitCodeFor`.
     .exitOverride();
   // Declared from the same table `main.ts` hoists with, so help and parsing
-  // always agree about what counts as global.
-  for (const { flags, description } of GLOBAL_FLAGS)
-    program.option(flags, description);
+  // always agree about what counts as global. A flag whose values werk knows
+  // carries its provider on the table too, so completion reads the same row.
+  for (const spec of GLOBAL_FLAGS) {
+    const option = new Option(spec.flags, spec.description);
+    program.addOption(
+      spec.complete ? completes(option, spec.complete) : option,
+    );
+  }
   for (const build of COMMANDS) program.addCommand(inherit(build(), program));
   for (const build of HIDDEN_COMMANDS)
     program.addCommand(inherit(build(), program), { hidden: true });
