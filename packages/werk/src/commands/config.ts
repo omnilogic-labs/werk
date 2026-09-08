@@ -20,6 +20,7 @@ import { existsSync } from "node:fs";
 import { Argument, type Command } from "@commander-js/extra-typings";
 import { withContext } from "./shared.js";
 import { defineCommand } from "./define.js";
+import { buildConfigSetup } from "./config-setup.js";
 import { result, tableResult } from "../runtime/output.js";
 import type { GlobalFlags } from "../runtime/context.js";
 import { envVariablesInUse } from "../config/env.js";
@@ -29,8 +30,23 @@ import {
   type LayerName,
   type MergedConfig,
 } from "../config/load.js";
-import { CONFIG_KEYS, type ConfigKey } from "../config/schema.js";
-import { summariseHost } from "../config/hosts.js";
+import {
+  CONFIG_KEYS,
+  FIELDS,
+  type ConfigKey,
+  type ConfigValue,
+} from "../config/schema.js";
+import { summariseHost, type Host } from "../config/hosts.js";
+import { UsageError } from "../runtime/exit.js";
+import { editProjectConfig, editUserConfig } from "../config/write.js";
+import type { ConfigEdit } from "../config/toml-edit.js";
+import {
+  noProbe,
+  probeFor,
+  probeHost,
+  PROBE_BUDGET_MS,
+  type ProbeReport,
+} from "../hosts/probe.js";
 import type { WerkContext } from "../runtime/context.js";
 import type { Result } from "../runtime/output.js";
 
@@ -124,6 +140,122 @@ export function buildConfig(): Command {
     }),
   );
 
+  const set = defineCommand({
+    name: "set",
+    summary: "Write one setting to a config file",
+    description:
+      "Write a setting to your own config file, or to the repository's with " +
+      "--project. The value goes through the same check the file would apply, " +
+      "so a value werk cannot use is refused here rather than at the next " +
+      "command that reads it. Everything else in the file is left exactly as " +
+      "it was, comments included. If a stronger layer is already supplying " +
+      "the key, the value written will not be the one in force, and this says " +
+      "so rather than leaving you to work it out.",
+    examples: [
+      { run: "werk config set logLevel debug" },
+      {
+        run: "werk config set defaultHost beast --project",
+        note: "for this repository only",
+      },
+    ],
+  });
+  set.addArgument(new Argument("<key>", "which setting").choices(CONFIG_KEYS));
+  set.addArgument(new Argument("<value>", "what to set it to"));
+  set.option("--project", "write the repository's file rather than your own");
+  config.addCommand(set);
+  set.action(
+    withContext(
+      async (ctx, opts: { project?: boolean }, raw: string, given: string) => {
+        const key = raw as ConfigKey;
+        // Through the field's own parser, so `werk config set logLevel loud`
+        // is refused with the sentence the file would have produced.
+        const value: ConfigValue = FIELDS[key].parse(given);
+        return await write(ctx, set, key, value, opts.project === true);
+      },
+    ),
+  );
+
+  const unset = defineCommand({
+    name: "unset",
+    summary: "Take one setting back out of a config file",
+    description:
+      "Remove a setting's line from your own config file, or from the " +
+      "repository's with --project, and say what the value falls back to. " +
+      "Removing a line does not mean the key has no value: every setting has " +
+      "a default underneath it, and a weaker file or an environment variable " +
+      "may be supplying one too.",
+    examples: [
+      { run: "werk config unset logLevel" },
+      { run: "werk config unset defaultHost --project" },
+    ],
+  });
+  unset.addArgument(
+    new Argument("<key>", "which setting").choices(CONFIG_KEYS),
+  );
+  unset.option("--project", "write the repository's file rather than your own");
+  config.addCommand(unset);
+  unset.action(
+    withContext(async (ctx, opts: { project?: boolean }, raw: string) => {
+      const key = raw as ConfigKey;
+      return await write(ctx, unset, key, null, opts.project === true);
+    }),
+  );
+
+  config.addCommand(buildConfigSetup());
+
+  const check = defineCommand({
+    name: "check",
+    summary: "Ask each configured host about itself",
+    description:
+      "Run the probe against every host that is configured, or against one " +
+      "named host, and print what each machine said: whether it answers at " +
+      "all, what it is running, whether git and werk are on it, and where " +
+      "workspaces would go. Nothing is stored: a host block holds what the " +
+      "machine is called and where werk may put things, and everything else " +
+      "is asked at the moment it is needed. Nothing is created on the machine " +
+      "either, so a workspace root that is not there yet reads as absent " +
+      "rather than being made.",
+    examples: [
+      { run: "werk config check" },
+      { run: "werk config check beast" },
+      {
+        run: "werk config check --json | jq '.[] | select(.reachable != \"yes\")'",
+      },
+    ],
+  });
+  check.addArgument(
+    new Argument("[host]", "which host; every configured one by default"),
+  );
+  config.addCommand(check);
+  check.action(
+    withContext(async (ctx, _opts, name?: string) => {
+      const merged = await load(check);
+      if (name !== undefined && merged.hosts[name] === undefined)
+        throw new UsageError(
+          `there is no host called ${name}; \`werk config list\` shows the ones there are`,
+        );
+      const wanted =
+        name === undefined ? Object.keys(merged.hosts).sort() : [name];
+      // Each host gets its own budget rather than sharing one: a machine that
+      // is asleep should not eat the time the next one needs to answer.
+      const checked = await Promise.all(
+        wanted.map(async (host) => {
+          const block = merged.hosts[host]!;
+          const probe = probeFor(block.kind);
+          return {
+            host,
+            block,
+            probed: probe !== noProbe,
+            report: await probeHost(probe, {
+              signal: AbortSignal.timeout(PROBE_BUDGET_MS),
+            }),
+          };
+        }),
+      );
+      return checkResult(checked, ctx);
+    }),
+  );
+
   const sources = defineCommand({
     name: "sources",
     summary: "Print every layer werk consults, weakest first",
@@ -184,6 +316,128 @@ export function buildConfig(): Command {
   );
 
   return config;
+}
+
+/** What `set` and `unset` did, and what the key is worth afterwards. */
+export interface SettingWrite {
+  key: ConfigKey;
+  /** What was written, or null when the line was removed. */
+  value: ConfigValue | null;
+  file: string;
+  created: boolean;
+  /** The value in force once the write had happened. */
+  effective: ConfigValue;
+  /** The layer supplying it. Not always the one that was written. */
+  layer: LayerName;
+}
+
+/**
+ * Write one setting, then say what the key is actually worth.
+ *
+ * The second half is the part that saves somebody twenty minutes. A file is not
+ * the strongest layer: an exported `WERK_LOG_LEVEL` beats it, and so does a
+ * flag on the command line, and both of those are invisible from the file that
+ * was just edited. The provenance is already computed for `config list`, so the
+ * write re-resolves and says which layer won.
+ */
+async function write(
+  ctx: WerkContext,
+  command: HasGlobals,
+  key: ConfigKey,
+  value: ConfigValue | null,
+  project: boolean,
+): Promise<Result<SettingWrite>> {
+  const edit: ConfigEdit = { set: { [key]: value } };
+  const written = project
+    ? await editProjectConfig(edit)
+    : await editUserConfig(edit);
+  const merged = await load(command);
+  const record: SettingWrite = {
+    key,
+    value,
+    file: written.file,
+    created: written.created,
+    effective: merged.config[key],
+    layer: merged.from[key],
+  };
+  const wroteTo: LayerName = project ? "project" : "user";
+  return result(record, () => {
+    if (value === null)
+      return `${key} is no longer set in ${written.file}; it is ${show(record.effective)}, from ${describeLayer(merged, record.layer, key)}.`;
+    if (record.layer === wroteTo)
+      return `${key} is ${show(value)} in ${written.file}.`;
+    return ctx.style.warning(
+      `${key} is set to ${show(value)} in ${written.file}, but ` +
+        `${describeLayer(merged, record.layer, key)} is beating it with ` +
+        `${show(record.effective)}.`,
+    );
+  });
+}
+
+const show = (value: ConfigValue): string => String(value);
+
+/** Where a layer's value came from, spelled as something a person can go and look at. */
+function describeLayer(
+  merged: MergedConfig,
+  layer: LayerName,
+  key: ConfigKey,
+): string {
+  if (layer === "env")
+    return `${FIELDS[key].env}=${process.env[FIELDS[key].env] ?? ""}`;
+  if (layer === "flags") return "the flag on this command line";
+  const origin = merged.layers.find((one) => one.name === layer)?.origin;
+  return origin ?? LAYER_LABEL[layer];
+}
+
+/** One host `config check` asked about, and what came back. */
+export interface HostCheck {
+  host: string;
+  block: Host;
+  /** False when nothing can reach a host of that kind yet. */
+  probed: boolean;
+  report: ProbeReport;
+}
+
+/**
+ * A row per host. "not checked" and "no" are different answers and are kept
+ * apart: the first is werk having no way to reach that kind of machine, and the
+ * second is the machine not answering.
+ */
+export function checkResult(
+  checked: readonly HostCheck[],
+  ctx: WerkContext,
+): Result<readonly HostCheck[]> {
+  const rows = checked.map((one) => {
+    const state = !one.probed
+      ? ctx.style.muted("not checked")
+      : one.report.reachable === "yes"
+        ? "answers"
+        : one.report.reachable === "no"
+          ? ctx.style.error("no answer")
+          : ctx.style.muted("unknown");
+    // What it is, what it is missing, and where werk would put work. Everything
+    // else the probe learned is in the machine shape, which is where a script
+    // reading this wants it anyway.
+    const detail = (name: string) =>
+      one.report.checks.find((check) => check.name === name)?.detail;
+    const missing = one.report.checks
+      .filter((check) => check.state === "no" && check.name !== "reachable")
+      .map((check) => `no ${check.name}`);
+    const found = [
+      detail("system"),
+      ...missing,
+      one.report.workspaceRoot,
+    ].filter((part) => part !== undefined && part !== "");
+    return [
+      one.host,
+      summariseHost(one.block),
+      state,
+      found.length > 0
+        ? found.join("; ")
+        : ctx.style.muted(one.report.notes[0] ?? ""),
+    ];
+  });
+  return tableResult(checked, ["HOST", "HOW", "STATE", "FOUND"], rows, 3);
 }
 
 /** One row of `config list`: a setting or a host, and the layer it came from. */

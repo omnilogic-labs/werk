@@ -30,10 +30,9 @@ alone, and what each dependency is for.
 | `watch`                 | Print daemon events as JSON lines until interrupted                           |
 | `info`                  | Print where werk keeps things and what the daemon says                        |
 | `doctor`                | Check the local daemon and print the end of its log                           |
-| `config`                | `list`, `get <key>`, `sources`, `path`                                        |
+| `config`                | `list`, `get`, `set`, `unset`, `setup`, `check`, `sources`, `path`            |
 | `completion`            | `bash`, `zsh`, `fish`: print a shell completion script                        |
 | `daemon`                | `serve`: run the daemon in this process; `endpoint`: print what to connect to |
-
 One more is accepted and not listed. `complete` answers the shell completion
 protocol and is a wire format rather than something a person types.
 
@@ -119,6 +118,13 @@ already uses. git being absent at either end, a history that did not get there,
 and git refusing for an unanticipated reason all exit 1. Under `--json` the
 error code on stderr is the workspace reason itself, so `NOT_A_REPOSITORY`,
 `BRANCH_EXISTS` and `HOST_UNREACHABLE` reach a script as themselves.
+
+Configuration is mapped the same way. A host block that does not parse, a name
+nothing defines and a file that is not the TOML it claims to be are all "what
+werk was told is wrong", which is exit 2. A file werk could not write, or would
+not write because it could not make the change cleanly, is exit 1: the machine
+did not do it. No new statuses; nothing scripting werk should have to learn a
+number to find out that a config file has a typo in it.
 
 ## Starting a session
 
@@ -512,14 +518,63 @@ a dark flavour and a light one, and picks between them with
 
 ## Configuration
 
-`werk config` shows what werk thinks it has been told and who told it.
+`werk config` shows what werk thinks it has been told and who told it, and
+writes to the two files it reads.
 
 ```sh
 werk config list      # Print every setting, its value, and where it came from
 werk config get logLevel
 werk config sources   # Print every layer werk consults, weakest first
 werk config path      # Print the config files werk reads
+
+werk config set logLevel debug     # Write one setting to ~/.werk/config.toml
+werk config unset logLevel         # Take it back out
+werk config setup                  # Add a machine, by answering questions
+werk config check                  # Ask each configured host about itself
 ```
+
+`--project` on `set`, `unset` and `setup` writes `<git toplevel>/.werk/config.toml`
+instead of `~/.werk/config.toml`.
+
+### Writing a config file
+
+A config file is meant to be opened and edited by hand, so werk splices rather
+than rewriting. It writes whole `[hosts.<name>]` tables and single top-level
+scalar lines, and everything outside the part it replaced comes back byte for
+byte: the comments, the blank lines, the key order, the indentation, the line
+endings. It then parses what it produced and compares it against what the edit
+asked for, and refuses with exit 1 rather than writing anything it cannot make
+cleanly. The file is written to a temporary file beside itself and renamed over,
+so a reader never sees half of one.
+
+After `set` or `unset`, werk re-resolves the key and says which layer is
+supplying it. Writing a file does not mean winning: an exported `WERK_LOG_LEVEL`
+still beats it, and that is invisible from the file that was just edited.
+
+### Adding a machine
+
+`werk config setup` walks through adding a host: which machine, what to call it,
+and where workspaces go on it. It reads the `Host` patterns out of your
+ssh_config for the list to pick from, asks the machine you picked about itself,
+shows the exact TOML it would add, and only then writes. Re-running it offers to
+add another, change one, choose the default, or remove one.
+
+```sh
+werk config setup --host beast --ssh beast --workspace-root /srv/werk --default --yes
+```
+
+That form answers every question up front, which is how a dotfiles script uses
+it. Without a terminal and without those flags the command exits 2 and writes
+nothing, because a wizard that guesses at which machine you meant is worse than
+one that stops.
+
+What it writes is only what the machine is called and where werk may put things.
+Everything else werk asks the machine at the moment it needs to know, which is
+what `werk config check` prints: whether the machine answers, what it is
+running, whether git and werk are on it, and where workspaces would go. None of
+that is stored, and nothing on the machine is created to find it out. Nothing
+reaches an ssh host yet, so `config check` reports one as `not checked` rather
+than as unreachable.
 
 ### The layers
 
@@ -656,8 +711,13 @@ A block werk cannot read never stops it starting. `werk config list` shows the
 row as `unreadable`, `werk config sources` says what is wrong and which file it
 is in, and only a command that actually wants that host fails.
 
-### The remote layer, and the unimplemented `extends` hook
+A block holds what the machine is called and where werk may put things, and
+nothing else. There is no `werkPath` and no `shell`, and no probe result is
+stored: a fact about a machine written into a file is a fact that was true once,
+and it goes stale silently while `ssh beast` keeps working. `werk config check`
+asks the machine instead, every time.
 
+### The remote layer, and the unimplemented `extends` hook
 A portal is expected to supply some of a client's configuration once that client
 registers with it. Which settings it takes over, what happens to settings the
 client already had, how a person sees what has been taken over, and whether

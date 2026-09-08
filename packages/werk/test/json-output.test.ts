@@ -44,7 +44,15 @@ async function runJson(...args: string[]): Promise<unknown> {
       stateDir,
       ...args,
     ],
-    { cwd: home, stdout: "pipe", stderr: "pipe" },
+    {
+      cwd: home,
+      // Every run gets a config directory inside the temporary home. Two of
+      // these commands write one, and without this they would write the config
+      // file of whoever is running the suite.
+      env: { ...process.env, WERK_CONFIG_DIR: join(home, "cfg") },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
   );
   const stdout = await new Response(child.stdout).text();
   const stderr = await new Response(child.stderr).text();
@@ -165,6 +173,43 @@ test(
     expect(await runJson("config", "get", "logLevel")).toBeObject();
     expect(await runJson("config", "sources")).toBeArray();
     expect(await runJson("config", "path")).toBeDefined();
+    expect(await runJson("config", "check")).toBeArray();
+  },
+  TIMEOUT,
+);
+
+/**
+ * The three that write. They get a config directory of their own inside the
+ * same temporary home, because the rest of the suite reads whatever is there
+ * and a host block written here would change what `config list` answers.
+ *
+ * `setup` is a conversation, and this is what proves the conversation still
+ * obeys the `--json` rule: the prompts paint on stderr, so a run answered
+ * entirely by flags prints one value on stdout and nothing else.
+ */
+test(
+  "the writing subcommands answer with what they did",
+  async () => {
+    expect(await runJson("config", "set", "logLevel", "debug")).toMatchObject({
+      key: "logLevel",
+      value: "debug",
+      file: join(home, "cfg", "config.toml"),
+    });
+    expect(await runJson("config", "unset", "logLevel")).toMatchObject({
+      key: "logLevel",
+      value: null,
+    });
+    expect(
+      await runJson(
+        "--yes",
+        "config",
+        "setup",
+        "--host",
+        "probehost",
+        "--ssh",
+        "probe.example",
+      ),
+    ).toMatchObject({ unchanged: false });
   },
   TIMEOUT,
 );
@@ -220,6 +265,12 @@ const EXERCISED = [
   "werk config get",
   "werk config sources",
   "werk config path",
+  "werk config check",
+  "werk config set",
+  "werk config unset",
+  // A conversation, and still one value on stdout: the prompts it would draw
+  // paint on stderr, and this run answers every one of them with a flag.
+  "werk config setup",
 ];
 
 /** Every command that runs something, i.e. every node with no subcommands. */
