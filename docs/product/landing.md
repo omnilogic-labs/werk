@@ -10,10 +10,11 @@ configurable, because the routes people want are genuinely different.
 
 ## The client is the likely place to coordinate it
 
-The client can reach the workspaces it made, so if it can also reach the parent
-it has everything a landing needs. Where the parent physically lives would then
-make no difference to how any of this works. A client that cannot reach the
-parent cannot land, and what it should do instead has not been worked out.
+A client that cannot reach the parent cannot land, and what it should do instead
+has not been worked out. Where it can reach the parent, it has everything a
+landing needs, because it can already reach the workspaces it made. Where the
+parent physically lives would then make no difference to how any of this
+works.
 
 ## Three routes
 
@@ -31,15 +32,16 @@ to be configurable separately from the route.
 The lean is to start with two of these: land straight onto the parent as a
 squash, or open and update a pull request and then land as a squash.
 
-## An agent could do the awkward parts, with the amount you look configurable
+## An agent could write the commit message and resolve the conflicts
 
 Landing would shell out to whichever agent the user prefers, as a one-shot
 command such as `claude -p`, for two jobs: writing the commit message, and
 resolving merge conflicts when the change does not apply cleanly.
 
-Both probably want to be configurable, and configurable as reviewable.
-Generating the commit message and then opening the user's editor on it seems a
-reasonable default: close the editor to accept it, edit it first if it is wrong.
+Both probably want to be configurable. Each probably also wants to be settable
+to pause for review, so the person landing sees what the agent produced before
+it is used. Generating the commit message and then opening the user's editor on
+it seems a reasonable default: close the editor to accept it, edit it first if it is wrong.
 The same person could then configure werk never to show it to them, or never to
 generate one at all. Conflict resolution would work the same way, and someone
 who would rather resolve conflicts with their own tool, such as the VS Code
@@ -78,5 +80,5 @@ Phabricator solved this by attaching something to the commit: every commit
 carried the review it came from, so finding it later was a lookup rather than a
 guess. werk could do the same and write a marker into the commit it produces.
 Comparing commit messages is another angle. How to do it well is unresolved, and
-[question 5](../product-specification.md#5-how-does-a-workspace-tell-that-its-changes-have-already-landed)
+[question 5](../open-questions.md#5-how-does-a-workspace-tell-that-its-changes-have-already-landed)
 has the trouble with the obvious alternatives.

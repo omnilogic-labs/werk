@@ -19,22 +19,34 @@ by name, which is what "Starting a run on demand" below is for.
 | `browser` | `ubuntu-latest`                                   | Playwright chromium against `examples/session-web`                     |
 | `soak`    | a self-hosted Linux x64 runner                    | A run longer than a hosted job's six-hour cap                          |
 
-The `browser` lane also runs on this machine. It has been run here, and it
-passes. Getting there is not one step, because Playwright publishes builds for a
-list of distributions and this host is not on it.
+The `browser` lane also runs on the development machine, and it has passed
+there. Getting there is not one step. Playwright publishes Linux browser builds
+for a fixed list of releases, and this machine is Ubuntu 26.04 under WSL2; the
+newest release on that list is Ubuntu 24.04, so Playwright refuses the install
+outright before downloading anything. `KNOWN_RELEASES` in
+`scripts/browser-install.ts` holds the list.
 
 `bun run browser:install` is the attempt to make that one step. It runs the
 plain install first and only reaches for `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE`
 once Playwright has refused, reading the host out of the refusal rather than
-naming it, and it waits for the executable to appear rather than for the
-installer to exit, because the installer has been seen finishing its work and
-then never exiting. Whether it gets a browser here unaided has not been shown
-end to end yet; `docs/continue/cleanup.md` has the state and the manual recipe
-that did work.
+naming it. It waits for the executable to appear rather than for the installer
+to exit, because the installer has been seen finishing its work and then never
+exiting. It fetches two browsers, `chromium` and `chromium-headless-shell`,
+which are the two executables it then looks for on disk. Whether it gets a
+browser here unaided has not been shown end to end yet;
+`docs/continue/cleanup.md` has the state and the manual recipe that did work.
 
-The lane wants that same override set when it runs, not only when it installs,
-because Playwright resolves the browser directory from the detected host. It
-also wants two browsers, `chromium` and `chromium-headless-shell`.
+On a runner the lane needs none of that. It runs
+`bunx playwright install --with-deps chromium` in `examples/session-web` and
+sets no environment override, because `ubuntu-latest` is a release Playwright
+publishes for.
+
+Playwright resolves the browser directory from the host it detects, so a
+borrowed build probably needs `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE` set when the
+tests run as well as when the browser is installed. Nothing sets it at run time
+today: not the workflow, and not `bun run test:browser`. `browser:install`
+prints the override it used and leaves setting it to the person running the
+tests.
 
 A borrowed build is linked against the borrowed release's libraries, so a local
 pass is weaker evidence than the lane on a runner, which is where the lane's
@@ -81,13 +93,21 @@ it costs about a second.
 
 The `bun run test:soak` step on `native` asserts no performance budget. It sets
 `SOAK_SECONDS` and `SOAK_REPORT` and no `SOAK_BASELINE`, and
-`scripts/session-soak.ts` keeps the regression budgets behind that variable. So
-what the step proves in 60 seconds is that the daemon starts, streams, keeps
-the output queued across every connection inside 32 KiB per connection,
-exercises slow-viewer resynchronisation, and cleans up afterwards. The peak RSS, attach latency and
-event-loop budgets are checked only where a baseline is passed, which today is
-the `soak` lane alone. The step uploads `soak.json` either way, so the numbers
-are recorded even though nothing compares them.
+`scripts/session-soak.ts` keeps the regression budgets behind that variable.
+
+What the step proves in 60 seconds:
+
+- the daemon starts;
+- it streams;
+- it keeps the output queued across every connection inside 32 KiB per
+  connection;
+- slow-viewer resynchronisation runs;
+- it cleans up afterwards.
+
+What it does not prove is anything about speed or memory. The peak RSS, attach
+latency and event-loop budgets are checked only where a baseline is passed,
+which today is the `soak` lane alone. The step uploads `soak.json` either way,
+so the numbers are recorded even though nothing compares them.
 
 Two of the checks that do run on every pull request are weaker than they look.
 The control-queue bound compares against `DEFAULT_MAX_QUEUED_BYTES`, about
@@ -101,13 +121,18 @@ Windows legs assert nothing about descriptors at all.
 
 Two layers, covering different failures.
 
-**Tests.** Every `bun test` step passes `--retry=2`, so a test gets three
-attempts before it counts as failed, and `--bail`, so the first test that fails
-all of its attempts ends the step. A test that fails and then passes leaves the
-failed attempt's error in the log and a passing summary, so a flake is still
-visible; a test that never passes prints `(attempt 3)` and `Bailed out after 1
-failure`. `--retry` re-runs the test, not the file, so state a test carried
-across attempts is its own to reset.
+**Tests.** Three steps pass `--retry=2`, so a test gets three attempts before it
+counts as failed: `bun run test` on `native`, the two named daemon test files on
+`musl`, and `bun run test:browser` on `browser`. `bun test scripts` on `native`
+passes `--bail` alone, with no retry. Two further steps read as tests and are
+not: `test:artefacts` runs `scripts/check-artefacts.ts` and `test:soak` runs
+`scripts/session-soak.ts`, so neither has a `--retry` to pass.
+
+`--bail` ends a step at the first test that fails all of its attempts. A test
+that fails and then passes leaves the failed attempt's error in the log and a
+passing summary, so a flake is still visible; a test that never passes prints
+`(attempt 3)` and `Bailed out after 1 failure`. `--retry` re-runs the test, not
+the file, so state a test carried across attempts is its own to reset.
 
 Two attempts of retry is a guess at a useful number rather than something
 measured. It costs about ten seconds on a five-second timeout and it may want
@@ -115,10 +140,10 @@ raising or lowering once there is a record of how often a flake needs a second
 chance.
 
 **Everything else.** `--retry` reaches tests and nothing else: not `build`, not
-`typecheck`, not `test:artefacts`, not a runner that dies. None of those has
-been seen flaking, so nothing re-runs them automatically — a first failure there
-is probably real and worth reading. Re-run the failed jobs of a finished run by
-hand:
+`typecheck`, not `test:artefacts`, not `test:soak`, not a runner that dies. None
+of those has been seen flaking, so nothing re-runs them automatically. A first
+failure there is probably real and worth reading. Re-run the failed jobs of a
+finished run by hand:
 
 ```sh
 gh run rerun --failed <run-id>
@@ -193,65 +218,18 @@ the same second could attach it to the wrong one.
 
 ## Where the platforms stand
 
-At `3e7b06e` on branch `issue-30`, in run
-[34192546207](https://github.com/omnilogic-labs/werk/actions/runs/34192546207):
+Per-platform outcomes are not recorded in this document, because they go stale
+within a few commits and a stale record reads as current. To find out where a
+platform stands, run `bun scripts/ci-run.ts all` on the branch in hand, or read
+the most recent run at
+<https://github.com/omnilogic-labs/werk/actions/workflows/session-libraries.yml>.
 
-| Lane                      | Outcome | Where it stopped                                  |
-| ------------------------- | ------- | ------------------------------------------------- |
-| `browser`                 | pass    |                                                   |
-| `musl`                    | pass    |                                                   |
-| `native (ubuntu-latest)`  | pass    |                                                   |
-| `native (macos-latest)`   | fail    | `bun run test`, `daemon.test.ts:581`              |
-| `native (windows-latest)` | fail    | `bun run test`, `daemon.test.ts:118`              |
-| `soak`                    | not run | its self-hosted runner has never been provisioned |
+`native (macos-latest)` runs on arm64, the architecture `macos-latest` names,
+and the label tracks GitHub's current GA image, so the lane does not need
+bumping by hand. No x64 macOS lane runs alongside it. That is the owner's
+direction rather than an omission: x64 macOS is not exercised here.
 
-Both failing lanes stop in `packages/session-daemon/test/daemon.test.ts`, for
-two different reasons. Neither has an issue of its own yet.
-
-Windows cannot make a directory private. `privateWindowsDirectory`
-(`src/platform/win32.ts:146`) throws `Cannot restrict Windows directory` with
-nothing after the colon, meaning the command it ran failed and said nothing. It
-is reached through `makePrivate` and `ensurePrivateDirectory` from
-`serveSessionDaemon`, called from the test's setup at the line the trace names,
-`daemon.test.ts:118`. The test that asks for it, "PTY survives clients, grants,
-size ownership, watch and retained recovery", fails on its third attempt under
-`--retry=2` after timing out at five seconds. The log records that one throw and
-that one timeout, so whether the throw is what leaves the test hanging is a
-guess, and what the first two attempts did is not recorded either. The run bails
-after that failure, reporting 34 tests across four files with the failing one
-among them, and the step exits with code 1. `bun run format:check` is skipped on
-Windows; `build`, `typecheck` and `bun test scripts` all pass.
-
-Windows stopped somewhere else in the run before this one, at `8bd72f6`: four
-requests that should have been refused timed out instead, at lines 165, 214, 344
-and 401 of the same file, and the step exited with code 3. Two runs on the same
-branch have therefore produced two different Windows failures, and the number of
-Windows problems is unknown rather than one.
-
-macOS stops on an unhandled error between tests rather than on a failing
-assertion, and every test in `daemon.test.ts` passed on that lane. It stops
-once, at line 581, where a burst of fifty writes has to reach the screen and
-three watching tiles before the `until` helper's deadline and does not. It looks intermittent rather than settled. The run before it,
-[34191444466](https://github.com/omnilogic-labs/werk/actions/runs/34191444466)
-at `8bd72f6`, passed the whole macOS lane, and no file under `src/` changed
-between the two commits. A loaded runner is a guess; nobody has measured it.
-
-`packages/session-daemon/test/supervise.test.ts` passes on macOS in both runs.
-Twelve of its tests run and two skip, and none fails, including the client that
-waits for a live daemon rather than spawning a second one.
-
-`native (macos-latest)` runs on arm64, the architecture `macos-latest` names;
-the label tracks GitHub's current GA image, which is macOS 26 today, so the lane
-does not need bumping by hand. No x64 macOS lane runs alongside it. That is the
-owner's direction rather than an omission: x64 macOS is not exercised here.
-
-The measurement above is taken on a branch rather than on `main`, which carries
-the risk that a lane passes there for a reason the branch supplies. The branch
-carries one behaviour change over its base, in how a process start time is read;
-everything else on it is tests and documentation.
-
-How much any of this should hold up other work is in
-[platforms.md](platforms.md).
+How much a failure should hold up other work is in [platforms.md](platforms.md).
 
 ## Open questions
 

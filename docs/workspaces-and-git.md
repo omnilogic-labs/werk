@@ -9,7 +9,8 @@ It sits under [the client](product/client.md) in the
 [product specification](product-specification.md), which describes creating a
 workspace, deriving one from another, and landing as capabilities. This document
 is about the shape underneath those capabilities: what the objects are, how they
-relate, and where the seam goes.
+relate, and where the boundary goes between code that asks for a workspace and
+code that makes one.
 
 ## What exists today
 
@@ -37,55 +38,44 @@ the product packages.
 So nearly all of this is a design for something that does not exist yet, written
 before the first line of it, which is the cheapest time to be wrong about it.
 
-## The containment graph
+## What the first version can be
+
+A local git worktree, and nothing beyond it.
+
+That means: one host, the machine werk is running on; a workspace made with
+`git worktree add` from the repository the client is standing in; a branch made
+at the same time; and a terminal process started in that directory by the daemon
+that already exists. No remote, no provisioning, no transport, no derivation
+across machines.
+
+Three things make that a good order to build in. It exercises the parts that are
+easiest to get wrong and hardest to change later: the shape of the creation
+interface, the workspace record, and the two traversals below. A worktree is a
+real workspace with a real branch, so creating, listing, deriving one from
+another and destroying them are all genuinely exercised. And every hard problem
+in this document stays absent, because with one host no derivation edge can
+cross a host boundary.
+
+What it deliberately leaves untested is the thing most likely to break the
+model: a derivation edge between two machines. That would come next, and it is
+the point at which
+[question 21](open-questions.md#21-how-does-a-change-move-between-two-workspaces-on-different-hosts)
+has to have an answer.
+
+## Two graphs, sharing one middle layer
+
+werk needs two different answers about a workspace, and they come from two
+graphs rather than from two views of one.
 
 A **containment graph** is what you get by asking where things physically are.
-
-- Its nodes are hosts, workspaces and terminal processes.
-- Its roots are hosts. A host is a machine; nothing contains it.
-- An edge means "lives on" or "runs in". A host has many workspaces. A workspace
-  has many terminal processes.
-
-It is a tree, and it is a tree for a solid reason rather than by convention: a
-directory is on exactly one machine, and a process runs in exactly one
-directory. Nothing about werk changes that.
-
-This is the graph the product already leans on without naming it. "See the
-status of every workspace, across every machine, in one list" is a walk of this
-tree. Question 13 in the specification, about whether you attach to a workspace
-or to a terminal process, is a question about which level of this tree an action
-addresses.
-
-Most of what werk does today would be at the bottom two levels of it. The
-daemon owns terminal processes; give it a workspace to sit inside and a host to
-sit on, and the tree is complete.
-
-## The derivation graph
+Its roots are hosts, and an edge means "lives on" or "runs in". It is a tree for
+a solid reason rather than by convention: a directory is on exactly one machine,
+and a process runs in exactly one directory.
 
 A **derivation graph** is what you get by asking where a workspace's code came
-from.
-
-- Its nodes are workspaces, plus whatever the client is standing in.
-- Its root is wherever the client is executing. That is usually a checkout on a
-  laptop, and whether that checkout should itself count as a workspace is
-  question 20.
-- An edge means "was derived from". The child's branch starts at the parent's
-  branch, and the child's changes are expected to go back to it.
-
-The specification already has the user-facing half of this: creating a workspace
-based on another workspace, so that work can build on work that has not landed
-yet. The graph is what that capability implies once there is more than one of
-them.
-
-Two things about it are not settled. Whether a workspace can have more than one
-parent — whether this is a tree or a wider graph — is question 18. Whether werk
-keeps tracking the relationship after the workspace is made, or whether "derived
-from" is only a fact about where a branch started, is question 6, and the answer
-decides whether this graph exists as an object at all or only as history.
-
-## Why they are not the same graph
-
-They share their middle layer and nothing else.
+from. Its root is wherever the client is executing, and an edge means "was
+derived from": the child's branch starts at the parent's branch, and the child's
+changes are expected to go back to it.
 
 |                         | Containment                           | Derivation                                |
 | ----------------------- | ------------------------------------- | ----------------------------------------- |
@@ -95,21 +85,29 @@ They share their middle layer and nothing else.
 | Crosses a host boundary | Never                                 | Freely                                    |
 | Shape                   | A tree, necessarily                   | Probably a tree at first, see question 18 |
 
-The last two rows are the whole point. A workspace on a Fly.io machine can
-perfectly well be derived from a workspace on a Mac mini in someone's house, and
-that edge is invisible in the containment graph, where the two workspaces sit
-under different roots and have no relationship at all.
+A workspace on a Fly.io machine can be derived from a workspace on a Mac mini in
+someone's house. That edge is invisible in the containment graph, where the two
+workspaces sit under different roots and have no relationship at all.
 
-The practical consequence is that the two graphs want different code and
-probably different storage. Walking containment is asking each host what it has.
-Walking derivation is following pointers that may lead anywhere, including to a
-host that is currently unreachable, which is a normal state rather than a
-failure. Anything that tries to serve both from one traversal would be fighting
-one of them.
+Two consequences follow from that. Git does not follow the containment tree: a
+change moving from a parent workspace to a child is moving between two hosts
+that may have no route to each other, and how it gets there is
+[question 21](open-questions.md#21-how-does-a-change-move-between-two-workspaces-on-different-hosts).
+And the two graphs want different code and probably different storage, because
+walking containment is asking each host what it has, while walking derivation is
+following pointers that may lead to a host that is currently unreachable, which
+is a normal state rather than a failure.
 
-It also means git does not follow the containment tree. A change moving from a
-parent workspace to a child is moving between two hosts that may have no route
-to each other, and how it gets there is question 21.
+Three things about the derivation graph are unsettled: whether a workspace can
+have more than one parent
+([question 18](open-questions.md#18-is-the-derivation-graph-a-tree-or-can-a-workspace-come-from-more-than-one)),
+whether werk tracks a derivation after the workspace is made or whether "derived
+from" is only a fact about where a branch started
+([question 6](open-questions.md#6-what-happens-to-a-workspace-when-its-parent-lands)),
+and whether the checkout the client is standing in counts as a node in it at all
+([question 20](open-questions.md#20-is-the-place-the-client-is-running-a-workspace)).
+The answer to question 6 decides whether the graph exists as an object or only
+as history.
 
 ## Creating a workspace goes behind an interface
 
@@ -121,12 +119,12 @@ deriving from a parent that lives somewhere else, and rolling back a creation
 that failed halfway are all things that would land on the same operation, and
 most of them would arrive one at a time.
 
-So the reason for the seam is not that the interface is hard to design. It is
-that creation is expected to grow, and whatever calls it should not have to
-change each time it does.
+So the reason for the interface is not that it is hard to design. It is that
+creation is expected to grow, and whatever calls it should not have to change
+each time it does.
 
-What the seam would have to survive, if the rest of this document is roughly
-right:
+What that interface would have to survive, if the rest of this document is
+roughly right:
 
 - **Creation becoming slow and multi-step**, so the interface probably cannot be
   a function that returns a workspace. Something that reports progress, or
@@ -136,7 +134,8 @@ right:
   the interface makes, and nobody has made it.
 - **More than one kind of host behind it**, since a Mac mini reached over ssh
   and a machine an API creates on demand have almost nothing in common except
-  the result. The nouns for those two are question 1.
+  the result. The nouns for those two are
+  [question 1](open-questions.md#1-what-do-we-call-a-machine-and-what-do-we-call-the-thing-that-makes-machines).
 - **Deriving from a workspace that is somewhere else**, which turns creation
   into an operation involving two hosts rather than one.
 
@@ -162,9 +161,12 @@ That package would probably own:
   [landing](product/landing.md) needs, which is the largest consumer.
 - **The workspace record.** Whatever werk knows about a workspace: which host it
   is on, what it was derived from, which branch it holds, what state it is in.
-  Where that record lives is question 19, and the state words the earlier work
-  fixed are question 16. It would also be what a reference is resolved against,
-  in place of the reconstruction from a path that stands in for one today.
+  Where that record lives is
+  [question 19](open-questions.md#19-where-does-the-record-of-a-workspace-live),
+  and the state words the earlier work fixed are
+  [question 16](open-questions.md#16-which-of-the-old-words-survive). It would
+  also be what a reference is resolved against, in place of the reconstruction
+  from a path that stands in for one today.
 - **Both traversals**, since it is the only thing that would hold enough to
   compute either.
 
@@ -173,42 +175,3 @@ session packages already do well, or anything about
 [sharing](product/sharing.md), which is a layer above. A workspace would be
 somewhere a terminal process runs, and the existing daemon would keep owning the
 process itself.
-
-## What the first version can be
-
-A local git worktree, and nothing beyond it.
-
-That means: one host, the machine werk is running on; a workspace made with
-`git worktree add` from the repository the client is standing in; a branch made
-at the same time; and a terminal process started in that directory by the daemon
-that already exists. No remote, no provisioning, no transport, no derivation
-across machines.
-
-It is worth building in that order because it exercises the parts that are
-easiest to get wrong and hardest to change later — the interface shape, the
-workspace record, and the two traversals — while every hard problem in this
-document stays absent. A worktree is a real workspace with a real branch, so
-creating, listing, deriving one from another and destroying them are all
-genuinely exercised. The derivation graph is real too, just with every node on
-one host, which is exactly the case where an edge crossing a host boundary
-cannot yet embarrass anyone.
-
-What it deliberately leaves untested is the thing most likely to break the
-model: a derivation edge between two machines. That would come next, and it is
-the point at which question 21 has to have an answer.
-
-## The questions this raises
-
-Each of these is open in the specification, and none of them is answered here.
-
-- [Question 1: what do we call a machine, and what do we call the thing that makes machines?](product-specification.md#1-what-do-we-call-a-machine-and-what-do-we-call-the-thing-that-makes-machines)
-- [Question 3: are a person's hosts shared between their own machines?](product-specification.md#3-are-a-persons-hosts-shared-between-their-own-machines)
-- [Question 5: how does a workspace tell that its changes have already landed?](product-specification.md#5-how-does-a-workspace-tell-that-its-changes-have-already-landed)
-- [Question 6: what happens to a workspace when its parent lands?](product-specification.md#6-what-happens-to-a-workspace-when-its-parent-lands)
-- [Question 13: do you attach to a workspace, or to a terminal process?](product-specification.md#13-do-you-attach-to-a-workspace-or-to-a-terminal-process)
-- [Question 14: what ends a workspace?](product-specification.md#14-what-ends-a-workspace)
-- [Question 16: which of the old words survive?](product-specification.md#16-which-of-the-old-words-survive)
-- [Question 18: is the derivation graph a tree, or can a workspace come from more than one?](product-specification.md#18-is-the-derivation-graph-a-tree-or-can-a-workspace-come-from-more-than-one)
-- [Question 19: where does the record of a workspace live?](product-specification.md#19-where-does-the-record-of-a-workspace-live)
-- [Question 20: is the place the client is running a workspace?](product-specification.md#20-is-the-place-the-client-is-running-a-workspace)
-- [Question 21: how does a change move between two workspaces on different hosts?](product-specification.md#21-how-does-a-change-move-between-two-workspaces-on-different-hosts)

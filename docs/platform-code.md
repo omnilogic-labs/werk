@@ -1,19 +1,24 @@
 # Where platform-specific code lives
 
-Someone should be able to ask "what makes the Windows code the Windows code?"
-and answer it by looking, rather than by reading everything. This is what we are
-currently trying in order to make that possible. It is a first shape and we
-should expect to change it.
+Platform-specific code lives in `packages/session-daemon/src/platform/`.
+Everything else that branches on the platform is declared in the `EXCEPTIONS`
+list in
+[`scripts/check-platform-code.ts`](../scripts/check-platform-code.ts), and
+`bun scripts/check-platform-code.ts` fails on a branch that is in neither. So
+"what makes the Windows code the Windows code?" is answered by looking at two
+places rather than by reading everything.
+
+This is a first shape and we should expect to change it.
 
 ## The two places
 
 **`packages/session-daemon/src/platform/` holds the implementations.**
 `win32.ts` is the Windows one, `posix.ts` is the Unix one, and `lock.ts` and
-`index.ts` are the seams that pick between them. Everything that talks to a
+`index.ts` are the entry points that pick between them. Everything that talks to a
 kernel job object, a `flock`, a process group or a PowerShell ACL is in there.
 
-**`EXCEPTIONS` in [`scripts/check-platform-code.ts`](../scripts/check-platform-code.ts)
-lists the branching that is still somewhere else.** Each entry names a file, how
+**`EXCEPTIONS` in `scripts/check-platform-code.ts` lists the branching that is
+still somewhere else.** Each entry names a file, how
 many platform-conditional lines it has, why they are there, and whether anyone
 means to keep them: `stays` for a branch that looks like it belongs where it is,
 `wants-moving` for one that reads as debt.
@@ -43,22 +48,22 @@ gradually stops describing anything.
 bun scripts/check-platform-code.ts
 ```
 
-It prints the offending file, line and pattern, or a one-line summary of the
-surface. `bun test scripts` runs it as a test, which is how it reaches CI: the
+It prints the offending file, line and pattern, or a one-line summary of what it
+found. `bun test scripts` runs it as a test, which is how it reaches CI: the
 `native` job runs that on Linux, macOS and Windows.
 
 The check is a text scanner rather than anything that understands TypeScript, so
 it can rot into a matcher that finds nothing and reports a clean tree. Its tests
-therefore assert that it still works and not only that the repository passes:
-every pattern has a line it must catch and a line it must not, the walk has to
-have read a plausible number of files including named ones, and the patterns the
+therefore assert that it still works, not only that the repository passes. Every
+pattern has a line it must catch and a line it must not. The walk has to have
+read a plausible number of files, including named ones. The patterns the
 codebase actually uses have to still be found. A walk that silently matched
-nothing would fail those rather than pass quietly — which matters most on
+nothing fails those tests rather than passing quietly, which matters most on
 Windows, where a path-separator mistake is exactly how a walk goes quiet.
 
-## The habits this is built on
+## Three habits keep the platform out of most of the code
 
-Three things already in the codebase seem to be working, and the shape above is
+These are already in the codebase and seem to be working, and the shape above is
 mostly an attempt to name them.
 
 **Take the platform as a parameter, and default it.** `daemonEnvironment(source,
@@ -80,12 +85,15 @@ carries `pty`, `processGroups` and `processTreeSummary`. A caller that wants to
 know whether it can signal a process group is better served by that than by a
 list of operating systems that can.
 
-## The doors
+## The entry points
 
-`index.ts`, `lock.ts` and `rules.ts` are imported from outside the directory.
-`posix.ts` and `win32.ts` are reached through them. Keeping the per-platform
-files behind the seams is what lets a caller stay unaware of which one it got,
-and it is cheap to check by grepping for the import path.
+`index.ts` and `lock.ts` are the two modules imported from outside the
+directory. `rules.ts` is reached through `index.ts`, which re-exports
+`socketPathTooLong` and `notPrivateToOwner`; only its own test imports it
+directly. `posix.ts` and `win32.ts` are never imported from outside at all.
+Keeping the per-platform files behind those entry points is what lets a caller
+stay unaware of which one it got, and it is cheap to check by grepping for the
+import path.
 
 ## Open questions
 
@@ -96,11 +104,11 @@ counting, a different rule, or nothing at all.
 
 **Whether the exact counts are worth their churn.** Every change to a
 platform-conditional line means editing the list. The lean is that this is worth
-it while the surface is small enough to enumerate, because it is what stops the
-numbers drifting upward as a cushion. If it becomes irritating, path-level
+it while the platform-conditional lines are few enough to enumerate, because it
+is what stops the numbers drifting upward as a cushion. If it becomes irritating, path-level
 allowlisting without counts is the obvious thing to try instead.
 
-**Whether the seam should become one module per platform.** The daemon's SIGUSR1
+**Whether the entry points should become one module per platform.** The daemon's SIGUSR1
 handling, the boot identifier it reads from `/proc`, and its socket recreation
 are the largest remaining cluster, and they sit on the least testable path in
 the repository. They probably want to move, and there is a good argument that
@@ -112,5 +120,5 @@ held to it today, on the reasoning that a rule with a hole in it tends to become
 the hole.
 
 Which platforms are expected to work and how much brokenness each one gets is a
-separate matter, and epic #24 carries it along with the state of the CI lanes in
-[ci.md](ci.md).
+separate matter. The epic at https://github.com/omnilogic-labs/werk/issues/24
+carries it, along with the state of the CI lanes in [ci.md](ci.md).

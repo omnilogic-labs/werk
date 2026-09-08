@@ -8,7 +8,7 @@ A **mapper** would answer one question about one program: what is this process
 doing right now. It would answer it using more than the bytes the process has
 printed. The name is provisional.
 
-## A mapper probably wants to be code rather than a running thing
+## A mapper is probably an interface werk calls on demand
 
 The shape this leans towards is an interface in the werk codebase with an
 implementation per program. werk knows what a terminal process is running, so
@@ -44,7 +44,7 @@ mapper needs can be transferred to wherever the mapper is. A mapper written
 against a small read interface (read this file, list this directory, read this
 much log) would not care which side it ran on, which is a reason to write them
 that way.
-[Question 10](../product-specification.md#10-what-may-a-mapper-read-and-what-of-that-leaves-the-host)
+[Question 10](../open-questions.md#10-what-may-a-mapper-read-and-what-of-that-leaves-the-host)
 covers what such an interface should be allowed to reach.
 
 ## Where mappers sit in the core loop
@@ -57,13 +57,14 @@ history behind it.
 ## Processes with no mapper still need a status
 
 The earlier work recorded a way to get one without knowing anything about the
-program: the signals well behaved terminal programs already emit. Those are the
+program, in `docs/product/01-object-model.md`: the signals well behaved terminal
+programs already emit. Those are the
 bell, desktop notification sequences (OSC 9 and OSC 777), progress reports
 (OSC 9;4), process exit, and going quiet after being busy. Those five look like
 enough for a usable "does this need me?" with no mapper at all, though nothing
 has been built to find out.
 
 Mappers would make some processes much better understood. They are probably not
-a replacement for that floor. Being asked on demand would also stop them
+a replacement for the five signals above. Being asked on demand would also stop them
 replacing it for notifications: something has to notice that an agent wants you
 without anyone having asked.

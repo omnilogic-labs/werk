@@ -12,8 +12,9 @@ owner's current position. Everything below it is a lean: nobody has ruled on
 what a failing lane costs on each platform, and nothing in CI treats one
 platform differently from another.
 
-[ci.md](ci.md) has the lanes, the step order and where each platform stands
-today. This document has what a failure on each platform is probably worth.
+[ci.md](ci.md) has the lanes, the step order, and how to find out where each
+platform stands right now. This document has what a failure on each platform is
+probably worth.
 
 ## What observes each platform
 
@@ -34,7 +35,18 @@ be read. Steps in a lane run in order and stop at the first failure, so a lane
 that fails early leaves every step behind it unobserved. On a single-lane
 platform that makes the number of problems unknown rather than one.
 
-## What CI does today
+Windows has already shown that. Two runs of branch `issue-30`, at `8bd72f6` and
+at `3e7b06e`, produced two different Windows failures in
+`packages/session-daemon/test/daemon.test.ts` rather than the same one twice:
+four requests that should have been refused timed out in the first, and a
+directory that could not be made private in the second. The count of Windows
+problems is unknown, not one.
+
+## The workflow implements none of the tiering
+
+The tiering says where effort goes, and the workflow implements none of it.
+Someone reading the board sees three equal failures and has to
+know the tiering to weigh them.
 
 Three facts, all readable in `.github/workflows/session-libraries.yml`:
 
@@ -46,29 +58,24 @@ Three facts, all readable in `.github/workflows/session-libraries.yml`:
   `setup-bun` step, where it covers installing a musl build of Bun when the
   glibc one will not run. It is not a tolerated platform failure.
 
-So the tiering says where effort goes, and the workflow implements none of it.
-Someone reading the board sees three equal failures and has to know the tiering
-to weigh them.
-
 ## Reading a lane that fails
 
-Each reading below is a lean, and no mechanism enforces any of them.
+Each reading below is a lean. No mechanism enforces any of them.
 
-**Linux.** A failure on Linux probably stops other work until it is fixed. Linux
-is the platform werk is developed and used on, and the only platform with more
-than one lane. A failure there points at the code rather than at a difference
-between platforms.
+| Platform | What a failure probably costs                               | What enforces it |
+| -------- | ----------------------------------------------------------- | ---------------- |
+| Linux    | Stops other work until it is fixed                          | Nothing          |
+| macOS    | A fix in the same round of work, rather than a separate one | Nothing          |
+| Windows  | Should not hold a branch that is sound everywhere else      | Nothing          |
 
-**macOS.** A failure on macOS probably deserves a fix in the same round of work
-rather than a separate one. Verification is the catch. A macOS fix written on a
-Linux machine is a guess until a runner says otherwise. Labelling it as a guess
-is probably better than holding the branch for a confirmation that cannot be
-produced from here.
+Linux reads that way because it is the platform werk is developed and used on,
+and the only one with more than one lane, so a failure there points at the code
+rather than at a difference between platforms. Windows is the least settled of
+the three, because no job is marked as allowed to fail: acting on that reading
+today means a person chooses to merge with the Windows lane failing.
 
-**Windows.** A failure on Windows probably should not hold a branch that is
-sound everywhere else. This is the least settled of the three readings, because
-no job is marked as allowed to fail. Acting on it today means a person chooses
-to merge with the Windows lane failing. No mechanism makes that choice.
+A macOS fix written on a Linux machine is a guess until a runner says otherwise,
+and `bun scripts/ci-run.ts macos` is what turns it into an observation.
 
 ## What is not settled
 
@@ -93,4 +100,4 @@ to merge with the Windows lane failing. No mechanism makes that choice.
 
 The epic at https://github.com/omnilogic-labs/werk/issues/24 tracks the work
 this document came out of, including sequestering platform-specific code so the
-compatibility surface can be found in one place.
+places the code branches on platform can be found in one place.

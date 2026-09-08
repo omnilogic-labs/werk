@@ -4,9 +4,10 @@ Part of the [werk product specification](../product-specification.md). Nothing
 here is settled.
 
 What one person should be able to do. These are capabilities rather than
-commands: the command surface is not designed yet, and most of what follows is
-not built. `werk create` makes a workspace as a local git worktree today; the
-specification's table records what each of the rest still lacks.
+commands: which commands there should be is not designed yet, and most of what
+follows is not built. `werk create` makes a workspace as a local git worktree today. The
+glossary in the [specification](../product-specification.md#words-used-in-these-documents)
+records where each of the other words stands.
 
 ## Workspaces
 
@@ -18,8 +19,9 @@ specification's table records what each of the rest still lacks.
 - **See the status of every workspace**, across every machine, in one list.
 - **Land the changes from a workspace** onto its parent branch, by whichever
   route is configured. See [Landing](landing.md).
-- **Have several workspaces on one host.** Many people will probably want one
-  workspace per host, and that looks like a preference rather than a limit.
+- **Have several workspaces on one host.** werk should allow more than one,
+  even though most people will probably run one per host. One per host is a
+  preference, not a limit werk should impose.
 
 ## Terminal processes
 
@@ -27,8 +29,8 @@ specification's table records what each of the rest still lacks.
   shape: the agent in one, and a second terminal in the same directory for you
   to use yourself. That second one runs the dev server, or is just a shell you keep
   around to run whatever you want against the same files the agent is working
-  on. More than two happens, but designing for ten panes would be designing for
-  the wrong thing.
+  on. More than two happens, but designing for ten terminal processes in one
+  workspace would be designing for the wrong thing.
 - **Open a utility terminal in a workspace you already have.** Common enough
   that it should probably be one action rather than a sequence of them.
 - **Detach**, and the process keeps running. Close the laptop, lose the wifi,
@@ -52,7 +54,7 @@ and the thing that acts on them.
 Registering a client with a portal would cede control over some of that
 configuration to the portal. How much, which parts, and how the two combine is
 not worked out. See
-[question 12](../product-specification.md#12-what-does-registering-a-client-with-a-portal-take-over).
+[question 12](../open-questions.md#12-what-does-registering-a-client-with-a-portal-take-over).
 
 ## Credentials
 

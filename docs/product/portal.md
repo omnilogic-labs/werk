@@ -1,16 +1,15 @@
 # The portal
 
-Part of the [werk product specification](../product-specification.md). Nothing
-here is settled, and nothing described here is built: the specification records
-that nothing of the portal exists.
+Part of the [werk product specification](../product-specification.md).
 
-The portal would be what a company installs. The name is a placeholder and the
-design has not been worked through.
+The portal would be what a company installs. Nothing here is settled, nothing
+described here is built, the name is a placeholder, and the design has not been
+worked through: the specification records that nothing of the portal exists.
 
 The capability it is meant to carry is letting someone configure how terminals
-are used at that company. The part that looks like it carries the most weight is
-configuring the **hosts** those terminals run on, and configuring the
-**workspaces** provisioned on those hosts. Specific things that could be built
+are used at that company. The part that matters most is configuring the
+**hosts** those terminals run on, and configuring the **workspaces** provisioned
+on those hosts. Specific things that could be built
 on that include central management of which agents people are allowed to use and
 how those agents authenticate.
 
