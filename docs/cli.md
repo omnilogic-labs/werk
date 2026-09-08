@@ -199,8 +199,8 @@ A usage mistake that only becomes apparent once the command is running — no
 terminal to pick a session in, a name matching no session — is rendered the same
 way, because it is the same kind of mistake. Exit status is 2 throughout.
 
-Under `--json` the whole of that is replaced by the single object the output
-contract promises, with code `USAGE` and the rules broken as its message. A
+Under `--json` the whole of that is replaced by the single object the machine
+register answers with, with code `USAGE` and the rules broken as its message. A
 machine reading stderr gets one line to parse rather than a page of help.
 
 A CI lane runs every non-streaming command against a real daemon and requires
@@ -308,9 +308,9 @@ rule rather than a list, so a new setting gets its variable for free.
 
 An empty variable is treated as unset, so `WERK_LOG_LEVEL= werk list` gets the
 layer below rather than a parse error. A key werk does not know is ignored
-rather than refused, so a file written for a newer werk does not stop an older
-one from starting. `WERK_CONFIG_DIR` moves the user layer's directory away from
-`~/.werk`, which is what the tests use.
+rather than refused, so a line the client has no meaning for does not stop it
+starting. `WERK_CONFIG_DIR` moves the user layer's directory away from `~/.werk`,
+which is what the tests use.
 
 Only settings the CLI acts on appear in that table. A key invented for a feature
 that does not exist yet reads back later as a decision somebody took.
@@ -340,10 +340,10 @@ anything stays theirs to change are all unresolved — that is
 [open question 12](product-specification.md#12-what-does-registering-a-client-with-a-portal-take-over),
 which the specification calls its own least worked out part.
 
-So what exists is a seam rather than a design. It fixes two things: the shape an
-answer would have, and where it sits in the precedence order — above werk's
-built-in defaults and below anything a person typed or wrote in a file. A config
-file can name a fragment such a source would supply:
+So what exists is a seam rather than a design. Two things about it are written
+down: the shape an answer would have, and where it sits in the precedence
+order — above werk's built-in defaults and below anything a person typed or
+wrote in a file. A config file can name a fragment such a source would supply:
 
 ```toml
 extends = ["werk-remote:<id>"]

@@ -281,7 +281,7 @@ without `env` inherit the daemon's environment with its `WERK_*`, `LINES` and
 ## Tests
 
 Run `bun test packages/session-daemon/test` from the workspace for native and
-contract checks. Native fixtures cover PTY input/resize/exit, exclusive ownership,
+hardening checks. Native fixtures cover PTY input/resize/exit, exclusive ownership,
 detached descendant termination, POSIX foreground interruption, and Windows
 job cleanup after abrupt owner death and TCP credential refusal. Linux execution
 is verified locally; Windows and macOS require their native CI runners.

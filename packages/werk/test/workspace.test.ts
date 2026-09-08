@@ -8,7 +8,7 @@
  * a daemon behind.
  *
  * Its runtime and state directories are its own, so it does not fight the
- * daemon `json-contract.test.ts` runs in the same `bun test` invocation. They
+ * daemon `json-output.test.ts` runs in the same `bun test` invocation. They
  * live under a short `/tmp` path because a Unix socket path is capped at 103
  * bytes and a deeply nested one fails to bind.
  */

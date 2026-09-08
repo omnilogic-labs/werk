@@ -82,8 +82,8 @@ work should preserve old behaviour for users who do not exist — no flag to kee
 a command behaving as it did, no older spelling kept alongside a newer one, no
 key withheld from a record so that nothing parsing it has to change.
 
-The repository does assert shapes in places: the JSON contract test in
-`packages/werk/test/json-contract.test.ts`, the two output registers and the
+The repository does assert shapes in places: the `--json` output test in
+`packages/werk/test/json-output.test.ts`, the two output registers and the
 exit-code table in [docs/cli.md](docs/cli.md), and the session wire protocol in
 `@werk/session`. None of them is a reason to hold back. Naming them here is not
 an instruction to go and change them; it removes them as an excuse.

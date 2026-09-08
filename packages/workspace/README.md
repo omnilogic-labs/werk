@@ -12,11 +12,12 @@ here, and several of the things it leaves open would change the interface below
 if they were settled tomorrow. Treat what follows as the current shape rather
 than as a boundary to build against.
 
-## What is decided
+## What it does today
 
-- The package exists, and creating a workspace goes through it rather than
-  being written inline wherever a workspace is wanted. `werk create` makes one
-  every time; there is no mode in which it does not.
+- The package exists, and creating a workspace goes through it rather than being
+  written inline wherever a workspace is wanted. `werk create` makes one every
+  time. Whether there should also be a way to run a command without making one is
+  [question 22](../../docs/product-specification.md#22-is-there-a-way-to-run-a-command-without-making-a-workspace).
 - It makes one kind of workspace: a git worktree on the machine werk is running
   on, branched from the repository it is pointed at.
 - Creation sits behind `WorkspaceHost`, so a caller asks for a workspace and
@@ -24,7 +25,7 @@ than as a boundary to build against.
 - A workspace failing to be made is a set of named reasons rather than git's
   exit status, so a client can turn each one into its own message.
 
-## What is not
+## What it does not do
 
 - **What werk remembers about a workspace, and where that record lives.**
   Nothing is written here except the worktree itself. See
@@ -40,8 +41,8 @@ than as a boundary to build against.
   leans towards creation eventually reporting progress, or handing back a
   workspace that is not ready yet, once there is a machine to provision. Neither
   is built. The shape leaves room for both: an options argument carrying a
-  signal or a progress callback would be an addition rather than a break, and so
-  would widening what `create` resolves to.
+  signal or a progress callback would fit, and so would widening what `create`
+  resolves to.
 - **What a caller sees when creation fails partway.** With one call to git there
   is no partway. With a machine to provision there is, and who owns the
   half-made thing is unresolved.

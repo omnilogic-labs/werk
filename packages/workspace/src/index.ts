@@ -16,7 +16,7 @@
  * See `docs/workspaces-and-git.md` for the model this is heading towards. That
  * document is a set of leans and options rather than a design anyone has
  * agreed, and this package implements the smallest corner of it. The README
- * says which parts are decided and which are not.
+ * says what it does today and what it does not.
  */
 export type { GitResult, GitRunner } from "./git.js";
 export { runGit } from "./git.js";

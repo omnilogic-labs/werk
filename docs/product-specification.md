@@ -3,10 +3,9 @@
 This is the current specification of what werk does.
 
 It covers what a person can do with werk, what sharing and logging are for, and
-what a company installs. It does not cover how any of it is built, beyond the
-two language decisions in [What is settled](#what-is-settled). Almost nothing
-else is settled, and the words used are the words we are thinking with rather
-than words anyone has committed to.
+what a company installs. It does not cover how any of it is built, beyond what
+is already there. Almost nothing here is settled, and the words used are the
+words we are thinking with rather than words anyone has committed to.
 
 This file holds the vocabulary, the loop werk exists for, what is already true,
 and the open questions. The subjects have a document each in
@@ -18,22 +17,22 @@ workspaces would sit on.
 
 ## Words used in these documents
 
-| Word                  | What it means here                                                                                | Settled?                                             |
-| --------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| **workspace**         | A named, isolated place for work: somewhere to run, a copy of the repository, its own branch.     | The concept is. The word is not.                     |
-| **terminal process**  | One long-lived process with a terminal, inside a workspace. A workspace holds several.            | No. The code calls this a session.                   |
-| **host**              | A machine a workspace runs on.                                                                    | No.                                                  |
-| **provider**          | Something that produces hosts on demand, such as Kubernetes, Docker, or a cloud VM API.           | No. See question 1.                                  |
-| **parent**            | The branch a workspace was created from, and the branch its changes go back to.                   | The concept is. The word is not.                     |
-| **land**              | Get the changes made in a workspace onto its parent branch.                                       | The concept is. The route is configurable.           |
-| **mapper**            | A component that reports what a running process is doing, using more than its terminal output.    | No.                                                  |
-| **daemon**            | The long-lived process on a host that owns the terminal processes. Shorthand `werkd`.             | The thing is. The binary name is not.                |
-| **portal**            | The thing a company installs to configure hosts, workspaces, terminals and agents for its people. | No.                                                  |
-| **transcript**        | The record of what happened in a terminal process, readable after the process has ended.          | Concept only. Nothing like it exists yet.            |
-| **containment graph** | Host, the workspaces on it, and the terminal processes in those workspaces.                       | No. See [Workspaces and git](workspaces-and-git.md). |
-| **derivation graph**  | Workspaces and the workspaces they were derived from, wherever those live.                        | No. See [Workspaces and git](workspaces-and-git.md). |
-| **workspace record**  | Whatever werk stores about a workspace: where it is, what it came from, what state it is in.      | No. See question 19.                                 |
-| **log**               | The record of who did what to a shared terminal, kept for review.                                 | Concept only. Nothing like it exists yet.            |
+| Word                  | What it means here                                                                                | Where it stands today                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **workspace**         | A named, isolated place for work: somewhere to run, a copy of the repository, its own branch.     | `werk create` makes one: a git worktree on this machine.                                              |
+| **terminal process**  | One long-lived process with a terminal, inside a workspace. A workspace holds several.            | The code calls this a session.                                                                        |
+| **host**              | A machine a workspace runs on.                                                                    | Absent from the code.                                                                                 |
+| **provider**          | Something that produces hosts on demand, such as Kubernetes, Docker, or a cloud VM API.           | Nothing produces hosts. See question 1.                                                               |
+| **parent**            | The branch a workspace was created from, and the branch its changes go back to.                   | `create` records the checkout a workspace was branched from.                                          |
+| **land**              | Get the changes made in a workspace onto its parent branch.                                       | Nothing lands anything yet. The route is meant to be configurable; see [Landing](product/landing.md). |
+| **mapper**            | A component that reports what a running process is doing, using more than its terminal output.    | Nothing reports this yet.                                                                             |
+| **daemon**            | The long-lived process on a host that owns the terminal processes. Shorthand `werkd`.             | One runs, started by `werk daemon serve`. The binary is `werk`.                                       |
+| **portal**            | The thing a company installs to configure hosts, workspaces, terminals and agents for its people. | Nothing of it exists.                                                                                 |
+| **transcript**        | The record of what happened in a terminal process, readable after the process has ended.          | Does not exist yet.                                                                                   |
+| **containment graph** | Host, the workspaces on it, and the terminal processes in those workspaces.                       | Nothing computes it. See [Workspaces and git](workspaces-and-git.md).                                 |
+| **derivation graph**  | Workspaces and the workspaces they were derived from, wherever those live.                        | Nothing computes it. See [Workspaces and git](workspaces-and-git.md).                                 |
+| **workspace record**  | Whatever werk stores about a workspace: where it is, what it came from, what state it is in.      | Nothing is stored. See question 19.                                                                   |
+| **log**               | The record of who did what to a shared terminal, kept for review.                                 | Does not exist yet.                                                                                   |
 
 ## What werk is
 
@@ -72,21 +71,6 @@ Two parts of the client are large enough to have a document each.
 branch that workspace came from. [Mappers](product/mappers.md) are how werk
 works out what a running process is doing.
 
-## What is settled
-
-**TypeScript everywhere.** The client, the daemon, the libraries, the web
-surfaces and the portal are TypeScript. This is the default and no package needs
-to argue for it.
-
-**WASM to embed libghostty.** Terminal interpretation is libghostty compiled to
-WASM and shipped as an asset, rather than a native addon or a reimplementation.
-This is already how it works: `packages/terminal/assets/terminal.wasm`.
-
-**WASM anywhere the benefit is clear.** Beyond libghostty, WASM is available
-where it buys a real performance win, or access to an ecosystem with no good
-TypeScript equivalent. Each use should be able to say which of those two reasons
-it is claiming.
-
 ## What exists today
 
 The session libraries are built and working. Everything below is real, and it is
@@ -113,7 +97,11 @@ these documents exists yet.
   killing the daemon abruptly leaves a `lost` record with its last screen and no
   process.
 - Everything is TypeScript. `bun:ffi` is used for `flock` and for Windows job
-  objects. PTYs come from Bun's own spawn support rather than a native addon.
+  objects, and PTYs come from Bun's own spawn support rather than a native
+  addon. Terminal interpretation is libghostty compiled to WASM and shipped as
+  an asset, `packages/terminal/assets/terminal.wasm`. Where else WASM would earn
+  its place is not worked out; a real performance win, or an ecosystem with no
+  good TypeScript equivalent, are probably the cases that would.
 
 Four things this specification needs that are absent today: git beyond making a
 worktree and a branch, anything remote (the transport is a Unix socket or
@@ -403,10 +391,10 @@ ones, and they differ in what they assume.
   machine they generally cannot.
 
 **Lean:** the client in the middle, because it is the only one that works
-without an assumption about the network or a forge, and the same reasoning
-already decided that the client coordinates landing. Whether a shared remote
-should be used when there is one, as an optimisation rather than a requirement,
-is not worked out.
+without an assumption about the network or a forge, and it is the same reasoning
+that has the client coordinating [landing](product/landing.md). Whether a shared
+remote should be used when there is one, as an optimisation rather than a
+requirement, is not worked out.
 
 ### 22. Is there a way to run a command without making a workspace?
 

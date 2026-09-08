@@ -133,8 +133,8 @@ function take(into: Partial<WerkConfig>, key: ConfigKey, raw: unknown): void {
  * A layer as read from a file or the environment, narrowed to the keys werk
  * knows and the types it expects.
  *
- * Keys it does not know are ignored rather than refused: a config file written
- * for a newer werk should not stop an older one from starting.
+ * Keys it does not know are ignored rather than refused, so a line the client
+ * has no meaning for does not stop it starting.
  */
 export function coerceLayer(
   raw: Record<string, unknown> | null | undefined,

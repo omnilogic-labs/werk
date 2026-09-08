@@ -66,8 +66,8 @@ export function buildProgram(
       getOutHasColors: () => level > 0,
       getErrHasColors: () => level > 0,
       // A usage failure answers in whichever register was asked for, like every
-      // other output werk produces. `--json` gets the one object the contract
-      // promises; without it, the rules broken in red and the help below them.
+      // other output werk produces. `--json` gets one object; without it, the
+      // rules broken in red and the help below them.
       outputError: json
         ? (str, write) =>
             write(

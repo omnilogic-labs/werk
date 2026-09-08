@@ -54,8 +54,8 @@ export interface Workspace {
  * machine. `docs/workspaces-and-git.md` leans towards creation eventually
  * reporting progress, or handing back a workspace that is not ready yet, and
  * neither is built here. The shape leaves room for both: an options argument
- * carrying a signal or a progress callback is an addition rather than a break,
- * and so is widening what `create` resolves to.
+ * carrying a signal or a progress callback would fit, and so would widening what
+ * `create` resolves to.
  */
 export interface WorkspaceHost {
   /** Which kind of place this makes workspaces in, for a caller reporting what it did. */

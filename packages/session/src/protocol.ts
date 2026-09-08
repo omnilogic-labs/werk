@@ -179,7 +179,6 @@ export class FrameDecoder {
   }
 }
 
-// Unchanged from packages/session/src/protocol.ts, lifted out of the decoder.
 function validate(message: any): void {
   if (
     !message ||
