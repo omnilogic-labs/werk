@@ -5,13 +5,13 @@
 [`CLAUDE.md`](../CLAUDE.md) at the repository root says what that means and what
 the repository holds today.
 
-Eight documents carry the project:
-
+Nine documents carry the project:
 | document                                                 | what it covers                                                                                                                                                              |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **[product-specification.md](product-specification.md)** | What werk does. The words used in these documents, what werk is, the core loop, what exists today, and what is being tried now. Its five subjects have a document each in `product/`.                |
 | **[open-questions.md](open-questions.md)**               | The twenty-four questions the specification has not answered. The options for each, and any lean labelled as a lean.                                                        |
 | **[workspaces-and-git.md](workspaces-and-git.md)**       | How a workspace gets made and how git follows. The containment graph and the derivation graph, the interface creation sits behind, and what a first version can be.         |
+| **[hosts.md](hosts.md)**                                 | What a machine werk can put work on is. How one is configured, how werk reaches it and installs itself on it, how the repository gets there, and what none of that does yet.   |
 | **[session-library.md](session-library.md)**             | What the session packages do. The package boundaries, the wire, the scheduler, attachments and permissions, the limits, the consumers, and the soak baseline.               |
 | **[cli.md](cli.md)**                                     | What the `werk` command does. The command tree, the two output modes, exit codes, colour, configuration, completion, and how a session is started and reattached to.        |
 | **[ci.md](ci.md)**                                       | What runs on a pull request and how to start a run by hand. The lanes, the step order, the two layers of re-run on failure, and where each platform stands.                 |
@@ -22,7 +22,6 @@ Eight documents carry the project:
 [sharing](product/sharing.md), [mappers](product/mappers.md) and
 [the portal](product/portal.md). `session-library/` holds the checked-in soak
 baseline that `session-library.md` quotes.
-
 Three more documents sit beside one of the eight, for somebody changing the code
 rather than using it:
 
@@ -52,9 +51,9 @@ round, with that round's concepts, imagery and tools beside it.
 - About to build on the session packages →
   [session-library.md](session-library.md)
 - Using or changing the `werk` command → [cli.md](cli.md)
+- Putting work on a machine that is not this one → [hosts.md](hosts.md)
 - Changing how a command is declared, or what the CLI depends on →
-  [cli-internals.md](cli-internals.md)
-- Reading a red run, or starting one before opening a pull request →
+  [cli-internals.md](cli-internals.md)- Reading a red run, or starting one before opening a pull request →
   [ci.md](ci.md)
 - Deciding how hard to fight a failure on one platform →
   [platforms.md](platforms.md)

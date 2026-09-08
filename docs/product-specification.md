@@ -94,10 +94,16 @@ these documents exists yet.
   `remove`, `watch`, `info`, `doctor`, `config`, `completion` and
   `daemon serve`. Detach is `Ctrl-]`. See [cli.md](cli.md).
 - `create` makes a **workspace** and starts the command in it: a git worktree on
-  this machine, on a branch of its own, branched from the checkout the caller is
-  standing in. That is the whole of what a workspace is today — one host, no
-  record of what exists, and nothing that ends one. `@werk/workspace` owns it
-  and is explicitly under development.
+  a branch of its own, branched from the checkout the caller is standing in.
+  `--host` puts it on another machine instead, as a mirror of the repository
+  pushed over and a worktree checked out beside it. That is the whole of what a
+  workspace is today: no record that it exists, and nothing that ends one.
+  `@werk/workspace` owns it and is explicitly under development.
+- A **host** is a machine werk can put work on, written down as a
+  `[hosts.<name>]` block. werk reaches one over ssh by shipping its own compiled
+  daemon there, starting it, and forwarding its Unix socket, so the same client
+  and the same protocol serve both machines. Linux hosts only, one machine per
+  command, and no view across machines. See [hosts.md](hosts.md).
 - Reattach restores the real screen, decoded from a checkpoint by the libghostty
   WASM engine. `examples/session-web` does the same in a browser.
 - Checkpoints are written per session to the state directory. Records of ended
@@ -111,13 +117,11 @@ these documents exists yet.
   its place is not worked out; a real performance win, or an ecosystem with no
   good TypeScript equivalent, are probably the cases that would.
 
-Four things this specification needs are absent today:
+Three things this specification needs are absent today:
 
 - git beyond making a worktree and a branch;
-- anything remote: the transport is a Unix socket or loopback TCP;
 - sharing as a product feature, which the protocol supports and nothing uses;
 - a durable log.
-
 What is on disk now is a bounded screen checkpoint, roughly 10 MB of scrollback
 by default, which is not a record of everything a process printed.
 

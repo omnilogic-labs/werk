@@ -5,18 +5,19 @@ compiled binary: the same executable serves the daemon, and starts one when a
 command needs it. `bun run build` produces `packages/werk/dist/werk`, which
 carries the terminal WASM and runs outside the checkout.
 
-This chapter is the reference for the client as it behaves today. Which
-commands the product should end up with is not settled. The capabilities in
-[product/client.md](product/client.md) are deliberately written as capabilities
-rather than commands, and nothing below should be read as a commitment about
-hosts, providers or landing, none of which exist. The workspace `create` makes
-is a git worktree on this machine, which is the smallest corner of what a
-workspace is meant to be; it is no more settled than the rest.
+This chapter is the reference for the client as it behaves today. What the
+command surface should become for the product is not settled. The capabilities
+in [product/client.md](product/client.md) are deliberately written as
+capabilities rather than commands, and nothing below should be read as a
+commitment about providers or landing, neither of which exists. Hosts do exist,
+and [hosts.md](hosts.md) is their reference. The workspace `create` makes is a
+git worktree, on this machine or on the machine `--host` names, which is the
+smallest corner of what a workspace is meant to be; it is no more settled than
+the rest.
 
 [cli-internals.md](cli-internals.md) has the parts that only matter to somebody
 changing the CLI: how a command is declared, why a missing option value reports
 alone, and what each dependency is for.
-
 ## The command tree
 
 | Command                 | What it does                                                                  |
@@ -88,23 +89,31 @@ Completion stops at the same boundary and offers nothing past it.
 
 ## Exit codes
 
-| Code | Meaning                                                                         |
-| ---- | ------------------------------------------------------------------------------- |
-| 0    | Success, an asked-for `--help` and `--version` included                         |
-| 1    | A failure with no more specific code: `PROTOCOL`, `INTERNAL`, `UNSUPPORTED`     |
-| 2    | A usage mistake: a bad flag, an unknown command, `INVALID_ARGUMENT`             |
-| 3    | `NOT_FOUND` — no such session                                                   |
-| 4    | `PERMISSION_DENIED`                                                             |
-| 5    | `CONFLICT` — a session or workspace name already taken                          |
-| 6    | `LIMIT` — a cap was exceeded                                                    |
-| 7    | `TIMEOUT`, `CLOSED` or `HOST_UNREACHABLE` — a host or a daemon is not answering |
-| 130  | Cancelled: SIGINT, or a prompt nobody answered                                  |
+| Code | Meaning                                                                     |
+| ---- | --------------------------------------------------------------------------- |
+| 0    | Success, an asked-for `--help` and `--version` included                     |
+| 1    | A failure with no more specific code: `PROTOCOL`, `INTERNAL`, `UNSUPPORTED` |
+| 2    | A usage mistake: a bad flag, an unknown command, `INVALID_ARGUMENT`         |
+| 3    | `NOT_FOUND` — no such session                                               |
+| 4    | `PERMISSION_DENIED`                                                         |
+| 5    | `CONFLICT` — a session or workspace name already taken                      |
+| 6    | `LIMIT` — a cap was exceeded                                                |
+| 7    | Nothing answered: `TIMEOUT`, `CLOSED`, `HOST_DAEMON_MISSING`                |
+| 130  | Cancelled: SIGINT, or a prompt nobody answered                              |
 
 3 through 7 are the error vocabulary of `@werk/session`, mapped rather than
 judged, so "the session is gone" and "the daemon never answered" are different
-answers to a script. 7 covers a timeout, a closed connection, and a machine a
-workspace was to be made on that did not answer — all things a caller retries
+answers to a script. 7 covers a timeout, a closed connection, a forward that came
+up with nothing listening behind it, and a machine that stopped answering while a
+workspace was being made on it. All of those are things a caller retries
 differently from a refusal something actually gave.
+
+A machine werk could not reach at all exits 2 rather than 7, which is worth
+knowing before scripting either. `werk list --host beast` against a machine that
+is asleep reports `HOST_UNREACHABLE` and exits 2; the same machine failing
+partway through `werk create --host beast` reports the same code and exits 7.
+Nobody decided that. The two paths map the code separately, and only the second
+one is covered by a test. It probably wants settling one way.
 
 An attached `create` reports the session's outcome on stderr and exits 0 itself,
 so the status is werk's account of werk. See
@@ -702,7 +711,8 @@ specification; hosts are in these files already.
 
 A host is a machine. A `[hosts.<name>]` table in either config file says which
 machine a name means, and `werk config list` shows them under the settings,
-keyed `hosts.<name>`, with the layer each one came from.
+keyed `hosts.<name>`, with the layer each one came from. This section is the
+configuration half; [hosts.md](hosts.md) is the rest.
 
 ```toml
 defaultHost = "beast"

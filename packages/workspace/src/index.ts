@@ -2,8 +2,9 @@
  * Making a workspace, behind an interface.
  *
  * A **workspace** is a named, isolated place for work: somewhere to run, a copy
- * of the repository, and a branch of its own. This package makes one, and today
- * it makes exactly one kind — a git worktree on the machine werk is running on.
+ * of the repository, and a branch of its own. This package makes one, in one of
+ * two kinds of place: on the machine werk is running on, or on a machine
+ * something else knows how to reach.
  *
  * The interface is the reason the package exists. Creating a workspace is
  * expected to grow a great deal: provisioning a machine and waiting for it,
