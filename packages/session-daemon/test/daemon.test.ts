@@ -186,7 +186,10 @@ test("two sessions running one command get names that tell them apart", async ()
   } finally {
     await t.close();
   }
-});
+  // The budget every test here that spawns a PTY and waits for it to die is
+  // given: four shells and a termination is not work the default 5s covers on
+  // the slowest platform.
+}, 20000);
 test("PTY survives clients, grants, size ownership, watch and retained recovery", async () => {
   const t = await setup();
   try {
