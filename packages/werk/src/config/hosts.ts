@@ -77,6 +77,13 @@ export type HostKind = Host["kind"];
 export const HOST_KINDS = ["local", "ssh"] as const;
 
 /**
+ * The article each kind takes. It follows how the word is said rather than how
+ * it is spelled — "an ssh host", "a local host" — so it cannot be derived from
+ * the first letter, and a kind added later has to say which it wants.
+ */
+const ARTICLE: Record<HostKind, string> = { local: "a", ssh: "an" };
+
+/**
  * One field of a host block, in the shape `FIELDS` uses for a setting, so there
  * is one way to describe a field in this codebase. There is no `env` here: the
  * environment rule is one variable per scalar key, and a collection of tables
@@ -206,8 +213,7 @@ function readHost(name: string, raw: unknown): Host {
   const fields: Readonly<Record<string, HostField>> =
     HOST_FIELDS[kind as HostKind];
   const takes = ["kind", ...Object.keys(fields)].join(", ");
-  // "an ssh host", "a local host": the message is prose a person reads.
-  const a = /^[aeiou]/.test(kind) ? "an" : "a";
+  const a = ARTICLE[kind as HostKind];
   for (const key of Object.keys(given))
     if (key !== "kind" && fields[key] === undefined)
       throw new ConfigError(
