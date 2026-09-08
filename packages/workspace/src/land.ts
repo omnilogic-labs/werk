@@ -439,8 +439,9 @@ export function createLander(options: LanderOptions): Lander {
         }
         progress("move", "end");
       } catch (error) {
-        // Everything except a conflict takes its copy back with it; a conflict
-        // is the one failure whose copy is worth keeping, and it says so.
+        // Every failure from here on takes its copy back with it, in one place
+        // rather than at each throw — except a conflict, which is the one whose
+        // copy is worth keeping, and which says where it left it.
         if (!(
           error instanceof WorkspaceError && error.code === "LAND_CONFLICT"
         ))
