@@ -1,9 +1,18 @@
 /**
  * What werk can be configured to do, and what it does when nobody says.
  *
- * Only settings the CLI acts on today appear here. A key invented for a feature
- * that does not exist yet reads back later as a decision somebody took, so this
- * grows when the feature does and not before.
+ * Only settings that describe something werk already does appear here. A key
+ * invented for a feature that does not exist yet reads back later as a decision
+ * somebody took, so this grows when the behaviour does and not before.
+ * `defaultHost` is the awkward one: nothing resolves a host yet, and it earns
+ * its place because its value says where every `werk create` already puts work
+ * rather than promising anywhere else.
+ *
+ * Nothing under `src/config/` imports a value from `src/runtime/` or
+ * `src/commands/` — `load.ts` names the `GlobalFlags` type and nothing else,
+ * and a type is erased at build time. That is why `defaultStateDir` sits here beside the other built-in defaults
+ * rather than in `runtime/context.ts`, and why a value werk cannot read is a
+ * `ConfigError` rather than the CLI's `UsageError`. See `errors.ts`.
  *
  * The field table is the single source of truth for the rest of the config
  * layer: the keys, the environment variable each one answers to, how a raw
@@ -11,6 +20,7 @@
  * `werk config` prints beside it. Nothing else enumerates the keys.
  */
 import os from "node:os";
+import path from "node:path";
 import {
   ACCENTS,
   DEFAULT_ACCENT,
@@ -19,8 +29,8 @@ import {
   type FlavourName,
 } from "@werk/palette";
 import { defaultSessionRuntimeDir, type LogLevel } from "@werk/session-daemon";
-import { defaultStateDir } from "../runtime/context.js";
-import { UsageError } from "../runtime/exit.js";
+import { ConfigError } from "./errors.js";
+import { isHostName } from "./hosts.js";
 
 /** What to do about colour when the terminal has not already settled it. */
 export type ColourPreference = "auto" | "always" | "never";
@@ -43,6 +53,14 @@ export interface WerkConfig {
   stateDir: string;
   /** Bytes of output a new session asks to keep. The daemon caps this. */
   scrollbackBytes: number;
+  /**
+   * The machine `werk create` puts work on when nobody names one.
+   *
+   * Nothing resolves it yet — choosing a host is not written — but the value
+   * describes exactly what happens today: every `werk create` places work on
+   * this machine, which is the host `local`.
+   */
+  defaultHost: string;
   colour: ColourPreference;
   /** The flavour werk wears, or `auto` to suit the terminal's own ground. */
   flavour: FlavourPreference;
@@ -76,13 +94,16 @@ function oneOf<T extends string>(key: string, allowed: readonly T[]) {
   return (raw: unknown): T => {
     if (typeof raw === "string" && (allowed as readonly string[]).includes(raw))
       return raw as T;
-    throw new UsageError(`${key} must be one of ${allowed.join(", ")}`);
+    throw new ConfigError(
+      "CONFIG_UNREADABLE",
+      `${key} must be one of ${allowed.join(", ")}`,
+    );
   };
 }
 function directory(key: string) {
   return (raw: unknown): string => {
     if (typeof raw === "string" && raw !== "") return raw;
-    throw new UsageError(`${key} must be a path`);
+    throw new ConfigError("CONFIG_UNREADABLE", `${key} must be a path`);
   };
 }
 /** TOML hands over a number; the environment hands over the digits of one. */
@@ -90,8 +111,23 @@ function byteCount(key: string) {
   return (raw: unknown): number => {
     const value = typeof raw === "string" ? Number(raw) : raw;
     if (typeof value !== "number" || !Number.isInteger(value) || value < 0)
-      throw new UsageError(`${key} must be a whole number of bytes`);
+      throw new ConfigError(
+        "CONFIG_UNREADABLE",
+        `${key} must be a whole number of bytes`,
+      );
     return value;
+  };
+}
+
+/**
+ * A host name, checked for spelling and nothing else. A per-key parser is
+ * handed one value and never sees the `[hosts.*]` collection, so it cannot say
+ * whether the host exists; that check belongs wherever a host is resolved.
+ */
+function hostName(key: string) {
+  return (raw: unknown): string => {
+    if (typeof raw === "string" && isHostName(raw)) return raw;
+    throw new ConfigError("CONFIG_UNREADABLE", `${key} must be a host name`);
   };
 }
 
@@ -115,6 +151,11 @@ export const FIELDS: { readonly [K in ConfigKey]: ConfigField<K> } = {
     env: "WERK_SCROLLBACK_BYTES",
     describe: "bytes of output a new session keeps",
     parse: byteCount("scrollbackBytes"),
+  },
+  defaultHost: {
+    env: "WERK_DEFAULT_HOST",
+    describe: "which host werk puts work on when nobody names one",
+    parse: hostName("defaultHost"),
   },
   colour: {
     env: "WERK_COLOUR",
@@ -144,6 +185,17 @@ export const FIELDS: { readonly [K in ConfigKey]: ConfigField<K> } = {
 };
 export const CONFIG_KEYS = Object.keys(FIELDS) as readonly ConfigKey[];
 
+/** The state directory werk has always used; kept so existing state is found. */
+export function defaultStateDir(
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = os.homedir(),
+): string {
+  return path.join(
+    env.XDG_STATE_HOME ?? path.join(home, ".local", "state"),
+    "werk",
+  );
+}
+
 /**
  * The lowest layer. `WERK_RUNTIME_DIR` is dropped on the way in because
  * `defaultSessionRuntimeDir` honours it: leaving it would attribute a value the
@@ -162,6 +214,9 @@ export function builtInDefaults(
     // The daemon refuses anything above its own cap, so asking for more than
     // this would only ever be refused.
     scrollbackBytes: 10_000_000,
+    // Every `werk create` runs on this machine, so this is a description of
+    // the present rather than a plan for anything else.
+    defaultHost: "local",
     colour: "auto",
     // Mocha and mauve are Catppuccin's conventional defaults, and dark is what
     // every tool that probes a terminal falls back to when it learns nothing.

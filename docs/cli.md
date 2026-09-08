@@ -547,6 +547,7 @@ rule rather than a list, so a new setting gets its variable for free.
 | `runtimeDir`      | `WERK_RUNTIME_DIR`      | Where the daemon socket and endpoint live          |
 | `stateDir`        | `WERK_STATE_DIR`        | Where checkpoints, logs and the daemon record live |
 | `scrollbackBytes` | `WERK_SCROLLBACK_BYTES` | Bytes of output a new session keeps                |
+| `defaultHost`     | `WERK_DEFAULT_HOST`     | Which host werk puts work on when nobody names one |
 | `colour`          | `WERK_COLOUR`           | `auto`, `always` or `never`                        |
 | `flavour`         | `WERK_FLAVOUR`          | `auto` or a Catppuccin flavour                     |
 | `flavourDark`     | `WERK_FLAVOUR_DARK`     | What `auto` wears on a dark terminal               |
@@ -559,8 +560,11 @@ rather than refused, so a line the client has no meaning for does not stop it
 starting. `WERK_CONFIG_DIR` moves the user layer's directory away from `~/.werk`,
 which is what the tests use.
 
-Only settings the CLI acts on appear in that table. A key invented for a feature
-that does not exist yet reads back later as a decision somebody took.
+Only settings that describe something werk already does appear in that table. A
+key invented for a feature that does not exist yet reads back later as a decision
+somebody took. `defaultHost` is the awkward one: nothing resolves a host yet, and
+its value says where every `werk create` already puts work — this machine, which
+is the host `local`.
 
 Every command acts on the resolved configuration, so a `runtimeDir` set in
 `~/.werk/config.toml` is the directory `werk info` reports and the one
@@ -587,10 +591,66 @@ action instead, on a budget: it abandons them after 50 ms and falls back to the
 flags, so a slow layer costs a less accurate completion rather than a shell that
 has stopped responding.
 
-Whether `~/.werk` is the right home for the user layer is not settled, and
-neither is how a person configures hosts and providers once those exist — that
-is open question 2 of the product specification, and it will probably want to
-live in the same files.
+Whether `~/.werk` is the right home for the user layer is not settled. How a
+person configures providers once those exist is open question 2 of the product
+specification; hosts are in these files already.
+
+### Hosts
+
+A host is a machine. A `[hosts.<name>]` table in either config file says which
+machine a name means, and `werk config list` shows them under the settings,
+keyed `hosts.<name>`, with the layer each one came from.
+
+```toml
+defaultHost = "beast"
+
+[hosts.beast]
+kind = "ssh"
+sshHost = "beast"
+
+[hosts.agent-sandboxes]
+kind = "ssh"
+sshHost = "mike@10.0.0.7"
+workspaceRoot = "/srv/werk/workspaces"
+```
+
+| Key             | Kind  | What it is                                                    |
+| --------------- | ----- | ------------------------------------------------------------- |
+| `kind`          | both  | `local` or `ssh`                                              |
+| `sshHost`       | `ssh` | An ssh destination, spelled as it would be typed after `ssh`  |
+| `workspaceRoot` | both  | Where workspaces go on that host                              |
+| `provider`      | both  | The name of whatever made the host. Recorded, not interpreted |
+
+`defaultHost` names one of them. Nothing resolves it yet — choosing a host when
+a session is created is not written — so today it records where work is meant to
+go rather than sending it there.
+
+`local` is a host werk has without being told, supplied by the defaults layer
+like any other built-in value, so nothing special-cases the machine werk is
+running on. Workspaces on it go under `<stateDir>/workspaces`, which is where
+`werk create` already puts them.
+
+werk stores an ssh destination and nothing else about the connection. ssh_config
+already resolves the address, the user, the port, the identity, `ProxyJump`,
+`Match` rules, multiplexing and the `known_hosts` policy, and re-expressing any
+of that here would be a second, worse ssh_config that drifts from the real one
+silently.
+
+Two rules differ from the settings, and both follow from a host having no
+default underneath it:
+
+- **An unknown key inside a host block is refused.** Elsewhere werk ignores a
+  key it does not know, because a typo costs a preference. Here `sshHosts` with
+  the s in the wrong place would leave a block that looks configured and means
+  nothing, and the cost of that is a machine.
+- **A block replaces a block whole, and never field by field.** Merging a
+  project file's `kind = "ssh"` over a user file's `kind = "local"` would compose
+  a host neither file contains. `werk config sources` reports every block a
+  stronger layer replaced, against the layer that lost it.
+
+A block werk cannot read never stops it starting. `werk config list` shows the
+row as `unreadable`, `werk config sources` says what is wrong and which file it
+is in, and only a command that actually wants that host fails.
 
 ### The remote layer, and the unimplemented `extends` hook
 

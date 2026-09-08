@@ -27,6 +27,9 @@ import {
 import { buildKill, renderTermination } from "../src/commands/kill.js";
 import { renderInspection, type Inspection } from "../src/commands/inspect.js";
 import { aliasesOf, resolveSession } from "../src/commands/session-argument.js";
+import { listResult, sourcesResult } from "../src/commands/config.js";
+import { builtInDefaults, CONFIG_KEYS } from "../src/config/schema.js";
+import type { MergedConfig } from "../src/config/load.js";
 
 /** A context with no terminal and no colour, so a rendering is plain text. */
 function context(overrides: Partial<WerkContext> = {}): WerkContext {
@@ -402,4 +405,146 @@ test("workspaces live under the state directory, not a setting of their own", ()
     path.join("/elsewhere", "workspaces"),
   );
   expect(workspaceHostFor(ctx).kind).toBe("local-worktree");
+});
+
+/**
+ * A merge werk never made, so the rendering can be driven without files, an
+ * environment or a repository anywhere near it.
+ */
+const merged = (over: Partial<MergedConfig> = {}): MergedConfig => ({
+  config: builtInDefaults({}, "/home/nobody"),
+  from: Object.fromEntries(
+    CONFIG_KEYS.map((key) => [key, "defaults"]),
+  ) as MergedConfig["from"],
+  hosts: {},
+  hostFrom: {},
+  shadowed: [],
+  problems: [],
+  layers: [],
+  ...over,
+});
+const hostRows = (over: Partial<MergedConfig> = {}) =>
+  merged({
+    hosts: {
+      local: { kind: "local" },
+      "agent-sandboxes": { kind: "ssh", sshHost: "agent-sandboxes" },
+    },
+    hostFrom: { local: "defaults", "agent-sandboxes": "user" },
+    ...over,
+  });
+
+test("config list carries a host and the layer that supplied it", () => {
+  const ctx = context();
+  const shown = listResult(hostRows(), ctx);
+  const text = shown.human(ctx);
+  // Piped output is TSV, so a row can be asserted as the row it is.
+  expect(text).toContain(
+    "hosts.agent-sandboxes\tssh agent-sandboxes\tuser file",
+  );
+  expect(text).toContain("hosts.local\tlocal\tdefaults");
+  // The settings still come first and still say where they came from.
+  expect(text).toContain("defaultHost\tlocal\tdefaults");
+  // The machine shape keeps the whole block, because summarising it is a thing
+  // a person wants and a script does not.
+  expect(shown.json.find((row) => row.key === "hosts.agent-sandboxes")).toEqual(
+    {
+      key: "hosts.agent-sandboxes",
+      value: { kind: "ssh", sshHost: "agent-sandboxes" },
+      layer: "user",
+    },
+  );
+  // The element shape is unchanged, so the jq in the help still works.
+  for (const row of shown.json)
+    expect(Object.keys(row).sort()).toEqual(["key", "layer", "value"]);
+});
+test("a host block werk could not read is a row that says so", () => {
+  const ctx = context();
+  const shown = listResult(
+    hostRows({
+      problems: [
+        {
+          name: "broken",
+          layer: "project",
+          file: "/repo/.werk/config.toml",
+          message:
+            "unknown key sshHosts in hosts.broken (/repo/.werk/config.toml)",
+        },
+      ],
+    }),
+    ctx,
+  );
+  // Leaving it out would say the name is not configured, when what happened is
+  // that it is configured wrongly.
+  expect(shown.human(ctx)).toContain("hosts.broken\tunreadable\tproject file");
+  expect(shown.json.find((row) => row.key === "hosts.broken")).toEqual({
+    key: "hosts.broken",
+    value: null,
+    layer: "project",
+  });
+});
+test("config sources says which host block lost and which one could not be read", () => {
+  const ctx = context();
+  const user = "/home/nobody/.werk/config.toml";
+  const project = "/repo/.werk/config.toml";
+  const shown = sourcesResult(
+    hostRows({
+      hostFrom: { local: "defaults", "agent-sandboxes": "project" },
+      layers: [
+        {
+          name: "user",
+          origin: user,
+          values: {},
+          hosts: { "agent-sandboxes": { kind: "ssh", sshHost: "old" } },
+        },
+        {
+          name: "project",
+          origin: project,
+          values: {},
+          hosts: {
+            "agent-sandboxes": { kind: "ssh", sshHost: "agent-sandboxes" },
+          },
+          problems: [
+            {
+              name: "broken",
+              file: project,
+              message: `unknown key sshHosts in hosts.broken (${project})`,
+            },
+          ],
+        },
+      ],
+      shadowed: [{ name: "agent-sandboxes", layer: "user", by: "project" }],
+      problems: [
+        {
+          name: "broken",
+          layer: "project",
+          file: project,
+          message: `unknown key sshHosts in hosts.broken (${project})`,
+        },
+      ],
+    }),
+    {
+      paths: {
+        userDir: "/home/nobody/.werk",
+        user,
+        projectDir: "/repo/.werk",
+        project,
+      },
+      envVariables: [],
+    },
+    ctx,
+  );
+  const text = shown.human(ctx);
+  // A block a stronger layer replaced looks like nothing happening from
+  // anywhere else, which is why it is said against the layer that lost it.
+  expect(text).toContain(
+    "shadowed\thosts.agent-sandboxes replaced by project file",
+  );
+  expect(text).toContain(
+    `unreadable\tunknown key sshHosts in hosts.broken (${project})`,
+  );
+  // The user layer still counts as holding something, so it does not read as
+  // an absent file.
+  const [layer] = shown.json.filter((record) => record.source === "user");
+  expect(layer!.state).toBe("overridden");
+  expect(layer!.where).toBe(user);
 });

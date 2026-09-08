@@ -8,6 +8,7 @@
  */
 import { SessionError, type ErrorCode } from "@werk/session";
 import { WorkspaceError, type WorkspaceErrorCode } from "@werk/workspace";
+import { ConfigError, type ConfigErrorCode } from "../config/errors.js";
 
 export const EXIT_OK = 0;
 export const EXIT_FAILURE = 1;
@@ -67,6 +68,24 @@ const BY_WORKSPACE_CODE: Record<WorkspaceErrorCode, number> = {
 };
 
 /**
+ * Configuration werk cannot act on, in the statuses that already exist. A host
+ * block that does not parse, a name nothing defines and a file that is not the
+ * TOML it claims to be are all the same thing to a caller: what werk was told
+ * is wrong, which is exit 2, the status a mistyped flag already gets. A write
+ * that failed is the machine not doing it, which is exit 1.
+ *
+ * No new statuses. Nothing scripting werk should have to learn a number to find
+ * out that a config file has a typo in it.
+ */
+const BY_CONFIG_CODE: Record<ConfigErrorCode, number> = {
+  HOST_INVALID: EXIT_USAGE,
+  HOST_NAME_INVALID: EXIT_USAGE,
+  UNKNOWN_HOST: EXIT_USAGE,
+  CONFIG_UNREADABLE: EXIT_USAGE,
+  CONFIG_WRITE_FAILED: EXIT_FAILURE,
+};
+
+/**
  * Commander's own parse failures — an unknown command, a bad `--intent` — are
  * the same class of mistake as a `UsageError` and get the same status. Left to
  * itself commander exits 1, which would make "you typed it wrong" indist-
@@ -103,6 +122,8 @@ export function exitCodeFor(error: unknown): number {
   if (error instanceof SessionError) return BY_CODE[error.code] ?? EXIT_FAILURE;
   if (error instanceof WorkspaceError)
     return BY_WORKSPACE_CODE[error.code] ?? EXIT_FAILURE;
+  if (error instanceof ConfigError)
+    return BY_CONFIG_CODE[error.code] ?? EXIT_FAILURE;
   return EXIT_FAILURE;
 }
 
@@ -127,7 +148,9 @@ export function errorPayload(error: unknown): {
 } {
   const code = isCommanderError(error)
     ? "USAGE"
-    : error instanceof SessionError || error instanceof WorkspaceError
+    : error instanceof SessionError ||
+        error instanceof WorkspaceError ||
+        error instanceof ConfigError
       ? error.code
       : error instanceof UsageError
         ? "USAGE"

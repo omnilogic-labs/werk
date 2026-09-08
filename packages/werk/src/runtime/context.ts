@@ -5,14 +5,13 @@
  * Commands take this rather than reaching for `process` directly, so that a test
  * can run one against string buffers with no terminal and no daemon.
  */
-import os from "node:os";
 import path from "node:path";
 import { type ColourLevel } from "./colour.js";
 import { createStyles, type Styles } from "./style.js";
 import { defaultSessionRuntimeDir } from "@werk/session-daemon";
 import type { Roles } from "@werk/palette";
 import type { RuntimeBasis } from "../commands/shared.js";
-import type { WerkConfig } from "../config/schema.js";
+import { defaultStateDir, type WerkConfig } from "../config/schema.js";
 
 /**
  * The global flags as commander hands them over.
@@ -62,16 +61,6 @@ export interface WerkContext {
    */
   readonly scrollbackBytes?: number;
   readonly entry: string;
-}
-/** The state directory werk has always used; kept so existing state is found. */
-export function defaultStateDir(
-  env = process.env,
-  home = os.homedir(),
-): string {
-  return path.join(
-    env.XDG_STATE_HOME ?? path.join(home, ".local", "state"),
-    "werk",
-  );
 }
 /**
  * A terminal that cannot say how big it is. `process.stdout.columns` and

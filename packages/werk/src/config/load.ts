@@ -2,11 +2,18 @@
  * Where each layer comes from, and how the six of them become one config.
  *
  * The merge is pure: layers in, the resolved config out, plus the layer every
- * single value came from. That provenance is the reason `werk config list` is
- * worth having at all, so it is computed in one place that a test can drive
- * without a filesystem, a git repository or an environment. Around it sits the
- * thin effectful half — find the git toplevel, read the two TOML files, ask the
- * remote source — in the same shape as `view.ts`.
+ * single value and every host came from. That provenance is the reason
+ * `werk config list` is worth having at all, so it is computed in one place
+ * that a test can drive without a filesystem, a repository or an environment.
+ * Around it sits the thin effectful half — find the toplevel, read the two
+ * TOML files, ask the remote source — in the same shape as `view.ts`.
+ *
+ * A layer holds two different kinds of thing. Settings are scalars that merge
+ * key by key, and every one of them has a default underneath it. Hosts are
+ * blocks that replace each other whole, and a name nobody wrote down has
+ * nothing underneath it at all. Only the file layers and the built-in defaults
+ * carry hosts today: the environment rule is one variable per scalar key and
+ * the flags are the same, and neither has a spelling for a table.
  *
  * c12 reads the files and nothing else. It is deliberately not asked to merge:
  * it has five fixed slots where werk has six ordered layers, and its `layers`
@@ -31,6 +38,12 @@ import {
   type WerkConfig,
 } from "./schema.js";
 import {
+  builtInHosts,
+  parseHosts,
+  type Host,
+  type HostProblem,
+} from "./hosts.js";
+import {
   REMOTE_PREFIX,
   unconfiguredSource,
   type ConfigSource,
@@ -52,11 +65,35 @@ export interface ConfigLayer {
   /** Where it was read from: a file path, a description, or nothing. */
   origin?: string;
   values: Partial<WerkConfig>;
+  /** The `[hosts.*]` blocks this layer carried, if it carried any. */
+  hosts?: Readonly<Record<string, Host>>;
+  /** The blocks it carried that could not be read. */
+  problems?: readonly HostProblem[];
+}
+/** A host block that could not be read, and which layer's file it was in. */
+export interface LayerProblem extends HostProblem {
+  layer: LayerName;
+}
+/** A host block one layer supplied and a stronger layer replaced outright. */
+export interface ShadowedHost {
+  name: string;
+  /** The layer whose block was replaced. */
+  layer: LayerName;
+  /** The layer that replaced it. */
+  by: LayerName;
 }
 export interface MergedConfig {
   config: WerkConfig;
   /** The layer that supplied the value each key ended up with. */
   from: Record<ConfigKey, LayerName>;
+  /** Every host in force, by name. */
+  hosts: Readonly<Record<string, Host>>;
+  /** The layer that supplied each host. */
+  hostFrom: Record<string, LayerName>;
+  /** Every host block a stronger layer replaced, weakest first. */
+  shadowed: readonly ShadowedHost[];
+  /** Every host block that could not be read, weakest first. */
+  problems: readonly LayerProblem[];
   /** Every layer that was consulted, lowest precedence first. */
   layers: readonly ConfigLayer[];
 }
@@ -82,7 +119,40 @@ export function mergeLayers(layers: readonly ConfigLayer[]): MergedConfig {
   const missing = CONFIG_KEYS.filter((key) => from[key] === undefined);
   if (missing.length > 0)
     throw new Error(`No layer supplied ${missing.join(", ")}`);
-  return { config: config as WerkConfig, from, layers: ordered };
+  // Hosts merge by name and never by field. A host is a discriminated union, so
+  // merging `kind = "ssh"` in a project file over a `kind = "local"` block in
+  // the user file would compose a record no file ever contained and point the
+  // name at a machine nobody wrote down. A whole block wins or it does not, and
+  // every replacement is recorded, because a host that quietly changed which
+  // machine it means is the worst thing this can do.
+  //
+  // There is no "every host must be supplied" check to match the one above. A
+  // collection with no entries is a person who has not written any hosts down;
+  // a setting with no value is a hole in werk's own defaults.
+  const hosts: Record<string, Host> = {};
+  const hostFrom: Record<string, LayerName> = {};
+  const shadowed: ShadowedHost[] = [];
+  const problems: LayerProblem[] = [];
+  for (const layer of ordered) {
+    for (const [name, host] of Object.entries(layer.hosts ?? {})) {
+      const held = hostFrom[name];
+      if (held !== undefined)
+        shadowed.push({ name, layer: held, by: layer.name });
+      hosts[name] = host;
+      hostFrom[name] = layer.name;
+    }
+    for (const problem of layer.problems ?? [])
+      problems.push({ ...problem, layer: layer.name });
+  }
+  return {
+    config: config as WerkConfig,
+    from,
+    hosts,
+    hostFrom,
+    shadowed,
+    problems,
+    layers: ordered,
+  };
 }
 
 /**
@@ -151,9 +221,16 @@ export const configFileIn = (dir: string) => path.join(dir, "config.toml");
 
 interface FileLayer {
   values: Partial<WerkConfig>;
+  hosts: Readonly<Record<string, Host>>;
+  problems: readonly HostProblem[];
   /** The file that was actually read, absent when there was none. */
   file?: string;
 }
+const emptyFileLayer = (): FileLayer => ({
+  values: {},
+  hosts: {},
+  problems: [],
+});
 /**
  * Read `<dir>/config.toml`, if it exists.
  *
@@ -197,7 +274,7 @@ export async function readConfigDir(
   // Importing c12 costs about 50 ms, which is most of a tab-completion budget,
   // and the overwhelmingly common case is a directory with no config file in it
   // at all. Eight stats answer that for a fraction of the cost.
-  if (!(await hasConfigFile(dir))) return { values: {} };
+  if (!(await hasConfigFile(dir))) return emptyFileLayer();
   const { loadConfig } = await import("c12");
   const loaded = await loadConfig<Record<string, unknown>>({
     name: "werk",
@@ -223,7 +300,13 @@ export async function readConfigDir(
           }
         : null,
   });
-  return { values: coerceLayer(loaded.config), file: loaded._configFile };
+  const { hosts, problems } = parseHosts(loaded.config, loaded._configFile);
+  return {
+    values: coerceLayer(loaded.config),
+    hosts,
+    problems,
+    file: loaded._configFile,
+  };
 }
 
 export interface LoadOptions {
@@ -257,7 +340,7 @@ export async function loadWerkConfig(
   const user = await readConfigDir(paths.userDir, source);
   const project =
     paths.projectDir === undefined
-      ? { values: {} }
+      ? emptyFileLayer()
       : await readConfigDir(paths.projectDir, source);
   const remote = await source.load();
   return mergeLayers([
@@ -265,14 +348,29 @@ export async function loadWerkConfig(
       name: "defaults",
       origin: "built in",
       values: builtInDefaults(env, options.home),
+      // `local` arrives as an ordinary row with an ordinary provenance, so no
+      // command anywhere has to special-case the machine werk is running on.
+      hosts: builtInHosts(),
     },
     {
       name: "remote",
       origin: source.configured ? source.name : undefined,
       values: remote ?? {},
     },
-    { name: "user", origin: user.file, values: user.values },
-    { name: "project", origin: project.file, values: project.values },
+    {
+      name: "user",
+      origin: user.file,
+      values: user.values,
+      hosts: user.hosts,
+      problems: user.problems,
+    },
+    {
+      name: "project",
+      origin: project.file,
+      values: project.values,
+      hosts: project.hosts,
+      problems: project.problems,
+    },
     { name: "env", origin: "environment", values: envLayer(env) },
     {
       name: "flags",
