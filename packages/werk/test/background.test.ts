@@ -1,7 +1,7 @@
 /**
  * The exchange with a terminal that may or may not answer.
  *
- * `detectGround` takes its streams as arguments, so every case here runs against
+ * `detectBackground` takes its streams as arguments, so every case here runs against
  * a pair of fakes: a terminal that answers, one that answers only the sentinel,
  * one that says nothing at all, and one that answers something unparseable. The
  * three terminators in the wild each get their own case.
@@ -14,6 +14,11 @@
  * next: a shell, a prompt, or the session `attach` was about to hand the
  * keyboard to.
  *
+ * What comes back is the colour as the terminal spelled it, never a flavour and
+ * never a light or dark verdict. Reading the colour is ghostty's parser and is
+ * covered in `packages/terminal/test/colour.test.ts`; putting the two together
+ * is covered in `theme.test.ts`.
+ *
  * However the exchange ends, it has to leave the input as it found it: raw mode
  * off, the read stopped, and anything read that was not the answer put back.
  * All three are asserted across every ending, because the cost of missing one is
@@ -21,7 +26,10 @@
  */
 import { expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { detectGround, type GroundInput } from "../src/runtime/ground.js";
+import {
+  detectBackground,
+  type GroundInput,
+} from "../src/runtime/background.js";
 
 /** What a terminal says back: nothing, one write, or a write at a time. */
 type Answer = string | string[] | undefined;
@@ -95,14 +103,14 @@ const answers = (colour: string, terminator = ST) => [
 
 test("the query carries the colour question and the sentinel behind it", async () => {
   const { io, sent } = fake();
-  await detectGround(io);
+  await detectBackground(io);
   expect(sent).toHaveLength(1);
   expect(sent[0]).toBe("\x1b]11;?\x1b\\\x1b[c");
 });
 
-test("a light ground and a dark ground each come back as themselves", async () => {
-  expect(await detectGround(fake(answers(LIGHT)).io)).toBe("light");
-  expect(await detectGround(fake(answers(DARK)).io)).toBe("dark");
+test("the colour comes back as the terminal spelled it", async () => {
+  expect(await detectBackground(fake(answers(LIGHT)).io)).toBe(LIGHT);
+  expect(await detectBackground(fake(answers(DARK)).io)).toBe(DARK);
 });
 
 test("all three terminators in the wild are read", async () => {
@@ -110,20 +118,23 @@ test("all three terminators in the wild are read", async () => {
   // with a bare ESC.
   for (const terminator of [ST, BEL, "\x1b"])
     expect(
-      await detectGround(fake(answers(DARK, terminator)).io),
+      await detectBackground(fake(answers(DARK, terminator)).io),
       JSON.stringify(terminator),
-    ).toBe("dark");
+    ).toBe(DARK);
 });
 
-test("an eight-bit answer and a bare hex triple are read too", async () => {
-  expect(await detectGround(fake(answers("rgb:ef/f1/f5")).io)).toBe("light");
-  expect(await detectGround(fake(answers("#1e1e2e")).io)).toBe("dark");
+test("a reply with no terminator is not read as a short colour", async () => {
+  // The timeout arriving mid-reply. Half a colour read as a whole one is a
+  // flavour chosen from bytes the terminal had not finished sending.
+  const terminal = fake(`\x1b]11;rgb:1e1e/1e`);
+  expect(await detectBackground(terminal.io)).toBeUndefined();
+  expect(terminal.back).toEqual([`\x1b]11;rgb:1e1e/1e`]);
 });
 
 test("the sentinel alone means the terminal does not answer, and returns at once", async () => {
   const { io } = fake(DA1);
   const started = performance.now();
-  expect(await detectGround(io)).toBeUndefined();
+  expect(await detectBackground(io)).toBeUndefined();
   // Well inside the 40 ms this fake was given: the point of the sentinel is that
   // non-support costs a round trip rather than the whole timeout.
   expect(performance.now() - started).toBeLessThan(30);
@@ -134,20 +145,20 @@ test("the colour is taken and the exchange still runs to the sentinel", async ()
   // at the colour leaves the sentinel to be read by whatever reads stdin next,
   // which for `attach` means it is typed into the session.
   const terminal = fake(answers(DARK));
-  expect(await detectGround(terminal.io)).toBe("dark");
+  expect(await detectBackground(terminal.io)).toBe(DARK);
   expect(terminal.unread()).toEqual([]);
 });
 
 test("both replies arriving as one write are read as one write", async () => {
   const terminal = fake([`\x1b]11;${DARK}${ST}${DA1}`]);
-  expect(await detectGround(terminal.io)).toBe("dark");
+  expect(await detectBackground(terminal.io)).toBe(DARK);
   expect(terminal.unread()).toEqual([]);
   expect(terminal.back).toEqual([]);
 });
 
 test("a terminal that says nothing gives up at the timeout", async () => {
   const started = performance.now();
-  expect(await detectGround(fake().io)).toBeUndefined();
+  expect(await detectBackground(fake().io)).toBeUndefined();
   expect(performance.now() - started).toBeGreaterThanOrEqual(30);
 });
 
@@ -155,22 +166,24 @@ test("a colour with no sentinel behind it costs the timeout", async () => {
   // The one terminal that pays for reading to the sentinel: it answers the
   // question and not the device attributes request. It still gets its flavour.
   const started = performance.now();
-  expect(await detectGround(fake(`\x1b]11;${DARK}${ST}`).io)).toBe("dark");
+  expect(await detectBackground(fake(`\x1b]11;${DARK}${ST}`).io)).toBe(DARK);
   expect(performance.now() - started).toBeGreaterThanOrEqual(30);
 });
 
-test("an answer that cannot be read is no answer rather than a failure", async () => {
-  expect(await detectGround(fake([`\x1b]11;rgb:zz/zz/zz${ST}`, DA1]).io)).toBe(
-    undefined,
-  );
-  expect(await detectGround(fake(["garbage", DA1]).io)).toBeUndefined();
+test("an answer nobody can read is still handed on to be read", async () => {
+  // Whether the text names a colour is not this file's question. It comes back
+  // as it arrived and the parser says no.
+  expect(
+    await detectBackground(fake([`\x1b]11;rgb:zz/zz/zz${ST}`, DA1]).io),
+  ).toBe("rgb:zz/zz/zz");
+  expect(await detectBackground(fake(["garbage", DA1]).io)).toBeUndefined();
 });
 
-test("a reply nobody could parse still comes off the stream", async () => {
+test("a reply nobody could read still comes off the stream", async () => {
   // It was werk's question, so it is werk's to take, whether or not it made
   // sense. Only `garbage` was somebody typing.
   const terminal = fake([`\x1b]11;rgb:zz/zz/zz${ST}`, `garbage${DA1}`]);
-  expect(await detectGround(terminal.io)).toBeUndefined();
+  expect(await detectBackground(terminal.io)).toBe("rgb:zz/zz/zz");
   expect(terminal.back).toEqual(["garbage"]);
 });
 
@@ -186,7 +199,7 @@ const ENDINGS: Answer[] = [
 test("raw mode is put back however the exchange ends", async () => {
   for (const reply of ENDINGS) {
     const { io, raw } = fake(reply);
-    await detectGround(io);
+    await detectBackground(io);
     expect(raw, JSON.stringify(reply)).toEqual([true, false]);
   }
 });
@@ -196,7 +209,7 @@ test("the read is stopped however the exchange ends", async () => {
   // for the probe would print its output and then never exit.
   for (const reply of ENDINGS) {
     const { io, stopped } = fake(reply);
-    await detectGround(io);
+    await detectBackground(io);
     // Stopped once, and with the exchange's own listener already taken off, so
     // a stream handed back to `attach` or a prompt carries nothing of ours.
     expect(stopped, JSON.stringify(reply)).toEqual([0]);
@@ -206,7 +219,7 @@ test("the read is stopped however the exchange ends", async () => {
 test("the answer is kept and nothing else is, however the exchange ends", async () => {
   for (const reply of ENDINGS) {
     const { io, back } = fake(reply);
-    await detectGround(io);
+    await detectBackground(io);
     expect(back, JSON.stringify(reply)).toEqual([]);
   }
 });
@@ -215,17 +228,17 @@ test("what was typed during the exchange is given back", async () => {
   // Somebody typing ahead while the probe runs. The bytes are not werk's, so
   // they go back on the stream for the shell, the prompt or the session.
   const withColour = fake([`\x1b]11;${DARK}${ST}hi`, DA1]);
-  expect(await detectGround(withColour.io)).toBe("dark");
+  expect(await detectBackground(withColour.io)).toBe(DARK);
   expect(withColour.back).toEqual(["hi"]);
 
   const between = fake([`\x1b]11;${DARK}${ST}`, `up${DA1}down`]);
-  expect(await detectGround(between.io)).toBe("dark");
+  expect(await detectBackground(between.io)).toBe(DARK);
   expect(between.back).toEqual(["updown"]);
 });
 
 test("what was typed into a terminal that never answers is given back too", async () => {
   const silent = fake("typed");
-  expect(await detectGround(silent.io)).toBeUndefined();
+  expect(await detectBackground(silent.io)).toBeUndefined();
   expect(silent.back).toEqual(["typed"]);
 });
 
@@ -234,7 +247,7 @@ test("bytes are handed back as they arrived", async () => {
   // still has to come back as itself.
   const bytes = "\x80\xff\xfe";
   const terminal = fake([`\x1b]11;${DARK}${ST}${bytes}`, DA1]);
-  await detectGround(terminal.io);
+  await detectBackground(terminal.io);
   expect(terminal.back).toEqual([bytes]);
 });
 
@@ -248,7 +261,7 @@ test("a terminal that cannot be written to is not an error", async () => {
       },
     },
   };
-  expect(await detectGround(broken)).toBeUndefined();
+  expect(await detectBackground(broken)).toBeUndefined();
   expect(raw).toEqual([true, false]);
   expect(stopped).toEqual([0]);
 });

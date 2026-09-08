@@ -7,6 +7,7 @@
  */
 import { expect, test } from "bun:test";
 import { flavours } from "@werk/palette";
+import { loadTerminalColours } from "@werk/terminal/bun";
 import {
   groundFromRgb,
   probeAllowed,
@@ -148,4 +149,39 @@ test("a background is light or dark by how light it looks", () => {
   // Mid grey is the case a relative-luminance threshold gets wrong: it sits at
   // about 0.216 there and would call this dark.
   expect(groundFromRgb(128, 128, 128)).toBe("light");
+});
+
+/**
+ * The whole answer, from what a terminal wrote to which flavour werk wears.
+ *
+ * `detectBackground` hands the colour on as the terminal spelled it and this is
+ * where the spelling turns into a verdict. Both halves are asserted, because a
+ * verdict alone hides a bad read: `#1e1e2e` misread as rgb(30, 34, 238) is a
+ * blue rather than a near-black, and still comes out dark.
+ */
+test("every spelling of the same background reads as the same colour", async () => {
+  const colours = await loadTerminalColours();
+  // Catppuccin Mocha's base, and Latte's, in the spellings terminals answer in.
+  const backgrounds = [
+    {
+      rgb: { r: 30, g: 30, b: 46 },
+      ground: "dark",
+      spellings: ["rgb:1e1e/1e1e/2e2e", "rgb:1e/1e/2e", "#1e1e2e", "1e1e2e"],
+    },
+    {
+      rgb: { r: 239, g: 241, b: 245 },
+      ground: "light",
+      spellings: ["rgb:efef/f1f1/f5f5", "rgb:ef/f1/f5", "#eff1f5"],
+    },
+  ] as const;
+  for (const background of backgrounds)
+    for (const spelling of background.spellings) {
+      const rgb = colours.parse(spelling);
+      expect(rgb, spelling).toEqual(background.rgb);
+      expect(groundFromRgb(rgb!.r, rgb!.g, rgb!.b), spelling).toBe(
+        background.ground,
+      );
+    }
+  // Not a colour, so no ground, so the default flavour.
+  expect(colours.parse("rgb:zz/zz/zz")).toBeUndefined();
 });

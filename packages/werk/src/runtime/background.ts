@@ -1,10 +1,13 @@
 /**
  * Asking a terminal what colour its background is.
  *
- * This is the only part of the theme that does I/O, and it is a separate file so
- * that the deciding in `theme.ts` stays pure. The streams arrive as arguments
- * rather than being reached for, which is what makes the whole protocol — the
- * sentinel, the three terminators, the timeout, a malformed reply — testable
+ * This is the only part of the theme that does I/O, and it is a separate file
+ * so that the deciding in `theme.ts` stays pure. It returns the colour as the
+ * terminal spelled it and does not read it: reading it is
+ * `ColourReader.parse`, which is ghostty's own parser, and the exchange has no
+ * business knowing what a colour looks like. The streams arrive as arguments
+ * rather than being reached for, which is what makes the whole protocol, the
+ * sentinel, the three terminators, the timeout and a truncated reply, testable
  * with a pair of fakes and no terminal at all.
  *
  * ## The exchange
@@ -27,11 +30,10 @@
  * whatever reads stdin next, and for `attach` that means it is forwarded to the
  * session and arrives in the child as keystrokes.
  *
- * The reply is `OSC 11 ; rgb:RRRR/GGGG/BBBB` with sixteen bits a channel, and
- * three different terminators are in the wild: macOS Terminal always ends with
- * BEL even when asked with ST, and rxvt-unicode ends with a bare ESC. All three
- * are accepted. Some terminals answer with eight bits a channel or with a plain
- * hex triple, so those are read too.
+ * Three terminators are in the wild: macOS Terminal always ends with BEL even
+ * when asked with ST, and rxvt-unicode ends with a bare ESC. All three are
+ * accepted, and one of them is required, so a reply cut off by the timeout is
+ * not read as a short colour.
  *
  * ## The timeout
  *
@@ -48,9 +50,8 @@
  *
  * ## Putting the input back
  *
- * The exchange leaves the stream exactly as it found it, on every path,
- * including the one where parsing throws. Three things have to be undone and the
- * last two are easy to miss.
+ * The exchange leaves the stream exactly as it found it, on every path. Three
+ * things have to be undone and the last two are easy to miss.
  *
  * Raw mode is restored because leaving a shell without its echo is worse than
  * getting the wrong flavour.
@@ -73,31 +74,17 @@
  * after attaching its own handler, and a prompt goes through readline, which
  * resumes the stream when it is constructed.
  */
-import { type Ground, groundFromRgb } from "./theme.js";
 
 /** The query, and the sentinel that ends the exchange. */
 const QUERY = "\x1b]11;?\x1b\\\x1b[c";
 /** A primary device attributes reply: `ESC [ ? … c`. */
 const ATTRIBUTES = /\x1b\[\?[0-9;]*c/;
 /**
- * `OSC 11 ; ` then a colour, then BEL, ST or a bare ESC. Channels are one to
- * four hex digits each, because the width varies by terminal.
+ * A colour reply and its terminator, whatever colour it names. The terminator
+ * is required, so half a reply is not mistaken for a whole one, and the group
+ * is the colour exactly as the terminal spelled it.
  */
-const REPLY =
-  /\x1b\]11;(?:rgb:)?#?([0-9a-fA-F]{1,4})\/?([0-9a-fA-F]{1,4})\/?([0-9a-fA-F]{1,4})/;
-/**
- * The colour reply whatever it says, for cutting it back out. `REPLY` reads a
- * colour and this one only finds the answer, so a reply nobody could parse is
- * still werk's and still comes off the stream.
- */
-const ANSWER = /\x1b\]11;[^\x07\x1b]*(?:\x07|\x1b\\|\x1b)?/;
-
-/** Scale a channel of any width to eight bits. `ff` and `ffff` are both white. */
-function channel(digits: string): number {
-  const value = Number.parseInt(digits, 16);
-  const max = 16 ** digits.length - 1;
-  return Math.round((value / max) * 255);
-}
+const ANSWER = /\x1b\]11;([^\x07\x1b]*)(?:\x07|\x1b\\|\x1b)/;
 
 /**
  * Where the terminal's reply arrives.
@@ -136,12 +123,15 @@ function settle(action: () => void): void {
   }
 }
 
-export function detectGround(io: GroundIO): Promise<Ground | undefined> {
+/**
+ * The terminal's background colour as it spelled it, or nothing when it did not
+ * say. The text is whatever came back: reading it is somebody else's job, and a
+ * terminal is allowed to answer something nobody can read.
+ */
+export function detectBackground(io: GroundIO): Promise<string | undefined> {
   const timeoutMs = io.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  return new Promise<Ground | undefined>((resolve) => {
+  return new Promise<string | undefined>((resolve) => {
     let read = Buffer.alloc(0);
-    let ground: Ground | undefined;
-    let answered = false;
     let done = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -155,16 +145,17 @@ export function detectGround(io: GroundIO): Promise<Ground | undefined> {
       // Stopping the read is what lets the process exit. Removing the listener
       // alone leaves the stream flowing and the handle held.
       settle(() => io.input.pause());
+      // latin-1 so that one character is one byte: the sequences being looked
+      // for are ASCII, and what is cut out of the text is cut out of the bytes.
+      const seen = read.toString("latin1");
+      const answer = ANSWER.exec(seen);
       // Onto the paused stream, so it is buffered rather than emitted to
       // nobody. Whatever is left is somebody's typing.
-      const rest = read
-        .toString("latin1")
-        .replace(ANSWER, "")
-        .replace(ATTRIBUTES, "");
+      const rest = seen.replace(ANSWER, "").replace(ATTRIBUTES, "");
       if (rest.length > 0)
         settle(() => io.input.unshift(Buffer.from(rest, "latin1")));
       settle(() => io.setRawMode(false));
-      resolve(ground);
+      resolve(answer?.[1]);
     };
 
     function onData(chunk: Buffer | string): void {
@@ -172,27 +163,8 @@ export function detectGround(io: GroundIO): Promise<Ground | undefined> {
         read,
         typeof chunk === "string" ? Buffer.from(chunk) : chunk,
       ]);
-      // latin-1 so that one character is one byte: the sequences being looked
-      // for are ASCII, and what is cut out of the text is cut out of the bytes.
-      const seen = read.toString("latin1");
-      try {
-        if (!answered) {
-          const reply = REPLY.exec(seen);
-          if (reply) {
-            answered = true;
-            ground = groundFromRgb(
-              channel(reply[1]!),
-              channel(reply[2]!),
-              channel(reply[3]!),
-            );
-          }
-        }
-        // The sentinel means the terminal has said everything it is going to.
-        if (ATTRIBUTES.test(seen)) finish();
-      } catch {
-        ground = undefined;
-        finish();
-      }
+      // The sentinel means the terminal has said everything it is going to.
+      if (ATTRIBUTES.test(read.toString("latin1"))) finish();
     }
 
     try {

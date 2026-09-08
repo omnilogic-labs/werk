@@ -1,7 +1,7 @@
 /**
  * Which flavour and accent werk wears, decided from everything it knows.
  *
- * This module is the decision and `ground.ts` is the one piece of evidence it
+ * This module is the decision and `background.ts` is the one piece of evidence it
  * cannot work out for itself. That split is the same one `colour.ts` makes, and
  * for the same reason: every input arrives as an argument, so the whole matrix
  * can be asserted without a terminal, and the only thing that needs a real one
@@ -118,11 +118,21 @@ export function probeAllowed({
 /**
  * Whether a background is light or dark, by CIE L*.
  *
- * The four libraries that answer this question answer it four different ways —
+ * The four libraries that answer this question answer it four different ways:
  * HSL lightness, BT.601 luma, a relative-luminance threshold, and this. L* is
  * the one that models how a person sees lightness, and 50 is its midpoint by
  * construction, which is what makes the threshold a definition rather than a
  * tuned number.
+ *
+ * ghostty answers it a fifth way, and werk now carries that answer without
+ * using it: `ghostty_color_perceived_luminance` calls a background light above
+ * 0.5. The two rules disagree on 13.4% of the sRGB cube, sampled every third
+ * value on each channel, and the disagreements are saturated mid colours such
+ * as rgb(0, 111, 255), which is L* 50.2 and perceived luminance 0.370. On the
+ * four Catppuccin bases they agree with room to spare: Mocha is L* 12.0 and
+ * 0.125, Latte is 95.1 and 0.945. Which rule werk should use is open. Nobody
+ * has picked one over the other on evidence, and the terminals people actually
+ * theme are not where the two disagree.
  */
 export function groundFromRgb(r: number, g: number, b: number): Ground {
   const linear = (channel: number): number => {

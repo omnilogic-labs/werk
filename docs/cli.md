@@ -455,6 +455,15 @@ and under `attach` that is the session, where it arrives in the child as
 keystrokes. By the same rule, anything read that was not the answer was typed by
 a person and is put back for the next reader.
 
+The colour comes back in whatever spelling the terminal prefers: XParseColor's
+`rgb:` at one to four hex digits a channel, `rgbi:` in floating point, a hex
+triple in three, six, nine or twelve digits with or without a leading `#`, or an
+X11 colour name. werk hands it to ghostty's own parser, the same one the vendored
+engine reads a child's `OSC 4` with, rather than reading it itself. Loading that
+parser starts beside the question, because compiling the module takes about 7 ms
+and a terminal takes single figures of milliseconds to answer, so the two
+overlap.
+
 A terminal that answers neither sequence costs 150 ms, once, and then werk wears
 the dark flavour. So does one that answers the colour and not the sentinel,
 which is a set that looks empty. That timeout is a judgement rather than a

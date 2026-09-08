@@ -32,6 +32,11 @@ choice cannot be fixed by importing one.
 takes WASM bytes or a compiled module explicitly, carries no DOM code, and knows
 nothing about daemons, sockets, PTYs or product state. `./dom` is its only entry
 that touches the DOM, and `@wterm/dom` is a dependency for that entry alone.
+`createColourReader` is the same artefact without a terminal: it reads ghostty's
+colour syntax, which is what a terminal answers `OSC 11` in, and needs no grid,
+size or snapshot, so a caller that only wants to know what colour a terminal is
+does not build a terminal to find out. The CLI's theme probe is its only caller
+today.
 `@werk/session` carries session identity, the client, ordered attachment events,
 the daemon-wide subscription and the framing, over an injected transport and
 with no Bun or native imports; it moves snapshot bytes without interpreting
