@@ -15,8 +15,9 @@
  * keyboard to.
  *
  * However the exchange ends, it has to leave the input as it found it: raw mode
- * off and the read stopped. Both are asserted across every ending, because the
- * cost of missing either is paid by every command rather than by this one.
+ * off, the read stopped, and anything read that was not the answer put back.
+ * All three are asserted across every ending, because the cost of missing one is
+ * paid by every command rather than by this one.
  */
 import { expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
@@ -36,17 +37,21 @@ type Answer = string | string[] | undefined;
  * `unread` is what the terminal still had to say when the read stopped. On a
  * real terminal those bytes sit in the input buffer for the next reader, so
  * anything left here is what somebody would find themselves typing.
+ *
+ * `back` is what the exchange handed back for the next reader.
  */
 function fake(reply?: Answer | ((query: string) => Answer)) {
   const emitter = new EventEmitter();
   const raw: boolean[] = [];
   const sent: string[] = [];
   const stopped: number[] = [];
+  const back: string[] = [];
   let pending: string[] = [];
   let paused = false;
   const input: GroundInput = {
     on: (event, listener) => emitter.on(event, listener),
     off: (event, listener) => emitter.off(event, listener),
+    unshift: (chunk) => back.push(chunk.toString("latin1")),
     pause: () => {
       paused = true;
       stopped.push(emitter.listenerCount("data"));
@@ -74,7 +79,7 @@ function fake(reply?: Answer | ((query: string) => Answer)) {
     setRawMode: (on: boolean) => void raw.push(on),
     timeoutMs: 40,
   };
-  return { io, raw, sent, stopped, unread: () => pending };
+  return { io, raw, sent, stopped, back, unread: () => pending };
 }
 
 const LIGHT = "rgb:eeee/f1f1/f5f5";
@@ -133,6 +138,13 @@ test("the colour is taken and the exchange still runs to the sentinel", async ()
   expect(terminal.unread()).toEqual([]);
 });
 
+test("both replies arriving as one write are read as one write", async () => {
+  const terminal = fake([`\x1b]11;${DARK}${ST}${DA1}`]);
+  expect(await detectGround(terminal.io)).toBe("dark");
+  expect(terminal.unread()).toEqual([]);
+  expect(terminal.back).toEqual([]);
+});
+
 test("a terminal that says nothing gives up at the timeout", async () => {
   const started = performance.now();
   expect(await detectGround(fake().io)).toBeUndefined();
@@ -152,6 +164,14 @@ test("an answer that cannot be read is no answer rather than a failure", async (
     undefined,
   );
   expect(await detectGround(fake(["garbage", DA1]).io)).toBeUndefined();
+});
+
+test("a reply nobody could parse still comes off the stream", async () => {
+  // It was werk's question, so it is werk's to take, whether or not it made
+  // sense. Only `garbage` was somebody typing.
+  const terminal = fake([`\x1b]11;rgb:zz/zz/zz${ST}`, `garbage${DA1}`]);
+  expect(await detectGround(terminal.io)).toBeUndefined();
+  expect(terminal.back).toEqual(["garbage"]);
 });
 
 /** Every way the exchange can end: answered, refused, timed out, unreadable. */
@@ -181,6 +201,41 @@ test("the read is stopped however the exchange ends", async () => {
     // a stream handed back to `attach` or a prompt carries nothing of ours.
     expect(stopped, JSON.stringify(reply)).toEqual([0]);
   }
+});
+
+test("the answer is kept and nothing else is, however the exchange ends", async () => {
+  for (const reply of ENDINGS) {
+    const { io, back } = fake(reply);
+    await detectGround(io);
+    expect(back, JSON.stringify(reply)).toEqual([]);
+  }
+});
+
+test("what was typed during the exchange is given back", async () => {
+  // Somebody typing ahead while the probe runs. The bytes are not werk's, so
+  // they go back on the stream for the shell, the prompt or the session.
+  const withColour = fake([`\x1b]11;${DARK}${ST}hi`, DA1]);
+  expect(await detectGround(withColour.io)).toBe("dark");
+  expect(withColour.back).toEqual(["hi"]);
+
+  const between = fake([`\x1b]11;${DARK}${ST}`, `up${DA1}down`]);
+  expect(await detectGround(between.io)).toBe("dark");
+  expect(between.back).toEqual(["updown"]);
+});
+
+test("what was typed into a terminal that never answers is given back too", async () => {
+  const silent = fake("typed");
+  expect(await detectGround(silent.io)).toBeUndefined();
+  expect(silent.back).toEqual(["typed"]);
+});
+
+test("bytes are handed back as they arrived", async () => {
+  // Not decoded and re-encoded: a byte that is not this process's idea of text
+  // still has to come back as itself.
+  const bytes = "\x80\xff\xfe";
+  const terminal = fake([`\x1b]11;${DARK}${ST}${bytes}`, DA1]);
+  await detectGround(terminal.io);
+  expect(terminal.back).toEqual([bytes]);
 });
 
 test("a terminal that cannot be written to is not an error", async () => {

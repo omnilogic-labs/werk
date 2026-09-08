@@ -452,7 +452,8 @@ Reading to the sentinel rather than stopping at the colour is what keeps the
 answer off the next reader's input. werk asked, so the whole answer is werk's to
 take off the stream — a reply left behind is read by whatever reads stdin next,
 and under `attach` that is the session, where it arrives in the child as
-keystrokes.
+keystrokes. By the same rule, anything read that was not the answer was typed by
+a person and is put back for the next reader.
 
 A terminal that answers neither sequence costs 150 ms, once, and then werk wears
 the dark flavour. So does one that answers the colour and not the sentinel,

@@ -49,8 +49,8 @@
  * ## Putting the input back
  *
  * The exchange leaves the stream exactly as it found it, on every path,
- * including the one where parsing throws. Two things have to be undone and the
- * second is easy to miss.
+ * including the one where parsing throws. Three things have to be undone and the
+ * last two are easy to miss.
  *
  * Raw mode is restored because leaving a shell without its echo is worse than
  * getting the wrong flavour.
@@ -63,6 +63,11 @@
  * ignored. Every command pays for this, because the probe runs before the
  * command line is parsed.
  *
+ * Anything read that was not the answer was typed by a person, so it goes back
+ * on the stream rather than into the bin. The bytes are accumulated as latin-1,
+ * one character to a byte, so cutting the two replies out of the text cuts them
+ * out of the bytes and what is handed back is what was sent. Unshifting onto a
+ * paused stream leaves it buffered for the next reader.
  *
  * Pausing is safe for whatever reads next. `attach` resumes the stream itself
  * after attaching its own handler, and a prompt goes through readline, which
@@ -80,6 +85,13 @@ const ATTRIBUTES = /\x1b\[\?[0-9;]*c/;
  */
 const REPLY =
   /\x1b\]11;(?:rgb:)?#?([0-9a-fA-F]{1,4})\/?([0-9a-fA-F]{1,4})\/?([0-9a-fA-F]{1,4})/;
+/**
+ * The colour reply whatever it says, for cutting it back out. `REPLY` reads a
+ * colour and this one only finds the answer, so a reply nobody could parse is
+ * still werk's and still comes off the stream.
+ */
+const ANSWER = /\x1b\]11;[^\x07\x1b]*(?:\x07|\x1b\\|\x1b)?/;
+
 /** Scale a channel of any width to eight bits. `ff` and `ffff` are both white. */
 function channel(digits: string): number {
   const value = Number.parseInt(digits, 16);
@@ -90,14 +102,16 @@ function channel(digits: string): number {
 /**
  * Where the terminal's reply arrives.
  *
- * Only the three methods the exchange uses are named, and all three are
- * required. A wider type would let a fake leave `pause` off and still satisfy
+ * Only the four methods the exchange uses are named, and all four are required.
+ * A wider type would let a fake leave `pause` or `unshift` off and still satisfy
  * the compiler, and a fake that cannot record the read being stopped cannot
  * catch it going missing again.
  */
 export interface GroundInput {
   on(event: "data", listener: (chunk: Buffer | string) => void): unknown;
   off(event: "data", listener: (chunk: Buffer | string) => void): unknown;
+  /** Give bytes that were not part of the answer back to the next reader. */
+  unshift(chunk: Buffer): unknown;
   pause(): unknown;
 }
 
@@ -141,6 +155,14 @@ export function detectGround(io: GroundIO): Promise<Ground | undefined> {
       // Stopping the read is what lets the process exit. Removing the listener
       // alone leaves the stream flowing and the handle held.
       settle(() => io.input.pause());
+      // Onto the paused stream, so it is buffered rather than emitted to
+      // nobody. Whatever is left is somebody's typing.
+      const rest = read
+        .toString("latin1")
+        .replace(ANSWER, "")
+        .replace(ATTRIBUTES, "");
+      if (rest.length > 0)
+        settle(() => io.input.unshift(Buffer.from(rest, "latin1")));
       settle(() => io.setRawMode(false));
       resolve(ground);
     };
