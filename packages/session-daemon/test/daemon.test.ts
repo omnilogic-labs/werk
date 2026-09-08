@@ -99,6 +99,7 @@ async function setup(authorize?: any, limits?: any, preview = true) {
   const config = {
     runtimeDir: join(dir, "run"),
     stateDir: join(dir, "state"),
+    version: "test",
     engineFactory,
     authorize,
     limits,
@@ -516,6 +517,7 @@ test("attaching to a lost record ends without inventing an outcome", async () =>
   const daemon = await serveSessionDaemon({
     runtimeDir: join(dir, "run"),
     stateDir,
+    version: "test",
     engineFactory: engine(),
   });
   const client = await connectSessionClient({
@@ -890,6 +892,7 @@ test("retained records restore lazily, on demand, and give their terminal back w
   const daemon = await serveSessionDaemon({
     runtimeDir: join(dir, "run"),
     stateDir,
+    version: "test",
     engineFactory: factory,
     limits: { terminalIdleMs: 30, checkpointIntervalMs: 60_000 },
   });
@@ -1067,6 +1070,7 @@ test("a restored record is never rewritten while nothing writes to it", async ()
   const daemon = await serveSessionDaemon({
     runtimeDir: join(dir, "run"),
     stateDir,
+    version: "test",
     engineFactory: engine(),
     limits: { checkpointIntervalMs: 50, terminalIdleMs: 20 },
   });

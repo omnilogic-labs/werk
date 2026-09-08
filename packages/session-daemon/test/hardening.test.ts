@@ -103,6 +103,7 @@ async function fixture(options: Partial<DaemonConfig> = {}) {
   const config = {
     runtimeDir: join(dir, "run"),
     stateDir: join(dir, "state"),
+    version: "test",
     engineFactory: factory,
     ...options,
   };
@@ -442,6 +443,7 @@ test("kernel lock rejects concurrent ownership and failed startup releases it", 
   const config = {
     runtimeDir: join(dir, "run"),
     stateDir: join(dir, "state"),
+    version: "test",
     engineFactory: await loadTerminalEngine(),
   };
   const first = await serveSessionDaemon(config);
@@ -693,9 +695,9 @@ test("environment limits reject before terminal allocation", async () => {
   }
 });
 
-test("native sessions receive caller environment without persisting secrets", async () => {
-  const previous = process.env.SESSION_TEST_STALE_ENV;
-  process.env.SESSION_TEST_STALE_ENV = "daemon-only";
+test("a native session overlays the caller's environment without persisting secrets", async () => {
+  const previous = process.env.SESSION_TEST_DAEMON_ENV;
+  process.env.SESSION_TEST_DAEMON_ENV = "daemon-only";
   const t = await fixture();
   try {
     const output = join(t.dir, "environment.json");
@@ -715,7 +717,9 @@ test("native sessions receive caller environment without persisting secrets", as
     );
     const env = JSON.parse(await readFile(output, "utf8"));
     expect(env.CALLER_SECRET).toBe("fresh-private-value");
-    expect(env.SESSION_TEST_STALE_ENV).toBeUndefined();
+    // The caller said nothing about this one, so the daemon's own value stands.
+    // Sending an environment adds to what the daemon has; it does not replace it.
+    expect(env.SESSION_TEST_DAEMON_ENV).toBe("daemon-only");
     expect(env.TERM).toBe("xterm-256color");
     expect(env.WERK_SESSION).toBe(session.id);
     await t.daemon.close();
@@ -724,8 +728,8 @@ test("native sessions receive caller environment without persisting secrets", as
       expect(text).not.toContain("fresh-private-value");
     }
   } finally {
-    if (previous === undefined) delete process.env.SESSION_TEST_STALE_ENV;
-    else process.env.SESSION_TEST_STALE_ENV = previous;
+    if (previous === undefined) delete process.env.SESSION_TEST_DAEMON_ENV;
+    else process.env.SESSION_TEST_DAEMON_ENV = previous;
     await t.close();
   }
 });

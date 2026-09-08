@@ -49,6 +49,7 @@ async function serve(dir: string, runtime = "run") {
   return serveSessionDaemon({
     runtimeDir: path.join(dir, runtime),
     stateDir: path.join(dir, "state"),
+    version: "test",
     engineFactory: await loadTerminalEngine(),
     // Long enough that only an explicit check runs during a test.
     limits: { superviseIntervalMs: 60_000 },
@@ -243,6 +244,7 @@ test("the daemon touches its files so an age-based cleaner sees them as recent",
   const daemon = await serveSessionDaemon({
     runtimeDir: path.join(dir, "run"),
     stateDir: path.join(dir, "state"),
+    version: "test",
     engineFactory: await loadTerminalEngine(),
     limits: { superviseIntervalMs: 60_000, touchIntervalMs: 1 },
   });

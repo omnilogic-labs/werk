@@ -19,20 +19,20 @@ alone, and what each dependency is for.
 
 ## The command tree
 
-| Command                 | What it does                                                            |
-| ----------------------- | ----------------------------------------------------------------------- |
-| `create -- COMMAND ...` | Start a session running a command, in a new workspace, and attach to it |
-| `list` (`ls`)           | List sessions                                                           |
-| `attach [session]`      | Go back to a running session; Ctrl-] detaches                           |
-| `logs [session]`        | Print what a session has on screen, or what it has kept                 |
-| `kill [session]`        | Ask a session's process to stop                                         |
-| `remove` (`rm`)         | Forget a session that has stopped                                       |
-| `watch`                 | Print daemon events as JSON lines until interrupted                     |
-| `info`                  | Print where werk keeps things and what the daemon says                  |
-| `doctor`                | Check the local daemon and print the end of its log                     |
-| `config`                | `list`, `get <key>`, `sources`, `path`                                  |
-| `completion`            | `bash`, `zsh`, `fish`: print a shell completion script                  |
-| `daemon`                | `serve`: run the daemon in this process until it is signalled           |
+| Command                 | What it does                                                                  |
+| ----------------------- | ----------------------------------------------------------------------------- |
+| `create -- COMMAND ...` | Start a session running a command, in a new workspace, and attach to it       |
+| `list` (`ls`)           | List sessions                                                                 |
+| `attach [session]`      | Go back to a running session; Ctrl-] detaches                                 |
+| `logs [session]`        | Print what a session has on screen, or what it has kept                       |
+| `kill [session]`        | Ask a session's process to stop                                               |
+| `remove` (`rm`)         | Forget a session that has stopped                                             |
+| `watch`                 | Print daemon events as JSON lines until interrupted                           |
+| `info`                  | Print where werk keeps things and what the daemon says                        |
+| `doctor`                | Check the local daemon and print the end of its log                           |
+| `config`                | `list`, `get <key>`, `sources`, `path`                                        |
+| `completion`            | `bash`, `zsh`, `fish`: print a shell completion script                        |
+| `daemon`                | `serve`: run the daemon in this process; `endpoint`: print what to connect to |
 
 One more is accepted and not listed. `complete` answers the shell completion
 protocol and is a wire format rather than something a person types.
@@ -726,8 +726,38 @@ binary's entry is a `/$bunfs/` virtual path no child could open.
 `serve` stays visible in help rather than being hidden, because an operator
 pointing systemd or launchd at werk cannot discover a hidden command.
 
-`info`, `doctor` and completion never start a daemon; they report what is on
-disk plus whatever a daemon that is already listening says about itself.
+`werk daemon endpoint` is the pair to it: `info` says where werk keeps things,
+and `endpoint` says what is listening, in the form something else could dial. It
+prints the endpoint record — `{"kind":"unix","path":…}` or
+`{"kind":"tcp","host":"127.0.0.1","port":…,"credential":…}` — the runtime and
+state directories, the pid, the version the daemon reports and the build of the
+werk that asked. Under `--json` the record is complete enough to connect with,
+so a TCP endpoint's credential is in it; the human block leaves the credential
+out, because a secret printed to a terminal ends up in a scrollback or a pasted
+bug report.
+
+`endpoint` never starts a daemon unless it is given `--ensure`. Without it, no
+daemon listening is exit 7 and nothing is spawned.
+
+`info`, `doctor` and completion never start a daemon either; they report what is
+on disk plus whatever a daemon that is already listening says about itself.
+
+### One version identity
+
+`werk --version`, the string the CLI hands `serveSessionDaemon`, and therefore
+`daemonInfo().version` are all one string. It is the package version, the git
+short SHA the binary was built from, and a `-dirty` marker where the tree had
+uncommitted changes: `0.0.0-a1b2c3d`, or `0.0.0-a1b2c3d-dirty`. `build.ts`
+derives it and defines it into the compiled binary as `WERK_BUILD`, and nothing
+generated is committed. An interpreted run reads the define through a `typeof`
+guard and reports `0.0.0-source` instead, because a working tree is not an
+artefact and inventing a build id for one would be a lie.
+
+What we are currently trying to make this good for is one question: a client
+that ships a werk binary to a machine asking whether the binary over there is
+the one it would send. Answering that needs one identity rather than two. Treat
+the comparison as a hint rather than a guarantee — nothing here is signed, and
+two trees with the same SHA can differ in what was never committed.
 
 The runtime directory defaults to `/tmp/werk-UID` on POSIX and
 `%LOCALAPPDATA%\werk\run` on Windows. A Unix socket path is capped at 103 bytes,

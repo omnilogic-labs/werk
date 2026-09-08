@@ -112,6 +112,7 @@ test("the tree still holds the commands werk documents", () => {
     "werk completion fish",
     "werk daemon",
     "werk daemon serve",
+    "werk daemon endpoint",
     "werk complete",
   ]);
 });

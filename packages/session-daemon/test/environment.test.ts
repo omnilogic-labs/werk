@@ -4,7 +4,11 @@ import {
   sessionEnvironment,
   validateEnvironment,
 } from "../src/environment";
-import { clientEnvironment } from "../../werk/src/environment";
+import {
+  clientEnvironment,
+  remoteEnvironment,
+  REMOTE_FORWARDED,
+} from "../../werk/src/environment";
 
 test("CLI forwards current caller values and removes terminal and shell state", () => {
   expect(
@@ -23,42 +27,74 @@ test("CLI forwards current caller values and removes terminal and shell state", 
   });
 });
 
-test("explicit environment is isolated and terminal identity is owned", () => {
+test("only the names travelling to another machine are forwarded there", () => {
+  expect(
+    remoteEnvironment({
+      LANG: "en_GB.UTF-8",
+      TZ: "Europe/London",
+      NO_COLOR: "1",
+      PATH: "/home/mike/.local/bin:/usr/bin",
+      HOME: "/home/mike",
+      SHELL: "/bin/zsh",
+      TMPDIR: "/var/folders/xy/T/",
+      SSH_AUTH_SOCK: "/private/tmp/ssh-abc/agent.501",
+      AWS_SECRET_ACCESS_KEY: "secret",
+      NVM_DIR: "/home/mike/.nvm",
+      missing: undefined,
+    }),
+  ).toEqual({ LANG: "en_GB.UTF-8", TZ: "Europe/London", NO_COLOR: "1" });
+});
+
+test("nothing outside the remote allowlist can be forwarded by accident", () => {
+  const everything = Object.fromEntries(
+    [...REMOTE_FORWARDED, "PATH", "HOME", "API_KEY"].map((key) => [key, key]),
+  );
+  expect(Object.keys(remoteEnvironment(everything)).sort()).toEqual(
+    [...REMOTE_FORWARDED].sort(),
+  );
+  expect(remoteEnvironment({})).toEqual({});
+});
+
+test("what the client sends is an overlay on the daemon's own environment", () => {
   const source = {
-    PATH: "/bin",
-    SECRET: "stale",
+    PATH: "/daemon/bin",
+    NVM_DIR: "/home/remote/.nvm",
+    SECRET: "the daemon's",
     WERK_INTERNAL: "old",
     LINES: "90",
   };
   const env = sessionEnvironment(
-    { API_KEY: "fresh", TERM: "wrong", WERK_SESSION: "wrong" },
+    { API_KEY: "fresh", PATH: "/client/bin", TERM: "wrong" },
     "session",
     "daemon",
     "1",
     source,
     false,
   );
-  expect(env).toEqual({
-    PATH: "/bin",
-    API_KEY: "fresh",
-    TERM: "xterm-256color",
-    COLORTERM: "truecolor",
-    TERM_PROGRAM: "werk",
-    TERM_PROGRAM_VERSION: "1",
-    WERK_SESSION: "session",
-    WERK_DAEMON: "daemon",
-  });
-  const inherited = sessionEnvironment(
-    undefined,
-    "session",
-    "daemon",
-    "1",
-    source,
-    false,
-  );
-  expect(inherited.SECRET).toBe("stale");
-  expect(inherited.WERK_INTERNAL).toBeUndefined();
-  expect(inherited.LINES).toBeUndefined();
+  // Named by the client, so the client's value wins.
+  expect(env.PATH).toBe("/client/bin");
+  expect(env.API_KEY).toBe("fresh");
+  // Not named by the client, so the daemon's own value survives. This is the
+  // rule: sending an environment narrows nothing.
+  expect(env.NVM_DIR).toBe("/home/remote/.nvm");
+  expect(env.SECRET).toBe("the daemon's");
+  // The daemon's own run, not the session's.
+  expect(env.WERK_INTERNAL).toBeUndefined();
+  expect(env.LINES).toBeUndefined();
+  // The last layer is werk's, whatever the client asked for.
+  expect(env.TERM).toBe("xterm-256color");
+  expect(env.TERM_PROGRAM).toBe("werk");
+  expect(env.TERM_PROGRAM_VERSION).toBe("1");
+  expect(env.WERK_SESSION).toBe("session");
+  expect(env.WERK_DAEMON).toBe("daemon");
+});
+
+test("sending no environment at all is the same base as sending one", () => {
+  const source = { PATH: "/daemon/bin", SECRET: "the daemon's", LINES: "90" };
+  const sent = sessionEnvironment({}, "s", "d", "1", source, false);
+  const none = sessionEnvironment(undefined, "s", "d", "1", source, false);
+  expect(sent).toEqual(none);
+  expect(none.SECRET).toBe("the daemon's");
 });
 
 test("daemon startup keeps only the documented base and configuration", () => {
@@ -85,7 +121,7 @@ test("daemon startup keeps only the documented base and configuration", () => {
   });
 });
 
-test("Windows environment merges case-insensitively with a runnable system base", () => {
+test("Windows names merge case-insensitively and the caller's spelling wins once", () => {
   const env = sessionEnvironment(
     { Path: "caller", term: "wrong" },
     "s",
@@ -95,7 +131,7 @@ test("Windows environment merges case-insensitively with a runnable system base"
       PATH: "daemon",
       SystemRoot: "C:\\Windows",
       ComSpec: "cmd.exe",
-      SECRET: "old",
+      SECRET: "the daemon's",
     },
     true,
   );
@@ -103,7 +139,7 @@ test("Windows environment merges case-insensitively with a runnable system base"
   expect(env.TERM).toBe("xterm-256color");
   expect(env.SYSTEMROOT).toBe("C:\\Windows");
   expect(env.COMSPEC).toBe("cmd.exe");
-  expect(env.SECRET).toBeUndefined();
+  expect(env.SECRET).toBe("the daemon's");
   expect(
     Object.keys(env).filter((key) => key.toUpperCase() === "PATH"),
   ).toHaveLength(1);

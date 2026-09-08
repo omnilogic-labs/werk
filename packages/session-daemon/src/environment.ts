@@ -51,6 +51,28 @@ export function daemonEnvironment(
   );
 }
 
+/**
+ * What a session runs with: the daemon's own environment, then whatever the
+ * client sent on top of it, then the few names werk owns outright.
+ *
+ * The client's `env` is an overlay rather than a specification. Nothing asks a
+ * client to describe a whole environment, and it is not in a position to: on a
+ * daemon running on another machine the interesting values — `NVM_DIR`,
+ * `CARGO_HOME`, the tool paths a login shell exported — are facts about that
+ * machine, and a base narrow enough to be "safe" would throw all of them away.
+ * So the base is always what the daemon has, and a client changes only what it
+ * names.
+ *
+ * How wide that base is depends on how the daemon was started, which is where
+ * it should be decided: one the CLI spawned has `daemonEnvironment()`'s narrow
+ * set, and one an operator started from a login shell has everything that shell
+ * had.
+ *
+ * `WERK_*`, `LINES` and `COLUMNS` are dropped from the base because they
+ * describe the daemon's own run rather than the session's, and the last layer
+ * is owned outright: a session's terminal identity is what the daemon made it,
+ * not what a client asked for.
+ */
 export function sessionEnvironment(
   env: Record<string, string> | undefined,
   sessionId: string,
@@ -59,15 +81,10 @@ export function sessionEnvironment(
   source: Environment = process.env,
   windows = process.platform === "win32",
 ) {
-  const base =
-    env === undefined
-      ? select(source, (key) => {
-          const name = windows ? key.toUpperCase() : key;
-          return (
-            !name.startsWith("WERK_") && name !== "LINES" && name !== "COLUMNS"
-          );
-        })
-      : minimal(source, windows);
+  const base = select(source, (key) => {
+    const name = windows ? key.toUpperCase() : key;
+    return !name.startsWith("WERK_") && name !== "LINES" && name !== "COLUMNS";
+  });
   return merge(windows, base, env ?? {}, {
     TERM: "xterm-256color",
     COLORTERM: "truecolor",

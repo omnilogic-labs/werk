@@ -26,6 +26,7 @@ import {
 } from "../src/commands/attach.js";
 import { buildKill, renderTermination } from "../src/commands/kill.js";
 import { renderInspection, type Inspection } from "../src/commands/inspect.js";
+import { describeEndpoint, renderEndpoint } from "../src/commands/daemon.js";
 import { aliasesOf, resolveSession } from "../src/commands/session-argument.js";
 import { listResult, sourcesResult } from "../src/commands/config.js";
 import { builtInDefaults, CONFIG_KEYS } from "../src/config/schema.js";
@@ -263,6 +264,58 @@ test("an empty log says so rather than showing nothing", () => {
       context(),
     ),
   ).toContain("the log is empty");
+});
+test("an endpoint is named in the form somebody would dial it", () => {
+  expect(
+    describeEndpoint({ kind: "unix", path: "/run/werk/daemon.sock" }),
+  ).toBe("unix /run/werk/daemon.sock");
+  expect(
+    describeEndpoint({
+      kind: "tcp",
+      host: "127.0.0.1",
+      port: 49731,
+      credential: "s3cret",
+    }),
+  ).toBe("tcp 127.0.0.1:49731");
+});
+test("the endpoint block keeps a TCP credential out of the terminal", () => {
+  const text = renderEndpoint(
+    {
+      endpoint: {
+        kind: "tcp",
+        host: "127.0.0.1",
+        port: 49731,
+        credential: "s3cret",
+      },
+      runtimeDir: "/run/werk",
+      stateDir: "/state/werk",
+      pid: 42,
+      version: "0.0.0-a1b2c3d",
+      build: "0.0.0-a1b2c3d",
+    },
+    context(),
+  );
+  expect(text).toContain("tcp 127.0.0.1:49731");
+  expect(text).toContain("pid       42");
+  expect(text).toContain("0.0.0-a1b2c3d");
+  expect(text).not.toContain("s3cret");
+});
+test("a daemon with no record on disk says so rather than showing a pid", () => {
+  const text = renderEndpoint(
+    {
+      endpoint: { kind: "unix", path: "/run/werk/daemon.sock" },
+      runtimeDir: "/run/werk",
+      stateDir: "/state/werk",
+      pid: null,
+      version: "0.0.0-a1b2c3d",
+      build: "0.0.0-source",
+    },
+    context(),
+  );
+  expect(text).toContain("not recorded");
+  // Two identities, which is the case the two rows exist to make visible.
+  expect(text).toContain("0.0.0-a1b2c3d");
+  expect(text).toContain("0.0.0-source");
 });
 test("create refuses to start nothing, and says what it needs", async () => {
   setChildArgv([]);

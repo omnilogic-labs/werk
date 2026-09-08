@@ -65,21 +65,27 @@ export async function connectDaemon(
  * return undefined for every reason it might not be there. Nothing here throws:
  * a completion that raised would put an error message where the shell expects
  * candidates.
+ *
+ * The endpoint comes back with the client because reaching a daemon is the only
+ * proof that the record on disk describes a daemon at all, and `werk daemon
+ * endpoint` wants to print the thing it just connected through rather than
+ * whatever a stale file said.
  */
 export async function connectExistingDaemon(
   paths: DaemonPaths,
   timeoutMs = 150,
-): Promise<SessionClient | undefined> {
+): Promise<{ client: SessionClient; endpoint: LocalEndpoint } | undefined> {
   try {
     const resolved = resolveSessionDaemonPaths(paths);
     const endpoint = JSON.parse(
       await fs.readFile(resolved.endpoint, "utf8"),
     ) as LocalEndpoint;
-    return await connectSessionClient({
+    const client = await connectSessionClient({
       transport: await openLocalTransport(endpoint, timeoutMs),
       credential: endpoint.kind === "tcp" ? endpoint.credential : undefined,
       requestTimeoutMs: timeoutMs,
     });
+    return { client, endpoint };
   } catch {
     return undefined;
   }

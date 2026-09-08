@@ -48,6 +48,7 @@ test("built browser paints DOM, reconnects, resizes and lazily swaps to beamterm
   const daemon = await serveSessionDaemon({
     runtimeDir: join(root, "run"),
     stateDir: join(root, "state"),
+    version: "test",
     engineFactory: await loadTerminalEngine(),
   });
   const client = await connectSessionClient({

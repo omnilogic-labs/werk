@@ -21,6 +21,7 @@ import { describeRoot } from "./commands/define.js";
 import { GLOBAL_FLAGS } from "./runtime/argv.js";
 import { errorPayload, UsageError, usageMessage } from "./runtime/exit.js";
 import { helpConfiguration, helpFooter } from "./runtime/help.js";
+import { werkVersion } from "./runtime/version.js";
 // Lives with the chrome that draws it, because the render path cannot import
 // this module without closing a cycle back through the command table.
 import { DETACH_HINT } from "./view.js";
@@ -63,7 +64,9 @@ export function buildProgram(
   const json = jsonRequested(argv);
   const program = new Command("werk")
     .description("Start a process somewhere and come back to it later.")
-    .version("0.0.0", "-V, --version", "print the version and exit")
+    // The one identity: what this prints is what the CLI hands the daemon it
+    // starts, so `werk --version` and `daemonInfo().version` cannot disagree.
+    .version(werkVersion(), "-V, --version", "print the version and exit")
     .configureHelp(helpConfiguration(style))
     // Commander strips any colour it did not decide on (`command.js`
     // `_getOutputContext`), so handing it the gate is what makes `--color`,

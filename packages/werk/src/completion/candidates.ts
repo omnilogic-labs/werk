@@ -64,11 +64,12 @@ export async function liveSessions(
   const lookup = (async () => {
     // No entry path: nothing on this route can spawn, so there is nothing for a
     // child process to be told to run.
-    const client = await connectExistingDaemon(
+    const existing = await connectExistingDaemon(
       { runtimeDir: ctx.runtimeDir, stateDir: ctx.stateDir, entry: "" },
       BUDGET_MS,
     );
-    if (!client) return [];
+    if (!existing) return [];
+    const { client } = existing;
     try {
       return await client.list({});
     } catch {

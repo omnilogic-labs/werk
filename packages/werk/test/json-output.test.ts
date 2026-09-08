@@ -138,6 +138,27 @@ test(
   TIMEOUT,
 );
 test(
+  "daemon endpoint answers with something a client could dial",
+  async () => {
+    const report = (await runJson("daemon", "endpoint")) as {
+      endpoint: { kind: string };
+      runtimeDir: string;
+      stateDir: string;
+      pid: number | null;
+      version: string;
+      build: string;
+    };
+    expect(["unix", "tcp"]).toContain(report.endpoint.kind);
+    expect(report.runtimeDir).toBe(runtimeDir);
+    expect(report.stateDir).toBe(stateDir);
+    expect(report.pid).toBeInteger();
+    // The daemon under test was started by this same werk, so the identity it
+    // reports and the identity of the binary that asked are one string.
+    expect(report.version).toBe(report.build);
+  },
+  TIMEOUT,
+);
+test(
   "config answers on every one of its subcommands",
   async () => {
     expect(await runJson("config", "list")).toBeArray();
@@ -194,6 +215,7 @@ const EXERCISED = [
   "werk remove",
   "werk info",
   "werk doctor",
+  "werk daemon endpoint",
   "werk config list",
   "werk config get",
   "werk config sources",

@@ -115,6 +115,7 @@ test("daemon logs spawn, checkpoint and internal failures without request payloa
   const daemon = await serveSessionDaemon({
     runtimeDir: path.join(dir, "run"),
     stateDir,
+    version: "test",
     engineFactory: await loadTerminalEngine(),
     log: {
       write(_level, event, fields) {

@@ -72,6 +72,19 @@ export interface DaemonConfig {
   logLevel?: LogLevel;
   runtimeDir: string;
   stateDir: string;
+  /**
+   * What this daemon calls itself, reported by `daemonInfo()` and written into
+   * `$stateDir/daemon.json`. The daemon cannot know it: the string names the
+   * artefact that started it, and only whoever built that artefact can say
+   * what it is. So it is asked for rather than defaulted, and the CLI passes
+   * the identity `werk --version` prints.
+   *
+   * What we are currently trying to make this good for: a client that ships a
+   * werk binary to a machine comparing what it would send against what is
+   * already running there. That works only while the two strings come from one
+   * place, which is why there is no fallback here to disagree with.
+   */
+  version: string;
   engineFactory: TerminalEngineFactory;
   limits?: {
     sessions?: number;
@@ -296,7 +309,7 @@ export async function createSessionDaemon(config: DaemonConfig) {
   }
   const info: DaemonInfo = {
     id,
-    version: "0.1.0",
+    version: config.version,
     protocolVersion: PROTOCOL_VERSION,
     engine: {
       buildId: config.engineFactory.buildId,
