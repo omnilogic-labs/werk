@@ -47,27 +47,32 @@ detail, and detail is expected to churn, sometimes twice in a day.
 
 ## Prove it on a runner, then land it
 
-The gates below run on this machine. Three things do not:
+werk runs on Linux, macOS and Windows, and draws a terminal in a browser. **The
+machine you are on covers at most one of those.** Find out what yours actually
+covers rather than assuming, and say which checks that leaves ungraded:
 
-- **Windows and macOS.** There is no such host here. `#30` and `#31` are open
-  failures on those platforms.
-- **The browser lane.** The pinned Playwright refuses chromium on this host.
+- **The other two platforms.** Whichever you are not on, you cannot observe. `#30`
+  and `#31` are open failures on macOS and Windows.
+- **The browser lane.** `bun run test:browser` needs Playwright to have a browser
+  for your host. Run it once and see. It has been seen refusing to install one on
+  a host newer than the pinned release knows about, in which case the lane is
+  unavailable to you and installing a newer browser does not help, because the
+  pinned Playwright will not use it.
 
-So a green local suite is not evidence about any of them, and the loop that
-produces evidence is: commit, publish your own branch, dispatch a run against
-it, read what the runners say, fix, dispatch again. `docs/ci.md` explains it and
-`scripts/ci-run.ts` does it. GitHub runs any ref `origin` already holds, with no
-merge and no pull request.
+So a green local suite is evidence about your platform and nothing else. The loop
+that produces the rest is: commit, publish your own branch, dispatch a run
+against it, read what the runners say, fix, dispatch again. `docs/ci.md` explains
+it and `scripts/ci-run.ts` does it. GitHub runs any ref `origin` already holds,
+with no merge and no pull request.
 
-**Publish your own branch freely. Never push `main`.** Integration is
-serialised and happens after the evidence exists, not before it. A regression
-reached `main` in exactly the gap this closes: a browser assertion pinned a
-colour the palette no longer paints, the unit that broke it could not run that
-lane locally and substituted a walk of the page, and only CI saw it.
+**Publish your own branch freely. Never push `main`.** Integration is serialised
+and happens after the evidence exists, not before it. A regression reached `main`
+in exactly the gap this closes: a browser assertion pinned a colour the palette no
+longer painted, the unit that broke it could not run that lane on its machine and
+substituted a walk of the page, and only CI saw it.
 
-When something genuinely cannot be verified here, mark it `UNVERIFIED` and say
-what the grade therefore does not assert. Do not pass it on inspection. Several
-units have done this correctly and it is the behaviour wanted.
+When something cannot be verified where you are, mark it `UNVERIFIED` and say what
+the grade therefore does not assert. Do not pass it on inspection.
 
 ## The toolchain, and the order it goes in
 
@@ -100,16 +105,16 @@ take the base's copy and re-run `bun install` rather than merging it by hand.
 A unit's port is reported by `provision` and is that unit's alone. Whoever
 starts a server stops it, and stopping it means **signalling the process
 group**: the pid a launch reports is commonly a wrapper, and the port is held by
-a child. That has been observed here directly, with a reported pid of 830881 and
-the port held by 830885.
+a child. That has been observed in this repository directly: a launch reported one pid
+while a child of it held the port.
 
-A unix socket path is capped at 103 bytes and a worktree path exceeds it, so a
-daemon started for testing runs against the `RUNTIME_DIR` and `STATE_DIR` that
-`provision` reports, under `/tmp`, not inside the worktree.
+A unix socket path is capped at around 100 bytes on Unix, and a worktree path
+can exceed it, so a daemon started for testing runs against the `RUNTIME_DIR` and
+`STATE_DIR` that `provision` reports rather than a path inside the worktree.
 
-There is usually a `werk daemon serve` running on this machine that belongs to
-the primary checkout and to the person using it. It is not yours. Confirm what a
-process is before signalling it, by working directory, never by command name.
+A `werk daemon serve` belonging to the primary checkout, and to whoever is using
+it, is commonly running alongside you. It is not yours. Confirm what a process is
+before signalling it, by working directory, never by command name.
 
 ## Your memory is tracked in this repository
 
@@ -132,9 +137,9 @@ That applies to whoever dispatches the integrator too.
 ## Prose
 
 British spelling, plain sentences, no filler, no em dashes in new text. The
-`plain-writing` skill is the standard `CLAUDE.md` points at; if it is not
-invocable by name, read it from
-`/home/mike/Development/is4co/agent-skills/skills/plain-writing/`.
+`plain-writing` skill is the standard `CLAUDE.md` points at. If it is not
+invocable by name where you are, it is a directory of markdown you can read
+directly; find where it is installed rather than skipping it.
 
 A rewrite of user-facing prose can quietly turn a true sentence into a false
 one. It happened here: a footer became "every command prints its result as

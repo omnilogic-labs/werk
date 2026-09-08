@@ -2,19 +2,14 @@
 # Worktree lifecycle for the night-shift pipeline. One subcommand per hook.
 set -euo pipefail
 
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$here/lib.sh"
+
 root="$(git rev-parse --show-toplevel)"
 base="$(sed -n 's/^base_branch: *//p' "$root/.claude/night-shift.md" | head -1)"
 base="${base:-main}"
 
 slug_path() { printf '%s/.claude/worktrees/%s' "$root" "$1"; }
-
-# A port nobody else in the run holds. Derived from the slug so it is stable
-# across calls, and reported rather than assumed by anyone.
-slug_port() {
-  local n
-  n=$(printf '%s' "$1" | cksum | cut -d' ' -f1)
-  printf '%s' $((4300 + n % 200))
-}
 
 case "${1:-}" in
 new)

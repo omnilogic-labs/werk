@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Stop what a unit left running in its own worktree. Selects by working
-# directory and by the unit's own port, never by command name: matching on a
-# name reaches into other lanes and kills the app another unit is verifying.
+# directory, never by command name: matching on a name reaches into other lanes
+# and kills the app another unit is verifying.
 set -uo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$here/lib.sh"
 
 root="$(git rev-parse --show-toplevel)"
 slug="${1:?slug required}"
@@ -11,30 +13,33 @@ dry=""
 path="$root/.claude/worktrees/$slug"
 acted=0
 
-for p in /proc/[0-9]*; do
-  pid="${p##*/}"
-  cwd="$(readlink "$p/cwd" 2>/dev/null)" || continue
+cwds="$(list_cwds)" || { echo "verdict: could not look; nothing swept"; exit 9; }
+
+while IFS=$'\t' read -r pid cwd; do
+  [ -z "${pid:-}" ] && continue
+  [ "$pid" = "$$" ] && continue
   case "$cwd" in
-    "$path"|"$path"/*)
-      [ "$pid" = "$$" ] && continue
-      pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')" || continue
-      echo "pid $pid pgid $pgid cwd $cwd"
-      acted=1
-      # The pid a launch reports is often a wrapper; the port is held by a
-      # child. Signalling the group is what actually frees it.
-      [ -z "$dry" ] && kill -TERM "-$pgid" 2>/dev/null
-      ;;
+    "$path"|"$path"/*) ;;
+    *) continue ;;
   esac
-done
+  pgid="$(pgid_of "$pid")"
+  echo "pid $pid pgid ${pgid:-unknown} cwd $cwd"
+  acted=1
+  # The pid a launch reports is often a wrapper and a child holds the port, so
+  # signalling the group is what actually frees it.
+  [ -z "$dry" ] && [ -n "$pgid" ] && kill -TERM "-$pgid" 2>/dev/null
+done <<<"$cwds"
 
 [ -n "$dry" ] && { echo "dry run, nothing signalled"; exit 0; }
 sleep 1
 
 survivors=0
-for p in /proc/[0-9]*; do
-  cwd="$(readlink "$p/cwd" 2>/dev/null)" || continue
-  case "$cwd" in "$path"|"$path"/*) [ "${p##*/}" = "$$" ] || survivors=1 ;; esac
-done
+cwds="$(list_cwds)" || { echo "verdict: swept, but could not confirm"; exit 9; }
+while IFS=$'\t' read -r pid cwd; do
+  [ -z "${pid:-}" ] && continue
+  [ "$pid" = "$$" ] && continue
+  case "$cwd" in "$path"|"$path"/*) survivors=1 ;; esac
+done <<<"$cwds"
 
 if [ "$survivors" = 1 ]; then echo "verdict: something survived"; exit 4; fi
 [ "$acted" = 0 ] && echo "verdict: nothing was running"
