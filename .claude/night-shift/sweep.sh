@@ -12,6 +12,10 @@ dry=""
 [ "${2:-}" = "--dry-run" ] && dry=1
 path="$root/.claude/worktrees/$slug"
 acted=0
+# Never signal the group this script is running in. An agent that calls sweep
+# from inside the worktree it is sweeping would otherwise stop its own shell,
+# which the hook contract forbids and which looks exactly like a crash.
+own_pgid="$(pgid_of $$)"
 
 cwds="$(list_cwds)" || { echo "verdict: could not look; nothing swept"; exit 9; }
 
@@ -23,6 +27,10 @@ while IFS=$'\t' read -r pid cwd; do
     *) continue ;;
   esac
   pgid="$(pgid_of "$pid")"
+  if [ -n "$pgid" ] && [ "$pgid" = "$own_pgid" ]; then
+    echo "pid $pid: skipped, it is the caller's own process group"
+    continue
+  fi
   echo "pid $pid pgid ${pgid:-unknown} cwd $cwd"
   acted=1
   # The pid a launch reports is often a wrapper and a child holds the port, so
@@ -38,6 +46,7 @@ cwds="$(list_cwds)" || { echo "verdict: swept, but could not confirm"; exit 9; }
 while IFS=$'\t' read -r pid cwd; do
   [ -z "${pid:-}" ] && continue
   [ "$pid" = "$$" ] && continue
+  [ "$(pgid_of "$pid")" = "$own_pgid" ] && continue
   case "$cwd" in "$path"|"$path"/*) survivors=1 ;; esac
 done <<<"$cwds"
 
