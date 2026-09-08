@@ -75,13 +75,15 @@ substituted a walk of the page, and only CI saw it.
 against that baseline rather than against green.
 
 **`UNVERIFIED` is for what no runner can reach.** A platform whose lane exists
-and was not run is a lane nobody ran, not a limit anybody hit. The one real gap
-is local: `bun run test:browser` needs Playwright to have a browser for your
-host, and it has been seen refusing to install one on a host newer than its
-pinned release knows about, where installing a newer browser does not help. The
-`browser` lane on a runner is unaffected. When something genuinely cannot be
-verified, mark it `UNVERIFIED` and say what the grade therefore does not assert.
-Do not pass it on inspection.
+and was not run is a lane nobody ran, not a limit anybody hit. When something
+genuinely cannot be verified, mark it `UNVERIFIED` and say what the grade
+therefore does not assert. Do not pass it on inspection.
+
+`bun run test:browser` needs a browser on this machine and Playwright refuses
+hosts it has no build for. The lane has been run here and passes, so it is not
+out of reach. `bun run browser:install` is the attempt to make getting there one
+step, and `docs/continue/cleanup.md` carries what is proved, what is not, and
+the manual recipe that worked.
 
 ## The toolchain, and the order it goes in
 

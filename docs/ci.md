@@ -19,6 +19,27 @@ by name, which is what "Starting a run on demand" below is for.
 | `browser` | `ubuntu-latest`                                   | Playwright chromium against `examples/session-web`                     |
 | `soak`    | a self-hosted Linux x64 runner                    | A run longer than a hosted job's six-hour cap                          |
 
+The `browser` lane also runs on this machine. It has been run here, and it
+passes. Getting there is not one step, because Playwright publishes builds for a
+list of distributions and this host is not on it.
+
+`bun run browser:install` is the attempt to make that one step. It runs the
+plain install first and only reaches for `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE`
+once Playwright has refused, reading the host out of the refusal rather than
+naming it, and it waits for the executable to appear rather than for the
+installer to exit, because the installer has been seen finishing its work and
+then never exiting. Whether it gets a browser here unaided has not been shown
+end to end yet; `docs/continue/cleanup.md` has the state and the manual recipe
+that did work.
+
+The lane wants that same override set when it runs, not only when it installs,
+because Playwright resolves the browser directory from the detected host. It
+also wants two browsers, `chromium` and `chromium-headless-shell`.
+
+A borrowed build is linked against the borrowed release's libraries, so a local
+pass is weaker evidence than the lane on a runner, which is where the lane's
+verdict comes from.
+
 The `native` matrix keeps `fail-fast: false`. One platform failing should not
 cancel the evidence the other two were about to produce.
 
