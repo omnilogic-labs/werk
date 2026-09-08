@@ -65,7 +65,7 @@ against it, read what the runners say, fix, dispatch again. `docs/ci.md` explain
 it and `scripts/ci-run.ts` does it. GitHub runs any ref `origin` already holds,
 with no merge and no pull request.
 
-**Publish your own branch freely. Never push `main`.** Integration is serialised
+**Publish your own branch freely.** Integration is serialised
 and happens after the evidence exists, not before it. A regression reached `main`
 in exactly the gap this closes: a browser assertion pinned a colour the palette no
 longer painted, the unit that broke it could not run that lane on its machine and
