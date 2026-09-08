@@ -84,11 +84,19 @@ interface Bench {
  * written the way the CLI writes it rather than being fabricated here.
  */
 async function bench(name = "fix-login", label = "bench"): Promise<Bench> {
-  const source = await scratch(label);
-  await git(source, "init", "-q", "-b", "main", ".");
-  await writeFile(path.join(source, "README.md"), "first\n");
-  await git(source, "add", "README.md");
-  await git(source, "commit", "-q", "-m", "first");
+  const made = await scratch(label);
+  await git(made, "init", "-q", "-b", "main", ".");
+  await writeFile(path.join(made, "README.md"), "first\n");
+  await git(made, "add", "README.md");
+  await git(made, "commit", "-q", "-m", "first");
+  // git's own answer, not the path the directory was made at. On macOS a
+  // temporary directory is under `/var`, which is a symlink, and git reports
+  // `/private/var`. A record filed under one and looked for under the other is
+  // a record nothing finds — which is why every caller in the product keys off
+  // `rev-parse --show-toplevel` and why this does too.
+  const source = (
+    await git(made, "rev-parse", "--show-toplevel")
+  ).stdout.trim();
 
   const root = await scratch("root");
   const scratchRoot = await scratch("landings");

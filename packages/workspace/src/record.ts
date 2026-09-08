@@ -94,6 +94,12 @@ const FILE_MODE = 0o600;
 /**
  * The records for the repository at `toplevel`, under `root`.
  *
+ * `toplevel` is what `git rev-parse --show-toplevel` answered, never a path a
+ * caller happened to have. git resolves symlinks and a caller usually has not:
+ * on macOS a repository made at `/var/folders/...` is reported at
+ * `/private/var/folders/...`, and the two digest to different slots, so a record
+ * filed under one is invisible under the other.
+ *
  * `root` is the same directory the local maker puts worktrees under, and the
  * slot is the same slot, so a repository's records and its workspaces sit
  * together. The file is `<name>.json` and the workspace is `<name>`, which is

@@ -57,6 +57,11 @@ const git = (cwd: string, ...args: string[]) =>
 async function repository(): Promise<string> {
   const directory = await mkdtemp(join(box.root, "repo-"));
   await git(directory, "init", "-q", "-b", "main", ".");
+  // The landing's commit is made by werk, not by the helper above, so the
+  // identity has to be in the repository rather than passed per command. A CI
+  // runner has none configured and git refuses without one.
+  await git(directory, "config", "user.name", "werk test");
+  await git(directory, "config", "user.email", "test@example.invalid");
   await writeFile(join(directory, "README.md"), "committed\n");
   await git(directory, "add", "README.md");
   await git(directory, "commit", "-q", "-m", "init");

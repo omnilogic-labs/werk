@@ -69,6 +69,11 @@ const git = (cwd: string, ...args: string[]) =>
 beforeAll(async () => {
   box = await sandbox("wkj");
   await git(box.root, "init", "-q", "-b", "main", ".");
+  // `land` commits through werk rather than through this file's `git` helper,
+  // so the identity has to be in the repository. A runner has none configured,
+  // which is what git refuses on.
+  await git(box.root, "config", "user.name", "werk test");
+  await git(box.root, "config", "user.email", "test@example.invalid");
   await git(box.root, "commit", "-q", "--allow-empty", "-m", "init");
 });
 afterAll(() => box.dispose());
