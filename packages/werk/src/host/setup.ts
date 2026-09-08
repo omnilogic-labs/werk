@@ -696,11 +696,15 @@ export async function runHostSetup(
     if (!ctx.yes && (ctx.json || !canPrompt(ctx))) {
       // Not under `--json`: the record carries a `skipped` state and a `why`,
       // which is the same statement in the register that caller reads.
+      // A statement, not the question followed by an explanation of why it was
+      // asked of nobody: there is no terminal, so asking at all would be
+      // printing a question that cannot be answered.
       if (!ctx.json)
         ctx.writeError(
-          `${question} werk left it alone: the block is not marked ` +
-            `rerunOnChange and there is no terminal to ask in. Pass --yes to ` +
-            `run it, or \`werk setup --host ${name} --force\`.\n`,
+          `The setup for ${name} has changed since werk last ran it, and werk ` +
+            `left it alone: the block is not marked rerunOnChange and there is ` +
+            `no terminal to ask in. Pass --yes to run it, or ` +
+            `\`werk setup --host ${name} --force\`.\n`,
         );
       return {
         state: "skipped",
