@@ -1,12 +1,16 @@
 ---
 name: format-check-scans-agent-memory
-description: werk's `bun run format:check` runs `prettier --check .`, which includes `.claude/agent-memory/`; another agent's unformatted memory file fails the gate in the primary checkout
+description: bun run format:check covers .claude/agent-memory, so another agent's unformatted memory file fails the gate when the change under test is clean
 metadata:
   type: project
 ---
 
-`bun run format:check` in werk is `prettier --check .` with no exclusion for `.claude/agent-memory/`, so an untracked memory file another agent wrote (typically `*emphasis*` where prettier wants `_emphasis_`) fails the gate even when the change under test is clean.
+`bun run format:check` is `prettier --check .` with no exclusion for
+`.claude/agent-memory/`, so an untracked memory file another agent is part way
+through writing fails the gate. The usual offender is `*emphasis*` where
+prettier wants `_emphasis_`.
 
-**Why:** Seen 2026-09-07 while integrating the platform-bugs branch: every gate passed and format:check failed only on `.claude/agent-memory/night-shift-delegate/...md`, an untracked file from a concurrently running delegate.
-
-**How to apply:** When format:check fails, read the warned file list before touching anything. If the only offenders are outside the unit, confirm with `bunx prettier --check . '!<file>'` and report it as an environment fault with the exact `bunx prettier --write <file>` fix, rather than editing another agent's memory file mid-run.
+Read the warned file list before touching anything. If the only offenders are
+outside your unit, confirm with `bunx prettier --check . '!<file>'` and report
+an environment fault naming the `bunx prettier --write <file>` fix. Do not edit
+another agent's memory file mid-run.

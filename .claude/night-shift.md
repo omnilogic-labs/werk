@@ -95,7 +95,7 @@ bun run format:check
 
 `bun run test` names each package's test directory explicitly, so **a new
 package's tests do not run until it is added to that script**, and `scripts/`
-is not in it at all. `bun run test:browser` cannot run here.
+is not in it at all.
 
 `bun.lock` regenerates on any `bun install`. If it conflicts at integration,
 take the base's copy and re-run `bun install` rather than merging it by hand.
@@ -118,10 +118,33 @@ before signalling it, by working directory, never by command name.
 
 ## Your memory is tracked in this repository
 
-`.claude/agent-memory/<role>/` is committed. Write what you learn there **in
-your worktree** and include it in your commit and in `FILES`. Never write into
-the primary checkout's copy: another agent's integrator may be mid-merge in that
-tree, and an unstaged edit appearing under it is at best confusing.
+`.claude/agent-memory/<role>/` is committed and every agent that arrives reads
+all of it, so its length is a cost everyone pays. Write what you learn there
+**in your worktree** and include it in your commit and in `FILES`. Never write
+into the primary checkout's copy: another agent's integrator may be mid-merge in
+that tree, and an unstaged edit appearing under it is at best confusing.
+
+What earns a file is the one thing the next unit would get wrong without it. If
+reading it would not change what someone does, it is not a memory.
+
+**Write it about the repository, not about your machine.** The test is whether
+the sentence stays true for someone on macOS or Windows. Where the fact is about
+your host, record what the reader has to find out on theirs, the way the sections
+above this one do. No absolute paths out of a home directory, no host
+identifiers, no process ids. Do not date-stamp a claim to keep it alive either: a
+list of which lanes are failing today rots within the week, so point at the open
+issues instead.
+
+Keep it to a handful of lines. Past roughly twenty-five it is a document, and a
+document belongs in `docs/`, or on the issue that commissioned it, where somebody
+maintains it. Do not restate what this file, `CLAUDE.md` or `docs/` already says;
+two copies of a fact go stale separately and the reader cannot tell which is
+current.
+
+Prefer editing an existing file to adding one. Read the role's memory before you
+write, and update its `MEMORY.md` in the same commit so the index matches the
+directory. The prose standard below applies to memory as much as to anything
+else.
 
 ## Conflicts
 
@@ -139,7 +162,9 @@ That applies to whoever dispatches the integrator too.
 British spelling, plain sentences, no filler, no em dashes in new text. The
 `plain-writing` skill is the standard `CLAUDE.md` points at. If it is not
 invocable by name where you are, it is a directory of markdown you can read
-directly; find where it is installed rather than skipping it.
+directly; find where it is installed rather than skipping it. A skills directory
+can look empty when it is not, because `find` does not follow symlinks by
+default, so use `find -L` or `ls` before concluding the files are missing.
 
 A rewrite of user-facing prose can quietly turn a true sentence into a false
 one. It happened here: a footer became "every command prints its result as

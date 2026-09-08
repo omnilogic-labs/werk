@@ -1,9 +1,6 @@
-- [No pinned literals in tests](feedback-no-help-output-snapshots.md) — never pin help text or a colour hex; read the expected value off its source of truth
-- [Browser lane not gradeable locally](browser-lane-not-gradeable-locally.md) — pinned Playwright refuses chromium on this host; grade test:browser UNVERIFIED, don't install
-- [Where the plain-writing skill lives](reference-plain-writing-skill.md) — not in ~/.claude/skills; read the files from the agent-skills repo
-- [Grading workflow changes](grading-workflow-changes.md) — dispatch a real CI run for any workflow edit; dispatch both the lane and `all`; which reds are baseline
-- [Platform-code survey findings](platform-code-survey-findings.md) — how mature projects sequester platform code, the firm negatives, and Bun facts verified on this machine
-- [session-daemon platform risk](session-daemon-platform-risk.md) — platformCapabilities is wire-visible; exactly three tests cannot run on a Linux dev box
-- [Push and run real CI](push-and-run-real-ci.md) — push your branch and dispatch a matrix run for platform changes; a green Linux run proves nothing about macOS or Windows
-- [Adopt the theme, not the palette](feedback-adopt-the-theme-not-the-palette.md) — if output is unchanged on an unthemed host, the adoption has not happened
-- [chalk downsamples pastels to white](reference-chalk-downsamples-to-white.md) — at colour level 1 hex() answers SGR 37/97; write the ANSI slot yourself
+- [Dispatch a real CI run](dispatch-a-real-ci-run.md): publish the branch and dispatch a real run
+- [Adopt the theme, not the palette](feedback-adopt-the-theme-not-the-palette.md): unchanged output on an unthemed host is not adoption
+- [No pinned literals in tests](feedback-no-help-output-snapshots.md): read the expected value off its source of truth
+- [Platform-code selection traps](platform-code-selection-traps.md): no OS condition in exports; an unset feature() flag is false
+- [chalk downsamples pastels to white](reference-chalk-downsamples-to-white.md): at level 1 hex() answers SGR 37/97
+- [session-daemon platform risk](session-daemon-platform-risk.md): platformCapabilities is wire-visible; three tests need Windows or root
