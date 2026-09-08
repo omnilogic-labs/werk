@@ -105,6 +105,13 @@ export const EXCEPTIONS: Exception[] = [
     disposition: "stays",
   },
   {
+    path: "packages/werk/src/host/transfer.ts",
+    allowed: 2,
+    reason:
+      "Splits a path on the machine being sent to, which is POSIX by construction: werk builds Linux targets only and refuses anything else before a transfer starts. Asking this machine instead would put backslashes in a remote path whenever the client runs on Windows, so the branch is the fix rather than the problem.",
+    disposition: "stays",
+  },
+  {
     path: "scripts/check-artefacts.ts",
     allowed: 2,
     reason:
