@@ -1,7 +1,7 @@
 ---
 repo: omnilogic-labs/werk
 base_branch: main
-push_policy: never
+push_policy: after-each
 concurrency_cap: 3
 priority_order: [security, bug, feature]
 
