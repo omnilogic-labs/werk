@@ -7,6 +7,13 @@ your repository there on a fresh branch, gives you a terminal that survives your
 laptop closing, and shows you every one of those, across every machine, in one
 list you can open from a terminal or a browser.
 
+**Load the `plain-writing` skill before you write anything.** It applies to
+everything you produce here, not just the documents: code comments, commit
+messages, pull request descriptions, the strings the CLI prints, issue and
+pull request comments, and what you write back in the conversation.
+[Prose style](#prose-style) says what this repository adds to the skill and
+what to do when it is not installed.
+
 ## What this repo is right now
 
 A Bun workspace of eight private packages: six libraries, and two consumers
@@ -206,11 +213,8 @@ British spelling, plain sentences, no filler. Tables where a table is genuinely
 clearer than a list. Prettier formats markdown on defaults, so run `bun run
 format` before committing.
 
-Everything a person reads is prose held to the same standard: the strings the
-CLI prints, the documents in `docs/`, the README files, commit messages and pull
-request descriptions. Use the `plain-writing` skill on all of it. Read it before
-writing, follow it, and run its revision pass over the draft. Where it and this
-section disagree, this section wins.
+Read the `plain-writing` skill before writing, follow it, and run its revision
+pass over the draft. Where it and this section disagree, this section wins.
 
 If the `plain-writing` skill is not installed, follow this section instead and
 say so in your report. No work waits on it.
