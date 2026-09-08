@@ -222,7 +222,8 @@ packages/werk/dist/werk doctor
 `werk create` also makes a workspace for the session: a git worktree of the
 repository you are standing in, on a new branch, under `$stateDir/workspaces`,
 and the session runs in that worktree rather than in your checkout.
-`--workspace NAME` names it and its branch. See
+Unless `--workspace NAME` or `--describe TEXT` settles the name, `create` asks
+what the workspace is for and makes the name out of the answer. See
 [packages/workspace](../packages/workspace/README.md) for what the interface
 does and what it deliberately leaves open.
 
