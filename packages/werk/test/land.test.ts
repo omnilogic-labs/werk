@@ -86,9 +86,9 @@ async function repository(): Promise<string> {
 /**
  * A workspace made the way a person makes one, and a commit in it.
  *
- * `--detach -- /bin/true` because the session is not what is being tested: the
- * workspace and the record `create` writes beside it are, and those are made
- * before the daemon is asked for anything.
+ * The command is one that exits at once, because the session is not what is
+ * being tested: the workspace and the record `create` writes beside it are, and
+ * those are made before the daemon is asked for anything.
  */
 async function workspace(
   repo: string,
@@ -99,7 +99,7 @@ async function workspace(
   const created = await runWerk({
     sandbox: box,
     cwd: repo,
-    args: ["--json", "create", "--workspace", name, "--", "/bin/true"],
+    args: ["--json", "create", "--workspace", name, "--", ...EXITS_AT_ONCE],
     timeoutMs: TIMEOUT,
   });
   expect(created.code).toBe(0);

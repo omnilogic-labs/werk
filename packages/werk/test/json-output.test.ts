@@ -157,7 +157,7 @@ test(
       squashed: 1,
       landed: true,
     });
-    // `/bin/true` has already exited, so the session is only a record. It is
+    // The command has already exited, so the session is only a record. It is
     // forgotten here so that the list this file later requires to be empty is
     // about the session that test made and not about this one.
     await runJson("remove", created.id);
