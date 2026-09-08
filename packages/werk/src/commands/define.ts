@@ -56,32 +56,40 @@ export interface CommandSpec {
 }
 
 /**
- * Specs by command, so `withContext` and the error path can find the rules for
- * whichever command is running without threading them through commander.
+ * Specs by command, so `withContext`, the error path and the help renderer can
+ * find the rules for whichever command is running without threading them
+ * through commander.
  */
 const SPECS = new WeakMap<Command, CommandSpec>();
 export const specFor = (command: Command): CommandSpec | undefined =>
   SPECS.get(command);
+
+/**
+ * Give the root program the parts of a spec it can have.
+ *
+ * The root is the program itself rather than a command, so it is built in
+ * `app.ts` and not by `defineCommand`. Its examples still belong on the same
+ * shelf as everyone else's: one lookup renders every page in the tree, and a
+ * second path for the root alone is a second thing to keep in step.
+ */
+export function describeRoot(
+  command: Command,
+  spec: Pick<CommandSpec, "examples"> & Partial<Pick<CommandSpec, "notes">>,
+): Command {
+  SPECS.set(command, {
+    name: command.name(),
+    summary: command.description(),
+    description: command.description(),
+    ...spec,
+  });
+  return command;
+}
 
 /** The rules of this command that what was typed does not satisfy. */
 export function unmetRequirements(command: Command): string[] {
   const spec = SPECS.get(command);
   if (!spec?.requires) return [];
   return spec.requires.filter((rule) => !rule.met(command)).map((r) => r.need);
-}
-
-/**
- * Notes line up two spaces after the longest invocation that has one. Measuring
- * only the annotated lines keeps one long unannotated example from pushing every
- * note off to the right of the terminal.
- */
-function examplesBlock(spec: CommandSpec): string {
-  const annotated = spec.examples.filter((e) => e.note);
-  const width = Math.max(0, ...annotated.map((e) => e.run.length));
-  const lines = spec.examples.map(({ run, note }) =>
-    note ? `  $ ${run.padEnd(width)}  ${note}` : `  $ ${run}`,
-  );
-  return `\nExamples:\n${lines.join("\n")}${spec.notes ? `\n\n${spec.notes}` : ""}`;
 }
 
 /**
@@ -160,11 +168,7 @@ export function augmentErrors(command: Command): Command {
  */
 export function defineCommand(spec: CommandSpec): Command {
   const command: Command = new Command(spec.name);
-  command
-    .summary(spec.summary)
-    .description(spec.description)
-    .addHelpText("after", examplesBlock(spec))
-    .exitOverride();
+  command.summary(spec.summary).description(spec.description).exitOverride();
   if (spec.usage) command.usage(spec.usage);
   for (const alias of spec.aliases ?? []) command.alias(alias);
   SPECS.set(command, spec);

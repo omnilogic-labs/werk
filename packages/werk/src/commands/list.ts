@@ -64,7 +64,7 @@ export function buildList(): Command {
       { run: "werk list --json | jq '.[].id'" },
     ],
     notes:
-      "A finished session stays listed until it is removed, so its outcome is\nstill readable.",
+      "A finished session stays listed until it is removed, so its outcome is still readable.",
   })
     .addOption(
       completes(

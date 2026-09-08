@@ -50,7 +50,7 @@ export function buildKill(): Command {
       { run: "werk kill", note: "pick from a list" },
     ],
     notes:
-      "The record stays until it is removed; kill stops the process, not the\nsession.",
+      "The record stays until it is removed; kill stops the process, not the session.",
   });
   kill
     .addArgument(sessionArgument())

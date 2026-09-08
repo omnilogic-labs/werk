@@ -9,10 +9,10 @@
  * stops being read and starts being reset.
  *
  * The one thing asserted about rendered text is that a command's declared
- * examples reach the page. `addHelpText` is implemented as `beforeHelp` and
- * `afterHelp` listeners that only `outputHelp()` fires — `helpInformation()`
- * returns a string without them — so this is the check that the examples a
- * command declares are examples a person is shown.
+ * examples reach the page. What a person sees is what `outputHelp()` writes
+ * rather than what `helpInformation()` returns: the footer arrives through
+ * `addHelpText`, which is implemented as listeners only `outputHelp()` fires.
+ * How the page is laid out is `help-format.test.ts`.
  */
 import { expect, test } from "bun:test";
 import type { Command } from "@commander-js/extra-typings";

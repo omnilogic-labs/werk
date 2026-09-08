@@ -5,8 +5,8 @@
  * built by `defineCommand` from a spec, so what a command is for and what it
  * needs is declared rather than remembered; see `commands/define.ts`.
  *
- * Help styling is wired to werk's own colour gate rather than to commander's:
- * the gate has to answer before parsing begins, because commander prints help
+ * How a help page reads is `runtime/help.ts`; what it says is here. The colour
+ * gate has to answer before parsing begins, because commander prints help
  * during the parse, so it reads the environment and the raw argv rather than
  * parsed flags. `--json` is read the same way and for the same reason — a
  * failure during the parse has to know which register to answer in before any
@@ -16,12 +16,12 @@ import { Command } from "@commander-js/extra-typings";
 import { colourLevelFromArgv } from "./runtime/colour.js";
 import { Chalk } from "chalk";
 import { COMMANDS, HIDDEN_COMMANDS } from "./commands/index.js";
+import { describeRoot } from "./commands/define.js";
 import { GLOBAL_FLAGS } from "./runtime/argv.js";
 import { errorPayload, UsageError, usageMessage } from "./runtime/exit.js";
-
-// Defined beside the chrome that shows it: the render path cannot import this
-// module without closing a cycle back through the command table.
-export { DETACH_HINT } from "./view.js";
+import { helpConfiguration, helpFooter } from "./runtime/help.js";
+// Lives with the chrome that draws it, because the render path cannot import
+// this module without closing a cycle back through the command table.
 import { DETACH_HINT } from "./view.js";
 
 /**
@@ -57,19 +57,11 @@ export function buildProgram(
   const program = new Command("werk")
     .description("Start a process somewhere and come back to it later.")
     .version("0.0.0", "-V, --version", "print the version and exit")
-    .configureHelp({
-      styleTitle: (s) => c.bold(s),
-      styleCommandText: (s) => c.cyan(s),
-      styleSubcommandTerm: (s) => c.cyan(s),
-      styleOptionTerm: (s) => c.green(s),
-      styleArgumentTerm: (s) => c.green(s),
-      styleDescriptionText: (s) => c.dim(s),
-      showGlobalOptions: true,
-    })
+    .configureHelp(helpConfiguration(c))
     // Commander strips any colour it did not decide on (`command.js`
     // `_getOutputContext`), so handing it the gate is what makes `--color`,
     // `--no-color` and `NO_COLOR` govern help as well as command output. Without
-    // this the styles above are computed and then thrown away.
+    // this the help module's styles are computed and then thrown away.
     .configureOutput({
       getOutHasColors: () => level > 0,
       getErrHasColors: () => level > 0,
@@ -99,15 +91,21 @@ export function buildProgram(
   for (const build of COMMANDS) program.addCommand(inherit(build(), program));
   for (const build of HIDDEN_COMMANDS)
     program.addCommand(inherit(build(), program), { hidden: true });
-  program.addHelpText(
-    "after",
-    `
-Examples:
-  $ werk create --name demo -- claude       start a session running claude
-  $ werk list                               what is running
-  $ werk attach demo                        go back to it (${DETACH_HINT})
-
-Every command takes --json for machine-readable output.`,
+  describeRoot(program, {
+    examples: [
+      {
+        run: "werk create --name demo -- claude",
+        note: "start a session running claude",
+      },
+      { run: "werk list", note: "what is running" },
+      { run: "werk attach demo", note: `go back to it (${DETACH_HINT})` },
+    ],
+  });
+  // Registered once, on the root, and inherited by every page below it:
+  // commander fires an `afterAll` listener for each ancestor of the command
+  // whose help is being printed.
+  program.addHelpText("afterAll", ({ command }) =>
+    helpFooter(command as Command),
   );
   return program;
 }
