@@ -267,13 +267,19 @@ pages are pruned.
 
 ## Environment
 
-`create({ env })` treats the supplied environment as a complete caller
-configuration, applied over a minimal daemon base of `PATH`, `HOME`, `USER`,
-`LOGNAME`, `SHELL`, `LANG`, plus Windows system and profile variables. Omitting
-`env` inherits the daemon's environment instead, minus its `WERK_*`, `LINES` and
-`COLUMNS`.
+`create({ env })` is an overlay rather than a replacement. The base is always
+the daemon's own environment, minus its `WERK_*`, `LINES` and `COLUMNS`, which
+describe the daemon's run rather than the session's. A name the client says
+nothing about keeps the daemon's value; a name the client sends wins.
 
-In both modes the daemon owns `TERM=xterm-256color`, `COLORTERM=truecolor`,
+The overlay is what makes a daemon on another machine usable. The tool paths and
+the exports that machine's login shell set are facts about it, and a base
+narrowed to a fixed list would throw all of them away. How wide the base is
+therefore follows from how the daemon was started rather than from what the
+client sent: one the CLI spawned has a narrow set, one an operator started from a
+login shell has everything that shell had.
+
+The daemon owns `TERM=xterm-256color`, `COLORTERM=truecolor`,
 `TERM_PROGRAM=werk`, `TERM_PROGRAM_VERSION`, `WERK_SESSION` and `WERK_DAEMON`.
 Windows variable names merge case-insensitively. Environment values are never
 stored in session metadata or checkpoints.

@@ -67,11 +67,34 @@ export * from "./local.js";
 export * from "./log.js";
 export * from "./supervise.js";
 export * from "./diagnostics.js";
+// The lock is a general "one of these at a time on this machine" and not only a
+// daemon's. The CLI takes one while it creates an ssh forward, for the same
+// reason the daemon takes one while it binds: two of them racing produces two
+// answers where the point is to have one.
+export {
+  acquireDaemonLock,
+  probeLockMechanism,
+  type LockMechanism,
+  type LockRelease,
+} from "./platform/lock.js";
 export interface DaemonConfig {
   log?: Logger;
   logLevel?: LogLevel;
   runtimeDir: string;
   stateDir: string;
+  /**
+   * What this daemon calls itself, reported by `daemonInfo()` and written into
+   * `$stateDir/daemon.json`. The daemon cannot know it: the string names the
+   * artefact that started it, and only whoever built that artefact can say
+   * what it is. So it is asked for rather than defaulted, and the CLI passes
+   * the identity `werk --version` prints.
+   *
+   * What we are currently trying to make this good for: a client that ships a
+   * werk binary to a machine comparing what it would send against what is
+   * already running there. That works only while the two strings come from one
+   * place, which is why there is no fallback here to disagree with.
+   */
+  version: string;
   engineFactory: TerminalEngineFactory;
   limits?: {
     sessions?: number;
@@ -296,7 +319,7 @@ export async function createSessionDaemon(config: DaemonConfig) {
   }
   const info: DaemonInfo = {
     id,
-    version: "0.1.0",
+    version: config.version,
     protocolVersion: PROTOCOL_VERSION,
     engine: {
       buildId: config.engineFactory.buildId,

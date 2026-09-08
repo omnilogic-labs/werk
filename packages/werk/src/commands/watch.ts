@@ -29,7 +29,8 @@ export function buildWatch(): Command {
     notes: "Runs until it is interrupted.",
   }).action(
     withContext(async (ctx) => {
-      const client = await connectDaemon(ctx);
+      const daemon = await connectDaemon(ctx);
+      const { client } = daemon;
       try {
         const stop = client.watch((event: DaemonEvent) =>
           ctx.write(JSON.stringify(event) + "\n"),
@@ -47,7 +48,7 @@ export function buildWatch(): Command {
           process.off("SIGTERM", finish);
         }
       } finally {
-        await client.close();
+        await daemon.close();
       }
     }),
   );

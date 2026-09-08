@@ -10,7 +10,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createLocalWorktreeHost } from "../src/local.js";
+import { createLocalWorktreeMaker } from "../src/local.js";
 import { WorkspaceError } from "../src/types.js";
 import type { GitResult, GitRunner } from "../src/git.js";
 
@@ -34,7 +34,7 @@ async function failureOf(
 ): Promise<WorkspaceError> {
   const root = await mkdtemp(path.join(tmpdir(), "werk-classify-"));
   try {
-    const host = createLocalWorktreeHost({ root, git });
+    const host = createLocalWorktreeMaker({ root, git });
     await host.create({ name, from: { kind: "local-checkout", path: root } });
     throw new Error("expected a failure");
   } catch (error) {
@@ -115,7 +115,7 @@ test("a spawn failure that is not a missing git is not swallowed", async () => {
   };
   const root = await mkdtemp(path.join(tmpdir(), "werk-classify-"));
   try {
-    const host = createLocalWorktreeHost({ root, git: broken });
+    const host = createLocalWorktreeMaker({ root, git: broken });
     await expect(
       host.create({
         name: "demo",
@@ -128,7 +128,7 @@ test("a spawn failure that is not a missing git is not swallowed", async () => {
 });
 
 test("the host says which kind of place it makes workspaces in", () => {
-  expect(createLocalWorktreeHost({ root: "/tmp/x" }).kind).toBe(
+  expect(createLocalWorktreeMaker({ root: "/tmp/x" }).kind).toBe(
     "local-worktree",
   );
 });

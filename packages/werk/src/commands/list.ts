@@ -11,12 +11,12 @@ import {
   Option,
 } from "@commander-js/extra-typings";
 import type { SessionInfo, SessionState } from "@werk/session";
-import { localWorkspaceAt } from "@werk/workspace";
+import { workspaceAt } from "@werk/workspace";
 import { withContext } from "./shared.js";
-import { workspaceRoot } from "./create.js";
 import { defineCommand } from "./define.js";
 import { tableResult } from "../runtime/output.js";
 import { connectDaemon } from "../runtime/daemon.js";
+import { reachHost } from "../host/place.js";
 import { completes } from "../completion/hooks.js";
 import { labelCandidates } from "../completion/candidates.js";
 
@@ -57,13 +57,16 @@ export function buildList(): Command {
     aliases: ["ls"],
     summary: "List sessions",
     description:
-      "Show the sessions this daemon holds, running or finished, as a table " +
-      "for a person and as records for anything else.",
+      "Show the sessions one daemon holds, running or finished, as a table " +
+      "for a person and as records for anything else. That is the daemon on " +
+      "this machine, or on the machine --host names. There is no view across " +
+      "machines, and a workspace with no session in it is not listed anywhere.",
     examples: [
       { run: "werk list" },
       { run: "werk list --state running" },
       { run: "werk list --label project=werk" },
       { run: "werk list --json | jq '.[].id'" },
+      { run: "werk list --host beast", note: "what is running over there" },
     ],
     notes:
       "A finished session stays listed until it is removed, so its outcome is still readable.",
@@ -87,7 +90,9 @@ export function buildList(): Command {
           ctx,
           opts: { label: Record<string, string>; state?: string },
         ) => {
-          const client = await connectDaemon(ctx);
+          const place = await reachHost(ctx);
+          const daemon = await connectDaemon(ctx, place.session);
+          const { client } = daemon;
           try {
             const sessions = await client.list({
               labels: opts.label,
@@ -100,16 +105,16 @@ export function buildList(): Command {
                   ? ctx.style.error(text)
                   : ctx.style.muted(text);
             // The workspace is recovered from where the session was started,
-            // because nothing records which workspaces exist. A session started
-            // outside this host's workspace root leaves the column blank.
-            const root = workspaceRoot(ctx);
+            // against the root of the machine this daemon is on, because
+            // nothing records which workspaces exist. A session started outside
+            // that root leaves the column blank.
             return tableResult(
               sessions,
               ["ID", "NAME", "WORKSPACE", "STATE", "AGE", "COMMAND"],
               sessions.map((s) => [
                 s.id.slice(0, 12),
                 s.name,
-                localWorkspaceAt(root, s.cwd)?.name ?? "",
+                workspaceAt(place.root, s.cwd, place.reference)?.name ?? "",
                 stateText(s, paint),
                 age(s.createdAt),
                 s.argv.join(" "),
@@ -117,7 +122,8 @@ export function buildList(): Command {
               5,
             );
           } finally {
-            await client.close();
+            await daemon.close();
+            await place.close().catch(() => {});
           }
         },
       ),

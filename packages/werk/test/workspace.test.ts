@@ -7,35 +7,24 @@
  * starts in it, and that a workspace which cannot be made fails without leaving
  * a daemon behind.
  *
- * Its runtime and state directories are its own, so it does not fight the
- * daemon `json-output.test.ts` runs in the same `bun test` invocation. They
- * live under a short `/tmp` path because a Unix socket path is capped at 103
- * bytes and a deeply nested one fails to bind.
+ * Its sandbox is its own, so it does not fight the daemon
+ * `json-output.test.ts` runs in the same `bun test` invocation, and its
+ * directories live under a short `/tmp` path because a Unix socket path is
+ * capped at 103 bytes and a deeply nested one fails to bind.
  */
 import { afterAll, expect, test } from "bun:test";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { localWorkspaceAt } from "@werk/workspace";
+import { workspaceAt } from "@werk/workspace";
+import { runWerk, sandbox, type WerkRun } from "./support/run.js";
 
 const run = promisify(execFile);
-const MAIN = join(import.meta.dir, "../src/main.ts");
 const TIMEOUT = 30000;
 
-const home = await mkdtemp("/tmp/wkw-");
-const runtimeDir = join(home, "r");
-const stateDir = join(home, "s");
-
-afterAll(async () => {
-  try {
-    const record = JSON.parse(
-      await readFile(join(stateDir, "daemon.json"), "utf8"),
-    );
-    if (Number.isInteger(record?.pid)) process.kill(record.pid, "SIGTERM");
-  } catch {}
-  await rm(home, { recursive: true, force: true }).catch(() => {});
-});
+const box = await sandbox("wkw");
+afterAll(box.dispose);
 
 const git = (cwd: string, ...args: string[]) =>
   run(
@@ -54,7 +43,7 @@ const git = (cwd: string, ...args: string[]) =>
 
 /** A repository with a commit, since that is the least git will branch from. */
 async function repository(): Promise<string> {
-  const directory = await mkdtemp(join(home, "repo-"));
+  const directory = await mkdtemp(join(box.root, "repo-"));
   await git(directory, "init", "-q", "-b", "main", ".");
   await Bun.write(join(directory, "README.md"), "committed\n");
   await git(directory, "add", "README.md");
@@ -62,30 +51,15 @@ async function repository(): Promise<string> {
   return directory;
 }
 
-interface Ran {
-  code: number;
-  stdout: string;
-  stderr: string;
+async function werk(cwd: string, ...args: string[]): Promise<WerkRun> {
+  return await runWerk({
+    sandbox: box,
+    args: ["--json", ...args],
+    cwd,
+    timeoutMs: TIMEOUT,
+  });
 }
-async function werk(cwd: string, ...args: string[]): Promise<Ran> {
-  const child = Bun.spawn(
-    [
-      process.execPath,
-      MAIN,
-      "--json",
-      "--runtime-dir",
-      runtimeDir,
-      "--state-dir",
-      stateDir,
-      ...args,
-    ],
-    { cwd, stdout: "pipe", stderr: "pipe" },
-  );
-  const stdout = await new Response(child.stdout).text();
-  const stderr = await new Response(child.stderr).text();
-  return { code: await child.exited, stdout, stderr };
-}
-const failure = (ran: Ran) => JSON.parse(ran.stderr.trim()).error;
+const failure = (ran: WerkRun) => JSON.parse(ran.stderr.trim()).error;
 
 test(
   "a workspace is made without being asked for, and the session runs in it",
@@ -104,7 +78,7 @@ test(
     expect(info.cwd).not.toBe(source);
     expect((await stat(info.workspace.directory)).isDirectory()).toBe(true);
     expect(
-      info.workspace.directory.startsWith(join(stateDir, "workspaces")),
+      info.workspace.directory.startsWith(join(box.stateDir, "workspaces")),
     ).toBe(true);
     // The one notation, composed from this record's own fields rather than
     // from a shape written out here, so the record and the notation cannot
@@ -114,7 +88,7 @@ test(
     );
     // The reference a real run produced is one the package recovers from the
     // directory alone, which is the route `werk list` and the chrome take.
-    expect(localWorkspaceAt(join(stateDir, "workspaces"), info.cwd)).toEqual({
+    expect(workspaceAt(join(box.stateDir, "workspaces"), info.cwd)).toEqual({
       name: info.workspace.name,
       directory: info.workspace.directory,
     });
@@ -185,33 +159,21 @@ test(
 test(
   "outside a repository it is a usage failure that starts no daemon",
   async () => {
-    // Its own runtime and state directories, with no daemon in them, so that
-    // "no daemon was left behind" is a statement about this run alone.
-    const alone = await mkdtemp("/tmp/wkw-solo-");
+    // A sandbox of its own, with no daemon in it, so that "no daemon was left
+    // behind" is a statement about this run alone.
+    const alone = await sandbox("wkwsolo");
     try {
-      const child = Bun.spawn(
-        [
-          process.execPath,
-          MAIN,
-          "--json",
-          "--runtime-dir",
-          join(alone, "r"),
-          "--state-dir",
-          join(alone, "s"),
-          "create",
-          "--",
-          "sleep",
-          "30",
-        ],
-        { cwd: alone, stdout: "pipe", stderr: "pipe" },
-      );
-      const stderr = await new Response(child.stderr).text();
-      expect(await child.exited).toBe(2);
-      expect(JSON.parse(stderr.trim()).error.code).toBe("NOT_A_REPOSITORY");
+      const ran = await runWerk({
+        sandbox: alone,
+        args: ["--json", "create", "--", "sleep", "30"],
+        timeoutMs: TIMEOUT,
+      });
+      expect(ran.code).toBe(2);
+      expect(JSON.parse(ran.stderr.trim()).error.code).toBe("NOT_A_REPOSITORY");
       // The daemon record is written by a daemon that started. There is none.
-      await expect(stat(join(alone, "s", "daemon.json"))).rejects.toThrow();
+      await expect(stat(join(alone.stateDir, "daemon.json"))).rejects.toThrow();
     } finally {
-      await rm(alone, { recursive: true, force: true }).catch(() => {});
+      await alone.dispose();
     }
   },
   TIMEOUT,
@@ -264,7 +226,7 @@ test(
 test(
   "a repository with no commits says so rather than reporting a git failure",
   async () => {
-    const empty = await mkdtemp(join(home, "empty-"));
+    const empty = await mkdtemp(join(box.root, "empty-"));
     await git(empty, "init", "-q", "-b", "main", ".");
     const ran = await werk(empty, "create", "--", "true");
     expect(ran.code).toBe(2);
@@ -277,7 +239,7 @@ test(
   "--cwd chooses the repository to branch from",
   async () => {
     const source = await repository();
-    const elsewhere = await mkdtemp(join(home, "elsewhere-"));
+    const elsewhere = await mkdtemp(join(box.root, "elsewhere-"));
     const ran = await werk(
       elsewhere,
       "create",
@@ -318,20 +280,14 @@ test(
     const info = JSON.parse(made.stdout.trim());
 
     // Without `--json` this is the table a person reads.
-    const table = Bun.spawn(
-      [
-        process.execPath,
-        MAIN,
-        "--runtime-dir",
-        runtimeDir,
-        "--state-dir",
-        stateDir,
-        "list",
-      ],
-      { cwd: source, stdout: "pipe", stderr: "pipe" },
-    );
-    const printed = await new Response(table.stdout).text();
-    expect(await table.exited).toBe(0);
+    const table = await runWerk({
+      sandbox: box,
+      args: ["list"],
+      cwd: source,
+      timeoutMs: TIMEOUT,
+    });
+    const printed = table.stdout;
+    expect(table.code, table.stderr).toBe(0);
     // Piped, the table is tab separated and carries no header row, so the
     // column is asserted by its position rather than by a heading.
     const row = printed

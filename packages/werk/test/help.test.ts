@@ -104,6 +104,10 @@ test("the tree still holds the commands werk documents", () => {
     "werk config",
     "werk config list",
     "werk config get",
+    "werk config set",
+    "werk config unset",
+    "werk config setup",
+    "werk config check",
     "werk config sources",
     "werk config path",
     "werk completion",
@@ -112,6 +116,7 @@ test("the tree still holds the commands werk documents", () => {
     "werk completion fish",
     "werk daemon",
     "werk daemon serve",
+    "werk daemon endpoint",
     "werk complete",
   ]);
 });

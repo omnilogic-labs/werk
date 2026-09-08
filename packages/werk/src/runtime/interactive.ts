@@ -14,7 +14,19 @@
  * would eventually disagree with the first.
  */
 import type { Readable, Writable } from "node:stream";
-import { autocomplete, confirm as askConfirm, isCancel } from "@clack/prompts";
+import {
+  autocomplete as clackAutocomplete,
+  confirm as askConfirm,
+  intro as clackIntro,
+  isCancel,
+  note as clackNote,
+  outro as clackOutro,
+  select as clackSelect,
+  spinner as clackSpinner,
+  text as clackText,
+  type Option,
+  type SpinnerResult,
+} from "@clack/prompts";
 import type { SessionInfo } from "@werk/session";
 import type { WerkContext } from "./context.js";
 import { CancelledError, UsageError } from "./exit.js";
@@ -131,7 +143,7 @@ export async function selectSession(
     );
   return await answered<string>(
     (signal) =>
-      autocomplete<string>({
+      clackAutocomplete<string>({
         message,
         options: sessionChoices(sessions),
         placeholder: "type to filter",
@@ -169,4 +181,175 @@ export async function confirm(
       }),
     options,
   );
+}
+
+/* ------------------------------------------------------------- the wrappers */
+
+/**
+ * One row of a list: the value a caller wants back, and how it reads.
+ *
+ * clack's own option type is conditional on whether the value is a primitive,
+ * which makes it awkward to write a generic wrapper against. Every list werk
+ * offers is keyed by a string, so this is the narrower shape and the conversion
+ * happens once.
+ */
+export interface Choice<T extends string> {
+  readonly value: T;
+  readonly label?: string;
+  readonly hint?: string;
+}
+
+/**
+ * clack's `Option<Value>` is conditional on `Value extends Primitive`, which
+ * TypeScript cannot resolve while `Value` is still a type parameter, so the
+ * narrowing is asserted here, once, rather than at each call.
+ */
+const rows = <T extends string>(choices: readonly Choice<T>[]) =>
+  choices.map((choice) => ({ ...choice })) as unknown as Option<T>[];
+
+/**
+ * Every prompt in werk goes through one of these.
+ *
+ * The deadline and the cancel-sentinel conversion in {@link answered} are the
+ * two things that must never be skipped, and a command that reached for clack
+ * itself would skip both. So no file under `src/commands/` imports
+ * `@clack/prompts`; a test asserts it, because the failure it prevents is a
+ * process that hangs rather than one that misbehaves visibly.
+ *
+ * The guard is repeated in each of them rather than left to the caller for the
+ * same reason: reaching a prompt with nothing to answer it is a hang, and a
+ * hang is worse than a refusal.
+ */
+function guard(ctx: WerkContext, message: string): void {
+  if (!canPrompt(ctx))
+    throw new UsageError(
+      `${message} There is no terminal to ask in, so pass the answer as a flag.`,
+    );
+}
+
+export interface TextPrompt {
+  readonly message: string;
+  /** Shown ready to edit when the prompt opens. */
+  readonly initialValue?: string;
+  readonly placeholder?: string;
+  /** What an empty answer means, when an empty answer is allowed. */
+  readonly defaultValue?: string;
+  /** A sentence when the value will not do, or undefined when it will. */
+  readonly validate?: (value: string) => string | undefined;
+}
+
+/** A line of typing. */
+export async function text(
+  ctx: WerkContext,
+  ask: TextPrompt,
+  options: PromptOptions = {},
+): Promise<string> {
+  guard(ctx, ask.message);
+  return await answered<string>(
+    (signal) =>
+      clackText({
+        message: ask.message,
+        ...(ask.initialValue === undefined
+          ? {}
+          : { initialValue: ask.initialValue }),
+        ...(ask.placeholder === undefined
+          ? {}
+          : { placeholder: ask.placeholder }),
+        ...(ask.defaultValue === undefined
+          ? {}
+          : { defaultValue: ask.defaultValue }),
+        // clack hands a validator `undefined` for an empty field; werk's are
+        // written against a string, so the two are reconciled once, here.
+        ...(ask.validate === undefined
+          ? {}
+          : { validate: (value?: string) => ask.validate!(value ?? "") }),
+        signal,
+        input: options.input,
+        output: paintOn(options),
+      }),
+    options,
+  );
+}
+
+/** One of a short list, with the cursor starting on `initialValue`. */
+export async function select<T extends string>(
+  ctx: WerkContext,
+  ask: {
+    message: string;
+    options: readonly Choice<T>[];
+    initialValue?: T;
+  },
+  options: PromptOptions = {},
+): Promise<T> {
+  guard(ctx, ask.message);
+  return await answered<T>(
+    (signal) =>
+      clackSelect<T>({
+        message: ask.message,
+        options: rows(ask.options),
+        ...(ask.initialValue === undefined
+          ? {}
+          : { initialValue: ask.initialValue }),
+        signal,
+        input: options.input,
+        output: paintOn(options),
+      }),
+    options,
+  );
+}
+
+/** One of a long list, filtered by typing. */
+export async function autocomplete<T extends string>(
+  ctx: WerkContext,
+  ask: {
+    message: string;
+    options: readonly Choice<T>[];
+    placeholder?: string;
+    maxItems?: number;
+    initialValue?: T;
+  },
+  options: PromptOptions = {},
+): Promise<T> {
+  guard(ctx, ask.message);
+  return await answered<T>(
+    (signal) =>
+      clackAutocomplete<T>({
+        message: ask.message,
+        options: rows(ask.options),
+        maxItems: ask.maxItems ?? 10,
+        ...(ask.placeholder === undefined
+          ? {}
+          : { placeholder: ask.placeholder }),
+        ...(ask.initialValue === undefined
+          ? {}
+          : { initialValue: ask.initialValue }),
+        signal,
+        input: options.input,
+        output: paintOn(options),
+      }),
+    options,
+  );
+}
+
+/**
+ * The three that say something rather than ask it. They are here so a command
+ * has one import for the whole conversation, and so they paint on stderr like
+ * everything else werk says while a command is still deciding what to answer.
+ */
+export function note(
+  message: string,
+  title?: string,
+  options: PromptOptions = {},
+): void {
+  clackNote(message, title, { output: paintOn(options) });
+}
+export function intro(title: string, options: PromptOptions = {}): void {
+  clackIntro(title, { output: paintOn(options) });
+}
+export function outro(message: string, options: PromptOptions = {}): void {
+  clackOutro(message, { output: paintOn(options) });
+}
+/** Something slow, with a sign that it is still going. */
+export function spinner(options: PromptOptions = {}): SpinnerResult {
+  return clackSpinner({ output: paintOn(options) });
 }

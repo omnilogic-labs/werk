@@ -23,8 +23,6 @@
 import { beforeAll, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import fs from "node:fs/promises";
-import path from "node:path";
-import os from "node:os";
 import { createStyles } from "../src/runtime/style.js";
 import type { SessionInfo } from "@werk/session";
 import { buildProgram } from "../src/app.js";
@@ -46,6 +44,13 @@ import {
   selectSession,
   sessionChoices,
 } from "../src/runtime/interactive.js";
+import {
+  compiledWerk,
+  runWerk,
+  sandbox,
+  type Sandbox,
+  type WerkRun,
+} from "./support/run.js";
 
 function context(overrides: Partial<WerkContext> = {}): WerkContext {
   return {
@@ -259,109 +264,69 @@ test("a nameless session is offered under its id", () => {
 
 /* ------------------------------------------------- the compiled executable */
 
-const root = path.resolve(import.meta.dir, "..");
-const binary = path.join(root, "dist", "werk");
-
-/** The newest source file, so a stale binary is rebuilt rather than trusted. */
-async function newestSource(dir: string): Promise<number> {
-  let newest = 0;
-  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    newest = Math.max(
-      newest,
-      entry.isDirectory()
-        ? await newestSource(full)
-        : (await fs.stat(full)).mtimeMs,
-    );
-  }
-  return newest;
-}
-
+let binary = "";
 beforeAll(async () => {
-  const built = await fs.stat(binary).then(
-    (s) => s.mtimeMs,
-    () => 0,
-  );
-  if (built > (await newestSource(path.join(root, "src")))) return;
-  const build = Bun.spawn([process.execPath, "run", "build"], {
-    cwd: root,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if ((await build.exited) !== 0)
-    throw new Error(await new Response(build.stderr).text());
+  binary = await compiledWerk();
 }, 300_000);
 
-interface Run {
-  code: number | null;
-  stderr: string;
-  timedOut: boolean;
-}
 /**
  * Run the CLI with a stdin that will never answer and a deadline of its own. A
  * regression here is a process that never returns, so the timeout is the
  * assertion: without it the suite would hang rather than fail.
  */
-async function run(args: string[], stdin: "ignore" | "pipe"): Promise<Run> {
-  const env = { ...process.env, NO_COLOR: "1" };
-  // CI would forbid prompting on its own, which would prove nothing about the
-  // guard: the run has to look as ordinary as the terminals it was given.
-  delete env.CI;
-  const child = Bun.spawn([binary, ...args], {
+async function run(
+  box: Sandbox,
+  args: string[],
+  stdin: "ignore" | "pipe",
+): Promise<WerkRun> {
+  return await runWerk({
+    sandbox: box,
+    args,
+    binary,
     stdin,
-    stdout: "pipe",
-    stderr: "pipe",
-    env,
+    // CI would forbid prompting on its own, which would prove nothing about
+    // the guard: the run has to look as ordinary as the terminals it was
+    // given.
+    env: { NO_COLOR: "1", CI: undefined },
+    timeoutMs: 10_000,
   });
-  const finished = child.exited.then((code) => code);
-  const timedOut = Symbol("timeout");
-  const timer = new Promise<typeof timedOut>((resolve) =>
-    setTimeout(() => resolve(timedOut), 10_000),
-  );
-  const outcome = await Promise.race([finished, timer]);
-  const stderr = await new Response(child.stderr).text();
-  if (outcome === timedOut) {
-    child.kill("SIGKILL");
-    return { code: null, stderr, timedOut: true };
-  }
-  return { code: outcome, stderr, timedOut: false };
-}
-
-async function scratch(): Promise<string> {
-  return await fs.mkdtemp(path.join(os.tmpdir(), "werk-interactive-"));
 }
 
 for (const command of ["attach", "kill", "logs", "remove"])
   test(`${command} with no session and no terminal exits 2 at once`, async () => {
-    const dir = await scratch();
-    const outcome = await run(
-      [command, "--runtime-dir", dir, "--state-dir", dir],
-      "ignore",
-    );
-    expect(outcome.timedOut).toBe(false);
-    expect(outcome.code).toBe(2);
-    expect(outcome.stderr).toMatch(/name a session/);
-    // Refusing happens before anything connects, so no daemon was started to
-    // serve a command that was never going to run.
-    expect(await fs.readdir(dir)).toEqual([]);
+    const box = await sandbox("wki");
+    try {
+      const outcome = await run(box, [command], "ignore");
+      expect(outcome.timedOut).toBe(false);
+      expect(outcome.code).toBe(2);
+      expect(outcome.stderr).toMatch(/name a session/);
+      // Refusing happens before anything connects, so no daemon was started to
+      // serve a command that was never going to run.
+      expect(await fs.readdir(box.runtimeDir)).toEqual([]);
+      expect(await fs.readdir(box.stateDir)).toEqual([]);
+    } finally {
+      await box.dispose();
+    }
   }, 30_000);
 
 test("an idle pipe is refused rather than waited on", async () => {
-  const dir = await scratch();
-  const outcome = await run(
-    ["attach", "--runtime-dir", dir, "--state-dir", dir],
-    "pipe",
-  );
-  expect(outcome.timedOut).toBe(false);
-  expect(outcome.code).toBe(2);
+  const box = await sandbox("wki");
+  try {
+    const outcome = await run(box, ["attach"], "pipe");
+    expect(outcome.timedOut).toBe(false);
+    expect(outcome.code).toBe(2);
+  } finally {
+    await box.dispose();
+  }
 }, 30_000);
 
 test("--json reports the refusal as a record", async () => {
-  const dir = await scratch();
-  const outcome = await run(
-    ["remove", "--json", "--runtime-dir", dir, "--state-dir", dir],
-    "ignore",
-  );
-  expect(outcome.code).toBe(2);
-  expect(JSON.parse(outcome.stderr).error.code).toBe("USAGE");
+  const box = await sandbox("wki");
+  try {
+    const outcome = await run(box, ["remove", "--json"], "ignore");
+    expect(outcome.code).toBe(2);
+    expect(JSON.parse(outcome.stderr).error.code).toBe("USAGE");
+  } finally {
+    await box.dispose();
+  }
 }, 30_000);

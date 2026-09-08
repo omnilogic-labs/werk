@@ -5,14 +5,34 @@
  * Commands take this rather than reaching for `process` directly, so that a test
  * can run one against string buffers with no terminal and no daemon.
  */
-import os from "node:os";
 import path from "node:path";
 import { type ColourLevel } from "./colour.js";
 import { createStyles, type Styles } from "./style.js";
 import { defaultSessionRuntimeDir } from "@werk/session-daemon";
 import type { Roles } from "@werk/palette";
 import type { RuntimeBasis } from "../commands/shared.js";
-import type { WerkConfig } from "../config/schema.js";
+import { defaultStateDir, type WerkConfig } from "../config/schema.js";
+import {
+  builtInHosts,
+  DEFAULT_HOST,
+  type Host,
+  type HostProblem,
+} from "../config/hosts.js";
+
+/**
+ * The configuration a context is built from: the settings, and the hosts that
+ * came with them.
+ *
+ * Two kinds of thing rather than one, because they merge differently — a
+ * setting key by key, a host block by block — and a command needs both. A
+ * `MergedConfig` satisfies this, so `loadWerkConfig`'s answer is handed over
+ * whole rather than taken apart at every call site.
+ */
+export interface ResolvedConfig {
+  readonly config: WerkConfig;
+  readonly hosts: Readonly<Record<string, Host>>;
+  readonly problems: readonly HostProblem[];
+}
 
 /**
  * The global flags as commander hands them over.
@@ -25,6 +45,8 @@ import type { WerkConfig } from "../config/schema.js";
  */
 export interface GlobalFlags {
   json?: boolean;
+  /** The machine to act on, named with `--host`. */
+  host?: string;
   runtimeDir?: string;
   stateDir?: string;
   logLevel?: string;
@@ -62,16 +84,17 @@ export interface WerkContext {
    */
   readonly scrollbackBytes?: number;
   readonly entry: string;
-}
-/** The state directory werk has always used; kept so existing state is found. */
-export function defaultStateDir(
-  env = process.env,
-  home = os.homedir(),
-): string {
-  return path.join(
-    env.XDG_STATE_HOME ?? path.join(home, ".local", "state"),
-    "werk",
-  );
+  /**
+   * Every host in force, by name. Together with the three below this is what
+   * `hostFor` reads to settle which machine a command acts on.
+   */
+  readonly hosts: Readonly<Record<string, Host>>;
+  /** Every host block that could not be read, and why. */
+  readonly hostProblems: readonly HostProblem[];
+  /** The host a command acts on when `--host` names none. */
+  readonly defaultHost: string;
+  /** The host `--host` named, when it named one. */
+  readonly requestedHost?: string;
 }
 /**
  * A terminal that cannot say how big it is. `process.stdout.columns` and
@@ -139,8 +162,9 @@ export function promptingForbidden(
 export function createContext(
   flags: GlobalFlags,
   basis: RuntimeBasis,
-  config?: WerkConfig,
+  resolved?: ResolvedConfig,
 ): WerkContext {
+  const config = resolved?.config;
   const { entry, level, theme } = basis;
   const env = process.env;
   const stdoutTTY = process.stdout.isTTY === true;
@@ -170,5 +194,12 @@ export function createContext(
     logLevel: config?.logLevel ?? flags.logLevel ?? env.WERK_LOG_LEVEL,
     scrollbackBytes: config?.scrollbackBytes,
     entry,
+    // The same fallback the two directories above take, and for the same
+    // caller: completion abandons the layers when they are slow, and a machine
+    // werk has without being told is a truthful answer for one that did.
+    hosts: resolved?.hosts ?? builtInHosts(),
+    hostProblems: resolved?.problems ?? [],
+    defaultHost: config?.defaultHost ?? DEFAULT_HOST,
+    ...(flags.host === undefined ? {} : { requestedHost: flags.host }),
   };
 }

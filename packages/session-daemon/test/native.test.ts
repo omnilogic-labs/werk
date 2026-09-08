@@ -186,6 +186,7 @@ test.skipIf(process.platform !== "win32")(
     const daemon = await serveSessionDaemon({
       runtimeDir: join(dir, "run"),
       stateDir: join(dir, "state"),
+      version: "test",
       engineFactory: await loadTerminalEngine(),
     });
     try {

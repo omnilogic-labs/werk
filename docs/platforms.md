@@ -35,6 +35,14 @@ be read. Steps in a lane run in order and stop at the first failure, so a lane
 that fails early leaves every step behind it unobserved. On a single-lane
 platform that makes the number of problems unknown rather than one.
 
+No lane observes werk reaching another machine, on any platform.
+`scripts/remote-smoke.ts` is the only thing that does, it needs a second box
+reachable with key authentication, and it is run by hand. Reaching a machine is
+also where Windows is furthest behind: werk builds no Windows binary to send,
+and Win32-OpenSSH forwards Unix-domain sockets in neither direction, so a
+Windows client and a Windows host are both out of reach.
+[hosts.md](hosts.md#the-windows-gap) has the shape of what would close it.
+
 Windows has already shown that. Two runs of branch `issue-30`, at `8bd72f6` and
 at `3e7b06e`, produced two different Windows failures in
 `packages/session-daemon/test/daemon.test.ts` rather than the same one twice:
@@ -47,7 +55,6 @@ problems is unknown, not one.
 The tiering says where effort goes, and the workflow implements none of it.
 Someone reading the board sees three equal failures and has to
 know the tiering to weigh them.
-
 Three facts, all readable in `.github/workflows/session-libraries.yml`:
 
 - The `native` matrix sets `fail-fast: false`, so each platform reports

@@ -232,7 +232,6 @@ command set, the two output modes, exit codes, configuration and shell
 completion, and [packages/werk](../packages/werk/README.md) for what the client
 does with a session: the status row, grid clipping, input pipelining and the
 environment it sends.
-
 For the local browser consumer, start a daemon with an explicit runtime
 directory. Any command starts one, or `werk daemon serve` holds it in the
 foreground. Then run:

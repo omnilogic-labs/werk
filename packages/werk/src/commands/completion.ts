@@ -122,10 +122,10 @@ export function buildComplete(): Command {
         // would add the whole budget to every TAB even when the layers resolved
         // in a millisecond.
         let timer: ReturnType<typeof setTimeout> | undefined;
+        // The whole merge, hosts included. They cost nothing extra — the same
+        // read produced them — and they are what `--host <TAB>` offers.
         const config = await Promise.race([
-          loadWerkConfig({ flags })
-            .then((merged) => merged.config)
-            .catch(() => undefined),
+          loadWerkConfig({ flags }).catch(() => undefined),
           new Promise<undefined>((resolve) => {
             timer = setTimeout(() => resolve(undefined), CONFIG_BUDGET_MS);
           }),

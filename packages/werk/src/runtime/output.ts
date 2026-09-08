@@ -40,6 +40,23 @@ export function tableResult<T>(
       }),
   };
 }
+/**
+ * A titled block of `label  value` lines, with the labels of one block lined up
+ * under each other. What a command that answers with a record rather than a
+ * list prints in the human register.
+ */
+export function section(
+  ctx: WerkContext,
+  title: string,
+  rows: readonly (readonly [string, string])[],
+): string {
+  if (!rows.length) return "";
+  const width = Math.max(...rows.map(([label]) => label.length));
+  const body = rows.map(
+    ([label, value]) => `  ${ctx.style.muted(label.padEnd(width))}  ${value}`,
+  );
+  return [ctx.style.emphasis(title), ...body].join("\n");
+}
 export function emit(ctx: WerkContext, value: Result<unknown> | void): void {
   if (!value) return;
   if (ctx.json) {

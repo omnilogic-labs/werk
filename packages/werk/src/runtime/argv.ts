@@ -24,17 +24,30 @@
  * and `main.ts` hoists using it, so the two cannot disagree about which flags are
  * global or which take a value.
  */
+import { hostCandidates } from "../completion/candidates.js";
+import type { CandidateProvider } from "../completion/hooks.js";
 export interface GlobalFlagSpec {
   flags: string;
   description: string;
   /** Consumes the following argv token. */
   takesValue: boolean;
+  /** Where a value for it comes from, for a flag whose values werk knows. */
+  complete?: CandidateProvider;
 }
 export const GLOBAL_FLAGS: readonly GlobalFlagSpec[] = [
   {
     flags: "--json",
     description: "print JSON instead of text",
     takesValue: false,
+  },
+  {
+    // Global rather than an option on `create`, because `attach`, `logs`,
+    // `kill`, `remove` and `list` all act on one machine too, and this table is
+    // what `app.ts` declares from and `main.ts` hoists with.
+    flags: "--host <NAME>",
+    description: "which host to act on, by the name in your config",
+    takesValue: true,
+    complete: hostCandidates,
   },
   {
     flags: "--runtime-dir <PATH>",

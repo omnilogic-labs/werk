@@ -8,6 +8,8 @@
  */
 import { SessionError, type ErrorCode } from "@werk/session";
 import { WorkspaceError, type WorkspaceErrorCode } from "@werk/workspace";
+import { ConfigError, type ConfigErrorCode } from "../config/errors.js";
+import { HostError, type HostErrorCode } from "../host/types.js";
 
 export const EXIT_OK = 0;
 export const EXIT_FAILURE = 1;
@@ -47,12 +49,17 @@ const BY_CODE: Record<ErrorCode, number> = {
 };
 
 /**
- * A workspace that could not be made, in the same three registers the daemon's
+ * A workspace that could not be made, in the same registers the daemon's
  * refusals already use: what the caller asked for is wrong, something is
- * already there, or the machine could not do it. Without this a person standing
- * outside a repository would be told `INTERNAL` and given exit 1, which is the
- * status a daemon refusal uses — exactly the collision this file exists to
- * prevent.
+ * already there, nothing answered, werk was not let in, or the machine could
+ * not do it. Without this a person standing outside a repository would be told
+ * `INTERNAL` and given exit 1, which is the status a daemon refusal uses —
+ * exactly the collision this file exists to prevent.
+ *
+ * No new statuses for the machine a workspace is being made on. "That host did
+ * not answer" and "the daemon did not answer" are the same thing to a script
+ * deciding whether to retry, and being refused by ssh is being refused, so both
+ * reuse the number that already means it.
  */
 const BY_WORKSPACE_CODE: Record<WorkspaceErrorCode, number> = {
   INVALID_NAME: EXIT_USAGE,
@@ -64,6 +71,59 @@ const BY_WORKSPACE_CODE: Record<WorkspaceErrorCode, number> = {
   DIRECTORY_EXISTS: 5,
   GIT_MISSING: EXIT_FAILURE,
   GIT_FAILED: EXIT_FAILURE,
+  // The status that already means "nothing answered", which is the same fact a
+  // caller retrying wants from a machine as from a daemon.
+  HOST_UNREACHABLE: 7,
+  // The same status a daemon uses for PERMISSION_DENIED: werk was not let in.
+  HOST_AUTH_DENIED: 4,
+  HOST_UNSUPPORTED: EXIT_FAILURE,
+  HOST_BOOTSTRAP_FAILED: EXIT_FAILURE,
+  REMOTE_GIT_MISSING: EXIT_FAILURE,
+  TRANSFER_FAILED: EXIT_FAILURE,
+};
+
+/**
+ * Configuration werk cannot act on, in the statuses that already exist. A host
+ * block that does not parse, a name nothing defines and a file that is not the
+ * TOML it claims to be are all the same thing to a caller: what werk was told
+ * is wrong, which is exit 2, the status a mistyped flag already gets. A write
+ * that failed is the machine not doing it, which is exit 1.
+ *
+ * No new statuses. Nothing scripting werk should have to learn a number to find
+ * out that a config file has a typo in it.
+ */
+const BY_CONFIG_CODE: Record<ConfigErrorCode, number> = {
+  HOST_INVALID: EXIT_USAGE,
+  HOST_NAME_INVALID: EXIT_USAGE,
+  UNKNOWN_HOST: EXIT_USAGE,
+  CONFIG_UNREADABLE: EXIT_USAGE,
+  CONFIG_WRITE_FAILED: EXIT_FAILURE,
+};
+
+/**
+ * A machine werk could not reach or could not put itself on.
+ *
+ * No new statuses, and every row that names the same fact as one in
+ * `BY_WORKSPACE_CODE` carries the same status as it. The two tables are
+ * separate because the errors are raised by different layers, but a caller
+ * cannot tell which layer noticed: reaching a machine that is asleep fails in
+ * the probe when the workspace root has to be asked for, and in the transfer
+ * when the configuration already named one. Answering 2 down one path and 7
+ * down the other would make the same machine look like a typing mistake or a
+ * timeout depending on how a host block happened to be written.
+ *
+ * So none of these is a usage status. Nobody mistyped anything: the name
+ * resolved, the block parsed, and the machine is asleep, or refused werk, or is
+ * one werk has no binary for.
+ */
+const BY_HOST_CODE: Record<HostErrorCode, number> = {
+  // The status that already means "nothing answered".
+  HOST_UNREACHABLE: 7,
+  // The same status a daemon uses for PERMISSION_DENIED: werk was not let in.
+  HOST_AUTH_FAILED: 4,
+  HOST_UNSUPPORTED: EXIT_FAILURE,
+  HOST_BOOTSTRAP_FAILED: EXIT_FAILURE,
+  HOST_DAEMON_MISSING: 7,
 };
 
 /**
@@ -103,6 +163,10 @@ export function exitCodeFor(error: unknown): number {
   if (error instanceof SessionError) return BY_CODE[error.code] ?? EXIT_FAILURE;
   if (error instanceof WorkspaceError)
     return BY_WORKSPACE_CODE[error.code] ?? EXIT_FAILURE;
+  if (error instanceof ConfigError)
+    return BY_CONFIG_CODE[error.code] ?? EXIT_FAILURE;
+  if (error instanceof HostError)
+    return BY_HOST_CODE[error.code] ?? EXIT_FAILURE;
   return EXIT_FAILURE;
 }
 
@@ -127,7 +191,10 @@ export function errorPayload(error: unknown): {
 } {
   const code = isCommanderError(error)
     ? "USAGE"
-    : error instanceof SessionError || error instanceof WorkspaceError
+    : error instanceof SessionError ||
+        error instanceof WorkspaceError ||
+        error instanceof ConfigError ||
+        error instanceof HostError
       ? error.code
       : error instanceof UsageError
         ? "USAGE"

@@ -18,7 +18,7 @@ import {
   unconfiguredSource,
   type ConfigSource,
 } from "../src/config/sources.js";
-import { UsageError } from "../src/runtime/exit.js";
+import { ConfigError } from "../src/config/errors.js";
 
 const temporary: string[] = [];
 /**
@@ -143,7 +143,7 @@ test("a variable werk does not own contributes nothing", () => {
   expect(envLayer({ WERK_CONFIG_DIR: "/somewhere", PATH: "/bin" })).toEqual({});
 });
 test("a value the schema refuses is reported against its key", () => {
-  expect(() => envLayer({ WERK_LOG_LEVEL: "chatty" })).toThrow(UsageError);
+  expect(() => envLayer({ WERK_LOG_LEVEL: "chatty" })).toThrow(ConfigError);
   expect(() => envLayer({ WERK_SCROLLBACK_BYTES: "lots" })).toThrow(
     /scrollbackBytes/,
   );

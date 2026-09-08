@@ -11,10 +11,16 @@
  * parameter that actually exists, and it disappears with it.
  */
 import type { Argument, Option } from "@commander-js/extra-typings";
+import type { Host } from "../config/hosts.js";
 
 export interface CompletionContext {
   runtimeDir: string;
   stateDir: string;
+  /**
+   * The hosts in force, when the layers answered in time. Absent is a
+   * completion that fell back to the flags alone, not a machine with no hosts.
+   */
+  hosts?: Readonly<Record<string, Host>>;
 }
 export type CandidateProvider = (
   partial: string,

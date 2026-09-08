@@ -14,7 +14,7 @@ import { inspectSessionDaemon } from "@werk/session-daemon";
 import type { DaemonInfo } from "@werk/session";
 import { withContext } from "./shared.js";
 import { defineCommand } from "./define.js";
-import { result } from "../runtime/output.js";
+import { result, section } from "../runtime/output.js";
 import type { WerkContext } from "../runtime/context.js";
 
 export interface Inspection {
@@ -26,19 +26,6 @@ export interface Inspection {
   connection?: unknown;
   checks?: Record<string, unknown>;
   log?: { tail: string[]; lastError: string | null };
-}
-/** `label  value`, with the labels of one section lined up under each other. */
-function section(
-  ctx: WerkContext,
-  title: string,
-  rows: readonly (readonly [string, string])[],
-): string {
-  if (!rows.length) return "";
-  const width = Math.max(...rows.map(([label]) => label.length));
-  const body = rows.map(
-    ([label, value]) => `  ${ctx.style.muted(label.padEnd(width))}  ${value}`,
-  );
-  return [ctx.style.emphasis(title), ...body].join("\n");
 }
 /** Strings stay as they are; anything else is shown as the JSON it is. */
 function value(raw: unknown): string {

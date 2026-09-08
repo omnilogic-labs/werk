@@ -14,8 +14,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
-  createLocalWorktreeHost,
-  localWorkspaceAt,
+  createLocalWorktreeMaker,
+  workspaceAt,
   repositorySlot,
 } from "../src/local.js";
 import {
@@ -23,7 +23,7 @@ import {
   workspaceReference,
 } from "../src/reference.js";
 import { WorkspaceError } from "../src/types.js";
-import type { Workspace } from "../src/types.js";
+import type { Workspace, WorkspaceProgress } from "../src/types.js";
 
 const run = promisify(execFile);
 const made: string[] = [];
@@ -62,7 +62,7 @@ async function repository(label = "repo"): Promise<string> {
   return directory;
 }
 const hostFor = async (root?: string) =>
-  createLocalWorktreeHost({ root: root ?? (await scratch("root")) });
+  createLocalWorktreeMaker({ root: root ?? (await scratch("root")) });
 
 async function created(name = "demo"): Promise<{
   workspace: Workspace;
@@ -71,7 +71,7 @@ async function created(name = "demo"): Promise<{
 }> {
   const source = await repository();
   const root = await scratch("root");
-  const workspace = await createLocalWorktreeHost({ root }).create({
+  const workspace = await createLocalWorktreeMaker({ root }).create({
     name,
     from: { kind: "local-checkout", path: source },
   });
@@ -95,27 +95,60 @@ test("a workspace is a directory on a branch of its own", async () => {
   expect(stdout.trim()).toBe("demo");
 });
 
+test("a local workspace reports the two stages it has, and carries no host", async () => {
+  // Two of the seven steps, because a worktree on this machine costs two. The
+  // local maker emits them so the callback a remote creation leans on is
+  // exercised by the maker every other test already runs.
+  const source = await repository();
+  const root = await scratch("root");
+  const seen: WorkspaceProgress[] = [];
+  const workspace = await createLocalWorktreeMaker({ root }).create(
+    { name: "demo", from: { kind: "local-checkout", path: source } },
+    { onProgress: (event) => seen.push(event) },
+  );
+  expect(seen.map((e) => `${e.step} ${e.state}`)).toEqual([
+    "resolve-source begin",
+    "resolve-source end",
+    "check-out begin",
+    "check-out end",
+  ]);
+  expect(seen[3]!.detail).toBe(workspace.directory);
+  // Absent, because absence is what says "the machine werk is running on".
+  expect(workspace.host).toBeUndefined();
+});
+
+test("a renderer that throws does not break the creation it was watching", async () => {
+  const source = await repository();
+  const root = await scratch("root");
+  const workspace = await createLocalWorktreeMaker({ root }).create(
+    { name: "demo", from: { kind: "local-checkout", path: source } },
+    {
+      onProgress: () => {
+        throw new Error("the caller's line painter fell over");
+      },
+    },
+  );
+  expect((await stat(workspace.directory)).isDirectory()).toBe(true);
+});
+
 test("a workspace the host made is recovered from its directory alone", async () => {
   // The round trip that `werk list` and the chrome depend on: they hold a
   // directory and no name. Both sides come from the host rather than from a
   // path written out here, so the join and its inverse cannot drift apart.
   const { workspace, root } = await created("fix-login");
-  expect(localWorkspaceAt(root, workspace.directory)).toEqual(
+  expect(workspaceAt(root, workspace.directory)).toEqual(
     workspaceReference(workspace),
   );
   // The reference recovered this way is what the notation writes.
   expect(
-    formatWorkspaceReference(
-      localWorkspaceAt(root, workspace.directory)!,
-      "path",
-    ),
+    formatWorkspaceReference(workspaceAt(root, workspace.directory)!, "path"),
   ).toBe(`${workspace.name}:${workspace.directory}`);
   // A directory inside the workspace is not itself a workspace.
   expect(
-    localWorkspaceAt(root, path.join(workspace.directory, "src")),
+    workspaceAt(root, path.join(workspace.directory, "src")),
   ).toBeUndefined();
   // Nor is the checkout the workspace was branched from.
-  expect(localWorkspaceAt(root, (await created()).source)).toBeUndefined();
+  expect(workspaceAt(root, (await created()).source)).toBeUndefined();
 });
 
 test("the source repository agrees the worktree is one of its own", async () => {
@@ -142,7 +175,7 @@ test("the directory is the repository's slot under the root", async () => {
 
 test("two repositories can each have a workspace of the same name", async () => {
   const root = await scratch("root");
-  const host = createLocalWorktreeHost({ root });
+  const host = createLocalWorktreeMaker({ root });
   const one = await host.create({
     name: "demo",
     from: { kind: "local-checkout", path: await repository("one") },
@@ -159,7 +192,7 @@ test("a branch that already exists is refused before anything is made", async ()
   const source = await repository();
   await git(source, "branch", "taken");
   const root = await scratch("root");
-  const host = createLocalWorktreeHost({ root });
+  const host = createLocalWorktreeMaker({ root });
   await expect(
     host.create({
       name: "taken",
@@ -172,7 +205,7 @@ test("a branch that already exists is refused before anything is made", async ()
 test("an occupied directory is refused, an empty one is not", async () => {
   const source = await repository();
   const root = await scratch("root");
-  const host = createLocalWorktreeHost({ root });
+  const host = createLocalWorktreeMaker({ root });
   const { stdout } = await git(source, "rev-parse", "--show-toplevel");
   const target = path.join(root, repositorySlot(stdout.trim()), "demo");
 
@@ -215,7 +248,7 @@ test("a repository with no commits says it has none", async () => {
 
 test("a name that is not a name makes no directory", async () => {
   const root = await scratch("root");
-  const host = createLocalWorktreeHost({ root });
+  const host = createLocalWorktreeMaker({ root });
   const source = await repository();
   for (const name of ["", "a/b", "-x", ".."])
     await expect(

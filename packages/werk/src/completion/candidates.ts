@@ -20,8 +20,9 @@ import type {
 } from "@commander-js/extra-typings";
 import path from "node:path";
 import type { SessionInfo } from "@werk/session";
-import { localWorkspaceAt } from "@werk/workspace";
+import { workspaceAt } from "@werk/workspace";
 import { connectExistingDaemon } from "../runtime/daemon.js";
+import { summariseHost } from "../config/hosts.js";
 import {
   providerFor,
   type Candidate,
@@ -64,11 +65,12 @@ export async function liveSessions(
   const lookup = (async () => {
     // No entry path: nothing on this route can spawn, so there is nothing for a
     // child process to be told to run.
-    const client = await connectExistingDaemon(
+    const existing = await connectExistingDaemon(
       { runtimeDir: ctx.runtimeDir, stateDir: ctx.stateDir, entry: "" },
       BUDGET_MS,
     );
-    if (!client) return [];
+    if (!existing) return [];
+    const { client } = existing;
     try {
       return await client.list({});
     } catch {
@@ -99,7 +101,7 @@ export const sessionCandidates: CandidateProvider = async (partial, ctx) => {
   for (const session of sessions) {
     const description = `${session.state} · ${session.argv.join(" ")}`;
     if (session.name) candidates.push({ value: session.name, description });
-    const workspace = localWorkspaceAt(root, session.cwd)?.name;
+    const workspace = workspaceAt(root, session.cwd)?.name;
     // Offered only when it says something the name did not; a workspace named
     // after its session would otherwise be two identical rows.
     if (workspace && workspace !== session.name)
@@ -136,6 +138,21 @@ export const labelCandidates: CandidateProvider = async (partial, ctx) => {
     .sort()
     .map((key) => ({ value: `${key}=`, description: "label key" }));
 };
+
+/**
+ * The machines `--host` accepts, which is every `[hosts.<name>]` in force plus
+ * the built-in `local`.
+ *
+ * The one provider here that reaches nothing. The names came out of the same
+ * config read `complete` already does under its own budget, so a TAB on
+ * `--host` costs no daemon, no ssh and no second read; a completion that
+ * abandoned the layers offers nothing rather than a stale list.
+ */
+export const hostCandidates: CandidateProvider = (_partial, ctx) =>
+  Object.entries(ctx.hosts ?? {}).map(([name, host]) => ({
+    value: name,
+    description: summariseHost(host),
+  }));
 
 /* -------------------------------------------------------------- tree walk */
 

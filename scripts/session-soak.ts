@@ -54,6 +54,9 @@ const outputLimit = 32768;
 const daemon = await createSessionDaemon({
   runtimeDir: join(directory, "run"),
   stateDir: join(directory, "state"),
+  // The daemon cannot know what built it, so the caller says. A soak is not a
+  // client and has no build of its own to report.
+  version: "soak",
   engineFactory: await loadTerminalEngine(),
   limits: { outputQueueBytes: outputLimit, checkpointIntervalMs: 1000 },
 });

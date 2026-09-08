@@ -68,6 +68,39 @@ test("a description is flattened to one line", () => {
   ).toBe("x\tfirst line second third\n:0\n");
 });
 
+/* --------------------------------------------------------------- hosts */
+
+test("--host offers the hosts in force, and reaches nothing to do it", async () => {
+  const ctx = {
+    ...(await scratch()),
+    hosts: {
+      local: { kind: "local" as const },
+      beast: { kind: "ssh" as const, sshHost: "beast" },
+    },
+  };
+  const reply = await completionFor(tree(), ["list", "--host", ""], ctx);
+  expect(values(reply).sort()).toEqual(["beast", "local"]);
+  // How it is reached, so a list of names is readable without opening the file.
+  expect(reply.candidates.find((c) => c.value === "beast")?.description).toBe(
+    "ssh beast",
+  );
+  // The attached form is one word to the shell, so the flag comes back on the
+  // front of every candidate.
+  expect(
+    values(await completionFor(tree(), ["list", "--host=be"], ctx)),
+  ).toEqual(["--host=beast"]);
+});
+
+test("a completion that never read the layers offers no hosts rather than stale ones", async () => {
+  // No `hosts` at all, which is what a `complete` that abandoned the config
+  // layers under its 50 ms budget hands over.
+  expect(
+    values(
+      await completionFor(tree(), ["list", "--host", ""], await scratch()),
+    ),
+  ).toEqual([]);
+});
+
 /* -------------------------------------------------------------- the tree */
 
 test("the first word offers the commands werk has", async () => {

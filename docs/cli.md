@@ -5,13 +5,15 @@ compiled binary: the same executable serves the daemon, and starts one when a
 command needs it. `bun run build` produces `packages/werk/dist/werk`, which
 carries the terminal WASM and runs outside the checkout.
 
-This chapter is the reference for the client as it behaves today. Which
-commands the product should end up with is not settled. The capabilities in
-[product/client.md](product/client.md) are deliberately written as capabilities
-rather than commands, and nothing below should be read as a commitment about
-hosts, providers or landing, none of which exist. The workspace `create` makes
-is a git worktree on this machine, which is the smallest corner of what a
-workspace is meant to be; it is no more settled than the rest.
+This chapter is the reference for the client as it behaves today. What the
+command surface should become for the product is not settled. The capabilities
+in [product/client.md](product/client.md) are deliberately written as
+capabilities rather than commands, and nothing below should be read as a
+commitment about providers or landing, neither of which exists. Hosts do exist,
+and [hosts.md](hosts.md) is their reference. The workspace `create` makes is a
+git worktree, on this machine or on the machine `--host` names, which is the
+smallest corner of what a workspace is meant to be; it is no more settled than
+the rest.
 
 [cli-internals.md](cli-internals.md) has the parts that only matter to somebody
 changing the CLI: how a command is declared, why a missing option value reports
@@ -19,23 +21,22 @@ alone, and what each dependency is for.
 
 ## The command tree
 
-| Command                 | What it does                                                            |
-| ----------------------- | ----------------------------------------------------------------------- |
-| `create -- COMMAND ...` | Start a session running a command, in a new workspace, and attach to it |
-| `list` (`ls`)           | List sessions                                                           |
-| `attach [session]`      | Go back to a running session; Ctrl-] detaches                           |
-| `logs [session]`        | Print what a session has on screen, or what it has kept                 |
-| `kill [session]`        | Ask a session's process to stop                                         |
-| `remove` (`rm`)         | Forget a session that has stopped                                       |
-| `watch`                 | Print daemon events as JSON lines until interrupted                     |
-| `info`                  | Print where werk keeps things and what the daemon says                  |
-| `doctor`                | Check the local daemon and print the end of its log                     |
-| `config`                | `list`, `get <key>`, `sources`, `path`                                  |
-| `completion`            | `bash`, `zsh`, `fish`: print a shell completion script                  |
-| `daemon`                | `serve`: run the daemon in this process until it is signalled           |
-
-One more is accepted and not listed. `complete` answers the shell completion
-protocol and is a wire format rather than something a person types.
+| Command                                                                      | What it does                                                                  |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `create -- COMMAND ...`                                                      | Start a session running a command, in a new workspace, and attach to it       |
+| `list` (`ls`)                                                                | List sessions                                                                 |
+| `attach [session]`                                                           | Go back to a running session; Ctrl-] detaches                                 |
+| `logs [session]`                                                             | Print what a session has on screen, or what it has kept                       |
+| `kill [session]`                                                             | Ask a session's process to stop                                               |
+| `remove` (`rm`)                                                              | Forget a session that has stopped                                             |
+| `watch`                                                                      | Print daemon events as JSON lines until interrupted                           |
+| `info`                                                                       | Print where werk keeps things and what the daemon says                        |
+| `doctor`                                                                     | Check the local daemon and print the end of its log                           |
+| `config`                                                                     | `list`, `get`, `set`, `unset`, `setup`, `check`, `sources`, `path`            |
+| `completion`                                                                 | `bash`, `zsh`, `fish`: print a shell completion script                        |
+| `daemon`                                                                     | `serve`: run the daemon in this process; `endpoint`: print what to connect to |
+| One more is accepted and not listed. `complete` answers the shell completion |
+| protocol and is a wire format rather than something a person types.          |
 
 Help drills down: `werk --help` lists the commands, `werk config --help` lists
 that command's subcommands, and `werk config get --help` describes one leaf.
@@ -48,6 +49,7 @@ page carries worked examples, between its description and its arguments.
 | Flag                   | Effect                                             |
 | ---------------------- | -------------------------------------------------- |
 | `--json`               | Print JSON instead of text                         |
+| `--host <NAME>`        | Which host to act on, by the name in your config   |
 | `--runtime-dir <PATH>` | Where the daemon socket and endpoint live          |
 | `--state-dir <PATH>`   | Where checkpoints, logs and the daemon record live |
 | `--log-level <LEVEL>`  | Daemon log level: `error`, `warn`, `info`, `debug` |
@@ -66,6 +68,12 @@ thing wherever they are typed: `werk --runtime-dir /tmp/r list` and
 `--yes` answers the confirmation `kill` asks before stopping a session that was
 chosen from the picker rather than named. A command line that names its session
 is never asked, so nothing scripted meets it.
+
+`--host` names a `[hosts.<name>]` block, and `defaultHost` answers when nothing
+does. `create`, `list`, `attach`, `logs`, `kill` and `remove` all act on that
+one machine, and `config setup` writes the block for the name it is given.
+A name nothing defines fails with the names that are defined, because that
+failure is nearly always a typo.
 
 ### The `--` boundary
 
@@ -91,13 +99,22 @@ Completion stops at the same boundary and offers nothing past it.
 | 4    | `PERMISSION_DENIED`                                                         |
 | 5    | `CONFLICT` — a session or workspace name already taken                      |
 | 6    | `LIMIT` — a cap was exceeded                                                |
-| 7    | `TIMEOUT` or `CLOSED` — the daemon is not answering                         |
+| 7    | Nothing answered: `TIMEOUT`, `CLOSED`, `HOST_DAEMON_MISSING`                |
 | 130  | Cancelled: SIGINT, or a prompt nobody answered                              |
 
 3 through 7 are the error vocabulary of `@werk/session`, mapped rather than
 judged, so "the session is gone" and "the daemon never answered" are different
-answers to a script. 7 covers both timeout and a closed connection, which a
-caller retries differently from a refusal the daemon actually gave.
+answers to a script. 7 covers a timeout, a closed connection, a forward that came
+up with nothing listening behind it, and a machine that stopped answering while a
+workspace was being made on it. All of those are things a caller retries
+differently from a refusal something actually gave.
+
+A machine werk could not reach at all exits 2 rather than 7, which is worth
+knowing before scripting either. `werk list --host beast` against a machine that
+is asleep reports `HOST_UNREACHABLE` and exits 2; the same machine failing
+partway through `werk create --host beast` reports the same code and exits 7.
+Nobody decided that. The two paths map the code separately, and only the second
+one is covered by a test. It probably wants settling one way.
 
 An attached `create` reports the session's outcome on stderr and exits 0 itself,
 so the status is werk's account of werk. See
@@ -112,9 +129,19 @@ and a script that tested for success would otherwise be told it succeeded.
 that cannot be made because of what was asked for — an unusable name, a
 directory that is not a repository, a repository with no commits — exits 2. One
 refused because something is already there — the branch, or a non-empty
-directory — exits 5. git being absent, or refusing for an unanticipated reason,
-exits 1. Under `--json` the error code on stderr is the workspace reason itself,
-so `NOT_A_REPOSITORY` and `BRANCH_EXISTS` reach a script as themselves.
+directory — exits 5. A machine that did not answer exits 7 and one that would
+not let werk in exits 4, which are the statuses a daemon that did the same
+already uses. git being absent at either end, a history that did not get there,
+and git refusing for an unanticipated reason all exit 1. Under `--json` the
+error code on stderr is the workspace reason itself, so `NOT_A_REPOSITORY`,
+`BRANCH_EXISTS` and `HOST_UNREACHABLE` reach a script as themselves.
+
+Configuration is mapped the same way. A host block that does not parse, a name
+nothing defines and a file that is not the TOML it claims to be are all "what
+werk was told is wrong", which is exit 2. A file werk could not write, or would
+not write because it could not make the change cleanly, is exit 1: the machine
+did not do it. No new statuses; nothing scripting werk should have to learn a
+number to find out that a config file has a typo in it.
 
 ## Starting a session
 
@@ -206,6 +233,41 @@ about a workspace, and what more it should be able to do with one, is worked
 through in [workspaces-and-git.md](workspaces-and-git.md); `@werk/workspace` is
 explicitly under development and a local worktree is the whole of what it makes
 today.
+
+## Putting work on another machine
+
+`werk create --host beast -- claude` makes the workspace on `beast` and starts
+the session in the daemon over there. `--host` names a `[hosts.<name>]` block,
+and `defaultHost` answers when the flag does not.
+
+What happens on the far side is a bare mirror of the repository, pushed to, and
+a linked worktree checked out beside it. Only committed history travels;
+anything uncommitted stays on the machine `werk` was typed on and werk says how
+many files that is. Where the mirror and the worktree go is the block's
+`workspaceRoot`, or, when the block does not say, whatever
+`${XDG_STATE_HOME:-$HOME/.local/state}/werk/workspaces` resolves to on that
+machine — asked of the machine rather than guessed at from this one.
+
+A session on another machine gets a narrow environment: `LANG`, the `LC_*`
+variables, `TZ`, `NO_COLOR` and `FORCE_COLOR`, and nothing else. That is an
+allowlist rather than the denylist a local session gets, because a name nobody
+thought of costs a credential when the destination is another computer, and
+because `PATH`, `HOME`, `SHELL`, `TMPDIR` and `SSH_AUTH_SOCK` would be facts
+about the wrong machine. The remote daemon's own environment supplies its
+versions of those.
+
+Making a workspace over there is probe, prepare, push and check out, which is
+not instant. `create` says which stage it is in: a spinner on a terminal, one
+line per stage on stderr under `--no-input`, and nothing at all under `--json`,
+because the machine register is one value on stdout. Ctrl-C during creation
+aborts it, the maker takes back the branch and the worktree it had got as far
+as, and werk exits 130.
+
+Each of these commands talks to **one** daemon: this machine's without `--host`,
+that machine's with it. There is no view across machines. Nothing records that a
+workspace exists, so a workspace with no session running in it is not listed
+anywhere, including on the machine it is on. Where that record should live is
+[question 19](product-specification.md#19-where-does-the-record-of-a-workspace-live).
 
 ## Referencing a workspace
 
@@ -508,14 +570,66 @@ a dark flavour and a light one, and picks between them with
 
 ## Configuration
 
-`werk config` shows what werk thinks it has been told and who told it.
+`werk config` shows what werk thinks it has been told and who told it, and
+writes to the two files it reads.
 
 ```sh
 werk config list      # Print every setting, its value, and where it came from
 werk config get logLevel
 werk config sources   # Print every layer werk consults, weakest first
 werk config path      # Print the config files werk reads
+
+werk config set logLevel debug     # Write one setting to ~/.werk/config.toml
+werk config unset logLevel         # Take it back out
+werk config setup                  # Add a machine, by answering questions
+werk config check                  # Ask each configured host about itself
 ```
+
+`--project` on `set`, `unset` and `setup` writes `<git toplevel>/.werk/config.toml`
+instead of `~/.werk/config.toml`.
+
+### Writing a config file
+
+A config file is meant to be opened and edited by hand, so werk splices rather
+than rewriting. It writes whole `[hosts.<name>]` tables and single top-level
+scalar lines, and everything outside the part it replaced comes back byte for
+byte: the comments, the blank lines, the key order, the indentation, the line
+endings. It then parses what it produced and compares it against what the edit
+asked for, and refuses with exit 1 rather than writing anything it cannot make
+cleanly. The file is written to a temporary file beside itself and renamed over,
+so a reader never sees half of one.
+
+After `set` or `unset`, werk re-resolves the key and says which layer is
+supplying it. Writing a file does not mean winning: an exported `WERK_LOG_LEVEL`
+still beats it, and that is invisible from the file that was just edited.
+
+### Adding a machine
+
+`werk config setup` walks through adding a host: which machine, what to call it,
+and where workspaces go on it. It reads the `Host` patterns out of your
+ssh_config for the list to pick from, asks the machine you picked about itself,
+shows the exact TOML it would add, and only then writes. Re-running it offers to
+add another, change one, choose the default, or remove one.
+
+```sh
+werk config setup --host beast --ssh beast --workspace-root /srv/werk --default --yes
+```
+
+That form answers every question up front, which is how a dotfiles script uses
+it. `--host` there is the global flag: it is the name the block will have, which
+is the same name every other command uses to act on that machine. Without a
+terminal and without `--host` and `--ssh` the command exits 2 and writes
+nothing, because a wizard that guesses at which machine you meant is worse than
+one that stops.
+
+What it writes is only what the machine is called and where werk may put things.
+Everything else werk asks the machine at the moment it needs to know, which is
+what `werk config check` prints: whether the machine answers, what it is
+running, whether git and werk are on it, and where workspaces would go. None of
+that is stored, and nothing on the machine is created to find it out. The probe
+`config check` runs is not yet wired to the ssh transport, so it reports an ssh
+host as `not checked` rather than as unreachable — `werk list --host <name>` is
+what actually reaches one today.
 
 ### The layers
 
@@ -547,6 +661,7 @@ rule rather than a list, so a new setting gets its variable for free.
 | `runtimeDir`      | `WERK_RUNTIME_DIR`      | Where the daemon socket and endpoint live          |
 | `stateDir`        | `WERK_STATE_DIR`        | Where checkpoints, logs and the daemon record live |
 | `scrollbackBytes` | `WERK_SCROLLBACK_BYTES` | Bytes of output a new session keeps                |
+| `defaultHost`     | `WERK_DEFAULT_HOST`     | Which host werk puts work on when nobody names one |
 | `colour`          | `WERK_COLOUR`           | `auto`, `always` or `never`                        |
 | `flavour`         | `WERK_FLAVOUR`          | `auto` or a Catppuccin flavour                     |
 | `flavourDark`     | `WERK_FLAVOUR_DARK`     | What `auto` wears on a dark terminal               |
@@ -559,8 +674,10 @@ rather than refused, so a line the client has no meaning for does not stop it
 starting. `WERK_CONFIG_DIR` moves the user layer's directory away from `~/.werk`,
 which is what the tests use.
 
-Only settings the CLI acts on appear in that table. A key invented for a feature
-that does not exist yet reads back later as a decision somebody took.
+Only settings that describe something werk already does appear in that table. A
+key invented for a feature that does not exist yet reads back later as a decision
+somebody took. `defaultHost` is what a command acts on when `--host` names none,
+which is `local` until somebody writes a host block and points it somewhere else.
 
 Every command acts on the resolved configuration, so a `runtimeDir` set in
 `~/.werk/config.toml` is the directory `werk info` reports and the one
@@ -587,10 +704,71 @@ action instead, on a budget: it abandons them after 50 ms and falls back to the
 flags, so a slow layer costs a less accurate completion rather than a shell that
 has stopped responding.
 
-Whether `~/.werk` is the right home for the user layer is not settled, and
-neither is how a person configures hosts and providers once those exist — that
-is open question 2 of the product specification, and it will probably want to
-live in the same files.
+Whether `~/.werk` is the right home for the user layer is not settled. How a
+person configures providers once those exist is open question 2 of the product
+specification; hosts are in these files already.
+
+### Hosts
+
+A host is a machine. A `[hosts.<name>]` table in either config file says which
+machine a name means, and `werk config list` shows them under the settings,
+keyed `hosts.<name>`, with the layer each one came from. This section is the
+configuration half; [hosts.md](hosts.md) is the rest.
+
+```toml
+defaultHost = "beast"
+
+[hosts.beast]
+kind = "ssh"
+sshHost = "beast"
+
+[hosts.agent-sandboxes]
+kind = "ssh"
+sshHost = "mike@10.0.0.7"
+workspaceRoot = "/srv/werk/workspaces"
+```
+
+| Key             | Kind  | What it is                                                    |
+| --------------- | ----- | ------------------------------------------------------------- |
+| `kind`          | both  | `local` or `ssh`                                              |
+| `sshHost`       | `ssh` | An ssh destination, spelled as it would be typed after `ssh`  |
+| `workspaceRoot` | both  | Where workspaces go on that host                              |
+| `provider`      | both  | The name of whatever made the host. Recorded, not interpreted |
+
+`defaultHost` names one of them, and `--host` overrides it for one command.
+
+`local` is a host werk has without being told, supplied by the defaults layer
+like any other built-in value, so nothing special-cases the machine werk is
+running on. Workspaces on it go under `<stateDir>/workspaces`, which is where
+`werk create` already puts them.
+
+werk stores an ssh destination and nothing else about the connection. ssh_config
+already resolves the address, the user, the port, the identity, `ProxyJump`,
+`Match` rules, multiplexing and the `known_hosts` policy, and re-expressing any
+of that here would be a second, worse ssh_config that drifts from the real one
+silently.
+
+Two rules differ from the settings, and both follow from a host having no
+default underneath it:
+
+- **An unknown key inside a host block is refused.** Elsewhere werk ignores a
+  key it does not know, because a typo costs a preference. Here `sshHosts` with
+  the s in the wrong place would leave a block that looks configured and means
+  nothing, and the cost of that is a machine.
+- **A block replaces a block whole, and never field by field.** Merging a
+  project file's `kind = "ssh"` over a user file's `kind = "local"` would compose
+  a host neither file contains. `werk config sources` reports every block a
+  stronger layer replaced, against the layer that lost it.
+
+A block werk cannot read never stops it starting. `werk config list` shows the
+row as `unreadable`, `werk config sources` says what is wrong and which file it
+is in, and only a command that actually wants that host fails.
+
+A block holds what the machine is called and where werk may put things, and
+nothing else. There is no `werkPath` and no `shell`, and no probe result is
+stored: a fact about a machine written into a file is a fact that was true once,
+and it goes stale silently while `ssh beast` keeps working. `werk config check`
+asks the machine instead, every time.
 
 ### The remote layer, and the unimplemented `extends` hook
 
@@ -666,8 +844,38 @@ binary's entry is a `/$bunfs/` virtual path no child could open.
 `serve` stays visible in help rather than being hidden, because an operator
 pointing systemd or launchd at werk cannot discover a hidden command.
 
-`info`, `doctor` and completion never start a daemon; they report what is on
-disk plus whatever a daemon that is already listening says about itself.
+`werk daemon endpoint` is the pair to it: `info` says where werk keeps things,
+and `endpoint` says what is listening, in the form something else could dial. It
+prints the endpoint record — `{"kind":"unix","path":…}` or
+`{"kind":"tcp","host":"127.0.0.1","port":…,"credential":…}` — the runtime and
+state directories, the pid, the version the daemon reports and the build of the
+werk that asked. Under `--json` the record is complete enough to connect with,
+so a TCP endpoint's credential is in it; the human block leaves the credential
+out, because a secret printed to a terminal ends up in a scrollback or a pasted
+bug report.
+
+`endpoint` never starts a daemon unless it is given `--ensure`. Without it, no
+daemon listening is exit 7 and nothing is spawned.
+
+`info`, `doctor` and completion never start a daemon either; they report what is
+on disk plus whatever a daemon that is already listening says about itself.
+
+### One version identity
+
+`werk --version`, the string the CLI hands `serveSessionDaemon`, and therefore
+`daemonInfo().version` are all one string. It is the package version, the git
+short SHA the binary was built from, and a `-dirty` marker where the tree had
+uncommitted changes: `0.0.0-a1b2c3d`, or `0.0.0-a1b2c3d-dirty`. `build.ts`
+derives it and defines it into the compiled binary as `WERK_BUILD`, and nothing
+generated is committed. An interpreted run reads the define through a `typeof`
+guard and reports `0.0.0-source` instead, because a working tree is not an
+artefact and inventing a build id for one would be a lie.
+
+What we are currently trying to make this good for is one question: a client
+that ships a werk binary to a machine asking whether the binary over there is
+the one it would send. Answering that needs one identity rather than two. Treat
+the comparison as a hint rather than a guarantee — nothing here is signed, and
+two trees with the same SHA can differ in what was never committed.
 
 The runtime directory defaults to `/tmp/werk-UID` on POSIX and
 `%LOCALAPPDATA%\werk\run` on Windows. A Unix socket path is capped at 103 bytes,

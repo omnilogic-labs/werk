@@ -7,23 +7,21 @@
  * value is therefore run for real, against a daemon of its own, and its stdout
  * is required to be exactly one parseable value on one line.
  *
- * The daemon lives under a short directory in `/tmp` on purpose: a Unix socket
- * path is capped at 103 bytes and a per-run temporary directory nested any
- * deeper than this fails to bind.
+ * The sandbox is what keeps the daemon's directory short — a Unix socket path
+ * is capped at 103 bytes and a per-run temporary directory nested any deeper
+ * than this fails to bind — and what keeps the three writing subcommands off
+ * the config file of whoever is running the suite.
  */
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Command } from "@commander-js/extra-typings";
 import { buildProgram } from "../src/app.js";
+import { runWerk, sandbox, type Sandbox } from "./support/run.js";
 
-const MAIN = join(import.meta.dir, "../src/main.ts");
 const TIMEOUT = 30000;
-let home = "";
-let runtimeDir = "";
-let stateDir = "";
+let box!: Sandbox;
 
 /**
  * Run a command with `--json` and return the value it printed, having first
@@ -33,24 +31,13 @@ let stateDir = "";
  * trailing text the parser rejects.
  */
 async function runJson(...args: string[]): Promise<unknown> {
-  const child = Bun.spawn(
-    [
-      process.execPath,
-      MAIN,
-      "--json",
-      "--runtime-dir",
-      runtimeDir,
-      "--state-dir",
-      stateDir,
-      ...args,
-    ],
-    { cwd: home, stdout: "pipe", stderr: "pipe" },
-  );
-  const stdout = await new Response(child.stdout).text();
-  const stderr = await new Response(child.stderr).text();
-  expect(await child.exited, `werk ${args.join(" ")} failed: ${stderr}`).toBe(
-    0,
-  );
+  const { code, stdout, stderr } = await runWerk({
+    sandbox: box,
+    args: ["--json", ...args],
+    cwd: box.root,
+    timeoutMs: TIMEOUT,
+  });
+  expect(code, `werk ${args.join(" ")} failed: ${stderr}`).toBe(0);
   expect(stdout.endsWith("\n"), `${args[0]} printed no line`).toBe(true);
   const body = stdout.slice(0, -1);
   expect(body.includes("\n"), `${args[0]} printed more than one line`).toBe(
@@ -80,21 +67,11 @@ const git = (cwd: string, ...args: string[]) =>
   );
 
 beforeAll(async () => {
-  home = await mkdtemp("/tmp/wkj-");
-  runtimeDir = join(home, "r");
-  stateDir = join(home, "s");
-  await git(home, "init", "-q", "-b", "main", ".");
-  await git(home, "commit", "-q", "--allow-empty", "-m", "init");
+  box = await sandbox("wkj");
+  await git(box.root, "init", "-q", "-b", "main", ".");
+  await git(box.root, "commit", "-q", "--allow-empty", "-m", "init");
 });
-afterAll(async () => {
-  try {
-    const record = JSON.parse(
-      await readFile(join(stateDir, "daemon.json"), "utf8"),
-    );
-    if (Number.isInteger(record?.pid)) process.kill(record.pid, "SIGTERM");
-  } catch {}
-  await rm(home, { recursive: true, force: true });
-});
+afterAll(() => box.dispose());
 
 let session = "";
 
@@ -120,11 +97,24 @@ test(
       id: string;
       name: string;
       cwd: string;
-      workspace: { name: string; directory: string; branch: string };
+      workspace: {
+        name: string;
+        directory: string;
+        branch: string;
+        reference: string;
+        host?: string;
+      };
     };
     expect(info.name).toBe("probe");
     expect(info.workspace).toBeObject();
     expect(info.cwd).toBe(info.workspace.directory);
+    // No host on a workspace made on this machine: absent is what the workspace
+    // model says by leaving `Workspace.host` off, and the reference reads the
+    // same way, with no `@` in it.
+    expect(info.workspace.host).toBeUndefined();
+    expect(info.workspace.reference).toBe(
+      `${info.workspace.name}:${info.workspace.directory}`,
+    );
     session = info.id;
   },
   TIMEOUT,
@@ -138,12 +128,86 @@ test(
   TIMEOUT,
 );
 test(
+  "daemon endpoint answers with something a client could dial",
+  async () => {
+    const report = (await runJson("daemon", "endpoint")) as {
+      endpoint: { kind: string };
+      runtimeDir: string;
+      stateDir: string;
+      pid: number | null;
+      version: string;
+      build: string;
+    };
+    expect(["unix", "tcp"]).toContain(report.endpoint.kind);
+    expect(report.runtimeDir).toBe(box.runtimeDir);
+    expect(report.stateDir).toBe(box.stateDir);
+    expect(report.pid).toBeInteger();
+    // The daemon under test was started by this same werk, so the identity it
+    // reports and the identity of the binary that asked are one string.
+    expect(report.version).toBe(report.build);
+  },
+  TIMEOUT,
+);
+test(
+  "completion answers with the script beside the shell it is for",
+  async () => {
+    for (const shell of ["bash", "zsh", "fish"]) {
+      const answer = (await runJson("completion", shell)) as {
+        shell: string;
+        script: string;
+      };
+      expect(answer.shell).toBe(shell);
+      // A script carries newlines, and one JSON value on one line is the rule,
+      // so this is also the case that says the escaping holds.
+      expect(answer.script).toContain("werk complete");
+    }
+  },
+  TIMEOUT,
+);
+test(
   "config answers on every one of its subcommands",
   async () => {
     expect(await runJson("config", "list")).toBeArray();
     expect(await runJson("config", "get", "logLevel")).toBeObject();
     expect(await runJson("config", "sources")).toBeArray();
     expect(await runJson("config", "path")).toBeDefined();
+    expect(await runJson("config", "check")).toBeArray();
+  },
+  TIMEOUT,
+);
+
+/**
+ * The three that write. They write into the sandbox's config directory, which
+ * is where every run in this file already reads from, so a host block written
+ * here is seen by the rest of the suite and by nobody's home directory.
+ *
+ * `setup` is a conversation, and this is what proves the conversation still
+ * obeys the `--json` rule: the prompts paint on stderr, so a run answered
+ * entirely by flags prints one value on stdout and nothing else.
+ */
+test(
+  "the writing subcommands answer with what they did",
+  async () => {
+    expect(await runJson("config", "set", "logLevel", "debug")).toMatchObject({
+      key: "logLevel",
+      value: "debug",
+      file: join(box.configDir, "config.toml"),
+    });
+    expect(await runJson("config", "unset", "logLevel")).toMatchObject({
+      key: "logLevel",
+      value: null,
+    });
+    expect(
+      await runJson(
+        "--yes",
+        "config",
+        "setup",
+        "--host",
+        "probehost",
+        "--ssh",
+        "probe.example",
+      ),
+    ).toMatchObject({ unchanged: false });
   },
   TIMEOUT,
 );
@@ -194,10 +258,17 @@ const EXERCISED = [
   "werk remove",
   "werk info",
   "werk doctor",
+  "werk daemon endpoint",
   "werk config list",
   "werk config get",
   "werk config sources",
   "werk config path",
+  "werk config check",
+  "werk config set",
+  "werk config unset",
+  // A conversation, and still one value on stdout: the prompts it would draw
+  // paint on stderr, and this run answers every one of them with a flag.
+  "werk config setup",
 ];
 
 /** Every command that runs something, i.e. every node with no subcommands. */

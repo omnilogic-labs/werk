@@ -7,34 +7,23 @@
  * the alternate screen, the raw keyboard and the chrome row is not asserted
  * here and has to be walked in a pty.
  *
- * Its runtime and state directories are its own, so it does not fight the
- * daemons the other end-to-end tests run in the same `bun test` invocation.
- * They live under a short `/tmp` path because a Unix socket path is capped at
- * 103 bytes and a deeply nested one fails to bind.
+ * Its sandbox is its own, so it does not fight the daemons the other
+ * end-to-end tests run in the same `bun test` invocation, and its directories
+ * live under a short `/tmp` path because a Unix socket path is capped at 103
+ * bytes and a deeply nested one fails to bind.
  */
 import { afterAll, expect, test } from "bun:test";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { runWerk, sandbox, type WerkRun } from "./support/run.js";
 
 const run = promisify(execFile);
-const MAIN = join(import.meta.dir, "../src/main.ts");
 const TIMEOUT = 30000;
 
-const home = await mkdtemp("/tmp/wka-");
-const runtimeDir = join(home, "r");
-const stateDir = join(home, "s");
-
-afterAll(async () => {
-  try {
-    const record = JSON.parse(
-      await readFile(join(stateDir, "daemon.json"), "utf8"),
-    );
-    if (Number.isInteger(record?.pid)) process.kill(record.pid, "SIGTERM");
-  } catch {}
-  await rm(home, { recursive: true, force: true }).catch(() => {});
-});
+const box = await sandbox("wka");
+afterAll(box.dispose);
 
 const git = (cwd: string, ...args: string[]) =>
   run(
@@ -53,7 +42,7 @@ const git = (cwd: string, ...args: string[]) =>
 
 /** A repository with a commit, since that is the least git will branch from. */
 async function repository(): Promise<string> {
-  const directory = await mkdtemp(join(home, "repo-"));
+  const directory = await mkdtemp(join(box.root, "repo-"));
   await git(directory, "init", "-q", "-b", "main", ".");
   await Bun.write(join(directory, "README.md"), "committed\n");
   await git(directory, "add", "README.md");
@@ -61,11 +50,6 @@ async function repository(): Promise<string> {
   return directory;
 }
 
-interface Ran {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
 /**
  * Standard input is a pipe nothing is ever written to, and it is held open.
  * `/dev/null` would not do: an attachment stops when its input ends, so a
@@ -73,7 +57,7 @@ interface Ran {
  * race rather than the behaviour. Held open, the attachment ends when the
  * session does, which is the thing each case below arranges.
  */
-async function werk(cwd: string, ...args: string[]): Promise<Ran> {
+async function werk(cwd: string, ...args: string[]): Promise<WerkRun> {
   return werkWith(cwd, {}, ...args);
 }
 /** The same, with settings supplied through the environment layer. */
@@ -81,30 +65,15 @@ async function werkWith(
   cwd: string,
   env: Record<string, string>,
   ...args: string[]
-): Promise<Ran> {
-  const child = Bun.spawn(
-    [
-      process.execPath,
-      MAIN,
-      "--runtime-dir",
-      runtimeDir,
-      "--state-dir",
-      stateDir,
-      ...args,
-    ],
-    {
-      cwd,
-      env: { ...process.env, ...env },
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  );
-  const stdout = await new Response(child.stdout).text();
-  const stderr = await new Response(child.stderr).text();
-  const code = await child.exited;
-  child.stdin.end();
-  return { code, stdout, stderr };
+): Promise<WerkRun> {
+  return await runWerk({
+    sandbox: box,
+    args,
+    cwd,
+    env,
+    stdin: "pipe",
+    timeoutMs: TIMEOUT,
+  });
 }
 
 test(
