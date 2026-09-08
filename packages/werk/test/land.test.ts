@@ -33,6 +33,21 @@ import {
 
 const run = promisify(execFile);
 const TIMEOUT = 30_000;
+/**
+ * A command that starts and stops. `/bin/true` is not on macOS and is nowhere
+ * on Windows, so the process running the suite is used instead: it is the one
+ * executable every platform is guaranteed to have.
+ */
+const EXITS_AT_ONCE = [process.execPath, "-e", ""];
+/**
+ * What a test that needs to be asked something removes from the environment.
+ *
+ * `CI` forbids prompting whatever the terminal is, which is the whole point of
+ * it — a runner reports a TTY often enough that a prompt there hangs the job.
+ * These two are about what werk does when there is somebody to ask, so they say
+ * there is.
+ */
+const INTERACTIVE = { CI: undefined } as const;
 
 const box = await sandbox("wkl");
 afterAll(box.dispose);
@@ -137,7 +152,14 @@ test(
     const created = await runWerk({
       sandbox: box,
       cwd: repo,
-      args: ["--json", "create", "--workspace", "recorded", "--", "/bin/true"],
+      args: [
+        "--json",
+        "create",
+        "--workspace",
+        "recorded",
+        "--",
+        ...EXITS_AT_ONCE,
+      ],
       timeoutMs: TIMEOUT,
     });
     expect(created.code).toBe(0);
@@ -387,6 +409,7 @@ test(
       cwd: repo,
       args: ["land", "edited"],
       env: {
+        ...INTERACTIVE,
         GIT_EDITOR: await tool(
           "seeing-editor",
           [
@@ -415,7 +438,10 @@ test(
       sandbox: box,
       cwd: repo,
       args: ["land", "unedited", "--no-edit"],
-      env: { GIT_EDITOR: await tool("forbidden-editor", "exit 3") },
+      env: {
+        ...INTERACTIVE,
+        GIT_EDITOR: await tool("forbidden-editor", "exit 3"),
+      },
       pty: true,
       timeoutMs: TIMEOUT,
     });
@@ -549,7 +575,7 @@ test(
       sandbox: box,
       cwd: repo,
       args: ["land", "asked", "--no-edit"],
-      env: { WERK_CONFIG_DIR: configDir },
+      env: { ...INTERACTIVE, WERK_CONFIG_DIR: configDir },
       stdin: "pipe",
       pty: true,
     });

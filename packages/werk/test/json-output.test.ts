@@ -135,7 +135,12 @@ test(
       "--workspace",
       "landable",
       "--",
-      "/bin/true",
+      // Not `/bin/true`: macOS has it at `/usr/bin/true` and Windows has no
+      // such thing. The process running the suite is the one executable every
+      // platform is guaranteed to have.
+      process.execPath,
+      "-e",
+      "",
     )) as { id: string; workspace: { directory: string } };
     const where = created.workspace.directory;
     await Bun.write(join(where, "change.txt"), "change\n");
