@@ -53,18 +53,20 @@ to weigh them.
 ## What the Windows lane is failing on
 
 The Windows lane does not answer a refused request. Every assertion in
-`packages/session-daemon/test/daemon.test.ts` that expects a rejection —
-`PERMISSION_DENIED`, `LIMIT`, `CONFLICT` — gets
-`Request timed out; remote outcome is unknown` instead of the error the daemon
-raised, while Linux and macOS answer the same requests in under a millisecond.
-The daemon queues an error reply through the same `queue` call as a successful
-one, so what is different about the error path on a Windows named pipe is not
-yet known and nobody has looked.
+`packages/session-daemon/test/daemon.test.ts` that expects a rejection has been
+seen failing this way — `PERMISSION_DENIED`, `LIMIT`, `CONFLICT` and
+`UNSUPPORTED` alike get `Request timed out; remote outcome is unknown` instead
+of the error the daemon raised, while Linux and macOS answer the same requests
+in under a millisecond. The daemon queues an error reply through the same
+`queue` call as a successful one, so what is different about the error path on
+a Windows named pipe is not yet known and nobody has looked.
 
-It is the first failure the lane reaches, so it bails the whole suite and the
-lane grades almost nothing on Windows. Anything blocked behind it is skipped
-with `test.skipIf(process.platform === "win32")` and a note saying why, rather
-than left to hide the tests after it.
+Because the step runs with `--bail`, whichever of them comes first ends the
+suite and everything after it goes ungraded on Windows. Skipping one only
+uncovers the next. A test skipped for this carries
+`test.skipIf(process.platform === "win32")` and a note saying it is this defect
+and not the test's own subject, so the skip does not read as a decision about
+what Windows is expected to do.
 
 ## Reading a lane that fails
 
