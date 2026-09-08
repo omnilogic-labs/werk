@@ -110,12 +110,19 @@ is not a decision to do it that way. When you can find neither, ask.
 - If a doc needs a position in order to be coherent and nobody has taken one,
   say so in the doc and ask. Do not pick one and write it down as settled.
 
+**We do not record decisions.** There is no decision register in this repository
+and no document that holds one. The strongest thing a document may say is what
+we are currently trying and why. Anything being built now can be replaced as
+soon as it is wrong, and writing something down does not make it owed anything.
+This is worth saying out loud because a reader, whether a person or an agent,
+treats a recorded decision as a permanent constraint on everything after it. On
+a project this young that is the expensive failure.
+
 **A negative statement is the easiest way to write down a decision nobody
 made.** "werk is not X", "X is out of scope", "we will never Y" all read as
 closed doors and are almost never things anyone actually closed. Do not write
 one unless it was explicitly decided. If something genuinely looks unlikely,
 write down why it looks unlikely and leave the door open.
-
 ### Nothing is shipped, so nothing is protected
 
 werk has one user and no released contract, so nothing needs backwards

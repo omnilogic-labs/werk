@@ -9,7 +9,7 @@ Eight documents carry the project:
 
 | document                                                 | what it covers                                                                                                                                                              |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **[product-specification.md](product-specification.md)** | What werk does. The words used in these documents, what werk is, the core loop, and what exists today. Its five subjects have a document each in `product/`.                |
+| **[product-specification.md](product-specification.md)** | What werk does. The words used in these documents, what werk is, the core loop, what exists today, and what is being tried now. Its five subjects have a document each in `product/`.                |
 | **[open-questions.md](open-questions.md)**               | The twenty-four questions the specification has not answered. The options for each, and any lean labelled as a lean.                                                        |
 | **[workspaces-and-git.md](workspaces-and-git.md)**       | How a workspace gets made and how git follows. The containment graph and the derivation graph, the interface creation sits behind, and what a first version can be.         |
 | **[session-library.md](session-library.md)**             | What the session packages do. The package boundaries, the wire, the scheduler, attachments and permissions, the limits, the consumers, and the soak baseline.               |
@@ -17,7 +17,6 @@ Eight documents carry the project:
 | **[ci.md](ci.md)**                                       | What runs on a pull request and how to start a run by hand. The lanes, the step order, the two layers of re-run on failure, and where each platform stands.                 |
 | **[platforms.md](platforms.md)**                         | How much brokenness the project tolerates on each platform. The tiering, which lanes observe each platform, how to read a lane that fails, and what nobody has settled yet. |
 | **[platform-code.md](platform-code.md)**                 | Where platform-specific code lives. The two places a platform branch is allowed to be, and the check that fails on a branch in neither.                                     |
-
 `product/` holds the subjects of the specification, one document each:
 [the client](product/client.md), [landing](product/landing.md),
 [sharing](product/sharing.md), [mappers](product/mappers.md) and

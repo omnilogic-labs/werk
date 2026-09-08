@@ -67,10 +67,22 @@ has to have an answer.
 werk needs two different answers about a workspace, and they come from two
 graphs rather than from two views of one.
 
-A **containment graph** is what you get by asking where things physically are.
-Its roots are hosts, and an edge means "lives on" or "runs in". It is a tree for
-a solid reason rather than by convention: a directory is on exactly one machine,
-and a process runs in exactly one directory.
+A **containment graph** is what you get by asking what holds what. Its nodes are
+hosts, providers, workspaces and terminal processes, where a host is a machine
+and a provider is something that makes hosts, such as incus, Kubernetes or
+Docker. An edge means "lives on", "was made by" or "runs in". It is a tree for a
+solid reason rather than by convention: a directory is on exactly one machine, a
+process runs in exactly one directory, and a container is on exactly one machine.
+
+Its roots are the hosts and providers werk reaches directly, because somebody
+configured them, rather than through something werk already knows about.
+Reaching a thing is not containing it, and that is what decides the roots: turn
+this machine off and a machine it reaches over ssh keeps running. A provider is
+more often on a host than not, so the graph nests. A machine reached over ssh
+can run incus, a container incus makes is another host, and the path from the
+root down to a terminal process is five nodes rather than three. A provider werk
+reaches at an address instead, such as Fly.io or a sandbox API, sits on no
+machine anybody here owns and is a root of its own.
 
 A **derivation graph** is what you get by asking where a workspace's code came
 from. Its root is wherever the client is executing, and an edge means "was
@@ -79,10 +91,10 @@ changes are expected to go back to it.
 
 |                         | Containment                           | Derivation                                |
 | ----------------------- | ------------------------------------- | ----------------------------------------- |
-| Nodes                   | Hosts, workspaces, terminal processes | Workspaces, and the place the client runs |
-| Roots                   | Hosts                                 | Wherever the client is executing          |
-| An edge means           | Lives on, or runs in                  | Was derived from                          |
-| Crosses a host boundary | Never                                 | Freely                                    |
+| Nodes                | Hosts, providers, workspaces, terminal processes | Workspaces, and the place the client runs        |
+| Roots                | What werk reaches directly                       | Wherever the client is executing                 |
+| An edge means        | Lives on, was made by, or runs in                | Was derived from                                 |
+| Relates two machines | Only when one contains the other                 | Freely, including two with no route between them |
 | Shape                   | A tree, necessarily                   | Probably a tree at first, see question 18 |
 
 A workspace on a Fly.io machine can be derived from a workspace on a Mac mini in
@@ -90,9 +102,10 @@ someone's house. That edge is invisible in the containment graph, where the two
 workspaces sit under different roots and have no relationship at all.
 
 Two consequences follow from that. Git does not follow the containment tree: a
-change moving from a parent workspace to a child is moving between two hosts
-that may have no route to each other, and how it gets there is
-[question 21](open-questions.md#21-how-does-a-change-move-between-two-workspaces-on-different-hosts).
+change moving from a parent workspace to a child is moving between two machines
+that may have no route to each other, so it moves through the client, which
+fetches from the parent and pushes to the child. That is what is being tried
+rather than an answer: [hosts.md](hosts.md) says what it costs.
 And the two graphs want different code and probably different storage, because
 walking containment is asking each host what it has, while walking derivation is
 following pointers that may lead to a host that is currently unreachable, which
