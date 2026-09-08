@@ -1,31 +1,64 @@
-name: Session libraries
+name: CI
 on:
   push:
+    branches: [main]
+  # A branch reaches CI through its pull request or through a dispatch, so a
+  # bare push of a feature branch starts nothing.
   pull_request:
   workflow_dispatch:
     inputs:
+      lanes:
+        description: "Which lanes to run"
+        type: choice
+        options: [all, linux, macos, windows, musl, browser, soak]
+        default: all
       soak_seconds:
-        description: "Steady/churn duration (60 to 86400 seconds)"
+        description: "Steady/churn duration for the soak lane (60 to 86400 seconds)"
         default: "86400"
-        required: true
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}-${{ inputs.lanes }}
+  cancel-in-progress: true
+env:
+  BUN_VERSION: "1.3.14"
+# Windows steps run under Git Bash rather than pwsh, so one `run:` body is
+# correct on all three platforms. The Alpine container has no bash until its
+# first step installs one, which is why that step names `sh` explicitly.
+defaults:
+  run:
+    shell: bash
 jobs:
+  # Steps are ordered cheapest first so a run dies on the first failure with
+  # the least spent: formatting, then the static gates, then unit tests, then
+  # the integration ones. `--bail` carries the same idea inside a test step,
+  # and `--retry=2` gives a test three attempts before it counts as failed, so
+  # a flake does not read as a broken build.
   native:
+    if: github.event_name != 'workflow_dispatch' || contains(fromJSON('["all","linux","macos","windows"]'), inputs.lanes)
     strategy:
+      # Left off deliberately: one platform's failure should not cancel the
+      # evidence the other two were about to produce.
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-15-intel, windows-latest]
+        os: ${{ fromJSON(inputs.lanes == 'linux' && '["ubuntu-latest"]' || inputs.lanes == 'macos' && '["macos-15-intel"]' || inputs.lanes == 'windows' && '["windows-latest"]' || '["ubuntu-latest","macos-15-intel","windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.14
+          bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
+      # Linux only: there is no `.gitattributes`, so a Windows checkout is
+      # most likely CRLF and would fail the check on line endings alone.
+      - run: bun run format:check
+        if: matrix.os == 'ubuntu-latest'
       - run: bun run build
       - run: bun run typecheck
-      - run: bun run test
-      - run: bun test packages/session-daemon/test/native.test.ts
+      - run: bun test scripts --bail
+      - run: bun run test --retry=2 --bail
       - run: bun run test:artefacts
       - run: bun run test:soak
         env:
@@ -41,11 +74,10 @@ jobs:
   # has to find one too. It says nothing about glibc, macOS or Windows, which
   # the `native` matrix covers.
   musl:
+    if: github.event_name != 'workflow_dispatch' || inputs.lanes == 'all' || inputs.lanes == 'musl'
     runs-on: ubuntu-24.04
     container: alpine:3.22
     timeout-minutes: 30
-    env:
-      BUN_VERSION: 1.3.14
     steps:
       # busybox only to start with. `libstdc++` and `libgcc` are not a
       # convenience: the musl Bun and everything compiled from it link against
@@ -64,9 +96,8 @@ jobs:
         id: setup-bun
         continue-on-error: true
         with:
-          bun-version: 1.3.14
+          bun-version: ${{ env.BUN_VERSION }}
       - name: bun (musl)
-        shell: bash
         run: |
           if bun --version 2>/dev/null | grep -qx "$BUN_VERSION" && bun -e 'process.exit(0)' 2>/dev/null; then
             echo "using setup-bun (outcome ${{ steps.setup-bun.outcome }})"
@@ -77,38 +108,42 @@ jobs:
             echo "/usr/local/bin" >>"$GITHUB_PATH"
           fi
       - name: libc
-        shell: bash
         run: |
           command -v bun; bun --version
           ldd "$(command -v bun)" || true
       - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun test packages/session-daemon/test/native.test.ts
-      - run: bun test packages/session-daemon/test/hardening.test.ts
-      # The interpreted tests above load libc through `bun:ffi` in the Bun
+      # `build` comes before `typecheck` because `packages/terminal-beamterm`
+      # imports `@werk/terminal` from `dist/`, so a typecheck from a clean tree
+      # cannot resolve it.
+      - run: bun run build
+      # The interpreted tests below load libc through `bun:ffi` in the Bun
       # process. A compiled binary resolves it through the same system loader,
       # which is the case the research note could not confirm, so ask the built
-      # CLI which mechanism it would use.
-      - run: bun run build
+      # CLI which mechanism it would use. It is the point of the lane and it
+      # costs about a second, so it runs before the slower gates.
       - name: compiled lock mechanism
-        shell: bash
         run: |
           packages/werk/dist/werk info --json | tee /tmp/info.json
           test "$(jq -r .lockMechanism /tmp/info.json)" = flock
+      - run: bun run typecheck
+      - run: bun test packages/session-daemon/test/native.test.ts packages/session-daemon/test/hardening.test.ts --retry=2 --bail
   browser:
+    if: github.event_name != 'workflow_dispatch' || inputs.lanes == 'all' || inputs.lanes == 'browser'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.14
+          bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
         working-directory: examples/session-web
-      - run: bun run test:browser
+      - run: bun run test:browser --retry=2 --bail
   soak:
-    if: github.event_name == 'workflow_dispatch'
+    # A day-long run is asked for by name, so an ad-hoc dispatch of the other
+    # lanes does not start one.
+    if: github.event_name == 'workflow_dispatch' && inputs.lanes == 'soak'
     # Hosted runners cap jobs at six hours; a day needs an owned runner.
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 1500
@@ -116,7 +151,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.14
+          bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
       - run: bun run build
       - run: bun run test:soak
