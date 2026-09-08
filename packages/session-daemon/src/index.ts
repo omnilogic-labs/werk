@@ -219,6 +219,44 @@ export function sizeValid(size: Size) {
       "Terminal dimensions must be integers from 1 to 1000",
     );
 }
+/**
+ * What a session is called.
+ *
+ * A name is what somebody types to come back to a session, so two sessions
+ * sharing one make the name worth nothing: `werk attach claude` cannot mean
+ * five different things, and a client that picked the first match would be
+ * choosing for the caller. A generated name is therefore made unique here,
+ * where every session this daemon holds is in view — the leaf of the command
+ * on its own for the first one, then `claude-2`, `claude-3`, which stays short
+ * enough to type and to complete.
+ *
+ * The leaf is a basename, so `werk create -- /bin/sh` is called `sh` rather
+ * than a path, and a command with no name at all still leaves something to
+ * type.
+ *
+ * A name that was asked for is taken as typed, so a second session under the
+ * same one is the conflict it looks like rather than a silent rename.
+ */
+export function uniqueSessionName(
+  taken: Iterable<string>,
+  requested: string | undefined,
+  argv: readonly string[],
+): string {
+  const names = new Set(taken);
+  if (requested !== undefined) {
+    if (names.has(requested))
+      throw new SessionError(
+        "CONFLICT",
+        `a session is already called ${requested}`,
+      );
+    return requested;
+  }
+  // A trailing separator basenames to the empty string, and so does an argv
+  // with nothing in it; both land on the same fallback.
+  const leaf = path.basename(argv[0] ?? "").trim() || "session";
+  if (!names.has(leaf)) return leaf;
+  for (let n = 2; ; n++) if (!names.has(`${leaf}-${n}`)) return `${leaf}-${n}`;
+}
 export async function createSessionDaemon(config: DaemonConfig) {
   const log = config.log ?? silentLogger;
   const limits = {
@@ -1073,6 +1111,16 @@ export async function createSessionDaemon(config: DaemonConfig) {
   function retainedRecords() {
     return [...records.values()].filter((r) => !r.child && !r.removed);
   }
+  /**
+   * The names sessions are holding. A record on its way out is not holding
+   * one, so removing `claude-2` frees the name for the next session rather
+   * than pushing it to `claude-3`.
+   */
+  function heldNames() {
+    const names: string[] = [];
+    for (const r of records.values()) if (!r.removed) names.push(r.info.name);
+    return names;
+  }
   async function removeRecord(r: RecordState) {
     drainPulse(r, true);
     clearPulse(r);
@@ -1271,6 +1319,10 @@ export async function createSessionDaemon(config: DaemonConfig) {
           `scrollbackBytes exceeds the daemon cap of ${limits.scrollbackMaxBytes}`,
         );
       const scrollbackBytes = p.scrollbackBytes ?? limits.scrollbackMaxBytes;
+      // A name that was asked for and is already taken is refused here, before
+      // anything is built for a session that is not going to exist. The name
+      // is settled again below, and that later call is the authoritative one.
+      if (p.name !== undefined) uniqueSessionName(heldNames(), p.name, p.argv);
       pendingCreates++;
       let terminal: TerminalHandle;
       try {
@@ -1284,6 +1336,18 @@ export async function createSessionDaemon(config: DaemonConfig) {
         terminal.dispose();
         throw new SessionError("CLOSED", "Connection closed during creation");
       }
+      // Settled here because no await separates this from the `records.set`
+      // that claims it: two creates racing for `claude` cannot both be told it
+      // is free and both take `claude-2`. A name the earlier check found free
+      // can have been taken since, and the terminal already exists by then, so
+      // it goes back the way it does everywhere else on this path.
+      let name: string;
+      try {
+        name = uniqueSessionName(heldNames(), p.name, p.argv);
+      } catch (e) {
+        terminal.dispose();
+        throw e;
+      }
       const r: RecordState = {
         terminal,
         position: 0,
@@ -1296,7 +1360,7 @@ export async function createSessionDaemon(config: DaemonConfig) {
           size: p.size,
           scrollbackBytes,
           createdAt: Date.now(),
-          name: p.name ?? p.argv[0],
+          name,
           labels: p.labels ?? {},
           attachments: [],
           processTree: { foreground: p.argv[0], children: 0 },

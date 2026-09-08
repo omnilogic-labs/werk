@@ -14,7 +14,9 @@
  * `werk attach </dev/null` never starts a daemon on its way to failing.
  */
 import { Argument } from "@commander-js/extra-typings";
-import type { SessionClient } from "@werk/session";
+import type { SessionClient, SessionInfo } from "@werk/session";
+import { localWorkspaceAt } from "@werk/workspace";
+import { workspaceRoot } from "./create.js";
 import { completes } from "../completion/hooks.js";
 import { sessionCandidates } from "../completion/candidates.js";
 import { connectDaemon } from "../runtime/daemon.js";
@@ -23,7 +25,10 @@ import { UsageError } from "../runtime/exit.js";
 import type { WerkContext } from "../runtime/context.js";
 
 export const sessionArgument = (): Argument =>
-  completes(new Argument("[session]", "session ID or name"), sessionCandidates);
+  completes(
+    new Argument("[session]", "session id, name or workspace"),
+    sessionCandidates,
+  );
 
 /**
  * Run `work` against a client, on the session named or the session picked.
@@ -45,7 +50,10 @@ export async function withSession<T>(
     const id =
       given === undefined
         ? await selectSession(ctx, await client.list({}), message)
-        : resolveSession(await client.list({}), given);
+        : resolveSession(
+            aliasesOf(await client.list({}), workspaceRoot(ctx)),
+            given,
+          );
     return await work(client, id, given === undefined);
   } finally {
     await client.close();
@@ -53,31 +61,75 @@ export async function withSession<T>(
 }
 
 /**
+ * What a session answers to, in the order the answers are believed.
+ *
+ * The id is first because it is the only thing guaranteed unique. The name is
+ * next because it is what completion offers and what `create` printed back.
+ * The workspace is last because it is a property of where the session is
+ * running rather than of the session, but it is on screen in `werk list` and
+ * carries a digest, so it is often the shortest unique thing to hand.
+ */
+export interface SessionAlias {
+  id: string;
+  name: string;
+  /** The workspace this session is running in, when it is running in one. */
+  workspace?: string;
+}
+
+/** The aliases of a session as the daemon describes it. */
+export function aliasesOf(
+  sessions: readonly SessionInfo[],
+  root: string,
+): SessionAlias[] {
+  return sessions.map((s) => ({
+    id: s.id,
+    name: s.name,
+    workspace: localWorkspaceAt(root, s.cwd)?.name,
+  }));
+}
+
+/** How a session is named back to somebody who has to choose between several. */
+const describe = (s: SessionAlias) =>
+  s.name ? `${s.id.slice(0, 12)} (${s.name})` : s.id.slice(0, 12);
+
+function decide(given: string, matched: readonly SessionAlias[]): string {
+  if (matched.length === 1) return matched[0]!.id;
+  throw new UsageError(
+    `${given} matches ${matched.length} sessions: ${matched
+      .map(describe)
+      .join(", ")}; name one by its id`,
+  );
+}
+
+/**
  * Turn what someone typed into a session id.
  *
- * Completion offers names, `create` prints a name back, and the argument is
- * documented as taking either, so a command that only understood ids would
- * reject the very word it had just suggested. Ids win over names, and an exact
- * match wins over a prefix, so a name that happens to prefix another id is never
- * silently taken for it.
+ * Ids beat names beat workspaces, and an exact match at any of those beats a
+ * prefix, so a name that happens to prefix another id is never silently taken
+ * for it. Anything matching more than one session at whichever level decided
+ * it says what it matched rather than choosing: the daemon keeps generated
+ * names unique, but nothing stops two sessions being given the same one on the
+ * wire, and picking the first would attach the caller to a session they did
+ * not ask for without saying so.
  */
 export function resolveSession(
-  sessions: readonly { id: string; name: string }[],
+  sessions: readonly SessionAlias[],
   given: string,
 ): string {
-  const exact =
-    sessions.find((s) => s.id === given) ??
-    sessions.find((s) => s.name === given);
-  if (exact) return exact.id;
+  for (const same of [
+    (s: SessionAlias) => s.id === given,
+    (s: SessionAlias) => s.name === given,
+    (s: SessionAlias) => s.workspace === given,
+  ]) {
+    const exact = sessions.filter(same);
+    if (exact.length) return decide(given, exact);
+  }
   const prefixed = sessions.filter(
-    (s) => s.id.startsWith(given) || s.name.startsWith(given),
+    (s) =>
+      s.id.startsWith(given) ||
+      s.name.startsWith(given) ||
+      s.workspace?.startsWith(given),
   );
-  if (prefixed.length === 1) return prefixed[0]!.id;
-  if (prefixed.length > 1)
-    throw new UsageError(
-      `${given} matches ${prefixed.length} sessions: ${prefixed
-        .map((s) => s.name || s.id)
-        .join(", ")}`,
-    );
+  if (prefixed.length) return decide(given, prefixed);
   throw new UsageError(`no session called ${given}`);
 }

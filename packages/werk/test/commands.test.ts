@@ -26,7 +26,7 @@ import {
 } from "../src/commands/attach.js";
 import { buildKill, renderTermination } from "../src/commands/kill.js";
 import { renderInspection, type Inspection } from "../src/commands/inspect.js";
-import { resolveSession } from "../src/commands/session-argument.js";
+import { aliasesOf, resolveSession } from "../src/commands/session-argument.js";
 
 /** A context with no terminal and no colour, so a rendering is plain text. */
 function context(overrides: Partial<WerkContext> = {}): WerkContext {
@@ -304,6 +304,51 @@ test("an ambiguous prefix names what it matched rather than guessing", () => {
     { id: "a2", name: "welder" },
   ];
   expect(() => resolveSession(sessions, "we")).toThrow(/matches 2 sessions/);
+});
+test("a name two sessions share is ambiguous rather than first-wins", () => {
+  // The daemon keeps generated names unique; two sessions given the same name
+  // over the wire must still not silently resolve to whichever came back first.
+  const sessions = [
+    { id: "a1", name: "claude" },
+    { id: "a2", name: "claude" },
+  ];
+  expect(() => resolveSession(sessions, "claude")).toThrow(
+    /matches 2 sessions/,
+  );
+  // Ambiguity is reported in the one spelling that can settle it.
+  expect(() => resolveSession(sessions, "claude")).toThrow(/a1.*a2/);
+});
+test("a session is found by the workspace it is running in", () => {
+  const sessions = [
+    { id: "a1", name: "claude", workspace: "fix-login-a3f2b1c9" },
+    { id: "a2", name: "claude", workspace: "docs-9e01ff42" },
+  ];
+  expect(resolveSession(sessions, "fix-login-a3f2b1c9")).toBe("a1");
+  expect(resolveSession(sessions, "docs")).toBe("a2");
+});
+test("a name beats a workspace of the same spelling", () => {
+  const sessions = [
+    { id: "a1", name: "docs" },
+    { id: "a2", name: "claude", workspace: "docs" },
+  ];
+  expect(resolveSession(sessions, "docs")).toBe("a1");
+});
+test("aliases carry the workspace a session was started in", () => {
+  const root = path.join(path.sep, "state", "workspaces");
+  const info = (id: string, cwd: string) =>
+    ({ id, name: "claude", cwd }) as unknown as SessionInfo;
+  expect(
+    aliasesOf(
+      [
+        info("a1", path.join(root, "werk-1234abcd", "fix-login-a3f2b1c9")),
+        info("a2", path.join(path.sep, "home", "mike", "elsewhere")),
+      ],
+      root,
+    ),
+  ).toEqual([
+    { id: "a1", name: "claude", workspace: "fix-login-a3f2b1c9" },
+    { id: "a2", name: "claude", workspace: undefined },
+  ]);
 });
 test("a session that is not there says so", () => {
   expect(() => resolveSession([{ id: "a1", name: "x" }], "nope")).toThrow(

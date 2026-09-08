@@ -101,14 +101,15 @@ const unsafe = /[^A-Za-z0-9._-]/g;
  * `--workspace` is taken as typed, so a person who names their branch gets the
  * branch they named and a second `create` under the same name is the conflict
  * it looks like. Everything else is generated here, in the client, because the
- * session's own name is not available to borrow: the daemon derives it from
- * `argv[0]` and nothing makes it unique, so `/bin/sh` is not even a legal
- * branch name and `claude` would collide on the second session.
+ * workspace exists before any daemon has been asked for a session and so has
+ * no session name to borrow.
  *
  * The generated form is a readable leaf and a digest, the same shape
  * `repositorySlot` uses for a repository's directory: `claude-a3f2b1c9` says
  * what is running in `git branch` output, and the suffix is what lets
- * `werk create -- claude` be run twice in one repository.
+ * `werk create -- claude` be run twice in one repository. The digest is what
+ * makes a workspace the shortest unique thing on a `werk list` row, which is
+ * why `attach` takes one.
  */
 export function workspaceNameFor(
   opts: { workspace?: string; name?: string },

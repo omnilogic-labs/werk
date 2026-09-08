@@ -146,7 +146,9 @@ commits, `create` fails and starts nothing.
 the name is generated: the command's own name, or `--name` when there is one,
 and a short digest — `claude-a3f2b1c9`. The digest is what lets `werk create`
 be run twice in the same repository, so a name that was asked for explicitly is
-a conflict the second time and a generated one is not.
+a conflict the second time and a generated one is not. It is also what makes
+the workspace the shortest unique word on a `werk list` row, which is why
+[choosing a session](#choosing-a-session) accepts one.
 
 The worktree goes under `$stateDir/workspaces`, in a directory per repository
 named after the repository and the digest of its path, so two checkouts of the
@@ -222,16 +224,39 @@ emitting `OSC 7`. A shell that does not leaves it out.
 Below the width that would leave a legible identity there is no identity at all,
 because a name cut down to one letter says less than the key that gets you out.
 
+### Naming a session
+
+A name is what somebody types to come back to a session, so the daemon keeps
+generated names unique. The name is the leaf of the command — `claude`, and
+`sh` rather than `/bin/sh` — on its own for the first session running it, and
+`claude-2`, `claude-3` after that. Removing a session gives its name back
+rather than counting past it, because names are for typing and the id is the
+durable identifier.
+
+`--name` is taken as typed, and a second session under a name that is already
+held is refused with `CONFLICT` rather than quietly renamed. Whether the count
+is the right shape — against a digest like the workspace's, or against a
+generated pair of words — is not settled; what is settled is that two sessions
+must not answer to one name.
+
 ### Choosing a session
 
 `attach`, `logs`, `kill` and `remove` take an optional `[session]`, which is an
-id, a name, or an unambiguous prefix of either — so the name completion offered
-and the name `create` printed both work as typed. An exact match wins over a
-prefix, and a prefix matching more than one session names what it matched rather
-than choosing. Given none,
-and with a terminal to ask in, werk offers a searchable picker of live sessions,
-most recently active first; the prompt paints on stderr so a piped record stays
-clean, and it carries a two-minute deadline.
+id, a name, the workspace the session is running in, or an unambiguous prefix
+of any of them — so the completion offered, the name `create` printed and the
+`WORKSPACE` column of `werk list` all work as typed. The workspace carries a
+digest, so it is often the shortest unique thing on a row.
+
+Ids beat names beat workspaces, and an exact match at any of those beats a
+prefix, so a name that happens to prefix another id is never silently taken for
+it. Anything matching more than one session says what it matched, by id, rather
+than choosing — including an exact name, because the daemon's uniqueness is not
+something the client can assume of a name it was handed.
+
+Given no session at all, and with a terminal to ask in, werk offers a
+searchable picker of live sessions, most recently active first; the prompt
+paints on stderr so a piped record stays clean, and it carries a two-minute
+deadline.
 
 Prompting is forbidden when `--no-input` was passed, when either standard stream
 is not a terminal, or when `CI` is set. In that case a missing session is a
@@ -323,7 +348,7 @@ an exemption is a decision someone wrote down.
 | 2    | A usage mistake: a bad flag, an unknown command, `INVALID_ARGUMENT`         |
 | 3    | `NOT_FOUND` — no such session                                               |
 | 4    | `PERMISSION_DENIED`                                                         |
-| 5    | `CONFLICT`, or a workspace name that is already taken                       |
+| 5    | `CONFLICT` — a session or workspace name already taken                      |
 | 6    | `LIMIT` — a cap was exceeded                                                |
 | 7    | `TIMEOUT` or `CLOSED` — the daemon is not answering                         |
 | 130  | Cancelled: SIGINT, or a prompt nobody answered                              |

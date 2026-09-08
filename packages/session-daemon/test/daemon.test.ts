@@ -13,6 +13,7 @@ import {
   createSessionDaemon,
   serveSessionDaemon,
   openLocalTransport,
+  uniqueSessionName,
 } from "../src/index";
 import type { TerminalEngineFactory } from "@werk/terminal";
 const encoder = new TextEncoder(),
@@ -127,6 +128,65 @@ async function until(fn: () => Promise<boolean>, ms = 3000) {
   }
   throw new Error("condition timed out");
 }
+test("a generated name is unique, and a name that was asked for is not taken twice", () => {
+  // Nothing taken: the leaf of the command, and a path is not a name.
+  expect(uniqueSessionName([], undefined, ["claude"])).toBe("claude");
+  expect(uniqueSessionName([], undefined, ["/usr/bin/env"])).toBe("env");
+  expect(uniqueSessionName([], undefined, [])).toBe("session");
+  // Taken: counted up, and only past what is actually held.
+  expect(uniqueSessionName(["claude"], undefined, ["claude"])).toBe("claude-2");
+  expect(uniqueSessionName(["claude", "claude-2"], undefined, ["claude"])).toBe(
+    "claude-3",
+  );
+  expect(uniqueSessionName(["claude", "claude-3"], undefined, ["claude"])).toBe(
+    "claude-2",
+  );
+  // Asked for: taken as typed, and refused rather than renamed when it is held.
+  expect(uniqueSessionName(["claude"], "demo", ["claude"])).toBe("demo");
+  expect(() => uniqueSessionName(["demo"], "demo", ["claude"])).toThrow(
+    /already called demo/,
+  );
+});
+test("two sessions running one command get names that tell them apart", async () => {
+  const t = await setup();
+  try {
+    const first = await t.client.create({
+      argv: shellArgv,
+      size: { cols: 80, rows: 24 },
+    });
+    const second = await t.client.create({
+      argv: shellArgv,
+      size: { cols: 80, rows: 24 },
+    });
+    const leaf = shellArgv[0]!.split(/[\\/]/).pop();
+    expect([first.name, second.name]).toEqual([leaf, `${leaf}-2`]);
+    // A name that was asked for and is already held is a conflict, not a
+    // second session nobody can name.
+    await t.client.create({
+      argv: shellArgv,
+      size: { cols: 80, rows: 24 },
+      name: "demo",
+    });
+    await expect(
+      t.client.create({
+        argv: shellArgv,
+        size: { cols: 80, rows: 24 },
+        name: "demo",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    // Removing a session gives its name back rather than counting past it.
+    await t.client.terminate(first.id, "force");
+    await until(async () => (await t.client.get(first.id)).state !== "running");
+    await t.client.remove(first.id);
+    const third = await t.client.create({
+      argv: shellArgv,
+      size: { cols: 80, rows: 24 },
+    });
+    expect(third.name).toBe(leaf);
+  } finally {
+    await t.close();
+  }
+});
 test("PTY survives clients, grants, size ownership, watch and retained recovery", async () => {
   const t = await setup();
   try {
