@@ -5,14 +5,13 @@ metadata:
   type: project
 ---
 
-Four things about the platform code in `packages/session-daemon` are easy to miss.
-
-**A reader that answers `null` off one platform turns off every guard that
-consumes it, and says nothing.** `processStartedAt` answered `null` anywhere but
-Linux, which disabled both the pid-reuse check and the `SIGUSR1` nudge in
-`ensureSessionDaemon`; the test that would have caught it was skipped by
-`skipIf(platform !== "linux")`. Issue #30 was that pair. Skip a capability's test
-only on the platforms that lack the capability, so a silent `null` fails loudly.
+**A platform reader that answers `null` turns off every guard that consumes it,
+and says nothing.** `processStartedAt` answered `null` anywhere but Linux. That
+disabled both the pid-reuse check and the `SIGUSR1` nudge in
+`ensureSessionDaemon`. The test that would have caught it was skipped by
+`skipIf(platform !== "linux")`, which is why nothing reported it; issue #30 was
+that pair. Skip a capability's test only on the platforms that lack the
+capability, so a silent `null` fails loudly.
 
 **`platformCapabilities`, exported from `src/platform/index.ts`, travels over the
 wire.** It is spread into the daemon's capabilities in `src/index.ts` and

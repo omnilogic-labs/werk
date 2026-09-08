@@ -19,12 +19,14 @@ subprocesses die, and lands against whichever attempt is running by then.
 **Two reading cues.**
 
 - A silent gap the length of the test's timeout, ending in `killed N dangling
-processes`, is an abandoned attempt. Bun prints one `(fail)` line per test,
-  for the last attempt only, so a middle attempt leaves no summary of its own.
+processes`, is an abandoned attempt.
 - A duration far below what the test needs to reach its first assertion, a few
   hundred milliseconds against several seconds, means the error came from
   earlier. Playwright's `Target page, context or browser has been closed` is the
   usual shape of it.
+
+Bun prints one `(fail)` line per test, for the last attempt only, so a middle
+attempt leaves no summary of its own.
 
 **What this cost once.** Issue #40 was opened because the `browser` lane looked
 green and red at the same code across four runs. It was not. The four runs sit

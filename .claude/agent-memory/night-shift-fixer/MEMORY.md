@@ -1,1 +1,2 @@
-- [format:check scans agent memory](format-check-scans-agent-memory.md): another agent's unformatted memory file fails the gate; exclude and report, do not edit
+- [format:check scans agent memory](format-check-scans-agent-memory.md): another
+  agent's unformatted memory file fails the gate

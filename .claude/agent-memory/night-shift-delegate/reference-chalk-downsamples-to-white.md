@@ -6,7 +6,9 @@ metadata:
 ---
 
 `new Chalk({ level: 1 }).hex(...)` runs a nearest-colour search and answers
-white for pastel palettes, measured across the four Catppuccin flavours:
+white for pastel palettes, measured across the four Catppuccin flavours. Each
+cell is the ANSI SGR code chalk emitted, where 37 is white and 97 is bright
+white:
 
 | flavour   | green | teal | yellow | red | blue |
 | --------- | ----- | ---- | ------ | --- | ---- |

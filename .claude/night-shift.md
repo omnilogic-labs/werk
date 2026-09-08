@@ -26,32 +26,22 @@ prior_art: true
 
 ## Read these first
 
-`CLAUDE.md` at the repo root governs everything, and two of its rules decide
-more work here than anything in this file: documentation reflects the present
-rather than its history, and a maybe is never written as a fact. `docs/ci.md`
-says how a change is proved. `docs/platforms.md` says how much brokenness each
-platform is allowed.
+`CLAUDE.md` at the repo root governs everything here, and its project rules
+decide more work than anything in this file. `docs/ci.md` says how a change is
+proved. `docs/platforms.md` says how much brokenness each platform is allowed.
 
 ## Nothing here is shipped
 
-werk is used by one person and nothing depends on it. There is no backwards
-compatibility to keep, no output shape to preserve, no protocol to hold still.
-Half the code can be deleted and rewritten without disrupting anything.
-
-The failure this causes is specific and has already happened: a unit asked to
-make `werk create` create a workspace put it behind an opt-in flag, so that the
-old behaviour was still available, and the thing that was asked for did not
-happen. If you find yourself preserving something for a user, there is no user.
-Preserve the general use cases the product supports. Everything below that is
-detail, and detail is expected to churn, sometimes twice in a day.
+`CLAUDE.md` carries the rule. The failure it prevents has already happened here:
+a unit asked to make `werk create` create a workspace put it behind an opt-in
+flag, so the old behaviour was still available and the thing that was asked for
+did not happen. If you find yourself preserving something for a user, there is
+no user. Preserve the general use cases the product supports. Everything below
+that is detail, and detail is expected to churn, sometimes twice in a day.
 
 ## Prove it on a runner, then land it
 
-werk runs on Linux, macOS and Windows, and draws a terminal in a browser. **The
-machine you are on covers at most one of those**, and a green local suite is
-evidence about that one machine.
-
-Every other platform is one dispatch away, so none of them is out of reach:
+`CLAUDE.md` carries the rule. What it does not carry:
 
 ```
 bun scripts/ci-run.ts all --ref <your branch>      every lane but soak
@@ -59,25 +49,20 @@ bun scripts/ci-run.ts macos --ref <your branch>    one lane by name
 ```
 
 Lanes are `linux`, `macos`, `windows`, `musl`, `browser`, and `soak`, which is
-asked for by name because it is long. GitHub runs any ref `origin` already
-holds, with no merge and no pull request, so publish your branch and dispatch
-against it. `docs/ci.md` has the rest and `scripts/ci-run.ts --help` has the
-flags.
+asked for by name because it is long. `scripts/ci-run.ts --help` has the flags.
 
-So the loop is: commit, publish your own branch, dispatch a run, read what the
-runners say, fix, dispatch again. Integration is serialised and happens after
-the evidence exists, not before it. A regression reached `main` in exactly the
-gap this closes: a browser assertion pinned a colour the palette no longer
-painted, the unit that broke it could not run that lane on its machine and
-substituted a walk of the page, and only CI saw it.
+Integration is serialised and happens after the evidence exists, not before it.
+A regression reached `main` because nobody dispatched the lane. A browser test
+pinned a colour the palette no longer painted. The unit that broke it could not
+run the browser lane on its machine and replaced the assertion with a manual
+walk of the page, so only CI caught it.
 
-`#30` and `#31` are open failures on macOS and Windows, so a run is measured
-against that baseline rather than against green.
+`#30` on macOS and `#31` on Windows are open failures, so measure a run against
+that baseline rather than against green.
 
-**`UNVERIFIED` is for what no runner can reach.** A platform whose lane exists
-and was not run is a lane nobody ran, not a limit anybody hit. When something
-genuinely cannot be verified, mark it `UNVERIFIED` and say what the grade
-therefore does not assert. Do not pass it on inspection.
+**`UNVERIFIED` is for what no runner can reach.** When something genuinely
+cannot be verified, mark it `UNVERIFIED` and say what the grade therefore does
+not assert. Do not pass it on inspection.
 
 `bun run test:browser` needs a browser on this machine and Playwright refuses
 hosts it has no build for. The lane has been run here and passes, so it is not
@@ -87,26 +72,12 @@ the manual recipe that worked.
 
 ## The toolchain, and the order it goes in
 
-`bun run build` before `bun run typecheck`, always: `packages/terminal-beamterm`
-imports `@werk/terminal` from `dist/`, so a typecheck from a clean tree fails
-until a build has run. This is pre-existing and is not yours to fix inside
-another unit.
+The commands and their ordering trap are in `CLAUDE.md`. That sequence is what
+CI runs and what an integration must pass. Two things it does not say apply to a
+pipeline unit.
 
-The full local sequence, which is what CI runs and what an integration must
-pass:
-
-```
-bun run build
-bun run typecheck
-bun run test
-bun test scripts --bail
-bun run test:artefacts
-bun run format:check
-```
-
-`bun run test` names each package's test directory explicitly, so **a new
-package's tests do not run until it is added to that script**, and `scripts/`
-is not in it at all.
+The build-before-typecheck failure is pre-existing. It is not yours to fix
+inside another unit.
 
 A unit's footprint is checked against its merge base, not against the tip:
 `git diff $(git merge-base main HEAD) HEAD`. `main` moves under a live branch, so
@@ -120,9 +91,8 @@ take the base's copy and re-run `bun install` rather than merging it by hand.
 
 A unit's port is reported by `provision` and is that unit's alone. Whoever
 starts a server stops it, and stopping it means **signalling the process
-group**: the pid a launch reports is commonly a wrapper, and the port is held by
-a child. That has been observed in this repository directly: a launch reported one pid
-while a child of it held the port.
+group**: the pid a launch reports is commonly a wrapper, and a child of it holds
+the port.
 
 A unix socket path is capped at around 100 bytes on Unix, and a worktree path
 can exceed it, so a daemon started for testing runs against the `RUNTIME_DIR` and
@@ -147,15 +117,18 @@ reading it would not change what someone does, it is not a memory.
 the sentence stays true for someone on macOS or Windows. Where the fact is about
 your host, record what the reader has to find out on theirs, the way the sections
 above this one do. No absolute paths out of a home directory, no host
-identifiers, no process ids. Do not date-stamp a claim to keep it alive either: a
-list of which lanes are failing today rots within the week, so point at the open
-issues instead.
+identifiers, no process ids.
 
-Keep it to a handful of lines. Past roughly twenty-five it is a document, and a
-document belongs in `docs/`, or on the issue that commissioned it, where somebody
-maintains it. Do not restate what this file, `CLAUDE.md` or `docs/` already says;
-two copies of a fact go stale separately and the reader cannot tell which is
-current.
+Date a measurement when the date tells the reader when to re-take it, as in
+"measured on bun 1.3.14, Linux, 2026-09-08". Do not date a status list: which
+lanes are failing today rots within the week, so point at the open issues
+instead.
+
+Keep it to a handful of lines. Past roughly twenty-five lines it is a document,
+and a document belongs in `docs/`, or on the issue that commissioned it, where
+somebody maintains it. Do not restate what this file, `CLAUDE.md` or `docs/`
+already says; two copies of a fact go stale separately and the reader cannot
+tell which is current.
 
 Prefer editing an existing file to adding one. Read the role's memory before you
 write, and update its `MEMORY.md` in the same commit so the index matches the
@@ -164,19 +137,16 @@ else.
 
 ## Conflicts
 
-An integrator hands a fixer facts and asks it to resolve the conflicts. It does
-not say which side should win, and it does not pass a principle. The integrator
-runs on a small model and has read commit messages and a diffstat; the fixer
-reads the code. An interpretation invented by the weaker model becomes an
-instruction the stronger one obeys, and the resolution it would have reached
-independently never happens.
-
-That applies to whoever dispatches the integrator too.
+When a conflict goes from an integrator to a fixer, pass the commit messages and
+the diff and nothing else. Do not name a preferred side and do not pass a
+principle. The integrator runs on a small model and has not read the code; the
+fixer has. An interpretation the integrator invents becomes an instruction the
+fixer obeys, and the resolution the fixer would have reached on its own never
+happens. That applies to whoever dispatches the integrator too.
 
 ## Prose
 
-British spelling, plain sentences, no filler, no em dashes in new text. The
-`plain-writing` skill is the standard `CLAUDE.md` points at. If it is not
+The `plain-writing` skill is the standard `CLAUDE.md` points at. If it is not
 invocable by name where you are, it is a directory of markdown you can read
 directly; find where it is installed rather than skipping it. A skills directory
 can look empty when it is not, because `find` does not follow symlinks by
@@ -201,12 +171,14 @@ Offered so a unit recognises the shape rather than rediscovering it.
   the function level and at the spawned-binary level and thin exactly where flag
   parsing, config merge and context construction meet.
 - **A guard written in one place and missing from the one that needs it.**
-- **Sub-documents that state as fact what their parent lists as absent.**
+- **A document under `docs/product/` that states a feature as built when
+  `docs/product-specification.md` lists it as not built.** Nobody has caught one
+  of these yet, so it is a risk rather than a sighting. Check what a document
+  claims exists against "What exists today" before repeating it.
 
 ## Escalation
 
-Decide the detail; ask about the direction. A unit that would be better after a
-question nobody has answered returns `BLOCKED` with the question, or records it
-as an open question in `docs/product-specification.md` with the options and any
-lean labelled as a lean. Shipping a flag to avoid a decision is the thing this
-repository has already been burned by.
+A unit that would be better after a question nobody has answered returns
+`BLOCKED` with the question, or records it as an open question in
+`docs/open-questions.md` with the options and any lean labelled as a lean.
+Decide the detail yourself. Do not ship a flag to avoid a decision.

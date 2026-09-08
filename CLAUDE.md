@@ -4,23 +4,58 @@
 
 Locally, on a machine you can ssh to, or in a container it provisions. It puts
 your repository there on a fresh branch, gives you a terminal that survives your
-laptop closing, and shows you every one of those — across every machine — in one
+laptop closing, and shows you every one of those, across every machine, in one
 list you can open from a terminal or a browser.
 
 ## What this repo is right now
 
-The Bun workspace contains private session libraries and two consumers. The
-portable `@werk/terminal` and `@werk/session` packages provide terminal replicas
-and the transport-injected client. `@werk/session-daemon` owns PTYs, persistence
-and local daemon startup. `@werk/terminal-beamterm` proves the renderer seam beside
-the bundled DOM renderer. `@werk/workspace` puts creating a workspace behind an
-interface and makes local git worktrees behind it; it is under development and
-expected to change shape. `@werk/palette` is Catppuccin's four flavours
-mapped to werk's uses, and is the one place any colour is named. `packages/werk` is the session CLI and
-`examples/session-web` is the local browser consumer.
+A Bun workspace of eight private packages: six libraries, and two consumers
+that use them.
 
-See [docs/session-library.md](docs/session-library.md) for build, validation and
-consumer commands. Product direction lives in `docs/product-specification.md`.
+| package                   | what it does                                                                                                                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@werk/terminal`          | Interprets terminal output and rebuilds the screen anywhere. Carries a pinned Ghostty WASM build, a snapshot format, and a DOM renderer. Its renderer interface is `RendererFactory` in `packages/terminal/src/types.ts`. |
+| `@werk/session`           | The session client and wire protocol. The caller supplies the `Transport`, so the same client runs over a unix socket under Bun and over a WebSocket in a browser.                                                        |
+| `@werk/session-daemon`    | Owns PTYs, persistence, and starting the local daemon.                                                                                                                                                                    |
+| `@werk/terminal-beamterm` | A second implementation of `RendererFactory`, painting onto a WebGL2 canvas instead of DOM rows. It shows that a different renderer can be substituted for the bundled one.                                               |
+| `@werk/workspace`         | Defines `WorkspaceHost`, the interface for creating a workspace. Its only implementation today creates a git worktree on the local machine. Under development and expected to change shape.                               |
+| `@werk/palette`           | Catppuccin's four flavours mapped to werk's uses. The one place any colour is named.                                                                                                                                      |
+| `packages/werk`           | The session CLI, named `@werk/cli` in the workspace.                                                                                                                                                                      |
+| `examples/session-web`    | The local browser consumer.                                                                                                                                                                                               |
+
+[docs/session-library.md](docs/session-library.md) covers the session packages.
+Product direction lives in
+[docs/product-specification.md](docs/product-specification.md), and what nobody
+has answered yet lives in [docs/open-questions.md](docs/open-questions.md).
+
+## Commands
+
+```
+bun install
+bun run build
+bun run typecheck
+bun run test
+bun test scripts --bail
+bun run test:artefacts
+bun run format:check
+```
+
+Run `bun run build` before `bun run typecheck`, always.
+`packages/terminal-beamterm` imports `@werk/terminal` from `dist/`, so a
+typecheck on a clean tree fails until a build has run.
+
+`bun run test` names each package's test directory explicitly in
+`package.json`, so a new package's tests do not run until you add it to that
+line. `scripts/` is not on that line at all, which is why `bun test scripts` is
+separate. `bun run test:browser` runs the Playwright suite and needs a browser
+on this machine, which `bun run browser:install` tries to install.
+
+## What earlier agents wrote down
+
+`.claude/agent-memory/<role>/MEMORY.md` indexes findings that previous agents
+recorded and verified in this repository, one line per file. Read your role's
+index before starting, and open the files whose line touches what you are about
+to do.
 
 ## Project rules
 
@@ -29,10 +64,10 @@ consumer commands. Product direction lives in `docs/product-specification.md`.
 A doc is a self-contained reference to the information we currently want
 recorded. It is not a changelog of itself.
 
-When something changes — a decision, a new finding, a correction — **rewrite the
-doc so it reads as though it had always said the new thing**, and make sure the
-rest of it is coherent after the edit: fix cross-references, renumber, delete
-sentences whose premise is gone.
+When something changes, whether a decision, a new finding or a correction,
+**rewrite the doc so it reads as though it had always said the new thing**, and
+make sure the rest of it is coherent after the edit: fix cross-references,
+renumber, delete sentences whose premise is gone.
 
 Do not write:
 
@@ -41,131 +76,134 @@ Do not write:
 - "alternatives considered and rejected"
 - "~~X~~ → Y" or any other visible trace of the edit
 
-When we change our minds, the alternative we did not take is not useful context.
-Delete it. Git has the history if anyone ever wants it.
+Git keeps the history if anyone ever wants it.
 
 ### Speculate. Do not decide.
 
-**Default to the speculative voice.** "This probably wants to be X", "the options
-are X or Y", "X is likely and nobody has worked out where it stops" — not "werk
-does X" or "werk is not Y". Writing a maybe as a fact is the single most costly
-mistake in this repo, because it gets read back later as settled and nobody
-remembers that it wasn't.
+**Default to the speculative voice.** Write "this probably wants to be X", "the
+options are X or Y", "X is likely and nobody has worked out where it stops". Do
+not write "werk does X" or "werk is not Y". Writing a maybe as a fact is the
+single most costly mistake in this repo, because it gets read back later as
+settled and nobody remembers that it wasn't.
 
 Nothing in `docs/` is settled unless someone said it was. Do not invent
 decisions, non-goals, scope exclusions, or roadmap commitments that were not
 actually stated.
 
-- A genuinely open question goes in the open questions of
-  `docs/product-specification.md`, with the options laid out and any lean
-  explicitly labelled as a lean.
+No file records decisions in one place. A question is settled when a document
+says it is settled, in those words, or when the owner said so in the
+conversation you are in. Nothing else counts: the code doing something one way
+is not a decision to do it that way. When you can find neither, ask.
+
+- A genuinely open question goes in
+  [docs/open-questions.md](docs/open-questions.md), with the options laid out
+  and any lean explicitly labelled as a lean.
 - A research finding is a finding. It informs a decision; it is not one. What
   another project chose is evidence, not our position.
 - If a doc needs a position in order to be coherent and nobody has taken one,
-  say so in the doc and ask — do not pick one and write it down as settled.
+  say so in the doc and ask. Do not pick one and write it down as settled.
 
-**Negative statements are the worst offenders.** "werk is not X", "X is out of
-scope", "we will never Y" all read as closed doors and are almost never things
-anyone actually closed. Do not write one unless it was explicitly decided. If
-something genuinely looks unlikely, write down why it looks unlikely and leave
-the door open.
+**A negative statement is the easiest way to write down a decision nobody
+made.** "werk is not X", "X is out of scope", "we will never Y" all read as
+closed doors and are almost never things anyone actually closed. Do not write
+one unless it was explicitly decided. If something genuinely looks unlikely,
+write down why it looks unlikely and leave the door open.
 
 ### Nothing is shipped, so nothing is protected
 
-werk is not shipped. There is no shipped contract and no finalised decisions
-really anywhere, the product is barely being used by one person yet, and
-everything is subject to change.
-
-That is true of the code and of the CLI's behaviour, not only of `docs/`.
-Nothing is settled merely because it is currently written that way. There is no
-need to worry about breaking API changes, output shapes or protocols, and no
-work should preserve old behaviour for users who do not exist — no flag to keep
-a command behaving as it did, no older spelling kept alongside a newer one, no
-key withheld from a record so that nothing parsing it has to change.
+werk has one user and no released contract, so nothing needs backwards
+compatibility. Do not add a flag, an alias, or a withheld field to preserve old
+behaviour: no flag to keep a command behaving as it did, no older spelling kept
+alongside a newer one, no key withheld from a record so that nothing parsing it
+has to change. Change the behaviour instead. That holds for the code and the
+CLI's behaviour as much as for `docs/`.
 
 The repository does assert shapes in places: the `--json` output test in
-`packages/werk/test/json-output.test.ts`, the two output registers and the
+`packages/werk/test/json-output.test.ts`, the two output modes and the
 exit-code table in [docs/cli.md](docs/cli.md), and the session wire protocol in
-`@werk/session`. None of them is a reason to hold back. Naming them here is not
-an instruction to go and change them; it removes them as an excuse.
+`@werk/session`. Do not cite these as a reason to avoid a change.
 
-The scale available is large. You can delete half of the code and rewrite it and
-it will usually not disrupt anything. A change does not have to be small and it
-does not have to be additive: if the right shape is a different shape, write the
-different shape and move everything that meets it.
+Large rewrites are in scope. A change need not be small and need not be
+additive: if the right shape is a different shape, write it and update every
+caller.
 
 ### Platforms are tiered
 
-**Linux is the first-class citizen. macOS comes in a close second. Windows
-tolerates the most broken things.**
-
-That is where effort goes when something has to give, and it holds until there
+**Linux gets the most effort, macOS next, Windows least. When a failure has to
+be tolerated somewhere, tolerate it on Windows first.** That holds until there
 is real investment in cross-platform usability and testing. It is not a claim
 that Windows does not matter.
 
-Everything downstream of that position is open. What a failing lane costs on
-each platform, and whether any of it should be enforced in CI, are written down
-as leans rather than rulings in [docs/platforms.md](docs/platforms.md). The epic
-at https://github.com/omnilogic-labs/werk/issues/24 carries the philosophy and
-the work tracked under it.
+[docs/platforms.md](docs/platforms.md) says what a failing lane costs on each
+platform, and whether any of it should be enforced in CI; both are leans there
+rather than rulings. The epic at
+https://github.com/omnilogic-labs/werk/issues/24 holds the rationale and the
+child issues.
+
+### The primary checkout stays on `main`
+
+Other agents and sessions expect to find `main` at the repository path. Do not
+check out a branch there. Work in a worktree instead. Both routes are
+acceptable.
+
+```
+werk create --detach --workspace <name> -- /bin/sh
+```
+
+prints the workspace path and the branch and returns. It costs a daemon, which
+it starts if none is running, and it puts the worktree under
+`<stateDir>/workspaces/` rather than inside the repository.
+
+```
+git worktree add .claude/worktrees/<slug> -b <slug> main
+cd .claude/worktrees/<slug> && bun install
+```
+
+needs no daemon, and costs you the `bun install` and the removal afterwards.
+`.claude/night-shift/wt.sh new <slug>` runs this second route for the
+night-shift pipeline, and also reports the port and the directories a unit's
+test daemon should use.
 
 ### A change is proved on a branch before it lands
 
 Commit the work, publish the branch to `origin`, dispatch a CI run against that
 branch, read what the runners report and fix it, and merge to the base branch
-last. Merging first in order to find out whether something works is the wrong
-way round.
+last.
 
 GitHub will run any ref `origin` already holds. A branch needs no merge and no
 pull request to be tested. `bun scripts/ci-run.ts <lane>` starts the run and
 watches it, and [docs/ci.md](docs/ci.md) has the lanes, the flags and the step
-order.
+order. Do not open a pull request unless you were asked for one.
 
 A passing local suite is evidence about one machine. werk targets Linux, macOS
 and Windows, and the machine a change is written on covers at most one of them.
 
-So publish the branch you are working on, and do not open a pull request unless
-you were asked for one.
+`main` carries known lane failures today: issue #30 on macOS and issue #31 on
+Windows, both open. So the bar is a run no worse than the base: the lanes that
+could observe the change pass, and nothing fails that was not failing already.
+Read a red lane against the open issues rather than against a remembered list.
+[docs/platforms.md](docs/platforms.md) weighs a failure on each platform. Which
+lanes a change must run, and whether a documentation-only change needs one, are
+leans rather than rulings, so say which lanes you ran.
 
-`main` carries known lane failures today, so the bar is a run no worse than the
-base: the lanes that could observe the change pass, and nothing fails that was
-not failing already. [docs/platforms.md](docs/platforms.md) weighs a failure on
-each platform. Which lanes a change must run, and whether a documentation-only
-change needs one, are leans rather than rulings, so say which lanes you ran.
+Diagnose a failure on a platform you are not on the same way. Write the probe
+that distinguishes the possibilities: a test that reports what it saw, a log
+line, a narrowed case, or a one-file suite the lane runs instead of the whole
+thing. Commit it to a branch nobody will merge, dispatch that lane, and read the
+log with `gh run view <id> --log`. Iterate until the cause is in hand, then
+throw the branch away and fix the real thing. A run takes about two minutes, so
+cost is never a reason to skip one.
 
-### The runners are how you debug a platform you do not have
-
-**Never write that a platform cannot be tested, investigated or graded from
-here.** It is not true. `gh` and `bun scripts/ci-run.ts` reach a Linux, a macOS
-and a Windows machine on demand, against any ref `origin` holds, in about two
-minutes. A lane that exists and was not run is a lane nobody ran.
-
-That covers proving a change, which the section above is about. It equally
-covers finding out why something fails on a platform this machine is not.
-Diagnosis on a runner is the same gesture as verification on one: put what
-answers the question on a branch, push it, dispatch the lane, read what came
-back.
-
-So a defect that only appears on one platform is investigated the same way as
-any other. Write the probe that distinguishes the possibilities — a test that
-reports what it saw, a log line, a narrowed case, a one-file suite the lane runs
-instead of the whole thing — commit it to a branch nobody will merge, and
-dispatch. Read the log with `gh run view <id> --log`. Iterate on the branch
-until the cause is in hand, then throw the branch away and fix the real thing.
-
-A run costs a couple of minutes and nothing else, so the cost of a probe is
-never the reason to skip it. Guessing at a fix for a platform you have not
-observed, and saying the guess is unverified, is the thing this replaces.
-
-The one honest version of a limit names the runner you tried and what it did.
-"the Windows lane bails before it reaches this test, and the workflow has no
-option to run one file" is a finding. "I cannot test Windows from this machine"
-is not.
+**Never report a platform as untestable.** `gh` and `bun scripts/ci-run.ts`
+reach a Linux, a macOS and a Windows machine on demand, against any ref `origin`
+holds. Do not submit an unverified guess for a platform whose lane you could
+have dispatched. If you claim you could not verify something, give the lane
+name, the run id and the log line that stopped you.
 
 ### Prose style
 
 British spelling, plain sentences, no filler. Tables where a table is genuinely
-clearer than a list. Prettier formats markdown on defaults — run `bun run
+clearer than a list. Prettier formats markdown on defaults, so run `bun run
 format` before committing.
 
 Everything a person reads is prose held to the same standard: the strings the
@@ -174,8 +212,5 @@ request descriptions. Use the `plain-writing` skill on all of it. Read it before
 writing, follow it, and run its revision pass over the draft. Where it and this
 section disagree, this section wins.
 
-The skill will not always be available. It is not part of this repository. It
-may be linked into `~/.claude/skills`, where it can be invoked by name; it may
-be somewhere on disk to be read as files; it may not be on the machine at all.
-When it is missing, write to this section instead and say in your report that
-the skill was not available. No work waits on it.
+If the `plain-writing` skill is not installed, follow this section instead and
+say so in your report. No work waits on it.
