@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import path from "node:path";
-import { Chalk } from "chalk";
+import { createStyles } from "../src/runtime/style.js";
 import type { SessionInfo, TerminationResult } from "@werk/session";
 import { isWorkspaceName } from "@werk/workspace";
 import type { WerkContext } from "../src/runtime/context.js";
@@ -32,7 +32,7 @@ function context(overrides: Partial<WerkContext> = {}): WerkContext {
     stdoutTTY: false,
     stdinTTY: false,
     columns: 80,
-    colour: new Chalk({ level: 0 }),
+    style: createStyles(0),
     colourLevel: 0,
     json: false,
     noInput: true,

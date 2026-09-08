@@ -29,6 +29,7 @@
     "test": "bun test test"
   },
   "dependencies": {
+    "@werk/palette": "workspace:*",
     "@wterm/core": "0.4.1",
     "@wterm/dom": "0.4.1"
   },

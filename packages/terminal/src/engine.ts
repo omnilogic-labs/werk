@@ -1,3 +1,4 @@
+import { dark } from "@werk/palette";
 import { Abi } from "./abi.js";
 import {
   validateSize,
@@ -15,8 +16,11 @@ import {
 } from "./types.js";
 export const ENGINE_BUILD = "ghostty-3c1ef5b32fc5ea6b93d28493fabf193f595139cf";
 export const SNAPSHOT_FORMAT_VERSION = 1;
-const DEFAULT_FG = 0xd8dee9,
-  DEFAULT_BG = 0x161b22;
+// What a child's output is painted in before it asks for anything else. The
+// sixteen and the 256 belong to the child and are read back out of ghostty;
+// these two are werk's, so they come from werk's palette.
+const DEFAULT_FG = dark.terminal.foreground.rgb,
+  DEFAULT_BG = dark.terminal.background.rgb;
 function validateOptions({ scrollbackBytes }: TerminalOptions): void {
   if (
     scrollbackBytes !== undefined &&

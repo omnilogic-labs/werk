@@ -317,6 +317,31 @@ after it, `--no-color` belongs to the child process.
 Where colour is on, the depth comes from `COLORTERM` (`truecolor` or `24bit` →
 truecolour), then from a `TERM` ending in `-256color`, and otherwise 16 colours.
 
+### What is written
+
+What colour a thing is belongs to [`@werk/palette`](../packages/palette), which
+is the one place any of it is named. The CLI asks that library for a use — a
+heading, a literal you can type, a name you substitute, a success, a warning, an
+error — and `packages/werk/src/runtime/style.ts` turns the answer into escapes.
+It is where chalk is constructed, and the only place it is.
+
+The palette is Catppuccin, which publishes both its colours and which of them
+sits in each of the sixteen slots a terminal theme defines: green is slot 2, teal
+6, red 1, yellow 3. werk's own output is a guest on somebody else's terminal, so
+it writes the slot rather than the colour. A reader whose terminal already wears
+Catppuccin is shown the palette exactly; a reader wearing anything else is shown
+the contrast they chose. Nothing writes a 256-colour index or a truecolour
+triple, so the three depths above produce identical bytes and the depth a page is
+rendered at changes nothing about it.
+
+Whether that is the right trade is open — pinning the hex would give every reader
+the same colours at the price of their own theme. See open question 23 in
+[product-specification.md](product-specification.md).
+
+The surfaces that own their own pixels take the same roles as hex instead: the
+replica's default foreground and background, and the browser page, which is
+handed a `palette.css` of custom properties generated at build time.
+
 ## Configuration
 
 `werk config` shows what werk thinks it has been told and who told it.
@@ -538,7 +563,8 @@ detection is wrong for at least one case werk cares about. picocolors forces
 colour on when `CI` is set or the platform is Windows; yoctocolors consults
 `tty.WriteStream.prototype.hasColors()` — the prototype, with no stream — so it
 never learns whether this stdout is a terminal. chalk is constructed with an
-explicit level and does the styling only.
+explicit level, in `runtime/style.ts` and nowhere else, and does the styling
+only; which colour each role is comes from `@werk/palette`.
 
 ### c12, and what the merge actually is
 

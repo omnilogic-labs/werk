@@ -51,19 +51,23 @@
  *
  * ## Colour
  *
- * Three roles, and no fourth: a heading is bold green, a literal you can type is
- * bold cyan, and a name you substitute is cyan. Everything else — descriptions,
- * the `$` and `#` of an example, the footer — is unstyled, because no exemplar
- * CLI colours description text and dim grey is the specific thing that fails on
- * a terminal whose contrast the reader did not choose.
+ * Three roles, and no fourth: a heading, a literal you can type, and a name you
+ * substitute. What colour each of those is belongs to `@werk/palette` and is
+ * asked for through `runtime/style.ts`, so this module names uses and never
+ * colours. Everything else — descriptions, the `$` and `#` of an example, the
+ * footer — is unstyled, because no exemplar CLI colours description text and dim
+ * grey is the specific thing that fails on a terminal whose contrast the reader
+ * did not choose.
  *
- * Only the sixteen 4-bit ANSI colours are used, at every depth the gate in
- * `colour.ts` reports. Those are the colours a reader's own terminal theme can
- * remap, so they inherit whatever contrast that reader already settled on; a
- * 256-colour index or a truecolour hex is a fixed value they cannot correct.
- * Levels 1, 2 and 3 therefore render identically, and green and cyan avoid both
- * of the known traps — yellow, unreadable on white, and blue, invisible in
- * Windows `cmd.exe`.
+ * Those roles reach the page as 4-bit ANSI slots, at every depth the gate in
+ * `colour.ts` reports. The palette is Catppuccin, which publishes both its
+ * colours and which of them sits in each of the sixteen slots a terminal theme
+ * defines, so writing the slot shows a Catppuccin terminal the palette exactly
+ * and shows every other reader the contrast they already settled on. A
+ * 256-colour index or a truecolour hex would be a fixed value they could not
+ * correct. Levels 1, 2 and 3 therefore render identical bytes, and the palette's
+ * green and teal avoid both of the known traps — yellow, unreadable on white,
+ * and blue, invisible in Windows `cmd.exe`.
  *
  * Whether colour is written at all is not decided here. `app.ts` hands the gate
  * to commander through `configureOutput`, and commander strips whatever it did
@@ -77,7 +81,7 @@ import {
   type HelpConfiguration,
   type Option,
 } from "@commander-js/extra-typings";
-import type { ChalkInstance } from "chalk";
+import type { Styles } from "./style.js";
 import { specFor } from "../commands/define.js";
 
 /** Commander types its help hooks against a command with unknown option types. */
@@ -182,10 +186,8 @@ export function helpFooter(command: Command): string {
   return `\n${lines.join("\n")}`;
 }
 
-export function helpConfiguration(c: ChalkInstance): HelpConfiguration {
-  const heading = (s: string): string => c.bold.green(s);
-  const literal = (s: string): string => c.bold.cyan(s);
-  const placeholder = (s: string): string => c.cyan(s);
+export function helpConfiguration(style: Styles): HelpConfiguration {
+  const { heading, literal, placeholder } = style;
   /**
    * Style each token of a usage line or an option term for what it is, one
    * escape per run rather than per word: `-y, --yes` is one literal a reader

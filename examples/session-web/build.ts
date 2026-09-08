@@ -1,6 +1,7 @@
-import { mkdir, copyFile } from "node:fs/promises";
+import { mkdir, copyFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { cssVariables, dark } from "@werk/palette";
 const root = import.meta.dir;
 const outdir = join(root, "dist");
 await mkdir(outdir, { recursive: true });
@@ -23,6 +24,11 @@ for (const [name, target] of [
 }
 for (const name of ["index.html", "style.css"])
   await copyFile(join(root, "src", name), join(outdir, name));
+// The page names roles; what colour each role is belongs to `@werk/palette`.
+// Generating the rule at build time rather than setting the properties from the
+// client module keeps `style.css` static and the page from flashing an unstyled
+// ground before the script runs.
+await writeFile(join(outdir, "palette.css"), `${cssVariables(dark)}\n`);
 await copyFile(
   fileURLToPath(import.meta.resolve("@werk/terminal/assets/terminal.wasm")),
   join(outdir, "terminal.wasm"),

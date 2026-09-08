@@ -17,6 +17,7 @@ import { createTerminalReplica } from "../packages/terminal/dist/index.js";
 import { loadTerminalEngine } from "../packages/terminal/dist/bun/index.js";
 const repository = resolve(import.meta.dir, "..");
 for (const name of [
+  "palette",
   "terminal",
   "terminal-beamterm",
   "session",

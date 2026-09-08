@@ -15,6 +15,7 @@ import { expect, test } from "bun:test";
 import type { Command } from "@commander-js/extra-typings";
 import { buildProgram } from "../src/app.js";
 import { JSON_FOOTER } from "../src/runtime/help.js";
+import { dark, type AnsiSwatch } from "@werk/palette";
 
 /** Every node of the tree, hidden commands included, as a person types it. */
 function walk(
@@ -158,13 +159,35 @@ test("a page reads the same at every colour depth werk can detect", () => {
       ).toBe(page);
 });
 
+/** The SGR parameter that selects a foreground: 30-37 for the eight, 90-97 for the bright. */
+const foregroundOf = (swatch: AnsiSwatch): string =>
+  String(swatch.ansi < 8 ? 30 + swatch.ansi : 90 + swatch.ansi - 8);
+
 test("colour stays inside the sixteen a terminal theme can remap", () => {
-  const allowed = new Set(["1", "22", "32", "36", "39"]);
+  // The expectation is the palette's rather than a second copy of it: whichever
+  // colours `@werk/palette` gives the three help roles, the page must ask for
+  // them by slot. A role moved to a colour with no slot does not compile; a role
+  // moved to a different slot changes what this test demands, which is the point.
+  const roles = new Set(
+    [dark.heading, dark.literal, dark.placeholder].map(foregroundOf),
+  );
+  // Weight and reset carry no colour, so they are not the palette's business.
+  const typographic = new Set(["0", "1", "2", "22", "39"]);
   for (const [path, page] of pages(["--color"], { COLORTERM: "truecolor" })) {
     const codes = [...page.matchAll(/\[([0-9;]*)m/g)].map((m) => m[1]!);
     expect(codes.length, `${path} is not coloured at all`).toBeGreaterThan(0);
-    for (const code of new Set(codes))
-      expect(allowed.has(code), `${path} uses SGR ${code}`).toBe(true);
+    for (const code of new Set(codes)) {
+      // A 256-colour index or a truecolour triple is a value the reader's own
+      // theme cannot correct, which is the thing this page must never write.
+      expect(
+        /(?:^|;)[34]8;/.test(code),
+        `${path} pins a colour with SGR ${code}`,
+      ).toBe(false);
+      if (typographic.has(code)) continue;
+      expect(roles.has(code), `${path} uses SGR ${code}`).toBe(true);
+    }
+    for (const role of roles)
+      expect(codes.includes(role), `${path} never uses SGR ${role}`).toBe(true);
   }
 });
 

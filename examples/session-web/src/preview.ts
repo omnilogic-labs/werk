@@ -3,6 +3,8 @@
  * a picture, not a replica: there is no engine, no snapshot and no WASM here,
  * only SGR parsing and escaping, so a page can hold many tiles cheaply.
  */
+import { dark } from "@werk/palette";
+
 type Style = {
   fg?: string;
   bg?: string;
@@ -12,24 +14,8 @@ type Style = {
   strike: boolean;
   inverse: boolean;
 };
-const base = [
-  "#11151c",
-  "#e06c75",
-  "#98c379",
-  "#e5c07b",
-  "#61afef",
-  "#c678dd",
-  "#56b6c2",
-  "#c8ccd4",
-  "#5c6370",
-  "#ef7f88",
-  "#a9d98a",
-  "#f0d08c",
-  "#7cc0f5",
-  "#d692e8",
-  "#6fc7d2",
-  "#e6edf3",
-];
+/** The sixteen a child's SGR 30-37 and 90-97 name, as werk's palette paints them. */
+const base = dark.terminal.ansi;
 const hex = (n: number) => n.toString(16).padStart(2, "0");
 function indexed(index: number): string {
   if (index < 16) return base[index]!;
@@ -94,8 +80,12 @@ function apply(style: Style, parameters: string): Style {
   return next;
 }
 function css(style: Style): string {
-  const fg = style.inverse ? (style.bg ?? "#11151c") : style.fg;
-  const bg = style.inverse ? (style.fg ?? "#c8ccd4") : style.bg;
+  const fg = style.inverse
+    ? (style.bg ?? dark.terminal.background.hex)
+    : style.fg;
+  const bg = style.inverse
+    ? (style.fg ?? dark.terminal.foreground.hex)
+    : style.bg;
   const rules = [
     fg && `color:${fg}`,
     bg && `background:${bg}`,

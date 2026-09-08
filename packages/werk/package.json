@@ -17,6 +17,7 @@
   "dependencies": {
     "@clack/prompts": "^1.8.0",
     "@commander-js/extra-typings": "^15.0.0",
+    "@werk/palette": "workspace:*",
     "@werk/session": "workspace:*",
     "@werk/session-daemon": "workspace:*",
     "@werk/terminal": "workspace:*",

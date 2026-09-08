@@ -36,9 +36,9 @@ function section(
   if (!rows.length) return "";
   const width = Math.max(...rows.map(([label]) => label.length));
   const body = rows.map(
-    ([label, value]) => `  ${ctx.colour.dim(label.padEnd(width))}  ${value}`,
+    ([label, value]) => `  ${ctx.style.muted(label.padEnd(width))}  ${value}`,
   );
-  return [ctx.colour.bold(title), ...body].join("\n");
+  return [ctx.style.emphasis(title), ...body].join("\n");
 }
 /** Strings stay as they are; anything else is shown as the JSON it is. */
 function value(raw: unknown): string {
@@ -88,7 +88,7 @@ export function renderInspection(report: Inspection, ctx: WerkContext): string {
       : section(ctx, "daemon", [
           [
             "connection",
-            ctx.colour.red(
+            ctx.style.error(
               why === undefined ? "no daemon answered" : value(why),
             ),
           ],
@@ -107,14 +107,14 @@ export function renderInspection(report: Inspection, ctx: WerkContext): string {
   if (report.log) {
     if (report.log.lastError)
       blocks.push(
-        `${ctx.colour.bold("last error")}\n  ${ctx.colour.red(report.log.lastError)}`,
+        `${ctx.style.emphasis("last error")}\n  ${ctx.style.error(report.log.lastError)}`,
       );
     blocks.push(
       [
-        ctx.colour.bold("log"),
+        ctx.style.emphasis("log"),
         ...(report.log.tail.length
           ? report.log.tail.map((line) => `  ${line}`)
-          : [ctx.colour.dim("  the log is empty")]),
+          : [ctx.style.muted("  the log is empty")]),
       ].join("\n"),
     );
   }

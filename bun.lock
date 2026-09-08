@@ -12,6 +12,7 @@
       "name": "@werk/session-web",
       "version": "0.0.0",
       "dependencies": {
+        "@werk/palette": "workspace:*",
         "@werk/session": "workspace:*",
         "@werk/session-daemon": "workspace:*",
         "@werk/terminal": "workspace:*",
@@ -20,6 +21,15 @@
       "devDependencies": {
         "bun-types": "1.3.14",
         "playwright": "1.58.2",
+        "typescript": "^5.9.3",
+      },
+    },
+    "packages/palette": {
+      "name": "@werk/palette",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@catppuccin/palette": "1.8.0",
+        "bun-types": "1.3.14",
         "typescript": "^5.9.3",
       },
     },
@@ -46,6 +56,7 @@
       "name": "@werk/terminal",
       "version": "0.0.0",
       "dependencies": {
+        "@werk/palette": "workspace:*",
         "@wterm/core": "0.4.1",
         "@wterm/dom": "0.4.1",
       },
@@ -74,6 +85,7 @@
       "dependencies": {
         "@clack/prompts": "^1.8.0",
         "@commander-js/extra-typings": "^15.0.0",
+        "@werk/palette": "workspace:*",
         "@werk/session": "workspace:*",
         "@werk/session-daemon": "workspace:*",
         "@werk/terminal": "workspace:*",
@@ -100,6 +112,8 @@
   "packages": {
     "@beamterm/renderer": ["@beamterm/renderer@1.0.0", "", {}, "sha512-Uct8zOjj8aR/63D+fl3Hv9D01HFCMzIvAqtkZk+lgAendUMid5loccrhtQkEjqUWDUMgu54SDLhnROnUj8sCFw=="],
 
+    "@catppuccin/palette": ["@catppuccin/palette@1.8.0", "", {}, "sha512-qXhwKiLzQomUygUJYB36YAFgs+dET5bIocfkiaFIatQF5Pwc7L112TlF9P8J5Oqs3x3XTjYSucG0ncHXSCuk7Q=="],
+
     "@clack/core": ["@clack/core@1.5.0", "", { "dependencies": { "fast-wrap-ansi": "^0.2.0", "sisteransi": "^1.0.5" } }, "sha512-zNikCcd8BbcEvzzG1sbXFrRHFk5kHPrpwZwksPvf9qyQO1Teb7JaXaOAxXZei9nZLDW0gaZawiuTCji88bTBhw=="],
 
     "@clack/prompts": ["@clack/prompts@1.8.0", "", { "dependencies": { "@clack/core": "1.5.0", "fast-string-width": "^3.0.2", "fast-wrap-ansi": "^0.2.0", "sisteransi": "^1.0.5" } }, "sha512-PXzLZ8N34rxmuo4dJg3xtOXhcBse94qGjDqsteoEYrFrrZ5FSjIGwMAuOcv64ln8rHVBBD06XeVGr+/JX+plcA=="],
@@ -109,6 +123,8 @@
     "@types/node": ["@types/node@26.4.1", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-k97ENvZWtvA6yqz5/FS6a7duDgOPEeOQOc2iKS/nY6mX6qJUKtLnWzQS+Xj6tXweyj6ZcTAK2Qecetnvi9nCLA=="],
 
     "@werk/cli": ["@werk/cli@workspace:packages/werk"],
+
+    "@werk/palette": ["@werk/palette@workspace:packages/palette"],
 
     "@werk/session": ["@werk/session@workspace:packages/session"],
 

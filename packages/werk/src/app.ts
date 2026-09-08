@@ -14,7 +14,7 @@
  */
 import { Command } from "@commander-js/extra-typings";
 import { colourLevelFromArgv } from "./runtime/colour.js";
-import { Chalk } from "chalk";
+import { createStyles } from "./runtime/style.js";
 import { COMMANDS, HIDDEN_COMMANDS } from "./commands/index.js";
 import { describeRoot } from "./commands/define.js";
 import { GLOBAL_FLAGS } from "./runtime/argv.js";
@@ -52,12 +52,12 @@ export function buildProgram(
     isTTY: process.stdout.isTTY === true,
     env,
   });
-  const c = new Chalk({ level });
+  const style = createStyles(level);
   const json = jsonRequested(argv);
   const program = new Command("werk")
     .description("Start a process somewhere and come back to it later.")
     .version("0.0.0", "-V, --version", "print the version and exit")
-    .configureHelp(helpConfiguration(c))
+    .configureHelp(helpConfiguration(style))
     // Commander strips any colour it did not decide on (`command.js`
     // `_getOutputContext`), so handing it the gate is what makes `--color`,
     // `--no-color` and `NO_COLOR` govern help as well as command output. Without
@@ -74,7 +74,7 @@ export function buildProgram(
               JSON.stringify(errorPayload(new UsageError(usageMessage(str)))) +
                 "\n",
             )
-        : (str, write) => write(c.red(str)),
+        : (str, write) => write(style.error(str)),
     })
     // Someone who typed it wrong is shown what right looks like: the failing
     // command's own usage, its options, the global flags and its examples. The

@@ -1,4 +1,5 @@
 for (const name of [
+  "palette",
   "terminal",
   "session",
   "terminal-beamterm",

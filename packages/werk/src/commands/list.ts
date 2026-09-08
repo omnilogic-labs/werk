@@ -93,10 +93,10 @@ export function buildList(): Command {
             });
             const paint = (text: string, state: SessionState) =>
               state === "running"
-                ? ctx.colour.green(text)
+                ? ctx.style.success(text)
                 : state === "failed" || state === "lost"
-                  ? ctx.colour.red(text)
-                  : ctx.colour.dim(text);
+                  ? ctx.style.error(text)
+                  : ctx.style.muted(text);
             return tableResult(
               sessions,
               ["ID", "NAME", "STATE", "AGE", "COMMAND"],

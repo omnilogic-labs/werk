@@ -12,7 +12,7 @@ import { PassThrough } from "node:stream";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { Chalk } from "chalk";
+import { createStyles } from "../src/runtime/style.js";
 import type { SessionInfo } from "@werk/session";
 import type { WerkContext } from "../src/runtime/context.js";
 import { CancelledError, UsageError } from "../src/runtime/exit.js";
@@ -31,7 +31,7 @@ function context(overrides: Partial<WerkContext> = {}): WerkContext {
     stdoutTTY: false,
     stdinTTY: false,
     columns: 80,
-    colour: new Chalk({ level: 0 }),
+    style: createStyles(0),
     colourLevel: 0,
     json: false,
     noInput: true,

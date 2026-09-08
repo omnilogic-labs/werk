@@ -31,7 +31,7 @@ import {
   isCommanderError,
 } from "./runtime/exit.js";
 import { colourLevelFromArgv } from "./runtime/colour.js";
-import { Chalk } from "chalk";
+import { createStyles } from "./runtime/style.js";
 
 async function main(argv: string[]): Promise<void> {
   const { own, child } = splitChildArgv(argv);
@@ -56,7 +56,7 @@ if (import.meta.main)
       isTTY: process.stderr.isTTY === true,
       env: process.env,
     });
-    const c = new Chalk({ level });
+    const style = createStyles(level);
     // Errors go to stderr in both modes, so a pipe reading stdout sees only the
     // command's own output and never has to distinguish the two.
     // Commander has already written its own message, or the help text.
@@ -68,7 +68,7 @@ if (import.meta.main)
       process.stderr.write(JSON.stringify(errorPayload(error)) + "\n");
     else if (!(error instanceof CancelledError))
       process.stderr.write(
-        c.red("werk: ") +
+        style.error("werk: ") +
           (error instanceof Error ? error.message : String(error)) +
           "\n",
       );

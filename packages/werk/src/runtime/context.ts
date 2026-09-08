@@ -7,8 +7,8 @@
  */
 import os from "node:os";
 import path from "node:path";
-import { Chalk, type ChalkInstance } from "chalk";
 import { type ColourLevel } from "./colour.js";
+import { createStyles, type Styles } from "./style.js";
 import { defaultSessionRuntimeDir } from "@werk/session-daemon";
 import type { WerkConfig } from "../config/schema.js";
 
@@ -27,7 +27,8 @@ export interface WerkContext {
   readonly stdoutTTY: boolean;
   readonly stdinTTY: boolean;
   readonly columns: number;
-  readonly colour: ChalkInstance;
+  /** How to style werk's own output. Roles, never colours; see `style.ts`. */
+  readonly style: Styles;
   readonly colourLevel: ColourLevel;
   /** The caller asked for machine-readable output. */
   readonly json: boolean;
@@ -93,7 +94,7 @@ export function createContext(
     stdoutTTY,
     stdinTTY,
     columns: terminalColumns(process.stdout.columns),
-    colour: new Chalk({ level }),
+    style: createStyles(level),
     colourLevel: level,
     json: flags.json === true,
     noInput: flags.noInput === true || !stdinTTY || !stdoutTTY || inCI(env),

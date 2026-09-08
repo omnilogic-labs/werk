@@ -35,7 +35,7 @@ export function buildRemove(): Command {
           await client.remove(id);
           return result(
             { id, removed: true },
-            (c) => `${c.colour.dim("removed")} ${id}`,
+            (c) => `${c.style.muted("removed")} ${id}`,
           );
         },
       );

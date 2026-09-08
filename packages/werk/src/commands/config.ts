@@ -92,7 +92,7 @@ export function buildConfig(): Command {
           r.key,
           String(r.value),
           r.layer === "defaults"
-            ? ctx.colour.dim(LAYER_LABEL[r.layer])
+            ? ctx.style.muted(LAYER_LABEL[r.layer])
             : LAYER_LABEL[r.layer],
         ]),
         1,
@@ -181,7 +181,7 @@ export function buildConfig(): Command {
         ["SOURCE", "STATE", "WHERE"],
         records.map((r) => [
           LAYER_LABEL[r.source],
-          r.keys.length > 0 ? r.state : ctx.colour.dim(r.state),
+          r.keys.length > 0 ? r.state : ctx.style.muted(r.state),
           r.where,
         ]),
         2,
@@ -215,7 +215,7 @@ export function buildConfig(): Command {
         rows.map((row) => [
           row.scope,
           row.path,
-          row.exists ? "present" : ctx.colour.dim("absent"),
+          row.exists ? "present" : ctx.style.muted("absent"),
         ]),
         1,
       );

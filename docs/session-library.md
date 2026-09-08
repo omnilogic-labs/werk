@@ -6,7 +6,8 @@ with an injected duplex transport. `@werk/terminal` owns terminal interpretation
 snapshots and replicas; its core takes WASM explicitly, `./bun` loads embedded
 assets and `./dom` mounts the bundled renderer. `@werk/terminal-beamterm` supplies
 an optional renderer through the same factory. `@werk/session-daemon` owns PTYs,
-checkpoints, local transport and detached startup.
+checkpoints, local transport and detached startup. `@werk/palette` is Catppuccin
+mapped to the uses werk puts colour to, and is the one place any colour is named.
 
 The CLI and browser example consume public package entry points. Closing either
 consumer leaves the process with its daemon. Shutting down that daemon ends its
@@ -17,7 +18,14 @@ on the running platform.
 
 ## Package boundaries
 
-The dependency direction runs one way. `@werk/terminal` is the terminal core: it
+The dependency direction runs one way. `@werk/palette` is at the bottom of it: it
+holds the colours and what each is for, has no dependencies of its own, and knows
+nothing about terminals, sessions or the DOM. Everything that paints depends on
+it — the replica for the two colours a child's output starts in, the CLI for the
+roles its own output is written in, the browser example for the page — so that
+none of them names a colour itself.
+
+`@werk/terminal` is the terminal core: it
 takes WASM bytes or a compiled module explicitly, carries no DOM code, and knows
 nothing about daemons, sockets, PTYs or product state. `./dom` is its only entry
 that touches the DOM, and `@wterm/dom` is a dependency for that entry alone.
@@ -207,7 +215,10 @@ Terminal interpretation is separate from painting. `@werk/terminal` holds the
 engine, the snapshot envelope, the replica and the render-consumer seam: a
 `Frame` of changed rows, a `Renderer` that paints it and a `RendererFactory`
 that mounts one. The bundled renderer behind `./dom` is a wterm adapter painting
-real DOM rows. `@werk/terminal-beamterm` sits behind the same factory over
+real DOM rows. What a child's output is painted in before it asks for anything
+else — one foreground, one background — comes from `@werk/palette`; the sixteen
+and the 256 belong to the child and are read back out of the engine.
+`@werk/terminal-beamterm` sits behind the same factory over
 WebGL2 and fetches its own 1.4 MB of WASM only when a page selects it; it is
 maintained to keep the seam honest rather than offered as the default. The seam
 serves a consumer that is neither a browser nor the daemon just as well: a

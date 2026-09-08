@@ -3,8 +3,8 @@
   font:
     16px system-ui,
     sans-serif;
-  background: #11151c;
-  color: #e6edf3;
+  background: var(--werk-background);
+  color: var(--werk-text);
 }
 body {
   margin: 0;
@@ -33,17 +33,17 @@ button,
 input,
 select {
   font: inherit;
-  border: 1px solid #465367;
+  border: 1px solid var(--werk-border);
   border-radius: 0.3rem;
   padding: 0.5rem;
-  background: #202938;
+  background: var(--werk-surface);
   color: inherit;
 }
 button {
   cursor: pointer;
 }
 button:hover {
-  background: #33445a;
+  background: var(--werk-surface-hover);
 }
 #cols,
 #rows {
@@ -57,10 +57,10 @@ button:hover {
 }
 #status {
   min-height: 1.5rem;
-  color: #adc0d6;
+  color: var(--werk-text-subtle);
 }
 #screen {
-  background: #000;
+  background: var(--werk-terminal-background);
   width: 100%;
   min-height: 420px;
   height: 65vh;
@@ -76,7 +76,7 @@ button:hover {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #adc0d6;
+  color: var(--werk-text-subtle);
   margin: 0 0 0.5rem;
 }
 #tiles {
@@ -86,19 +86,19 @@ button:hover {
 }
 .tile {
   margin: 0;
-  border: 1px solid #2c3648;
+  border: 1px solid var(--werk-border-inactive);
   border-radius: 0.4rem;
-  background: #000;
+  background: var(--werk-terminal-background);
   overflow: hidden;
   cursor: pointer;
   opacity: 0.55;
 }
 .tile-live {
   opacity: 1;
-  border-color: #465367;
+  border-color: var(--werk-border-active);
 }
 .tile:hover {
-  border-color: #7cc0f5;
+  border-color: var(--werk-link);
 }
 .tile-screen {
   margin: 0;
@@ -109,13 +109,13 @@ button:hover {
     6px/1.25 ui-monospace,
     monospace;
   white-space: pre;
-  color: #c8ccd4;
+  color: var(--werk-terminal-foreground);
 }
 .tile figcaption {
   padding: 0.35rem 0.5rem;
   font-size: 0.75rem;
-  background: #202938;
-  border-top: 1px solid #2c3648;
+  background: var(--werk-surface);
+  border-top: 1px solid var(--werk-border-inactive);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

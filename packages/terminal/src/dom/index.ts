@@ -1,3 +1,4 @@
+import { dark } from "@werk/palette";
 import { Renderer as WtermRenderer } from "@wterm/dom";
 import type { TerminalCore, CellData } from "@wterm/core";
 import type { Frame, RendererFactory, Cell } from "../types.js";
@@ -25,7 +26,8 @@ export const createWtermRenderer: RendererFactory = async ({ mount }) => {
   const container = document.createElement("div");
   container.className = "werk-terminal";
   container.style.cssText =
-    "font:14px/1.2 monospace;white-space:pre;color:#d8dee9;background:#161b22";
+    "font:14px/1.2 monospace;white-space:pre;" +
+    `color:${dark.terminal.foreground.hex};background:${dark.terminal.background.hex}`;
   const style = document.createElement("style");
   style.textContent =
     ".werk-terminal .term-row{height:1.2em;white-space:pre}.werk-terminal .term-cell{display:inline-block;width:1ch}.werk-terminal .term-wide{display:inline-block;width:2ch}.werk-terminal .term-cursor{outline:1px solid currentColor}.werk-terminal .term-bold{font-weight:bold}.werk-terminal .term-italic{font-style:italic}.werk-terminal .term-underline{text-decoration:underline}";

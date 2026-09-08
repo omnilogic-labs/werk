@@ -1,4 +1,5 @@
 const packages = [
+  "palette",
   "terminal",
   "session",
   "terminal-beamterm",

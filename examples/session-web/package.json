@@ -13,6 +13,7 @@
     "test": "bun test test"
   },
   "dependencies": {
+    "@werk/palette": "workspace:*",
     "@werk/session": "workspace:*",
     "@werk/session-daemon": "workspace:*",
     "@werk/terminal": "workspace:*",

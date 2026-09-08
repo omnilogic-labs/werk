@@ -11,7 +11,7 @@
     "format:check": "prettier --check .",
     "build": "bun scripts/build.ts",
     "typecheck": "bun scripts/typecheck.ts",
-    "test": "bun test packages/terminal/test packages/session/test packages/session-daemon/test packages/werk/test packages/terminal-beamterm/test packages/workspace/test",
+    "test": "bun test packages/palette/test packages/terminal/test packages/session/test packages/session-daemon/test packages/werk/test packages/terminal-beamterm/test packages/workspace/test",
     "test:artefacts": "bun scripts/check-artefacts.ts",
     "test:browser": "bun run build && bun run --cwd examples/session-web test",
     "test:soak": "bun scripts/session-soak.ts"

@@ -1,5 +1,6 @@
 import type { Abi } from "../src/abi.js";
 import type { Cell, TerminalHandle } from "../src/types.js";
+import { dark } from "@werk/palette";
 // Independent per-cell ABI reader: intentionally avoids the packed-row decoder.
 export function readCells(terminal: TerminalHandle): Cell[][] {
   const { a, h } = terminal as unknown as { a: Abi; h: number };
@@ -56,8 +57,8 @@ export function readCells(terminal: TerminalHandle): Cell[][] {
                   a.bytes()[p + 2]!
               : fallback;
           };
-          const fg = colour("FG_COLOR", 0xd8dee9),
-            bg = colour("BG_COLOR", 0x161b22);
+          const fg = colour("FG_COLOR", dark.terminal.foreground.rgb),
+            bg = colour("BG_COLOR", dark.terminal.background.rgb);
           get("GRAPHEMES_LEN");
           const n = a.read(p, "u32");
           const text = n

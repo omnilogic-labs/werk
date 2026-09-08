@@ -29,10 +29,10 @@ export function renderTermination(
   ctx: WerkContext,
 ): string {
   const delivery = value.delivered
-    ? `${ctx.colour.yellow(value.intent)} sent to ${id}`
+    ? `${ctx.style.warning(value.intent)} sent to ${id}`
     : `${value.intent} was not delivered to ${id}`;
   return value.exit
-    ? `${delivery}\n${ctx.colour.dim(outcomeNote(id, value.exit))}`
+    ? `${delivery}\n${ctx.style.muted(outcomeNote(id, value.exit))}`
     : delivery;
 }
 export function buildKill(): Command {

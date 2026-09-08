@@ -123,9 +123,11 @@ export function renderCreated(
 ): string {
   const where = `${info.size.cols}x${info.size.rows} in ${info.cwd}`;
   return [
-    `${ctx.colour.green("created")} ${info.id} ${ctx.colour.bold(info.name)}`,
-    ctx.colour.dim(`workspace ${workspace.name} on branch ${workspace.branch}`),
-    ctx.colour.dim(`${info.argv.join(" ")} · ${where}`),
+    `${ctx.style.success("created")} ${info.id} ${ctx.style.emphasis(info.name)}`,
+    ctx.style.muted(
+      `workspace ${workspace.name} on branch ${workspace.branch}`,
+    ),
+    ctx.style.muted(`${info.argv.join(" ")} · ${where}`),
     ...(hint ? [`werk attach ${info.id}`] : []),
   ].join("\n");
 }
