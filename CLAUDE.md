@@ -94,6 +94,21 @@ it will usually not disrupt anything. A change does not have to be small and it
 does not have to be additive: if the right shape is a different shape, write the
 different shape and move everything that meets it.
 
+### Platforms are tiered
+
+**Linux is the first-class citizen. macOS comes in a close second. Windows
+tolerates the most broken things.**
+
+That is where effort goes when something has to give, and it holds until there
+is real investment in cross-platform usability and testing. It is not a claim
+that Windows does not matter.
+
+Everything downstream of that position is open. What a failing lane costs on
+each platform, and whether any of it should be enforced in CI, are written down
+as leans rather than rulings in [docs/platforms.md](docs/platforms.md). The epic
+at https://github.com/omnilogic-labs/werk/issues/24 carries the philosophy and
+the work tracked under it.
+
 ### Prose style
 
 British spelling, plain sentences, no filler. Tables where a table is genuinely

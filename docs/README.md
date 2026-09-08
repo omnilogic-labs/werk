@@ -7,7 +7,7 @@ It puts your repository there on a fresh branch, gives you a terminal that
 survives your laptop closing, and shows you every one of those — across every
 machine — in one list you can open from a terminal or a browser.
 
-Five documents carry the project:
+Six documents carry the project:
 
 |                                                          |                                                                                                                                                               |
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -16,6 +16,7 @@ Five documents carry the project:
 | **[session-library.md](session-library.md)**             | What the session packages do. The package boundaries, the wire, the scheduler, attachments and permissions, the limits, the consumers, and the soak baseline. |
 | **[cli.md](cli.md)**                                     | What the `werk` command does. The command tree, the two output registers, exit codes, colour, configuration, completion, and what it depends on.              |
 | **[ci.md](ci.md)**                                       | What runs on a pull request and how to start a run by hand. The lanes, the step order, the two layers of re-run on failure, and where each platform stands.   |
+| **[platforms.md](platforms.md)**                         | How much brokenness each platform gets. The tiering, which lanes observe each platform, how to read a lane that fails, and what nobody has settled yet.       |
 
 `product/` holds the subjects of the specification, one document each:
 [the client](product/client.md), [landing](product/landing.md),
@@ -37,3 +38,5 @@ documentation set.
 - Using or changing the `werk` command → [cli.md](cli.md)
 - Reading a red run, or starting one before opening a pull request →
   [ci.md](ci.md)
+- Deciding how hard to fight a failure on one platform →
+  [platforms.md](platforms.md)

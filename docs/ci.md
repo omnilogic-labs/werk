@@ -122,19 +122,22 @@ the same second could attach it to the wrong one.
 
 ## Where the platforms stand
 
-`native (ubuntu-latest)` passes.
+At `60cf9ed`, in run
+[34174478378](https://github.com/omnilogic-labs/werk/actions/runs/34174478378):
 
-`native (windows-latest)` fails at `bun run build` with
-`error: BadPathName: failed to open root directory: /D:/a/werk/werk/packages/werk/src`.
-This is `packages/werk/build.ts` handing `new URL(...).pathname` to `Bun.build`,
-which is a `/D:/…` string on Windows, rather than anything about the workflow.
-`fileURLToPath` is the likely fix.
+| Lane                      | Outcome | Where it stopped                                                                  |
+| ------------------------- | ------- | --------------------------------------------------------------------------------- |
+| `browser`                 | pass    |                                                                                   |
+| `musl`                    | pass    |                                                                                   |
+| `native (ubuntu-latest)`  | fail    | `bun run test:artefacts`, [#21](https://github.com/omnilogic-labs/werk/issues/21) |
+| `native (macos-15-intel)` | fail    | `bun run test`, [#22](https://github.com/omnilogic-labs/werk/issues/22)           |
+| `native (windows-latest)` | fail    | `bun run build`, [#23](https://github.com/omnilogic-labs/werk/issues/23)          |
+| `soak`                    | not run | asked for by name                                                                 |
 
-`native (macos-15-intel)` has been seen failing two `session-daemon` tests, both
-at a five-second timeout: a client waiting for a live daemon with a missing
-endpoint, and retained-record eviction at the cap. Whether those are flakes that
-`--retry=2` absorbs or genuine macOS failures is not established; the first runs
-carrying retry traces are what would settle it.
+The three `native` lanes fail for three unrelated causes, one each, tracked as
+#21, #22 and #23. Windows fails at the first step after `bun install`, so
+nothing behind `bun run build` has yet been observed on that platform. The
+number of Windows problems is unknown rather than one.
 
-`musl` typechecks after `build`, for the reason under step order. Whether the
-steps below that then pass is unconfirmed on a runner.
+How much any of this should hold up other work is in
+[platforms.md](platforms.md).
