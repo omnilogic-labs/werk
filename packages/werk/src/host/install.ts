@@ -245,6 +245,7 @@ async function send(
     {
       sshHost: options.sshHost,
       runner: options.runner,
+      exec: (command) => sshExecArgv(options.sshHost, command),
       rsync: options.facts.rsync,
       prepare: `mkdir -p ${shellQuote(layout.dir)} && rm -f ${shellQuote(layout.stampFile)}`,
       finish:

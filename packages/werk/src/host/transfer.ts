@@ -1,5 +1,5 @@
 /**
- * Putting bytes on a machine that is not this one.
+ * Putting bytes on a machine, usually one that is not this one.
  *
  * Two things need this and they want the same two round trips: the 92 MB werk
  * binary in `install.ts`, and whatever a person's setup asks werk to copy. The
@@ -17,7 +17,17 @@
  * **`finish` runs last, after the bytes are in place.** That is the property
  * the whole thing rests on: an interrupted transfer leaves whatever `finish`
  * would have written absent, so the next run can tell that it has to send
- * again. A caller that writes its stamp in `prepare` has broken it.
+ * again. A caller that writes its stamp in `prepare` has broken it. A caller
+ * whose completion marker comes later still — a setup writes one only once its
+ * commands have run — passes no `finish` at all and writes it itself.
+ *
+ * ## The machine is reached through `exec`
+ *
+ * The caller supplies the whole argv for a shell command over there, so this
+ * file builds no ssh. That is what lets a setup on the machine werk is running
+ * on take the same route as one on a machine it is not: a local `sh -c` and an
+ * `ssh -T host` are both an `exec`, and there is no second copy of the tar
+ * pipe for the local case to drift from.
  *
  * ## tar always, rsync only where it pays
  *
@@ -35,7 +45,6 @@ import path from "node:path";
 import {
   requireSuccess,
   shellQuote,
-  sshExecArgv,
   SSH_COMMON_OPTIONS,
   type RemoteRunner,
 } from "./ssh.js";
@@ -45,14 +54,17 @@ import type { HostErrorCode } from "./types.js";
 export const TRANSFER_TIMEOUT_MS = 300_000;
 
 export interface SendOptions {
+  /** The machine: an ssh destination, or a host block's name for this one. */
   readonly sshHost: string;
   readonly runner: RemoteRunner;
+  /** The whole argv for one shell command on the machine being sent to. */
+  readonly exec: (command: string) => string[];
   /** Whether the machine has rsync, as the probe found. */
   readonly rsync: boolean;
   /** Shell run on the far side before anything is written. */
   readonly prepare: string;
-  /** Shell run on the far side last. See the note above: it must be last. */
-  readonly finish: string;
+  /** Shell run on the far side last, when the caller has one. Must be last. */
+  readonly finish?: string;
   /** What this is doing, for a failure message: "sending werk to beast". */
   readonly what: string;
   /** The code a far-side failure carries. */
@@ -64,6 +76,10 @@ export interface SendOptions {
 
 /** How the bytes got there, for a caller that reports what it did. */
 export type SentBy = "rsync" | "tar";
+
+/** One shell command out of the steps a caller has, in the order they run. */
+const chain = (steps: readonly (string | undefined)[]): string =>
+  steps.filter((step): step is string => step !== undefined).join(" && ");
 
 /**
  * One local file, landing at `to` on the far side.
@@ -86,8 +102,8 @@ export async function sendFile(
   // different one is moved into place afterwards.
   const rename =
     name === path.posix.basename(to)
-      ? ""
-      : ` && mv -f ${shellQuote(`${dir}/${name}`)} ${shellQuote(to)}`;
+      ? []
+      : [`mv -f ${shellQuote(`${dir}/${name}`)} ${shellQuote(to)}`];
   const tar = runner.start([
     "tar",
     "-czf",
@@ -97,9 +113,13 @@ export async function sendFile(
     name,
   ]);
   const outcome = await runner.run(
-    sshExecArgv(
-      sshHost,
-      `${options.prepare} && tar -xzf - -C ${shellQuote(dir)}${rename} && ${options.finish}`,
+    options.exec(
+      chain([
+        options.prepare,
+        `tar -xzf - -C ${shellQuote(dir)}`,
+        ...rename,
+        options.finish,
+      ]),
     ),
     {
       stdin: tar.stdout,
@@ -126,9 +146,12 @@ export async function sendTree(
   // gets `<to>/<entry>` and not `<to>/<basename of dir>/<entry>`.
   const tar = runner.start(["tar", "-czf", "-", "-C", dir, "."]);
   const outcome = await runner.run(
-    sshExecArgv(
-      sshHost,
-      `${options.prepare} && tar -xzf - -C ${shellQuote(to)} && ${options.finish}`,
+    options.exec(
+      chain([
+        options.prepare,
+        `tar -xzf - -C ${shellQuote(to)}`,
+        options.finish,
+      ]),
     ),
     {
       stdin: tar.stdout,
@@ -149,7 +172,7 @@ async function rsyncTo(
   const { sshHost, runner } = options;
   requireSuccess(
     sshHost,
-    await runner.run(sshExecArgv(sshHost, options.prepare)),
+    await runner.run(options.exec(options.prepare)),
     options.what,
     options.code,
   );
@@ -170,11 +193,12 @@ async function rsyncTo(
     { timeoutMs: options.timeoutMs ?? TRANSFER_TIMEOUT_MS },
   );
   if (copied.code !== 0) return false;
-  requireSuccess(
-    sshHost,
-    await runner.run(sshExecArgv(sshHost, options.finish)),
-    options.what,
-    options.code,
-  );
+  if (options.finish !== undefined)
+    requireSuccess(
+      sshHost,
+      await runner.run(options.exec(options.finish)),
+      options.what,
+      options.code,
+    );
   return true;
 }

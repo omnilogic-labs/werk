@@ -35,7 +35,7 @@ export {
 } from "./local.js";
 export type { LocalWorktreeMakerOptions } from "./local.js";
 export type { RemoteRunner } from "./remote.js";
-export { createSshWorkspaceMaker } from "./ssh.js";
+export { createSshWorkspaceMaker, repositoryIdentity } from "./ssh.js";
 export type { SshWorkspaceOptions } from "./ssh.js";
 export {
   formatWorkspaceReference,

@@ -135,16 +135,14 @@ function quote(value: string): string {
  * and `git config --unset werk.repo-id` reverses it completely. `--local` puts
  * it in the common `.git/config`, so every worktree of the repository agrees
  * about which repository it is.
+ *
+ * Exported because it is also what names a repository outside this package. The
+ * CLI records what a repository is trusted to run under this identity, so that
+ * a decision somebody made about one repository is not a decision about the
+ * next, and so that moving the checkout does not lose it.
  */
-async function repositoryIdentity(
-  run: (
-    args: readonly string[],
-    cwd: string,
-  ) => Promise<{
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-  }>,
+export async function repositoryIdentity(
+  run: GitRunner,
   toplevel: string,
 ): Promise<string> {
   const read = await run(

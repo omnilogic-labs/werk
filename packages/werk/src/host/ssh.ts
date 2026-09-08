@@ -219,6 +219,21 @@ export interface RunOptions {
   readonly timeoutMs?: number;
   /** Piped to the process's stdin. A stream is what a 92 MB transfer needs. */
   readonly stdin?: ReadableStream<Uint8Array> | Uint8Array;
+  /**
+   * The whole environment for a process started on this machine, replacing the
+   * caller's rather than adding to it.
+   *
+   * Only a local command can be given one. Over ssh the far side's environment
+   * is the far side's business, and what werk wants set there is written into
+   * the command instead.
+   */
+  readonly env?: Readonly<Record<string, string>>;
+  /**
+   * Called with each piece of output as it arrives, stdout and stderr alike,
+   * for a command whose progress somebody is meant to watch. The outcome still
+   * carries the whole of both.
+   */
+  readonly onOutput?: (chunk: string) => void;
 }
 
 /** A process the caller has to be able to outlive: a forward, or a `tar`. */
@@ -251,6 +266,34 @@ export interface RemoteRunner {
 /** The default budget for a one-off command, connection included. */
 export const EXEC_TIMEOUT_MS = 20_000;
 
+/**
+ * Everything a stream carried, handing each piece on as it arrives.
+ *
+ * Read piece by piece rather than with `new Response(stream).text()` so that a
+ * caller watching a slow command sees it working. A `TextDecoder` in streaming
+ * mode is what keeps a multi-byte character split across two chunks from
+ * arriving as two replacement characters.
+ */
+async function collect(
+  stream: ReadableStream<Uint8Array>,
+  onOutput?: (chunk: string) => void,
+): Promise<string> {
+  const decoder = new TextDecoder();
+  let text = "";
+  for await (const chunk of stream as unknown as AsyncIterable<Uint8Array>) {
+    const piece = decoder.decode(chunk, { stream: true });
+    if (piece === "") continue;
+    text += piece;
+    onOutput?.(piece);
+  }
+  const last = decoder.decode();
+  if (last !== "") {
+    text += last;
+    onOutput?.(last);
+  }
+  return text;
+}
+
 /** The runner that actually starts processes. */
 export function spawnRunner(): RemoteRunner {
   return {
@@ -262,6 +305,9 @@ export function spawnRunner(): RemoteRunner {
             : (options.stdin as ReadableStream<Uint8Array>),
         stdout: "pipe",
         stderr: "pipe",
+        ...(options.env === undefined
+          ? {}
+          : { env: options.env as Record<string, string> }),
       });
       let timedOut = false;
       const timeoutMs = options.timeoutMs ?? EXEC_TIMEOUT_MS;
@@ -271,8 +317,8 @@ export function spawnRunner(): RemoteRunner {
       }, timeoutMs);
       try {
         const [stdout, stderr, code] = await Promise.all([
-          new Response(child.stdout).text(),
-          new Response(child.stderr).text(),
+          collect(child.stdout as ReadableStream<Uint8Array>, options.onOutput),
+          collect(child.stderr as ReadableStream<Uint8Array>, options.onOutput),
           child.exited,
         ]);
         return { code, stdout, stderr, timedOut };

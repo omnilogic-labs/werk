@@ -63,15 +63,15 @@ test("copy and to are one answer, so half of it is refused naming both", () => {
   expect(block({ copy: "/a", run: ["x"] })).toThrow(/copy and to go together/);
   expect(block({ to: "setup", run: ["x"] })).toThrow(/copy and to go together/);
 });
-test("what a block sends lands under the home directory over there", () => {
+test("what a block sends lands under the directory it names", () => {
   expect(block({ copy: "/a", to: "/srv/setup", run: ["x"] })).toThrow(
-    /to must be relative to the home directory/,
+    /to must be relative to the directory it lands under/,
   );
   expect(block({ copy: "/a", to: "../elsewhere", run: ["x"] })).toThrow(
-    /to must not go up out of the home directory/,
+    /to must not go up out of that directory/,
   );
   expect(block({ copy: "/a", to: "a/../b", run: ["x"] })).toThrow(
-    /to must not go up out of the home directory/,
+    /to must not go up out of that directory/,
   );
   expect(block({ copy: "/a", to: "a//b", run: ["x"] })).toThrow(
     /to must not have an empty segment/,

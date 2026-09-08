@@ -18,6 +18,7 @@ import {
   type Host,
   type HostProblem,
 } from "../config/hosts.js";
+import type { SetupBlock } from "../config/setup.js";
 
 /**
  * The configuration a context is built from: the settings, and the hosts that
@@ -32,6 +33,12 @@ export interface ResolvedConfig {
   readonly config: WerkConfig;
   readonly hosts: Readonly<Record<string, Host>>;
   readonly problems: readonly HostProblem[];
+  /** Every `[setup.<name>]` block in force, by name. */
+  readonly setups: Readonly<Record<string, SetupBlock>>;
+  /** Where each host block was written, so a refusal can say where to look. */
+  readonly hostOrigin: Readonly<Record<string, string>>;
+  /** The same, for a setting. */
+  readonly configOrigin: Partial<Record<keyof WerkConfig, string>>;
 }
 
 /**
@@ -95,6 +102,18 @@ export interface WerkContext {
   readonly defaultHost: string;
   /** The host `--host` named, when it named one. */
   readonly requestedHost?: string;
+  /**
+   * Every `[setup.<name>]` block in force. Carried whole rather than resolved,
+   * because whether a name has a block behind it is a question about the
+   * collection and only the command about to run one can ask it.
+   */
+  readonly setups: Readonly<Record<string, SetupBlock>>;
+  /** Where each host block was written, for a refusal that has to say. */
+  readonly hostOrigin: Readonly<Record<string, string>>;
+  /** The `[setup.<name>]` block a new workspace gets, when a layer named one. */
+  readonly workspaceSetup?: string;
+  /** Where that name was written. */
+  readonly workspaceSetupFrom?: string;
 }
 /**
  * A terminal that cannot say how big it is. `process.stdout.columns` and
@@ -201,5 +220,15 @@ export function createContext(
     hostProblems: resolved?.problems ?? [],
     defaultHost: config?.defaultHost ?? DEFAULT_HOST,
     ...(flags.host === undefined ? {} : { requestedHost: flags.host }),
+    setups: resolved?.setups ?? {},
+    hostOrigin: resolved?.hostOrigin ?? {},
+    // Absent until a layer names one, which is what makes it the only setting
+    // with no value underneath it.
+    ...(config?.workspaceSetup === undefined
+      ? {}
+      : { workspaceSetup: config.workspaceSetup }),
+    ...(resolved?.configOrigin.workspaceSetup === undefined
+      ? {}
+      : { workspaceSetupFrom: resolved.configOrigin.workspaceSetup }),
   };
 }

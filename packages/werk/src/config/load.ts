@@ -100,10 +100,21 @@ export interface MergedConfig {
   config: WerkConfig;
   /** The layer that supplied the value each key ended up with. */
   from: Record<ConfigKey, LayerName>;
+  /**
+   * Where that layer said its values came from: a file for the two file
+   * layers, a description of itself for the rest.
+   */
+  configOrigin: Partial<Record<ConfigKey, string>>;
   /** Every host in force, by name. */
   hosts: Readonly<Record<string, Host>>;
   /** The layer that supplied each host. */
   hostFrom: Record<string, LayerName>;
+  /**
+   * The file each host was written in, for a message that has to say where to
+   * go and fix something. Absent for a host from a layer with no file behind
+   * it, which is the built-in `local`.
+   */
+  hostOrigin: Record<string, string>;
   /** Every setup block in force, by name. */
   setups: Readonly<Record<string, SetupBlock>>;
   /** The layer that supplied each setup block. */
@@ -152,6 +163,7 @@ export function mergeLayers(layers: readonly ConfigLayer[]): MergedConfig {
   );
   const config = {} as Record<ConfigKey, unknown>;
   const from = {} as Record<ConfigKey, LayerName>;
+  const configOrigin: Partial<Record<ConfigKey, string>> = {};
   for (const layer of ordered)
     for (const key of CONFIG_KEYS) {
       // Whether the layer holds the key, rather than whether it holds a value.
@@ -161,6 +173,8 @@ export function mergeLayers(layers: readonly ConfigLayer[]): MergedConfig {
       if (!(key in layer.values)) continue;
       config[key] = layer.values[key];
       from[key] = layer.name;
+      if (layer.origin === undefined) delete configOrigin[key];
+      else configOrigin[key] = layer.origin;
     }
   const missing = CONFIG_KEYS.filter((key) => from[key] === undefined);
   if (missing.length > 0)
@@ -179,12 +193,16 @@ export function mergeLayers(layers: readonly ConfigLayer[]): MergedConfig {
   // where a key no layer holds at all is a hole in werk's own defaults.
   const hosts: Record<string, Host> = {};
   const hostFrom: Record<string, LayerName> = {};
+  const hostOrigin: Record<string, string> = {};
   const setups: Record<string, SetupBlock> = {};
   const setupFrom: Record<string, LayerName> = {};
   const shadowed: ShadowedBlock[] = [];
   const problems: LayerProblem[] = [];
   for (const layer of ordered) {
     takeBlocks(layer.hosts, "hosts", layer.name, hosts, hostFrom, shadowed);
+    for (const name of Object.keys(layer.hosts ?? {}))
+      if (layer.origin === undefined) delete hostOrigin[name];
+      else hostOrigin[name] = layer.origin;
     takeBlocks(layer.setups, "setup", layer.name, setups, setupFrom, shadowed);
     for (const problem of layer.problems ?? [])
       problems.push({ table: "hosts", ...problem, layer: layer.name });
@@ -194,8 +212,10 @@ export function mergeLayers(layers: readonly ConfigLayer[]): MergedConfig {
   return {
     config: config as WerkConfig,
     from,
+    configOrigin,
     hosts,
     hostFrom,
+    hostOrigin,
     setups,
     setupFrom,
     shadowed,

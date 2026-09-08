@@ -21,6 +21,7 @@ const options = (
 ): SendOptions => ({
   sshHost: "beast",
   runner,
+  exec: (command) => ["ssh", "-T", "beast", command],
   rsync: false,
   prepare: "mkdir -p /tmp/dest",
   finish: "printf ok > /tmp/dest/stamp",
@@ -150,6 +151,20 @@ describe("sendTree", () => {
     );
     expect(command.indexOf("tar -xzf")).toBeLessThan(
       command.indexOf("printf ok"),
+    );
+  });
+
+  test("a caller with no finish sends the bytes and stops there", async () => {
+    const runner = fakeRunner();
+    // A setup's completion marker is its stamp, written after the commands
+    // have run, which is later than any `finish` could be.
+    await sendTree(
+      { ...options(runner), finish: undefined },
+      "/local/setup",
+      "/tmp/dest",
+    );
+    expect(sshCommands(runner)[0]).toBe(
+      "mkdir -p /tmp/dest && tar -xzf - -C '/tmp/dest'",
     );
   });
 });

@@ -49,6 +49,8 @@ function context(overrides: Partial<WerkContext> = {}): WerkContext {
     hosts: builtInHosts(),
     hostProblems: [],
     defaultHost: "local",
+    setups: {},
+    hostOrigin: {},
     ...overrides,
   };
 }

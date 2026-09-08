@@ -125,6 +125,11 @@ const BY_HOST_CODE: Record<HostErrorCode, number> = {
   HOST_UNSUPPORTED: EXIT_FAILURE,
   HOST_BOOTSTRAP_FAILED: EXIT_FAILURE,
   HOST_DAEMON_MISSING: 7,
+  // A command somebody wrote in a `[setup.<name>]` block refused. The machine
+  // answered and werk reached it, so this is neither a timeout nor a usage
+  // mistake: it is the general failure, which is exit 1.
+  HOST_SETUP_FAILED: EXIT_FAILURE,
+  WORKSPACE_SETUP_FAILED: EXIT_FAILURE,
 };
 
 /**

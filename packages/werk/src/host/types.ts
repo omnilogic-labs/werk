@@ -71,6 +71,15 @@ export type HostErrorCode =
   /** werk could not get itself installed and running over there. */
   | "HOST_BOOTSTRAP_FAILED"
   /**
+   * A `[setup.<name>]` block the host names did not finish on the machine.
+   *
+   * Separate from the bootstrap failure above because the remedy is somebody
+   * else's: werk got itself there, and a command that person wrote refused.
+   */
+  | "HOST_SETUP_FAILED"
+  /** The `workspaceSetup` block did not finish in the workspace. */
+  | "WORKSPACE_SETUP_FAILED"
+  /**
    * The forward came up and nothing was listening at the far end of it.
    *
    * This has its own code because it is the commonest remote fault and the one
@@ -85,7 +94,12 @@ export type HostErrorCode =
 export class HostError extends Error {
   readonly name = "HostError";
   readonly code: HostErrorCode;
-  /** The ssh destination, as it would be typed after `ssh`. */
+  /**
+   * The ssh destination, as it would be typed after `ssh`, or the host block's
+   * own name where the machine is the one werk is running on. Everything that
+   * raises one of these is reached over ssh except a setup, which runs on
+   * whichever machine the block names.
+   */
   readonly sshHost: string;
   /** What ssh or the far side actually printed, when there was anything. */
   readonly detail?: string;

@@ -19,9 +19,8 @@
  * ```
  *
  * **Nothing here runs anything.** This is the vocabulary and the read path: a
- * block is parsed, carried through the layers and printed by `werk config
- * list`, and that is the whole of it today. Whatever runs one will read these
- * blocks; it does not exist.
+ * block is parsed, carried through the layers, printed by `werk config list`,
+ * and looked up by name in {@link setupFor}. `host/setup.ts` is what runs one.
  *
  * **An unknown key inside a block is refused**, on the same terms as a host
  * block. A setting has a default underneath it, so ignoring a key werk does not
@@ -46,12 +45,16 @@ import { BLOCK_NAME_RULE, isBlockName, type BlockField } from "./hosts.js";
 
 export interface SetupBlock {
   /**
-   * What to send: a path on the machine werk is running on. A leading `~/` is
-   * expanded here, because a config file is written by hand and `~` in one is
-   * the shell's convention rather than a path anything can open.
+   * What to send: a directory on the machine werk is running on, whose contents
+   * land under `to`. A leading `~/` is expanded here, because a config file is
+   * written by hand and `~` in one is the shell's convention rather than a path
+   * anything can open.
    */
   readonly copy?: string;
-  /** Where it lands, relative to the home directory on the machine being set up. */
+  /**
+   * Where it lands, relative to whatever the run is relative to: `$HOME` on the
+   * machine for a host's block, and the workspace for a `workspaceSetup`.
+   */
   readonly to?: string;
   /** The commands to run there, in the order they are written. */
   readonly run: readonly string[];
@@ -69,19 +72,19 @@ function fromHere(raw: unknown, key: string): string {
 }
 
 /**
- * Where something lands on the far side, relative to a home directory werk
- * does not know yet. An absolute path or a `..` in it would name a place
- * outside that directory, which is a different promise from the one this key
- * makes, so both are refused rather than resolved.
+ * Where something lands, relative to a directory werk does not know yet: the
+ * home directory on the machine, or the workspace. An absolute path or a `..` in
+ * it would name a place outside that directory, which is a different promise
+ * from the one this key makes, so both are refused rather than resolved.
  */
 function relative(raw: unknown, key: string): string {
   if (typeof raw !== "string" || raw === "")
     throw invalid(`${key} must be a path`);
   if (raw.startsWith("/"))
-    throw invalid(`${key} must be relative to the home directory over there`);
+    throw invalid(`${key} must be relative to the directory it lands under`);
   const segments = raw.split("/");
   if (segments.includes(".."))
-    throw invalid(`${key} must not go up out of the home directory with ..`);
+    throw invalid(`${key} must not go up out of that directory with ..`);
   if (segments.some((segment) => segment === ""))
     throw invalid(`${key} must not have an empty segment in it`);
   return raw;
@@ -108,12 +111,12 @@ export const SETUP_FIELDS: {
   >;
 } = {
   copy: {
-    describe: "what to send, as a path on the machine werk is running on",
+    describe: "the directory to send, on the machine werk is running on",
     required: false,
     parse: fromHere,
   },
   to: {
-    describe: "where it lands, relative to the home directory over there",
+    describe: "where it lands, relative to $HOME there or to the workspace",
     required: false,
     parse: relative,
   },
@@ -235,6 +238,47 @@ export function parseSetups(
       note(name, error);
     }
   return { setups, problems };
+}
+
+/** Who named a setup block, so a refusal can say where to go and look. */
+export interface SetupNamedBy {
+  /** How the name was written: `[hosts.beast]`, or `workspaceSetup`. */
+  readonly by: string;
+  /** Where that came from: a file, or a layer's description of itself. */
+  readonly from?: string;
+}
+
+/**
+ * The block a name refers to, or a refusal naming what wrote the name down.
+ *
+ * A `setup = "my-boxes"` in a host block is checked for spelling where it is
+ * parsed and no further, because a parser is handed one value and the block may
+ * be written in a file that value has never seen. So the collection is asked
+ * here, at the moment something is about to run one, which is the first point at
+ * which the whole of the configuration is in hand.
+ *
+ * "Nothing werk can read defines one" covers both a name nobody wrote and a
+ * block that failed to parse, deliberately: the remedy for either is to go and
+ * look, and `werk config sources` is where the difference is spelled out.
+ */
+export function setupFor(
+  name: string,
+  setups: Readonly<Record<string, SetupBlock>>,
+  named: SetupNamedBy,
+): SetupBlock {
+  const block = setups[name];
+  if (block !== undefined) return block;
+  const defined = Object.keys(setups).sort();
+  throw invalid(
+    `${named.by}${named.from === undefined ? "" : `, from ${named.from},`} ` +
+      `names a setup block called ${name}, and nothing werk can read defines ` +
+      `one. ` +
+      (defined.length === 0
+        ? `Nothing defines any; a [setup.${name}] table would.`
+        : `Defined: ${defined.join(", ")}.`) +
+      " `werk config sources` says which blocks were read and what is wrong " +
+      "with any that were not.",
+  );
 }
 
 /** One line for a table: what it sends, and how much it runs. */

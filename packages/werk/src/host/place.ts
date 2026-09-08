@@ -179,6 +179,12 @@ const AS_WORKSPACE: Record<HostErrorCode, WorkspaceErrorCode> = {
   // The daemon is beside the point when a script is what was being run: what
   // the caller saw is that the machine did not answer.
   HOST_DAEMON_MISSING: "HOST_UNREACHABLE",
+  // A setup runs either side of the maker and never through it, so neither of
+  // these can reach this table. They are here because the table is total, and
+  // "werk could not get the machine ready" is the nearest thing the maker's own
+  // vocabulary has if one ever does.
+  HOST_SETUP_FAILED: "HOST_BOOTSTRAP_FAILED",
+  WORKSPACE_SETUP_FAILED: "HOST_BOOTSTRAP_FAILED",
 };
 
 /**
