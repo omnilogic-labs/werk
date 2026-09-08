@@ -3,6 +3,7 @@ import path from "node:path";
 import { createStyles } from "../src/runtime/style.js";
 import type { SessionInfo, TerminationResult } from "@werk/session";
 import { isWorkspaceName } from "@werk/workspace";
+import { sizeValid } from "@werk/session-daemon";
 import type { WerkContext } from "../src/runtime/context.js";
 import { setChildArgv } from "../src/commands/shared.js";
 import {
@@ -107,10 +108,45 @@ test("a count is rejected here so the message names the flag", () => {
 });
 test("the window is what was asked for, or what the terminal reports", () => {
   expect(windowSize({ cols: 40, rows: 8 })).toEqual({ cols: 40, rows: 8 });
-  const own = windowSize({});
-  expect(own.cols).toBeGreaterThan(0);
-  expect(own.rows).toBeGreaterThan(0);
-  expect(windowSize({ cols: 40 }).rows).toBe(own.rows);
+  expect(windowSize({}, { columns: 120, rows: 40 })).toEqual({
+    cols: 120,
+    rows: 40,
+  });
+  // A flag beats the terminal, one axis at a time.
+  expect(windowSize({ cols: 40 }, { columns: 120, rows: 40 })).toEqual({
+    cols: 40,
+    rows: 40,
+  });
+});
+test("a terminal that cannot say how big it is gets 80x24, not zero", () => {
+  // `process.stdout.columns` is `0` rather than undefined on a pty whose size
+  // was never set: under `script`, in containers, on an ssh session that lost
+  // its window size. `0` passes straight through `??`, which is the defect.
+  expect(windowSize({}, { columns: 0, rows: 0 })).toEqual({
+    cols: 80,
+    rows: 24,
+  });
+  // A pipe reports neither.
+  expect(windowSize({}, {})).toEqual({ cols: 80, rows: 24 });
+  // One axis can be reported while the other is not.
+  expect(windowSize({}, { columns: 0, rows: 40 })).toEqual({
+    cols: 80,
+    rows: 40,
+  });
+  expect(windowSize({}, { columns: 120, rows: 0 })).toEqual({
+    cols: 120,
+    rows: 24,
+  });
+});
+test("the grid a zero-sized terminal produces is one the daemon accepts", () => {
+  // Asserted against the daemon's own rule rather than a restatement of it, so
+  // the client and the daemon cannot drift into disagreeing about what a valid
+  // grid is. Before the guard this threw: `sizeValid` refuses anything under 1.
+  expect(() =>
+    sizeValid(windowSize({}, { columns: 0, rows: 0 })),
+  ).not.toThrow();
+  expect(() => sizeValid(windowSize({}, {}))).not.toThrow();
+  expect(() => sizeValid({ cols: 0, rows: 0 })).toThrow();
 });
 const workspace = (name = "fix-login") => ({
   name,

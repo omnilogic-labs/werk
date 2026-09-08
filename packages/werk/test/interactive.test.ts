@@ -6,6 +6,19 @@
  * with stdin closed. That is the failure mode being guarded against: a prompt
  * reached without a terminal does not fail, it waits, and a test of the guard
  * function alone would still pass while the CLI hung a pipeline.
+ *
+ * `--no-input` is the one cause a hand-built context cannot cover. Every test
+ * process has no terminal, so a context written here is already forbidden from
+ * prompting whether or not the flag was ever read, and the flag was in fact
+ * read under a name commander does not produce. So the flag is driven through
+ * the real command tree instead, and asked what it forbids on a terminal that
+ * would otherwise allow prompting.
+ *
+ * What that still does not reach is the invocation a person makes: a real
+ * terminal, outside CI, with `--no-input` typed. Nothing here allocates a pty,
+ * so the streams are always pipes and the case is reconstructed from its
+ * parts rather than walked. Closing that gap wants a pty harness the suite
+ * does not have.
  */
 import { beforeAll, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
@@ -14,7 +27,17 @@ import path from "node:path";
 import os from "node:os";
 import { createStyles } from "../src/runtime/style.js";
 import type { SessionInfo } from "@werk/session";
-import type { WerkContext } from "../src/runtime/context.js";
+import { buildProgram } from "../src/app.js";
+import {
+  GLOBAL_FLAGS,
+  hoistGlobalFlags,
+  splitChildArgv,
+} from "../src/runtime/argv.js";
+import {
+  promptingForbidden,
+  type GlobalFlags,
+  type WerkContext,
+} from "../src/runtime/context.js";
 import { CancelledError, UsageError } from "../src/runtime/exit.js";
 import {
   canPrompt,
@@ -66,6 +89,77 @@ function channel() {
   output.resume();
   return { input, output };
 }
+
+/** Thrown from a hook to stop a real parse before the command reaches a daemon. */
+class Parsed extends Error {
+  constructor(readonly flags: GlobalFlags) {
+    super("parsed");
+  }
+}
+/**
+ * What commander actually hands an action, for a command line typed the way a
+ * user types it. `main.ts`'s two argv transformations run first, so a flag
+ * after the command name is read the same way it is in a shell.
+ */
+async function flagsFor(argv: string[]): Promise<GlobalFlags> {
+  const { globals, rest } = hoistGlobalFlags(splitChildArgv(argv).own);
+  const ordered = [...globals, ...rest];
+  const program = buildProgram(ordered).hook("preAction", (_root, action) => {
+    throw new Parsed(action.optsWithGlobals() as GlobalFlags);
+  });
+  try {
+    await program.parseAsync(ordered, { from: "user" });
+  } catch (error) {
+    if (error instanceof Parsed) return error.flags;
+    throw error;
+  }
+  throw new Error("the command ran instead of being intercepted");
+}
+/** A terminal on both streams and no CI, so only the flag can forbid a prompt. */
+const terminal = { stdinTTY: true, stdoutTTY: true };
+
+test("--no-input forbids prompting on a real terminal", async () => {
+  expect(promptingForbidden(await flagsFor(["kill"]), terminal, {})).toBe(
+    false,
+  );
+  expect(
+    promptingForbidden(await flagsFor(["--no-input", "kill"]), terminal, {}),
+  ).toBe(true);
+  // Global flags are accepted after the command name as well as before it.
+  expect(
+    promptingForbidden(await flagsFor(["kill", "--no-input"]), terminal, {}),
+  ).toBe(true);
+});
+
+test("every negated global flag parses to the key it is read from", async () => {
+  // Commander reads `--no-x` as the negation of `x`, so it stores `x: false`
+  // and there is no `noX` key to read. `--no-input` was read from the name it
+  // is spelled with, so the guard behind it was dead on every terminal. This
+  // holds the whole class rather than the one instance: a negated flag added
+  // later and read from the wrong key fails here.
+  const negated = GLOBAL_FLAGS.filter((spec) =>
+    spec.flags.startsWith("--no-"),
+  ).map((spec) => spec.flags);
+  expect(negated).toContain("--no-input");
+  expect(negated.length).toBeGreaterThan(1);
+  for (const flag of negated) {
+    const base = flag.slice("--no-".length);
+    const key = base.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+    const wrong = "no" + key[0]!.toUpperCase() + key.slice(1);
+    const passed = (await flagsFor([flag, "kill"])) as Record<string, unknown>;
+    const absent = (await flagsFor(["kill"])) as Record<string, unknown>;
+    // Typed, the un-negated key is `false`. Untyped it is anything but, which
+    // is `true` on its own and `undefined` where a `--color` is declared
+    // beside its `--no-color`.
+    expect(passed[key], flag).toBe(false);
+    expect(absent[key], flag).not.toBe(false);
+    // The name the flag is spelled with is never a key. Reading it is the
+    // defect, and it is silent: the value is `undefined`, so a `=== true`
+    // guard behind it simply never fires.
+    expect(Object.keys(passed), flag).not.toContain(wrong);
+    expect(passed[wrong], flag).toBeUndefined();
+  }
+});
 
 test("prompting is exactly what the context already decided", () => {
   expect(canPrompt(context({ noInput: false }))).toBe(true);

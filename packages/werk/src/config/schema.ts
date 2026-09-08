@@ -144,10 +144,6 @@ export const FIELDS: { readonly [K in ConfigKey]: ConfigField<K> } = {
 };
 export const CONFIG_KEYS = Object.keys(FIELDS) as readonly ConfigKey[];
 
-export function isConfigKey(key: string): key is ConfigKey {
-  return (CONFIG_KEYS as readonly string[]).includes(key);
-}
-
 /**
  * The lowest layer. `WERK_RUNTIME_DIR` is dropped on the way in because
  * `defaultSessionRuntimeDir` honours it: leaving it would attribute a value the

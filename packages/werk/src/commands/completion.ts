@@ -9,6 +9,12 @@
  * generated again.
  *
  * `complete` is hidden because it is not for people: it is a wire format.
+ *
+ * `complete` is the one command that does not go through `withContext`. It
+ * reads the configuration layers itself, under a deadline it can abandon, and
+ * builds its own context from what arrived, because a shell is blocked on it
+ * for every keystroke of a TAB. Every other command waits however long the
+ * layers take.
  */
 import type { Command } from "@commander-js/extra-typings";
 import bash from "../completion/scripts/bash.sh" with { type: "text" };
@@ -17,14 +23,14 @@ import fish from "../completion/scripts/fish.sh" with { type: "text" };
 import { completionFor } from "../completion/candidates.js";
 import { result } from "../runtime/output.js";
 import { loadWerkConfig } from "../config/load.js";
-
-/** Longest completion will wait for the configuration layers before ignoring them. */
-const CONFIG_BUDGET_MS = 50;
 import { NOTHING, writeReply } from "../completion/protocol.js";
 import { createContext, type GlobalFlags } from "../runtime/context.js";
 import { roles } from "@werk/palette";
 import { childCommand, withContext } from "./shared.js";
 import { defineCommand } from "./define.js";
+
+/** Longest completion will wait for the configuration layers before ignoring them. */
+const CONFIG_BUDGET_MS = 50;
 
 const SCRIPTS: Record<string, { source: string; install: string }> = {
   bash: {

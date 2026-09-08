@@ -85,6 +85,15 @@ const timer = setInterval(() => {
   const d = daemon.diagnostics();
   maxOutput = Math.max(maxOutput, d.outputQueueBytes);
   maxControl = Math.max(maxControl, d.controlQueueBytes);
+  // What each half of this asserts. The output bound is a real one: the harness
+  // configures a 32 KiB queue per connection and the baseline's aggregate peak
+  // is 33,255 bytes over two connections, so a backpressure regression shows
+  // here. Both bounds are on the aggregate against a per-connection allowance,
+  // so one connection can exceed its own share while the total stays under.
+  // The control bound is the protocol's own limit, about 64 MiB, against a
+  // baseline peak of 1,688 bytes, so it sits roughly 40,000 times above the
+  // observed value and catches a runaway rather than a regression. See open
+  // question 1 in `docs/ci.md`.
   if (
     d.outputQueueBytes > outputLimit * d.connections ||
     d.controlQueueBytes > DEFAULT_MAX_QUEUED_BYTES * d.connections
@@ -190,6 +199,11 @@ try {
       JSON.stringify(report, null, 2) + "\n",
     );
   assert.ok(resyncs > 0, "slow viewer must exercise resynchronisation");
+  // The regression budgets are the only performance assertions here, and they
+  // need a baseline to compare against. The `native` lanes set no
+  // `SOAK_BASELINE`, so on every pull request this block is skipped and the run
+  // asserts liveness, framing, backpressure and cleanup instead. `docs/ci.md`
+  // says so where the lane is described.
   if (process.env.SOAK_BASELINE) {
     const baseline = await Bun.file(process.env.SOAK_BASELINE).json();
     assert.ok(
@@ -205,6 +219,9 @@ try {
       "event loop lag exceeded budget",
     );
   }
+  // Linux only: `handles()` reads `/proc/self/fd` and returns `null` anywhere
+  // else, so the macOS and Windows legs assert nothing about descriptors. The
+  // allowance of four is for runtime bookkeeping.
   if (initialHandles !== null && finalHandles !== null)
     assert.ok(
       finalHandles <= initialHandles + 4,

@@ -1,3 +1,4 @@
+- [Commander negated flags](commander-negated-flags.md): `--no-x` parses to `x:false`, never `noX`
 - [Dispatch a real CI run](dispatch-a-real-ci-run.md): publish the branch and dispatch a real run
 - [Adopt the theme, not the palette](feedback-adopt-the-theme-not-the-palette.md): unchanged output on an unthemed host is not adoption
 - [No pinned literals in tests](feedback-no-help-output-snapshots.md): read the expected value off its source of truth

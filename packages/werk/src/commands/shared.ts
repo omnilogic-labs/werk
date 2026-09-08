@@ -35,7 +35,12 @@ export interface RuntimeBasis {
   readonly entry: string;
   readonly level: ColourLevel;
   readonly theme: Roles;
-  /** Absent only on the completion path, which reads the layers on its own budget. */
+  /**
+   * Absent only on the completion path. `complete` never reaches `withContext`
+   * at all: it reads the layers itself, under a deadline it can abandon, and
+   * builds its own context, because a shell is blocked on it for every
+   * keystroke of a TAB and a remote layer that hangs must not hang the shell.
+   */
   readonly config?: WerkConfig;
 }
 let basis: RuntimeBasis = {
@@ -45,30 +50,22 @@ let basis: RuntimeBasis = {
 };
 export const setRuntimeBasis = (next: RuntimeBasis) => void (basis = next);
 
-/** What followed `--`, which `create` runs and no other command looks at. */
+/**
+ * What followed `--`. `create` runs it, and `complete` reads it as the words a
+ * shell is asking about; nothing else looks at it.
+ */
 let childArgv: readonly string[] = [];
 export const setChildArgv = (value: readonly string[]) =>
   void (childArgv = value);
 export const childCommand = (): readonly string[] => childArgv;
 
-export interface ActionOptions {
-  /**
-   * Skip the configuration layers. Only the completion callback does this: it
-   * runs on every keystroke of a TAB and reads nothing configurable, so the file
-   * reads and the c12 import would be latency spent for nothing.
-   */
-  readonly withoutConfig?: boolean;
-}
 type Action<O, A extends unknown[]> = (
   ctx: WerkContext,
   opts: O,
   ...args: A
 ) => Promise<Result<unknown> | void> | Result<unknown> | void;
 
-export function withContext<O, A extends unknown[]>(
-  run: Action<O, A>,
-  options: ActionOptions = {},
-) {
+export function withContext<O, A extends unknown[]>(run: Action<O, A>) {
   return async (...all: unknown[]): Promise<void> => {
     const command = all.at(-1) as Command;
     // Rules commander has no notation for are checked before anything runs, so
@@ -88,12 +85,10 @@ export function withContext<O, A extends unknown[]>(
     const flags = command.optsWithGlobals() as GlobalFlags;
     // What a command acts on comes from all six layers rather than from the
     // flags alone, so a `runtimeDir` set in `~/.werk/config.toml` reaches the
-    // daemon the same way `--runtime-dir` does.
-    // Read once in `main.ts` and carried here. The completion path is the only
-    // caller that opts out, and it reads the layers itself on a budget.
-    const config = options.withoutConfig
-      ? undefined
-      : (basis.config ?? (await loadWerkConfig({ flags })).config);
+    // daemon the same way `--runtime-dir` does. `main.ts` reads them once
+    // before parsing and carries them on the basis, so the load below is the
+    // fallback for a program built without one, as a test does.
+    const config = basis.config ?? (await loadWerkConfig({ flags })).config;
     const ctx = createContext(flags, basis, config);
     try {
       emit(ctx, (await run(ctx, opts, ...positionals)) ?? undefined);

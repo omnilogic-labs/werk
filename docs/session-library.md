@@ -383,7 +383,12 @@ queue peak was 33,255 bytes over two connections. File descriptors returned from
 `SOAK_REPORT=docs/session-library/linux-x64-baseline.json bun scripts/session-soak.ts`.
 This is a short baseline, not a 24-hour soak result. The manual CI workflow offers
 a full-day run on a self-hosted Linux x64 runner because hosted jobs have a shorter
-time limit. Its runner must be provisioned before that evidence can be collected.
+time limit. That runner has never been provisioned, so the lane has never run and
+these budgets have never been enforced by CI. The 60-second `test:soak` step that
+does run on every pull request passes no `SOAK_BASELINE`, so it exercises
+liveness, framing, backpressure and cleanup and asserts none of the budgets above.
+What the routine step should assert is
+[open question 1 in docs/ci.md](ci.md#1-what-should-the-routine-soak-step-assert).
 Regressions should retain the JSON report and be investigated before updating the
 baseline; changing the reference should identify the runtime, platform and workload.
 

@@ -3,7 +3,7 @@
 `beamtermRenderer({ wasmUrl })` returns the same renderer factory used by the
 bundled DOM adapter. The module and WASM are loaded only when that factory is
 mounted. Browser applications must serve the pinned renderer WASM and pass its
-URL. `createBeamtermRenderer` uses upstream's default asset resolution.
+URL.
 
 The dependency is exactly `@beamterm/renderer` 1.0.0, from
 <https://github.com/junkdog/beamterm>, under its included MIT licence.

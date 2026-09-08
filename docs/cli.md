@@ -451,7 +451,10 @@ that does not exist yet reads back later as a decision somebody took.
 
 Every command acts on the resolved configuration, so a `runtimeDir` set in
 `~/.werk/config.toml` is the directory `werk info` reports and the one
-`werk attach <TAB>` looks in.
+`werk attach <TAB>` looks in. `scrollbackBytes` is what `werk create` asks the
+daemon to keep for a new session, and `werk create --scrollback <BYTES>`
+overrides it for that one session. The daemon caps whatever it is asked for at
+10,000,000 bytes.
 
 The layers are read once, before parsing begins, rather than by each command.
 Commander prints a help page during the parse, so a `flavour` set in a file has

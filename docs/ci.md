@@ -22,6 +22,10 @@ by name, which is what "Starting a run on demand" below is for.
 The `native` matrix keeps `fail-fast: false`. One platform failing should not
 cancel the evidence the other two were about to produce.
 
+The `soak` lane's self-hosted runner has never been provisioned, so the lane has
+never run. It is a design that is written down and costed rather than a lane
+that reports anything.
+
 ## Step order
 
 Steps run cheapest first, so a run dies on the first failure having spent the
@@ -53,6 +57,24 @@ anything anyone wrote.
 imports `@werk/terminal` from `dist/` and a typecheck from a clean tree cannot
 resolve it. The compiled lock check comes next: it is the point of the lane and
 it costs about a second.
+
+The `bun run test:soak` step on `native` asserts no performance budget. It sets
+`SOAK_SECONDS` and `SOAK_REPORT` and no `SOAK_BASELINE`, and
+`scripts/session-soak.ts` keeps the regression budgets behind that variable. So
+what the step proves in 60 seconds is that the daemon starts, streams, keeps
+the output queued across every connection inside 32 KiB per connection,
+exercises slow-viewer resynchronisation, and cleans up afterwards. The peak RSS, attach latency and
+event-loop budgets are checked only where a baseline is passed, which today is
+the `soak` lane alone. The step uploads `soak.json` either way, so the numbers
+are recorded even though nothing compares them.
+
+Two of the checks that do run on every pull request are weaker than they look.
+The control-queue bound compares against `DEFAULT_MAX_QUEUED_BYTES`, about
+64 MiB, while the checked-in baseline's observed peak is 1,688 bytes, so it
+sits roughly 40,000 times above the real value and would catch a runaway rather
+than a regression. The descriptor check can fail, and does the job it was
+written for, but only on Linux: it reads `/proc/self/fd`, so the macOS and
+Windows legs assert nothing about descriptors at all.
 
 ## Re-runs on failure
 
@@ -160,7 +182,7 @@ At `60cf9ed`, in run
 | `native (ubuntu-latest)`  | fail    | `bun run test:artefacts`, [#21](https://github.com/omnilogic-labs/werk/issues/21) |
 | `native (macos-15-intel)` | fail    | `bun run test`, [#22](https://github.com/omnilogic-labs/werk/issues/22)           |
 | `native (windows-latest)` | fail    | `bun run build`, [#23](https://github.com/omnilogic-labs/werk/issues/23)          |
-| `soak`                    | not run | asked for by name                                                                 |
+| `soak`                    | not run | its self-hosted runner has never been provisioned                                 |
 
 The three `native` lanes fail for three unrelated causes, one each, tracked as
 #21, #22 and #23. Windows fails at the first step after `bun install`, so
@@ -184,3 +206,48 @@ two share a cause. Everything above that step passes: `build`, `typecheck` and
 
 How much any of this should hold up other work is in
 [platforms.md](platforms.md).
+
+## Open questions
+
+Genuinely open. Where there is a lean it is labelled as a lean.
+
+### 1. What should the routine soak step assert?
+
+The 60-second `bun run test:soak` step runs on every pull request and every push
+to `main`, on all three platforms, and asserts nothing about performance. The
+options:
+
+- Set `SOAK_BASELINE` on the Linux leg of `native` against the checked-in
+  `docs/session-library/linux-x64-baseline.json`. That baseline was collected on
+  a development machine rather than on a hosted runner, so the comparison would
+  be across two different machines and would probably need looser multipliers
+  than the current 2x and 3x.
+- Assert absolute ceilings chosen by hand rather than budgets relative to a
+  baseline. That survives a change of runner, and it needs somebody to pick the
+  numbers.
+- Keep the step as a liveness, framing, backpressure and cleanup exercise, and
+  say so where it is described rather than letting it read as a gate.
+- Drop it from the pull request path and run it on a schedule instead, which
+  buys back 60 seconds per platform per run.
+
+**Lean:** the third now and the first afterwards. Describe the step accurately
+today, then collect a 60-second baseline on a hosted `ubuntu-latest` runner so
+that a like-for-like comparison becomes possible. The cost of the third on its
+own is that nothing catches a performance regression until somebody dispatches
+the `soak` lane by hand.
+
+Whether the two always-on checks should be tightened is part of the same
+question. The control-queue bound could compare against something near the
+observed peak rather than against the protocol limit, and the descriptor check
+could be given a way to count handles on macOS and Windows.
+
+### 2. Should the unprovisioned `soak` lane stay listed?
+
+The lane and its `workflow_dispatch` option describe a day-long run on a
+self-hosted Linux x64 runner that does not exist. The options are to keep it and
+say plainly that its runner has never been provisioned, or to remove the lane
+until somebody provisions one.
+
+**Lean:** keep it. The design is written down and costed, and what was missing
+was the caveat rather than the lane. The cost is a lane in the table and a
+`workflow_dispatch` option that nobody can currently use.

@@ -113,5 +113,3 @@ export function beamtermRenderer(
     };
   };
 }
-export const createBeamtermRenderer: RendererFactory = (host) =>
-  beamtermRenderer()(host);

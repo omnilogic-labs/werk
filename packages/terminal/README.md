@@ -35,10 +35,9 @@ mouse tracking and kitty keyboard state from the engine, including restored
 snapshots. `encodeKey` and `encodePaste` accept the queried cursor/paste modes.
 `viewport()` reports scrollback position; `scrollViewport()` moves by rows or
 to either end. `readSelection()` uses inclusive viewport cell coordinates and
-preserves wide graphemes. The standalone `selectionText` helper operates on
-supplied text with code-point indices. Snapshot bytes contain parser continuation and retained
-history; screen recovery does not recover a process. Dimensions and snapshot
-input have explicit limits.
+preserves wide graphemes. Snapshot bytes contain parser continuation and
+retained history; screen recovery does not recover a process. Dimensions and
+snapshot input have explicit limits.
 
 `TerminalOptions.scrollbackBytes` sets the page-memory budget on create or,
 after decoding all history, on restore. Omission keeps the upstream 10,000-byte

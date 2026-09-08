@@ -154,15 +154,3 @@ export interface Selection {
   start: { x: number; y: number };
   end: { x: number; y: number };
 }
-export function selectionText(rows: string[], selection: Selection): string {
-  let { start: a, end: b } = selection;
-  if (a.y > b.y || (a.y === b.y && a.x > b.x)) [a, b] = [b, a];
-  return rows
-    .slice(a.y, b.y + 1)
-    .map((r, i) =>
-      Array.from(r)
-        .slice(i === 0 ? a.x : 0, a.y + i === b.y ? b.x + 1 : undefined)
-        .join(""),
-    )
-    .join("\n");
-}

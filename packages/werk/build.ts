@@ -8,14 +8,11 @@ const here = import.meta.dir;
 const entrypoint = join(here, "src", "main.ts");
 const outdir = join(here, "dist");
 await mkdir(outdir, { recursive: true });
-const result = await Bun.build({
-  entrypoints: [entrypoint],
-  target: "bun",
-  outdir,
-  define: { WERK_COMPILED: "false" },
-});
-if (!result.success)
-  throw new AggregateError(result.logs, "CLI JavaScript build failed");
+// The compiled binary is the only artefact. `bin.werk` points at it, the tests
+// spawn it or `src/main.ts`, and `check-artefacts.ts` copies it; a bundled
+// `dist/main.js` beside it was reached by none of those. `WERK_COMPILED` is
+// therefore defined on the compiled side alone, and `runtime/daemon.ts` reads
+// it through a `typeof` guard so an interpreted run sees it as unset.
 const child = Bun.spawn(
   [
     process.execPath,

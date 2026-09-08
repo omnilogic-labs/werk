@@ -14,12 +14,21 @@ import type { Roles } from "@werk/palette";
 import type { RuntimeBasis } from "../commands/shared.js";
 import type { WerkConfig } from "../config/schema.js";
 
+/**
+ * The global flags as commander hands them over.
+ *
+ * `input` is spelled the way commander stores it rather than the way it is
+ * typed. A `--no-x` option is the negation of `x`, so `--no-input` sets
+ * `input` to `false` and leaves it `true` otherwise; there is no `noInput` key
+ * to read. Declaring one here would be a type asserting a shape the parser
+ * never produces, and the guard below would never fire.
+ */
 export interface GlobalFlags {
   json?: boolean;
   runtimeDir?: string;
   stateDir?: string;
   logLevel?: string;
-  noInput?: boolean;
+  input?: boolean;
   yes?: boolean;
   flavour?: string;
   accent?: string;
@@ -45,6 +54,13 @@ export interface WerkContext {
   readonly runtimeDir: string;
   readonly stateDir: string;
   readonly logLevel?: string;
+  /**
+   * Bytes of output a new session asks the daemon to keep. Absent only where no
+   * configuration was resolved, which is the completion path, and nothing there
+   * starts a session; the daemon applies its own default if it is ever asked
+   * without one.
+   */
+  readonly scrollbackBytes?: number;
   readonly entry: string;
 }
 /** The state directory werk has always used; kept so existing state is found. */
@@ -58,25 +74,59 @@ export function defaultStateDir(
   );
 }
 /**
- * A terminal that cannot say how wide it is. `process.stdout.columns` is `0`
- * rather than undefined on a pty whose size was never set — which happens under
- * `script`, inside some containers, and on an ssh session that lost its window
- * size — and `0` would otherwise pass through `??` and collapse every flexible
- * column to its floor.
+ * A terminal that cannot say how big it is. `process.stdout.columns` and
+ * `process.stdout.rows` are `0` rather than undefined on a pty whose size was
+ * never set. That happens under `script`, inside some containers, and on an ssh
+ * session that lost its window size, and `0` passes straight through `??`.
+ * Downstream that either collapses every flexible column to its floor or asks
+ * the daemon for a grid it refuses, depending on who read it.
+ *
+ * Every reader of a reported dimension goes through this, so the guard cannot
+ * be present in one place and missing from the next.
  */
-const DEFAULT_COLUMNS = 80;
-export function terminalColumns(reported: number | undefined): number {
+export function reportedSize(
+  reported: number | undefined,
+  fallback: number,
+): number {
   return reported !== undefined && Number.isFinite(reported) && reported > 0
     ? reported
-    : DEFAULT_COLUMNS;
+    : fallback;
+}
+const DEFAULT_COLUMNS = 80;
+export function terminalColumns(reported: number | undefined): number {
+  return reportedSize(reported, DEFAULT_COLUMNS);
 }
 /** CI runners report a TTY often enough that prompting there still hangs a job. */
-function inCI(env: Record<string, string | undefined>): boolean {
+export function inCI(env: Record<string, string | undefined>): boolean {
   return (
     env.CI !== undefined &&
     env.CI !== "" &&
     env.CI !== "0" &&
     env.CI !== "false"
+  );
+}
+/**
+ * Whether prompting is forbidden, given what was parsed and what the streams
+ * are.
+ *
+ * Separate from `createContext` because `--no-input` is the only one of the
+ * four causes that a test can isolate: the other three are true of any test
+ * process, so a context built there is already forbidden from prompting and
+ * would pass whether the flag was read or not. This takes the terminal state as
+ * an argument, so a test can drive a real argv through the real parser and
+ * assert that the flag alone forbids it on a terminal that would otherwise
+ * allow it.
+ */
+export function promptingForbidden(
+  flags: GlobalFlags,
+  streams: { stdinTTY: boolean; stdoutTTY: boolean },
+  env: Record<string, string | undefined>,
+): boolean {
+  return (
+    flags.input === false ||
+    !streams.stdinTTY ||
+    !streams.stdoutTTY ||
+    inCI(env)
   );
 }
 /**
@@ -105,11 +155,12 @@ export function createContext(
     theme,
     colourLevel: level,
     json: flags.json === true,
-    noInput: flags.noInput === true || !stdinTTY || !stdoutTTY || inCI(env),
+    noInput: promptingForbidden(flags, { stdinTTY, stdoutTTY }, env),
     yes: flags.yes === true,
     // The merged configuration has already applied the flags, so it wins where
-    // it is present; the fallbacks are only for the completion path, which does
-    // not read configuration at all.
+    // it is present. The fallbacks are for the completion path, which reads the
+    // layers on a budget of its own and abandons them when they are slow, so it
+    // is the one caller that can arrive here with nothing merged.
     runtimeDir: path.resolve(
       config?.runtimeDir ?? flags.runtimeDir ?? defaultSessionRuntimeDir(),
     ),
@@ -117,6 +168,7 @@ export function createContext(
       config?.stateDir ?? flags.stateDir ?? defaultStateDir(env),
     ),
     logLevel: config?.logLevel ?? flags.logLevel ?? env.WERK_LOG_LEVEL,
+    scrollbackBytes: config?.scrollbackBytes,
     entry,
   };
 }

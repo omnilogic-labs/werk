@@ -74,6 +74,14 @@ interface Ran {
  * session does, which is the thing each case below arranges.
  */
 async function werk(cwd: string, ...args: string[]): Promise<Ran> {
+  return werkWith(cwd, {}, ...args);
+}
+/** The same, with settings supplied through the environment layer. */
+async function werkWith(
+  cwd: string,
+  env: Record<string, string>,
+  ...args: string[]
+): Promise<Ran> {
   const child = Bun.spawn(
     [
       process.execPath,
@@ -84,7 +92,13 @@ async function werk(cwd: string, ...args: string[]): Promise<Ran> {
       stateDir,
       ...args,
     ],
-    { cwd, stdin: "pipe", stdout: "pipe", stderr: "pipe" },
+    {
+      cwd,
+      env: { ...process.env, ...env },
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+    },
   );
   const stdout = await new Response(child.stdout).text();
   const stderr = await new Response(child.stderr).text();
@@ -188,6 +202,64 @@ test(
       expect(info.id).toBeString();
       expect(info.workspace.branch).toBeString();
     }
+  },
+  TIMEOUT,
+);
+
+/**
+ * `scrollbackBytes` reaching the daemon, through the layers rather than through
+ * the flag.
+ *
+ * This is the case a function-level test cannot hold. The setting is parsed,
+ * layered, merged and reported by `werk config` whatever the CLI does with it,
+ * so the only thing that distinguishes a setting werk acts on from one it
+ * ignores is what the session comes back holding. So the whole route is run:
+ * the environment layer, the merge, the context, `create`, the daemon, and the
+ * record it answers with.
+ *
+ * 65536 is well under the daemon's own 10,000,000 cap, so the assertion is
+ * about the merge rather than about a clamp.
+ */
+test(
+  "a scrollbackBytes set in a layer is what the session is created with",
+  async () => {
+    const source = await repository();
+    const ran = await werkWith(
+      source,
+      { WERK_SCROLLBACK_BYTES: "65536" },
+      "--json",
+      "create",
+      "--detach",
+      "--",
+      "sleep",
+      "30",
+    );
+    expect(ran.code, ran.stderr).toBe(0);
+    const info = JSON.parse(ran.stdout.trim()) as { scrollbackBytes: number };
+    expect(info.scrollbackBytes).toBe(65536);
+  },
+  TIMEOUT,
+);
+
+test(
+  "--scrollback beats the layer it would otherwise have come from",
+  async () => {
+    const source = await repository();
+    const ran = await werkWith(
+      source,
+      { WERK_SCROLLBACK_BYTES: "65536" },
+      "--json",
+      "create",
+      "--detach",
+      "--scrollback",
+      "32768",
+      "--",
+      "sleep",
+      "30",
+    );
+    expect(ran.code, ran.stderr).toBe(0);
+    const info = JSON.parse(ran.stdout.trim()) as { scrollbackBytes: number };
+    expect(info.scrollbackBytes).toBe(32768);
   },
   TIMEOUT,
 );

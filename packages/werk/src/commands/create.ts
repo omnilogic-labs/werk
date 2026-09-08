@@ -28,7 +28,7 @@ import { attachSession } from "./attach.js";
 import { collectLabel } from "./list.js";
 import { result } from "../runtime/output.js";
 import { connectDaemon } from "../runtime/daemon.js";
-import type { WerkContext } from "../runtime/context.js";
+import { reportedSize, type WerkContext } from "../runtime/context.js";
 import { clientEnvironment } from "../environment.js";
 import { DETACH_HINT, sessionArea } from "../view.js";
 
@@ -50,15 +50,31 @@ export function wholeNumber(flag: string, unit = "") {
     return value;
   };
 }
+/** What a terminal is given when it does not report a size werk can use. */
+const FALLBACK_WINDOW = { cols: 80, rows: 24 };
 /**
- * The grid a session starts at, or the window an attachment assumes. The
- * terminal answers when it is one; 80x24 is what every terminal falls back to
- * and what a pipe has always been given.
+ * The grid a session starts at, or the window an attachment assumes. The flags
+ * answer first, then the terminal, then 80x24 for a pipe and for a terminal
+ * that cannot say how big it is.
+ *
+ * The reported size is a parameter rather than read here, so a test can hand it
+ * the zero grid a real pty reports when its size was never set. That zero is
+ * why `reportedSize` is used instead of `??`: the daemon's `sizeValid` wants
+ * both dimensions above zero, so a bare `??` would send `create` and `attach` a
+ * grid it refuses, on exactly the terminals the same guard in `context.ts` was
+ * written to defend.
+ *
+ * An explicit `--cols 0` is left alone and still reaches the daemon, because
+ * `wholeNumber` accepts zero on purpose and reinterpreting what somebody typed
+ * would be worse than the refusal they get.
  */
-export function windowSize(opts: { cols?: number; rows?: number }) {
+export function windowSize(
+  opts: { cols?: number; rows?: number },
+  reported: { columns?: number; rows?: number } = process.stdout,
+) {
   return {
-    cols: opts.cols ?? process.stdout.columns ?? 80,
-    rows: opts.rows ?? process.stdout.rows ?? 24,
+    cols: opts.cols ?? reportedSize(reported.columns, FALLBACK_WINDOW.cols),
+    rows: opts.rows ?? reportedSize(reported.rows, FALLBACK_WINDOW.rows),
   };
 }
 /**
@@ -239,7 +255,10 @@ export function buildCreate(): Command {
               // session is asked for that grid now rather than being resized
               // before the child has drawn anything.
               size: !detached && ctx.stdoutTTY ? sessionArea(window) : window,
-              scrollbackBytes: opts.scrollback,
+              // The flag answers first, then the resolved setting. Without the
+              // second half `scrollbackBytes` would be a key `werk config`
+              // reports from a file layer while nothing acted on it.
+              scrollbackBytes: opts.scrollback ?? ctx.scrollbackBytes,
               name: opts.name,
               labels: opts.label,
             });

@@ -197,7 +197,13 @@ type Connection = {
 const owner = (): Principal => ({
   id: `uid:${process.getuid?.() ?? process.env.USERNAME ?? "local"}`,
 });
-function sizeValid(size: Size) {
+/**
+ * The rule every grid the daemon is given has to meet. Exported so a client can
+ * assert its own size handling against this rather than against a restatement
+ * of it: the two drifting apart is what makes a client ask for a grid that is
+ * refused on arrival.
+ */
+export function sizeValid(size: Size) {
   if (
     !size ||
     !Number.isInteger(size.cols) ||
