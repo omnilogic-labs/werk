@@ -111,8 +111,24 @@ interface Run {
  * Wait for a child with a deadline of its own. The regression is a process that
  * never returns, so the deadline is the assertion: without it the suite would
  * hang rather than fail.
+ *
+ * The output is read as it arrives rather than once the child has gone, so a
+ * case that has to answer the terminal part way through can watch for the
+ * question. It is watched as latin-1, one character to a byte, so a chunk that
+ * splits a character cannot turn the sequence being looked for into something
+ * else.
  */
-async function settle(child: Bun.Subprocess): Promise<Run> {
+async function settle(
+  child: Bun.Subprocess,
+  watch?: (output: string) => void,
+): Promise<Run> {
+  const chunks: Buffer[] = [];
+  const reading = (async () => {
+    for await (const chunk of child.stdout as ReadableStream<Uint8Array>) {
+      chunks.push(Buffer.from(chunk));
+      watch?.(Buffer.concat(chunks).toString("latin1"));
+    }
+  })();
   const expired = Symbol("expired");
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<typeof expired>((resolve) => {
@@ -122,31 +138,60 @@ async function settle(child: Bun.Subprocess): Promise<Run> {
   if (timer !== undefined) clearTimeout(timer);
   const timedOut = outcome === expired;
   if (timedOut) child.kill("SIGKILL");
-  const [stdout, stderr] = await Promise.all([
-    new Response(child.stdout as ReadableStream).text(),
-    new Response(child.stderr as ReadableStream).text(),
-  ]);
+  await reading;
+  const stderr = await new Response(child.stderr as ReadableStream).text();
   await child.exited;
   return {
     code: timedOut ? null : (outcome as number),
-    output: stdout + stderr,
+    output: Buffer.concat(chunks).toString() + stderr,
     timedOut,
   };
 }
+
+/** What the probe asks, and the device attributes reply that ends it. */
+const QUESTION = "\x1b]11;?";
+const ATTRIBUTES = "\x1b[?62;22c";
+
+/**
+ * A command that reports what was left in the terminal's input buffer.
+ *
+ * Raw mode first, so that what is read is what was there rather than what a
+ * line discipline is prepared to hand over, and so that anything arriving late
+ * is not echoed into the output instead. 300 ms is long enough for a reply
+ * already in flight to land.
+ */
+const READER =
+  'let s = "";' +
+  "process.stdin.setRawMode?.(true);" +
+  'process.stdin.on("data", (c) => { s += c.toString("latin1"); });' +
+  "process.stdin.resume();" +
+  'setTimeout(() => { process.stdout.write("LEFT[" + JSON.stringify(s) + "]"); process.exit(0); }, 300);';
+const leftover = [process.execPath, "-e", READER].map(quote).join(" ");
 
 interface PtyOptions {
   /** An `OSC 11` reply, fed in as a terminal that answers would send it. */
   reply?: string;
   /** Refuse colour, which refuses the probe with it. */
   unthemed?: boolean;
+  /**
+   * Answer the question when it is asked: this colour, and the sentinel a beat
+   * behind it, the way a terminal sends them. Written together they arrive in
+   * one read and the ordering the probe has to survive never happens.
+   */
+  onCue?: string;
+  /** A command to run on the same terminal once the CLI has finished. */
+  andThen?: string;
 }
 
 /** Run the CLI with a terminal on both ends. */
 async function underPty(
   args: string[],
-  { reply, unthemed = false }: PtyOptions = {},
+  { reply, unthemed = false, onCue, andThen }: PtyOptions = {},
 ): Promise<Run> {
-  const command = [process.execPath, MAIN, ...args].map(quote).join(" ");
+  const command = [
+    [process.execPath, MAIN, ...args].map(quote).join(" "),
+    ...(andThen === undefined ? [] : [andThen]),
+  ].join("; ");
   const child = Bun.spawn(["script", "-qec", command, "/dev/null"], {
     cwd: home,
     env: environment(unthemed),
@@ -158,7 +203,18 @@ async function underPty(
     child.stdin.write(reply);
     child.stdin.flush();
   }
-  return await settle(child);
+  let answered = false;
+  const answer = (output: string) => {
+    if (answered || !output.includes(QUESTION)) return;
+    answered = true;
+    child.stdin.write(onCue!);
+    child.stdin.flush();
+    setTimeout(() => {
+      child.stdin.write(ATTRIBUTES);
+      child.stdin.flush();
+    }, 5);
+  };
+  return await settle(child, onCue === undefined ? undefined : answer);
 }
 
 /** The same command with pipes, which is the combination that always worked. */
@@ -288,6 +344,27 @@ describe.skipIf(!PTY)("with a terminal on stdin and stdout", () => {
         "COMMAND",
       ])
         expect(heading).toContain(column);
+    },
+    DEADLINE * 2,
+  );
+
+  test(
+    "a reply werk asked for is not left for the next reader",
+    async () => {
+      // The probe writes the colour question and a device attributes request
+      // behind it, and a terminal answers both. Stopping at the colour leaves
+      // the attributes reply in the input buffer, where whatever reads stdin
+      // next reads it as typing: a shell, a prompt, or under `attach` the
+      // session the keyboard has just been handed to.
+      const terminal = await underPty([...sandbox(), "--help"], {
+        onCue: "\x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\",
+        andThen: leftover,
+      });
+      expect(terminal.timedOut).toBe(false);
+      // The question was asked, so the answer was sent: without this the case
+      // would pass against a werk that had stopped asking.
+      expect(terminal.output).toContain(QUESTION);
+      expect(terminal.output).toContain('LEFT[""]');
     },
     DEADLINE * 2,
   );

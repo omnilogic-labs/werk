@@ -3,7 +3,11 @@
  *
  * This is the only command that owns the terminal: it takes the alternate
  * screen, puts stdin in raw mode, paints frames through a local replica and
- * gives all of it back on the way out. It streams rather than returning a value,
+ * gives all of it back on the way out. What gives it back goes on first: the
+ * signal handlers are registered before anything is taken, and detaching is
+ * allowed to win the race against reaching the daemon, so there is no window in
+ * which a terminal can be left on the alternate screen. It streams rather than
+ * returning a value,
  * so it opts out of the `Result` seam — under `--json` there is nothing to
  * print, because the session's own output is the output.
  *
@@ -151,6 +155,14 @@ export async function attachSession(
   };
   const stop = () => finish();
   try {
+    // Before the screen rather than after the attach. Reaching the daemon can
+    // take a moment, and longer when one has to be started; a signal arriving
+    // in that window would otherwise take Node's default disposition and leave
+    // the terminal on the alternate screen with the session's paint on it.
+    // These are `once`, so a second signal still ends the process, which is the
+    // way out if the daemon never answers at all.
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
     if (tty) ctx.write("\x1b[?1049h\x1b[2J");
     // The name is chrome, not a precondition. The lookup runs alongside the
     // attach rather than before it, a failure leaves the id in place, and a
@@ -168,7 +180,7 @@ export async function attachSession(
         },
         () => {},
       );
-    attachment = await client.attach(id, {
+    const attaching = client.attach(id, {
       representation: "snapshot",
       permissions: { read: true, input: state.writable },
       holdSize: sizeIntent(flags),
@@ -210,6 +222,22 @@ export async function attachSession(
           });
       },
     });
+    // Detaching is allowed to win the race. Waiting the attach out would mean
+    // Ctrl-C did nothing until the daemon answered, which is the same hang from
+    // the other side.
+    attachment = await Promise.race([
+      attaching,
+      finished.then(() => undefined),
+    ]);
+    if (!attachment) {
+      // The attachment may still arrive, with nobody left to read it, so it is
+      // given back to the daemon rather than left holding a size.
+      void attaching.then(
+        (late) => void late.detach().catch(() => {}),
+        () => {},
+      );
+      return;
+    }
     // Nobody need hold the size: a `--follow` or read-only attach leaves the
     // grid wherever it was, which is exactly the case the view clips.
     state.holdsSize = attachment.holdsSize;
@@ -236,8 +264,6 @@ export async function attachSession(
     process.stdin.on("data", input);
     process.stdin.once("end", stop);
     process.stdout.on("resize", resize);
-    process.once("SIGINT", stop);
-    process.once("SIGTERM", stop);
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
     process.stdin.resume();
     await Promise.race([finished, client.closed]);

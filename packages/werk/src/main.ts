@@ -63,8 +63,9 @@ import { colourLevelFromArgv } from "./runtime/colour.js";
 import { createStyles } from "./runtime/style.js";
 import { loadWerkConfig } from "./config/load.js";
 import type { GlobalFlags } from "./runtime/context.js";
-import { detectGround } from "./runtime/ground.js";
-import { probeAllowed, resolveTheme } from "./runtime/theme.js";
+import { detectBackground } from "./runtime/background.js";
+import { groundFromRgb, probeAllowed, resolveTheme } from "./runtime/theme.js";
+import { loadTerminalColours } from "@werk/terminal/bun";
 
 /** The commands that must not pay for the configuration layers before parsing. */
 const withoutLayers = (argv: readonly string[]): boolean =>
@@ -77,20 +78,32 @@ const withoutLayers = (argv: readonly string[]): boolean =>
  * carries the query rather than `stderr`, because the probe only runs when
  * stdout is the terminal being themed.
  *
- * `detectGround` hands stdin back with the read stopped and raw mode as it
+ * `detectBackground` hands stdin back with the read stopped and raw mode as it
  * found it. Nothing else here has to put the stream back, and anything that
  * reads stdin afterwards resumes it for itself.
+ *
+ * A terminal answers in whatever spelling it prefers, and reading that by hand
+ * is how `#1e1e2e` comes out blue, so the colour goes to ghostty's own parser.
+ * Loading it starts beside the question rather than before it: compiling and
+ * instantiating the module takes about 7 ms and a terminal takes single figures
+ * of milliseconds to answer, so the two overlap instead of adding up. A failure
+ * to load is not an error worth reporting, because the flavour it would have
+ * chosen has a default.
  */
 async function askTheTerminal(): Promise<"light" | "dark" | undefined> {
   const input = process.stdin as unknown as tty.ReadStream;
   if (typeof input.setRawMode !== "function") return undefined;
   const wasRaw = input.isRaw === true;
+  const colours = loadTerminalColours().catch(() => undefined);
   try {
-    return await detectGround({
+    const answer = await detectBackground({
       input,
       output: process.stdout,
       setRawMode: (on) => void input.setRawMode(on || wasRaw),
     });
+    if (answer === undefined) return undefined;
+    const rgb = (await colours)?.parse(answer);
+    return rgb && groundFromRgb(rgb.r, rgb.g, rgb.b);
   } catch {
     return undefined;
   }
