@@ -15,6 +15,7 @@ import { connectSessionClient } from "../packages/session/dist/index.js";
 import { openLocalTransport } from "../packages/session-daemon/dist/index.js";
 import { createTerminalReplica } from "../packages/terminal/dist/index.js";
 import { loadTerminalEngine } from "../packages/terminal/dist/bun/index.js";
+import { roles } from "../packages/palette/src/index.js";
 const repository = resolve(import.meta.dir, "..");
 for (const name of [
   "palette",
@@ -52,6 +53,30 @@ assert.ok((await stat(join(browser, "terminal.wasm"))).size > 100000);
 assert.ok(
   (await stat(join(browser, "beamterm_renderer_bg.wasm"))).size > 100000,
 );
+// The page's colours are generated rather than written, so nothing else notices
+// if the generator stops running or stops emitting one of the two flavours. The
+// values are the palette's own, read here rather than restated.
+{
+  const css = await readFile(join(browser, "palette.css"), "utf8");
+  for (const [flavour, selector] of [
+    [roles("mocha"), ":root{"],
+    [roles("latte"), "@media (prefers-color-scheme: light){:root{"],
+  ] as const) {
+    const at = css.indexOf(selector);
+    assert.ok(at !== -1, `palette.css has no ${selector} block`);
+    const block = css.slice(at, css.indexOf("}", at));
+    for (const [name, value] of [
+      ["flavour", flavour.flavour],
+      ["background", flavour.background.hex],
+      ["terminal-background", flavour.terminal.background.hex],
+      ["accent", flavour.accent.hex],
+    ] as const)
+      assert.ok(
+        block.includes(`--werk-${name}:${value}`),
+        `palette.css ${flavour.flavour} is missing --werk-${name}:${value}`,
+      );
+  }
+}
 const directory = await mkdtemp(join(tmpdir(), "werk-artefact-"));
 const binary = join(
   directory,
@@ -385,7 +410,7 @@ try {
   await cli("remove", created.id);
   assert.deepEqual(JSON.parse(await cli("list", "--json")), []);
   console.log(
-    "Compiled binary outside checkout: workspace creation, detached create, stdin input, reconnect, resize, abrupt-death lost-screen recovery, ended-session outcome reporting and removal passed. Browser boundaries, assets and built declarations passed.",
+    "Compiled binary outside checkout: workspace creation, detached create, stdin input, reconnect, resize, abrupt-death lost-screen recovery, ended-session outcome reporting and removal passed. Browser boundaries, assets, generated colours and built declarations passed.",
   );
 } finally {
   await client?.close();

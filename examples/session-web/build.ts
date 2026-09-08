@@ -1,7 +1,7 @@
 import { mkdir, copyFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cssVariables, dark } from "@werk/palette";
+import { cssVariables, roles } from "@werk/palette";
 const root = import.meta.dir;
 const outdir = join(root, "dist");
 await mkdir(outdir, { recursive: true });
@@ -28,7 +28,17 @@ for (const name of ["index.html", "style.css"])
 // Generating the rule at build time rather than setting the properties from the
 // client module keeps `style.css` static and the page from flashing an unstyled
 // ground before the script runs.
-await writeFile(join(outdir, "palette.css"), `${cssVariables(dark)}\n`);
+//
+// Both flavours are written, so a reader whose system asks for a light
+// appearance gets Latte and everyone else gets Mocha, and neither waits for the
+// script to decide. `client.ts` reads the same preference to pick the roles the
+// replica and the preview tiles paint from, so the page and the terminal inside
+// it agree without either being told by the other.
+await writeFile(
+  join(outdir, "palette.css"),
+  `${cssVariables(roles("mocha"))}\n` +
+    `@media (prefers-color-scheme: light){${cssVariables(roles("latte"))}}\n`,
+);
 await copyFile(
   fileURLToPath(import.meta.resolve("@werk/terminal/assets/terminal.wasm")),
   join(outdir, "terminal.wasm"),

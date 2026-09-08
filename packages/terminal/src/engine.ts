@@ -1,4 +1,4 @@
-import { dark } from "@werk/palette";
+import { defaultRoles, type Roles } from "@werk/palette";
 import { Abi } from "./abi.js";
 import {
   validateSize,
@@ -16,11 +16,43 @@ import {
 } from "./types.js";
 export const ENGINE_BUILD = "ghostty-3c1ef5b32fc5ea6b93d28493fabf193f595139cf";
 export const SNAPSHOT_FORMAT_VERSION = 1;
-// What a child's output is painted in before it asks for anything else. The
-// sixteen and the 256 belong to the child and are read back out of ghostty;
-// these two are werk's, so they come from werk's palette.
-const DEFAULT_FG = dark.terminal.foreground.rgb,
-  DEFAULT_BG = dark.terminal.background.rgb;
+// What a child's output is painted in before it asks for anything else, and
+// what its first sixteen indexed colours are. All of it is werk's, so all of it
+// comes from werk's palette; a replica constructed without a theme wears werk's
+// default flavour rather than the engine's own.
+//
+// The 256 beyond the sixteen stay the child's and are read back out of ghostty.
+function themeOf(options: TerminalOptions): Roles {
+  return options.theme ?? defaultRoles;
+}
+/**
+ * The sixteen a terminal has before anything has written to it.
+ *
+ * A one-cell terminal of its own, thrown away immediately. It is the only way to
+ * ask the question honestly: any terminal that has run a child may have had its
+ * palette changed by that child, and the whole point of reading these is to know
+ * which entries are still the engine's own.
+ */
+function engineDefaults(a: Abi, scratch: number, L: Layout): Uint32Array {
+  const out = new Uint32Array(16);
+  let h = 0,
+    state = 0;
+  try {
+    h = a.handle("ghostty_terminal_new", 1, 1);
+    state = a.handle("ghostty_render_state_new");
+    a.check("ghostty_render_state_update", state, h);
+    a.view().setUint32(scratch, L.colorsSize, true);
+    a.check("ghostty_render_state_get", state, L.kColors, scratch);
+    const b = a.bytes();
+    let at = scratch + L.paletteOffset;
+    for (let i = 0; i < 16; i++, at += 3)
+      out[i] = (b[at]! << 16) | (b[at + 1]! << 8) | b[at + 2]!;
+  } finally {
+    if (state) a.call("ghostty_render_state_free", state);
+    if (h) a.call("ghostty_terminal_free", h);
+  }
+  return out;
+}
 function validateOptions({ scrollbackBytes }: TerminalOptions): void {
   if (
     scrollbackBytes !== undefined &&
@@ -244,15 +276,15 @@ interface Style {
   inverse: boolean;
   strikethrough: boolean;
 }
-const plain: Style = {
-  fg: DEFAULT_FG,
+const plainStyle = (fg: number): Style => ({
+  fg,
   bg: -1,
   bold: false,
   italic: false,
   underline: false,
   inverse: false,
   strikethrough: false,
-};
+});
 function same(a: Cell, b: Cell) {
   return (
     a.text === b.text &&
@@ -266,12 +298,12 @@ function same(a: Cell, b: Cell) {
     a.strikethrough === b.strikethrough
   );
 }
-function blank(): Cell {
+function blankCell(fg: number, bg: number): Cell {
   return {
     text: " ",
     width: 1,
-    fg: DEFAULT_FG,
-    bg: DEFAULT_BG,
+    fg,
+    bg,
     bold: false,
     italic: false,
     underline: false,
@@ -294,6 +326,15 @@ class Terminal implements TerminalHandle {
   private forceFull = true;
   private wrote = false;
   private palette = new Uint32Array(256);
+  /**
+   * The sixteen ghostty starts with, kept so that seeding can tell an entry a
+   * child has changed from one it has not. Filled once, before any child output.
+   */
+  private engineAnsi = new Uint32Array(16);
+  /** The sixteen werk paints instead, where the child has not said otherwise. */
+  private themeAnsi = new Uint32Array(16);
+  private defaultFg: number;
+  private defaultBg: number;
   private words = new Uint32Array(0);
   get size() {
     return { ...this.grid };
@@ -306,6 +347,11 @@ class Terminal implements TerminalHandle {
   ) {
     this.grid = { ...size };
     this.L = layout(a);
+    const theme = themeOf(options);
+    this.defaultFg = theme.terminal.foreground.rgb;
+    this.defaultBg = theme.terminal.background.rgb;
+    for (let i = 0; i < 16; i++)
+      this.themeAnsi[i] = Number.parseInt(theme.terminal.ansi[i]!.slice(1), 16);
     a.temporary(4, (p) => {
       if (options.scrollbackBytes !== undefined) {
         a.write(p, "u32", options.scrollbackBytes);
@@ -366,6 +412,12 @@ class Terminal implements TerminalHandle {
       this.iter = a.handle("ghostty_render_state_row_iterator_new");
       this.cellsHandle = a.handle("ghostty_render_state_row_cells_new");
       this.scratch = a.alloc(this.scratchSize);
+      // The sixteen the engine came with, which is what tells a colour the child
+      // chose from one it inherited. Read from a terminal of its own rather than
+      // from this one: a replica restored from a snapshot already carries
+      // whatever the child had set, so reading here would take the child's
+      // colours for the engine's and then paint over them.
+      this.engineAnsi.set(engineDefaults(a, this.scratch, this.L));
     } catch (error) {
       this.freeRenderState();
       throw error;
@@ -691,7 +743,9 @@ class Terminal implements TerminalHandle {
       if (full)
         for (let y = 0; y < rows; y++)
           if (!this.shadow[y]) {
-            const cells = Array.from({ length: this.grid.cols }, blank);
+            const cells = Array.from({ length: this.grid.cols }, () =>
+              blankCell(this.defaultFg, this.defaultBg),
+            );
             this.shadow[y] = cells.map((cell) => ({ ...cell }));
             changed.push({ y, cells });
           }
@@ -719,6 +773,19 @@ class Terminal implements TerminalHandle {
     this.wrote = false;
     return { ...this.size, changed, cursor };
   }
+  /**
+   * The colours a child's indexed SGR resolves to, with werk's sixteen over the
+   * top of the engine's.
+   *
+   * ghostty ships its own sixteen, and a replica painting a page in one theme
+   * while the program inside it is painted in another is two themes on one
+   * screen. So the entries werk owns are substituted here.
+   *
+   * Only the entries the child has left alone are replaced. A program that sets
+   * its own colours with OSC 4 has said something werk has no business
+   * overriding, and comparing against what the engine started with is what tells
+   * the two apart. The 240 above the sixteen are the child's throughout.
+   */
   private readPalette(state: number) {
     const a = this.a,
       L = this.L,
@@ -729,6 +796,9 @@ class Terminal implements TerminalHandle {
     let at = p + L.paletteOffset;
     for (let i = 0; i < 256; i++, at += 3)
       this.palette[i] = (b[at]! << 16) | (b[at + 1]! << 8) | b[at + 2]!;
+    for (let i = 0; i < 16; i++)
+      if (this.palette[i] === this.engineAnsi[i])
+        this.palette[i] = this.themeAnsi[i]!;
   }
   private compareRow(y: number, cells: Cell[], changed: Frame["changed"]) {
     const prev = this.shadow[y];
@@ -801,7 +871,7 @@ class Terminal implements TerminalHandle {
           bits(lo, hi, L.bgB);
       }
       // Style ids are page-local: never carry this cache across rows.
-      let st = plain;
+      let st = plainStyle(this.defaultFg);
       if (styleId) {
         st = (styles ??= new Map()).get(styleId)!;
         if (!st) {
@@ -811,7 +881,7 @@ class Terminal implements TerminalHandle {
           styles.set(styleId, st);
         }
       }
-      if (bg < 0) bg = st.bg < 0 ? DEFAULT_BG : st.bg;
+      if (bg < 0) bg = st.bg < 0 ? this.defaultBg : st.bg;
       cells[x] = {
         text,
         width: wide === 1 ? 2 : wide === 2 || wide === 3 ? 0 : 1,
@@ -824,7 +894,8 @@ class Terminal implements TerminalHandle {
         strikethrough: st.strikethrough,
       };
     }
-    for (let x = len; x < cols; x++) cells[x] = blank();
+    for (let x = len; x < cols; x++)
+      cells[x] = blankCell(this.defaultFg, this.defaultBg);
     return cells;
   }
   private selectRow(): true {
@@ -865,7 +936,7 @@ class Terminal implements TerminalHandle {
       return none;
     };
     return {
-      fg: colour(p + L.fgTag, p + L.fgValue, DEFAULT_FG),
+      fg: colour(p + L.fgTag, p + L.fgValue, this.defaultFg),
       bg: colour(p + L.bgTag, p + L.bgValue, -1),
       bold: !!b[p + L.bold],
       italic: !!b[p + L.italic],

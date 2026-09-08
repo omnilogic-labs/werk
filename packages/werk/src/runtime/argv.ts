@@ -61,6 +61,16 @@ export const GLOBAL_FLAGS: readonly GlobalFlagSpec[] = [
     description: "answer yes to every confirmation",
     takesValue: false,
   },
+  {
+    flags: "--flavour <NAME>",
+    description: "Catppuccin flavour (auto, latte, frappe, macchiato, mocha)",
+    takesValue: true,
+  },
+  {
+    flags: "--accent <NAME>",
+    description: "which Catppuccin accent marks the active thing",
+    takesValue: true,
+  },
   { flags: "--color", description: "always use colour", takesValue: false },
   {
     flags: "--no-color",
@@ -122,4 +132,37 @@ export function splitChildArgv(argv: readonly string[]): ArgvSplit {
   return at === -1
     ? { own: [...argv], child: [] }
     : { own: argv.slice(0, at), child: argv.slice(at + 1) };
+}
+
+/**
+ * The global flags as values, read from the raw argv.
+ *
+ * Commander is the thing that normally parses these, but the flavour and the
+ * colour level have to be settled before it runs, because a help page is
+ * rendered during the parse and has to already know what it looks like. So the
+ * same table that hoists them is read once more, here, to answer that.
+ *
+ * Only long spellings that take a value are read: nothing before the parse cares
+ * about `-y`, and a bare flag reaches the layers through commander as usual.
+ * Both `--flag value` and `--flag=value` are accepted, and the last one wins,
+ * which is what commander does.
+ */
+export function globalFlagValues(
+  argv: readonly string[],
+): Record<string, string> {
+  const values: Record<string, string> = {};
+  const camel = (name: string): string =>
+    name
+      .slice(2)
+      .replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i]!;
+    if (!token.startsWith("--")) continue;
+    const split = token.indexOf("=");
+    const name = split === -1 ? token : token.slice(0, split);
+    if (TAKES_VALUE.get(name) !== true) continue;
+    if (split !== -1) values[camel(name)] = token.slice(split + 1);
+    else if (i + 1 < argv.length) values[camel(name)] = argv[++i]!;
+  }
+  return values;
 }

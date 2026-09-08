@@ -17,18 +17,33 @@ import { emit, type Result } from "../runtime/output.js";
 import { unmetRequirements } from "./define.js";
 import { EXIT_USAGE, UsageError } from "../runtime/exit.js";
 import { loadWerkConfig } from "../config/load.js";
+import { defaultRoles, type Roles } from "@werk/palette";
+import type { WerkConfig } from "../config/schema.js";
 
 /**
- * Set once by `main.ts`, before any action runs. The entry path is needed by
- * `daemonCommand`; the colour level is resolved from the raw argv, which an
- * action never sees.
+ * What `main.ts` settled before commander began parsing, for the actions that
+ * cannot see it.
+ *
+ * The entry path is needed by `daemonCommand`. The colour level and the theme
+ * are resolved from the raw argv and the merged configuration, both of which an
+ * action never sees, and both of which have to exist before the parse because a
+ * help page is printed during it. The configuration comes along because it has
+ * already been read by then: loading it a second time per action would be the
+ * same work twice.
  */
-let entryPath = "";
-let colour: ColourLevel = 0;
-export const setRuntimeBasis = (entry: string, level: ColourLevel) => {
-  entryPath = entry;
-  colour = level;
+export interface RuntimeBasis {
+  readonly entry: string;
+  readonly level: ColourLevel;
+  readonly theme: Roles;
+  /** Absent only on the completion path, which reads the layers on its own budget. */
+  readonly config?: WerkConfig;
+}
+let basis: RuntimeBasis = {
+  entry: "",
+  level: 0,
+  theme: defaultRoles,
 };
+export const setRuntimeBasis = (next: RuntimeBasis) => void (basis = next);
 
 /** What followed `--`, which `create` runs and no other command looks at. */
 let childArgv: readonly string[] = [];
@@ -74,10 +89,12 @@ export function withContext<O, A extends unknown[]>(
     // What a command acts on comes from all six layers rather than from the
     // flags alone, so a `runtimeDir` set in `~/.werk/config.toml` reaches the
     // daemon the same way `--runtime-dir` does.
+    // Read once in `main.ts` and carried here. The completion path is the only
+    // caller that opts out, and it reads the layers itself on a budget.
     const config = options.withoutConfig
       ? undefined
-      : (await loadWerkConfig({ flags })).config;
-    const ctx = createContext(flags, entryPath, colour, config);
+      : (basis.config ?? (await loadWerkConfig({ flags })).config);
+    const ctx = createContext(flags, basis, config);
     try {
       emit(ctx, (await run(ctx, opts, ...positionals)) ?? undefined);
     } catch (error) {

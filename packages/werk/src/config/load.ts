@@ -90,14 +90,20 @@ export function mergeLayers(layers: readonly ConfigLayer[]): MergedConfig {
  * leaves a global option out of `optsWithGlobals()` entirely unless it was
  * typed, so an absent key here means the caller did not ask.
  *
- * `--color` and `--no-color` are missing on purpose: they are resolved from the
- * raw argv before parsing begins, so a parsed-flags layer never sees them.
+ * `--color` and `--no-color` are missing on purpose: they take no value and say
+ * nothing a layer can hold, so the gate reads them from the raw argv instead.
+ * `--flavour` and `--accent` do carry values and are settings like any other, so
+ * they belong here. `main.ts` reads them off the raw argv before the parse and
+ * hands them in through this same function, which is what puts a flag above the
+ * environment on a page printed during the parse.
  */
 export function flagsLayer(flags: GlobalFlags): Partial<WerkConfig> {
   return coerceLayer({
     logLevel: flags.logLevel,
     runtimeDir: flags.runtimeDir,
     stateDir: flags.stateDir,
+    flavour: flags.flavour,
+    accent: flags.accent,
   });
 }
 

@@ -3,7 +3,7 @@ import { chromium } from "playwright";
 import { serveSessionDaemon, openLocalTransport } from "@werk/session-daemon";
 import { loadTerminalEngine } from "@werk/terminal/bun";
 import { connectSessionClient } from "@werk/session";
-import { dark } from "@werk/palette";
+import { flavours, roles, type FlavourName } from "@werk/palette";
 import { mkdtemp, rm, cp, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +12,12 @@ const executablePath = process.env.CHROMIUM_PATH;
 // Every colour this file expects is read out of `@werk/palette` and converted
 // here rather than typed as a literal, because a literal cannot notice the
 // palette moving underneath it and this lane is the only place it would show.
+//
+// Which flavour to read is the page's business, not this file's: it picks one
+// from the reader's own appearance preference and records it on the root
+// element. So the expectations are looked up under whichever flavour the page
+// says it chose, and pinning one here would be the same mistake as pinning a
+// colour, one level up.
 const rgb = (hex: string): string => {
   const value = Number.parseInt(hex.slice(1), 16);
   return `rgb(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255})`;
@@ -80,6 +86,14 @@ test("built browser paints DOM, reconnects, resizes and lazily swaps to beamterm
     await page.waitForFunction(
       () => document.querySelectorAll("#sessions option").length === 1,
     );
+    // What the page decided to wear. Every colour expected below is looked up
+    // under this rather than under a flavour this file picked, so the page
+    // remains free to choose and the assertions still say what a reader sees.
+    const flavour = (await page.evaluate(
+      () => document.documentElement.dataset.werkFlavour,
+    )) as FlavourName | undefined;
+    expect(flavour, "the page records the flavour it chose").toBeDefined();
+    const theme = roles(flavour);
     await page.click("#attach");
     await page.waitForFunction(() =>
       document.querySelector("#screen")?.textContent?.includes("RED-MARKER"),
@@ -102,10 +116,11 @@ test("built browser paints DOM, reconnects, resizes and lazily swaps to beamterm
       });
     expect(styled.rowHeight).toBeGreaterThan(10);
     expect(styled.cellWidth).toBeGreaterThan(5);
-    // The marker carries SGR 31, so it is painted something other than the
-    // replica's default foreground. That default is werk's rather than the
-    // engine's, so the colour it must not be comes from the palette.
-    expect(styled.color).not.toBe(rgb(dark.terminal.foreground.hex));
+    // The marker carries SGR 31, so the replica paints it slot 1 of the flavour
+    // the page chose. Asserting the colour it *is* rather than one it is not:
+    // an assertion that only rules a colour out keeps passing when the palette
+    // moves under it, and says nothing about what the reader actually sees.
+    expect(styled.color).toBe(rgb(theme.terminal.ansi[1]!));
     await page.locator("#screen").press("ArrowUp");
     await page.waitForFunction(() =>
       document.querySelector("#screen")?.textContent?.includes("HEX:1b4f41"),
@@ -137,15 +152,17 @@ test("built browser paints DOM, reconnects, resizes and lazily swaps to beamterm
         ?.textContent?.includes("HEX:"),
     );
     // The preview strip decodes SGR itself, so the marker's SGR 31 becomes
-    // slot 1 of the palette's terminal table. `page.evaluate` does not close
-    // over this scope, so the expected colour is passed in as an argument.
+    // slot 1 of the same flavour the replica used. The two are the page's one
+    // theme read twice; they were once two different palettes side by side.
+    // `page.evaluate` does not close over this scope, so the expected colour is
+    // passed in as an argument.
     expect(
       await page.evaluate(
         (expected) =>
           [...document.querySelectorAll("#tiles .tile-screen span")].some(
             (span) => getComputedStyle(span).color === expected,
           ),
-        rgb(dark.terminal.ansi[1]),
+        rgb(theme.terminal.ansi[1]!),
       ),
     ).toBe(true);
     expect(await page.locator("#tiles .tile").count()).toBe(1);
@@ -232,6 +249,36 @@ test("built browser paints DOM, reconnects, resizes and lazily swaps to beamterm
       () => document.querySelectorAll(".term-row").length === 28,
     );
     expect(await page.locator(".term-row").allTextContents()).toEqual(resized);
+    // The page picks its flavour from the reader's own appearance preference, so
+    // the other one has to be walked too. An assertion that only ever sees the
+    // default cannot tell a flavour that follows the preference from a flavour
+    // that is fixed, which is the failure this file already had once.
+    const other = flavours[flavour!].dark ? "light" : "dark";
+    await page.emulateMedia({ colorScheme: other });
+    await page.reload();
+    await page.waitForFunction(
+      () => document.documentElement.dataset.werkFlavour !== undefined,
+    );
+    const swapped = (await page.evaluate(
+      () => document.documentElement.dataset.werkFlavour,
+    )) as FlavourName;
+    expect(swapped).not.toBe(flavour);
+    expect(flavours[swapped].dark).toBe(other === "dark");
+    // And the tiles, which paint without attaching, repaint in it.
+    await page.waitForFunction(() =>
+      document
+        .querySelector("#tiles .tile-screen")
+        ?.textContent?.includes("HEX:"),
+    );
+    expect(
+      await page.evaluate(
+        (expected) =>
+          [...document.querySelectorAll("#tiles .tile-screen span")].some(
+            (span) => getComputedStyle(span).color === expected,
+          ),
+        rgb(roles(swapped).terminal.ansi[1]!),
+      ),
+    ).toBe(true);
     expect(failures).toEqual([]);
     await page.close();
     expect((await client.get(session.id)).state).toBe("running");

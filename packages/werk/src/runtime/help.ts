@@ -59,20 +59,11 @@
  * grey is the specific thing that fails on a terminal whose contrast the reader
  * did not choose.
  *
- * Those roles reach the page as 4-bit ANSI slots, at every depth the gate in
- * `colour.ts` reports. The palette is Catppuccin, which publishes both its
- * colours and which of them sits in each of the sixteen slots a terminal theme
- * defines, so writing the slot shows a Catppuccin terminal the palette exactly
- * and shows every other reader the contrast they already settled on. A
- * 256-colour index or a truecolour hex would be a fixed value they could not
- * correct. Levels 1, 2 and 3 therefore render identical bytes, and the palette's
- * green and teal avoid both of the known traps — yellow, unreadable on white,
- * and blue, invisible in Windows `cmd.exe`.
- *
- * Whether colour is written at all is not decided here. `app.ts` hands the gate
- * to commander through `configureOutput`, and commander strips whatever it did
- * not sanction, so `NO_COLOR`, `--no-color` and a redirected stdout all reach
- * this module as the same instruction.
+ * Neither whether colour is written nor which flavour it is written in is
+ * decided here. `app.ts` hands the gate to commander through `configureOutput`,
+ * and commander strips whatever it did not sanction, so `NO_COLOR`,
+ * `--no-color` and a redirected stdout all reach this module as the same
+ * instruction.
  */
 import {
   Help,

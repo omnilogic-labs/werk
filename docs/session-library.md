@@ -6,8 +6,9 @@ with an injected duplex transport. `@werk/terminal` owns terminal interpretation
 snapshots and replicas; its core takes WASM explicitly, `./bun` loads embedded
 assets and `./dom` mounts the bundled renderer. `@werk/terminal-beamterm` supplies
 an optional renderer through the same factory. `@werk/session-daemon` owns PTYs,
-checkpoints, local transport and detached startup. `@werk/palette` is Catppuccin
-mapped to the uses werk puts colour to, and is the one place any colour is named.
+checkpoints, local transport and detached startup. `@werk/palette` is Catppuccin's four
+flavours mapped to the uses werk puts colour to, and is the one place any colour
+is named.
 
 The CLI and browser example consume public package entry points. Closing either
 consumer leaves the process with its daemon. Shutting down that daemon ends its
@@ -21,9 +22,11 @@ on the running platform.
 The dependency direction runs one way. `@werk/palette` is at the bottom of it: it
 holds the colours and what each is for, has no dependencies of its own, and knows
 nothing about terminals, sessions or the DOM. Everything that paints depends on
-it — the replica for the two colours a child's output starts in, the CLI for the
+it — the replica for the colours a child's output is painted in, the CLI for the
 roles its own output is written in, the browser example for the page — so that
-none of them names a colour itself.
+none of them names a colour itself. Which flavour to wear is nobody's business
+but the consumer's: the package exports no resolved flavour of its own, so a
+choice cannot be fixed by importing one.
 
 `@werk/terminal` is the terminal core: it
 takes WASM bytes or a compiled module explicitly, carries no DOM code, and knows
@@ -215,9 +218,11 @@ Terminal interpretation is separate from painting. `@werk/terminal` holds the
 engine, the snapshot envelope, the replica and the render-consumer seam: a
 `Frame` of changed rows, a `Renderer` that paints it and a `RendererFactory`
 that mounts one. The bundled renderer behind `./dom` is a wterm adapter painting
-real DOM rows. What a child's output is painted in before it asks for anything
-else — one foreground, one background — comes from `@werk/palette`; the sixteen
-and the 256 belong to the child and are read back out of the engine.
+real DOM rows. What a child's output is painted in comes from `@werk/palette`: one foreground,
+one background, and the first sixteen indexed colours, taken from whichever
+flavour the replica was constructed with. Only the sixteen entries the child has
+left as the engine gave them are replaced, so a program that sets its own with
+`OSC 4` keeps them, and the 240 above the sixteen are the child's throughout.
 `@werk/terminal-beamterm` sits behind the same factory over
 WebGL2 and fetches its own 1.4 MB of WASM only when a page selects it; it is
 maintained to keep the seam honest rather than offered as the default. The seam

@@ -5,16 +5,17 @@
  * built by `defineCommand` from a spec, so what a command is for and what it
  * needs is declared rather than remembered; see `commands/define.ts`.
  *
- * How a help page reads is `runtime/help.ts`; what it says is here. The colour
- * gate has to answer before parsing begins, because commander prints help
- * during the parse, so it reads the environment and the raw argv rather than
- * parsed flags. `--json` is read the same way and for the same reason — a
- * failure during the parse has to know which register to answer in before any
- * flag has been parsed.
+ * How a help page reads is `runtime/help.ts`; what it says is here. Everything
+ * about how that page looks has to answer before parsing begins, because
+ * commander prints help during the parse: the colour gate, and the flavour and
+ * accent it is written in. `main.ts` settles all of it and passes it down.
+ * `--json` is read from the raw argv for the same reason — a failure during the
+ * parse has to know which register to answer in before any flag is parsed.
  */
 import { Command } from "@commander-js/extra-typings";
 import { colourLevelFromArgv } from "./runtime/colour.js";
 import { createStyles } from "./runtime/style.js";
+import type { RuntimeBasis } from "./commands/shared.js";
 import { COMMANDS, HIDDEN_COMMANDS } from "./commands/index.js";
 import { describeRoot } from "./commands/define.js";
 import { GLOBAL_FLAGS } from "./runtime/argv.js";
@@ -46,13 +47,19 @@ function jsonRequested(argv: readonly string[]): boolean {
 
 export function buildProgram(
   argv: readonly string[],
+  basis?: RuntimeBasis,
   env = process.env,
 ): Command {
-  const level = colourLevelFromArgv(argv, {
-    isTTY: process.stdout.isTTY === true,
-    env,
-  });
-  const style = createStyles(level);
+  // `main.ts` settles both before the parse and hands them over. A test that
+  // builds a program on its own gets the gate read from argv and the default
+  // theme, which is what it would have got before either was configurable.
+  const level =
+    basis?.level ??
+    colourLevelFromArgv(argv, {
+      isTTY: process.stdout.isTTY === true,
+      env,
+    });
+  const style = createStyles(level, basis?.theme);
   const json = jsonRequested(argv);
   const program = new Command("werk")
     .description("Start a process somewhere and come back to it later.")

@@ -12,6 +12,12 @@
  * werk's output is redirected into logs often enough that honouring it matters
  * more than agreeing with `console.log`.
  *
+ * The configured `colour` preference sits below both of those and above
+ * `FORCE_COLOR`. It is a standing choice rather than a statement about the
+ * device, so `WERK_COLOUR=always` cannot talk over a reader who has set
+ * `NO_COLOR` or a terminal that says it is dumb. Only `--color`, typed on the
+ * line being run, lifts either.
+ *
  * The gate is pure so the whole matrix can be asserted without a terminal.
  */
 export type ColourLevel = 0 | 1 | 2 | 3;
@@ -19,6 +25,8 @@ export interface ColourInputs {
   /** Whether the stream being written to is a terminal. */
   isTTY: boolean;
   env: Record<string, string | undefined>;
+  /** The merged `colour` setting, where the layers have been read. */
+  preference?: "auto" | "always" | "never";
 }
 /** True when the variable is present and not one of the falsey spellings. */
 function truthy(value: string | undefined): boolean {
@@ -38,12 +46,18 @@ function depth(env: Record<string, string | undefined>): ColourLevel {
   if (/-256(color)?$/.test(term)) return 2;
   return 1;
 }
-export function colourLevel({ isTTY, env }: ColourInputs): ColourLevel {
+export function colourLevel({
+  isTTY,
+  env,
+  preference,
+}: ColourInputs): ColourLevel {
   // Present at any value, including "0": the convention is presence, not truth.
   if (env.NO_COLOR !== undefined && env.NO_COLOR !== "") return 0;
   // A terminal that says it cannot render escapes is taken at its word, even
   // under FORCE_COLOR — `TERM=dumb` is a statement about the device.
   if (env.TERM === "dumb") return 0;
+  if (preference === "never") return 0;
+  if (preference === "always") return Math.max(1, depth(env)) as ColourLevel;
   if (env.FORCE_COLOR !== undefined)
     return truthy(env.FORCE_COLOR) ? depth(env) : 0;
   return isTTY ? depth(env) : 0;

@@ -12,6 +12,7 @@ import {
   type TerminalReplica,
 } from "@werk/terminal";
 import { createWtermRenderer } from "@werk/terminal/dom";
+import { pageTheme } from "./theme.js";
 import { openWebSocketTransport } from "./websocket.js";
 import { previewMarkup } from "./preview.js";
 const element = <T extends HTMLElement>(id: string) =>
@@ -43,6 +44,10 @@ const client = await connectSessionClient({
     ) || undefined,
   onCallbackError: report,
 });
+// One flavour for the whole page: the chrome takes it from `palette.css`, and
+// the replica and the preview tiles take it from here, so no two surfaces can
+// end up wearing different themes for the same session.
+const theme = pageTheme();
 const wasm = await fetch("./terminal.wasm");
 if (!wasm.ok) throw new Error("Terminal asset missing");
 const engine = await createTerminalEngine(
@@ -155,8 +160,8 @@ async function attach(sessionId: string) {
         wasmUrl: new URL("./beamterm_renderer_bg.wasm", location.href).href,
       });
     }
-    const renderer = await factory({ mount: screen });
-    const currentReplica = createTerminalReplica(engine, renderer);
+    const renderer = await factory({ mount: screen, theme });
+    const currentReplica = createTerminalReplica(engine, renderer, { theme });
     replica = currentReplica;
     attachment = await client.attach(sessionId, {
       permissions: { read: true, input: true },

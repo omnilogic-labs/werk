@@ -10,6 +10,8 @@ import path from "node:path";
 import { type ColourLevel } from "./colour.js";
 import { createStyles, type Styles } from "./style.js";
 import { defaultSessionRuntimeDir } from "@werk/session-daemon";
+import type { Roles } from "@werk/palette";
+import type { RuntimeBasis } from "../commands/shared.js";
 import type { WerkConfig } from "../config/schema.js";
 
 export interface GlobalFlags {
@@ -19,6 +21,8 @@ export interface GlobalFlags {
   logLevel?: string;
   noInput?: boolean;
   yes?: boolean;
+  flavour?: string;
+  accent?: string;
 }
 export interface WerkContext {
   write(text: string): void;
@@ -29,6 +33,8 @@ export interface WerkContext {
   readonly columns: number;
   /** How to style werk's own output. Roles, never colours; see `style.ts`. */
   readonly style: Styles;
+  /** The flavour and accent that styling was built from. */
+  readonly theme: Roles;
   readonly colourLevel: ColourLevel;
   /** The caller asked for machine-readable output. */
   readonly json: boolean;
@@ -74,17 +80,18 @@ function inCI(env: Record<string, string | undefined>): boolean {
   );
 }
 /**
- * `level` is decided once in `main.ts` and passed in rather than recomputed here,
- * so that `--color` and `--no-color` govern command output and help identically.
- * Recomputing would silently drop them: they are resolved from the raw argv,
- * which this has no access to.
+ * The colour level and the theme are decided once in `main.ts` and passed in
+ * rather than recomputed here, so that a help page and a command's output are
+ * styled identically. Recomputing would silently drop `--color`, `--no-color`,
+ * `--flavour` and `--accent`: they are resolved from the raw argv and the merged
+ * layers, neither of which this has access to.
  */
 export function createContext(
   flags: GlobalFlags,
-  entry: string,
-  level: ColourLevel,
+  basis: RuntimeBasis,
   config?: WerkConfig,
 ): WerkContext {
+  const { entry, level, theme } = basis;
   const env = process.env;
   const stdoutTTY = process.stdout.isTTY === true;
   const stdinTTY = process.stdin.isTTY === true;
@@ -94,7 +101,8 @@ export function createContext(
     stdoutTTY,
     stdinTTY,
     columns: terminalColumns(process.stdout.columns),
-    style: createStyles(level),
+    style: createStyles(level, theme),
+    theme,
     colourLevel: level,
     json: flags.json === true,
     noInput: flags.noInput === true || !stdinTTY || !stdoutTTY || inCI(env),

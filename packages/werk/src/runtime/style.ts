@@ -1,32 +1,48 @@
 /**
  * How werk's own output is styled, and the one place chalk is constructed.
  *
- * `colour.ts` decides *whether* colour is written and how deep it may go. This
- * module decides *what* is written: it takes that level and hands back a set of
- * functions named for what they are for — an error, a heading, something the
- * reader can type — so that no other module in the CLI names a colour.
+ * `colour.ts` decides *whether* colour is written and how deep it may go, and
+ * `theme.ts` decides *which* flavour and accent. This module decides what bytes
+ * come out: it takes a level and a set of roles and hands back functions named
+ * for what they are for — an error, a heading, something the reader can type —
+ * so that no other module in the CLI names a colour.
  *
- * ## Slots, not hexes
+ * ## The theme, at whatever depth the terminal has
  *
- * The roles come from `@werk/palette`, which is Catppuccin. Catppuccin publishes
- * two things: its colours, and which of them sits in each of the sixteen slots a
- * terminal theme defines — green is slot 2, teal is 6, red is 1, yellow is 3.
- * werk's own output is a guest on somebody else's terminal, so it writes the
- * slot. A reader whose terminal already wears Catppuccin is shown the palette
- * exactly; a reader wearing anything else is shown the colours they chose. The
- * surfaces that own their own pixels — the replica's defaults, the browser
- * page — take the hex from the same roles instead.
+ * Catppuccin is a set of 24-bit colours, so wearing it means writing them. At
+ * level 3 that is what happens: a role's hex goes out as `38;2;R;G;B` and every
+ * reader sees the flavour they chose, whatever their terminal is themed as. At
+ * level 2 chalk maps the same hex onto the 256-colour cube, which lands close
+ * enough to keep every role distinct.
  *
- * Nothing here emits a 256-colour index or a truecolour escape, so levels 1, 2
- * and 3 write identical bytes and the depth the gate reports changes nothing
- * about a page. Whether that should stay true is
- * `docs/product-specification.md`, open question 23.
+ * Level 1 is the one that needs a rule of its own, and it is werk's rule rather
+ * than anything Catppuccin says. Catppuccin does not degrade: its ports require
+ * truecolour and several name the terminals they will not work on. Left to
+ * itself chalk answers a 16-colour terminal with a nearest-colour search, and
+ * that search is useless here — Mocha's green comes out as SGR 37 and its
+ * yellow, red and blue all as SGR 97, so five roles collapse into white and
+ * every distinction they exist to make is gone.
+ *
+ * So at level 1 werk writes the slot instead. Catppuccin publishes which of its
+ * colours sits in each of the sixteen a terminal theme defines, and `Swatch.ansi`
+ * carries that where it exists; `fallbackSlot` covers the eight accents upstream
+ * places nowhere. A reader on sixteen colours gets their own terminal's red for
+ * an error and their own green for a success, which is the right answer at that
+ * depth: the hue survives even though the flavour cannot.
  *
  * `muted` and `emphasis` are weight rather than colour — SGR 2 and SGR 1 — so
- * they have no palette role and are not affected by any of this.
+ * they take no role and no flavour reaches them. A fixed grey written onto a
+ * ground werk did not choose is the case Catppuccin's own style guide opens by
+ * warning about, and `dim` composes with whatever ground the reader has.
  */
 import { Chalk, type ChalkInstance } from "chalk";
-import { dark, type AnsiSlot, type AnsiSwatch } from "@werk/palette";
+import {
+  defaultRoles,
+  fallbackSlot,
+  type AnsiSlot,
+  type Roles,
+  type Swatch,
+} from "@werk/palette";
 import { type ColourLevel } from "./colour.js";
 
 /** What werk's output is made of. A caller asks for a use, never for a colour. */
@@ -51,8 +67,8 @@ export interface Styles {
 
 /**
  * The sixteen slots as chalk asks for them. Chalk has no way to be handed a
- * number, so the table is the translation, and `palette.test.ts` is what
- * guarantees the numbers on the other side of it are the ones Catppuccin gave.
+ * number, so the table is the translation, and the palette's own tests are what
+ * guarantee the numbers on the other side of it are the ones Catppuccin gave.
  */
 const BY_SLOT = [
   "black",
@@ -73,28 +89,39 @@ const BY_SLOT = [
   "whiteBright",
 ] as const satisfies { [K in AnsiSlot]: keyof ChalkInstance };
 
-const slot = (c: ChalkInstance, role: AnsiSwatch): ChalkInstance =>
-  c[BY_SLOT[role.ansi]];
-
 /**
- * The roles are read from the dark flavour, and which flavour that is does not
- * matter: Catppuccin puts green, teal, red and yellow in the same four slots in
- * every flavour, so the bytes are the same either way. `style.test.ts` holds
- * that, which is what makes the choice safe to have made.
+ * One role, at one depth. Every role werk colours is an accent, so
+ * `fallbackSlot` always answers; the `?? c.white` is unreachable and is there so
+ * that a role moved onto a grey degrades rather than throws.
  */
+function paint(
+  c: ChalkInstance,
+  level: ColourLevel,
+  role: Swatch,
+): ChalkInstance {
+  if (level !== 1) return c.hex(role.hex);
+  const slot = role.ansi ?? fallbackSlot(role.name);
+  return slot === undefined ? c.white : c[BY_SLOT[slot]];
+}
 
-export function createStyles(level: ColourLevel): Styles {
+export function createStyles(
+  level: ColourLevel,
+  theme: Roles = defaultRoles,
+): Styles {
   const c = new Chalk({ level });
-  const heading = slot(c, dark.heading).bold;
-  const literal = slot(c, dark.literal).bold;
-  const placeholder = slot(c, dark.placeholder);
+  const heading = paint(c, level, theme.heading).bold;
+  const literal = paint(c, level, theme.literal).bold;
+  const placeholder = paint(c, level, theme.placeholder);
+  const success = paint(c, level, theme.success);
+  const warning = paint(c, level, theme.warning);
+  const error = paint(c, level, theme.error);
   return {
     heading: (text) => heading(text),
     literal: (text) => literal(text),
     placeholder: (text) => placeholder(text),
-    success: (text) => slot(c, dark.success)(text),
-    warning: (text) => slot(c, dark.warning)(text),
-    error: (text) => slot(c, dark.error)(text),
+    success: (text) => success(text),
+    warning: (text) => warning(text),
+    error: (text) => error(text),
     muted: (text) => c.dim(text),
     emphasis: (text) => c.bold(text),
   };

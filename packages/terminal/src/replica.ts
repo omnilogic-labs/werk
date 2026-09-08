@@ -1,3 +1,4 @@
+import type { Roles } from "@werk/palette";
 import type {
   TerminalEngineFactory,
   TerminalHandle,
@@ -21,6 +22,8 @@ export interface ReplicaEvent {
 export type PaintScheduler = (paint: () => void) => void | (() => void);
 export interface ReplicaOptions {
   schedulePaint?: PaintScheduler;
+  /** The colours the replica paints in; see `TerminalOptions.theme`. */
+  theme?: Roles;
 }
 export const defaultScheduler: PaintScheduler = (paint) => {
   if (typeof requestAnimationFrame === "function") {
@@ -40,12 +43,14 @@ export class TerminalReplica {
   private pending?: { cancel?: () => void };
   private paintError?: { error: unknown };
   private schedule: PaintScheduler;
+  private theme?: Roles;
   constructor(
     private factory: TerminalEngineFactory,
     private renderer?: Renderer,
     options: ReplicaOptions = {},
   ) {
     this.schedule = options.schedulePaint ?? defaultScheduler;
+    this.theme = options.theme;
   }
   apply(event: ReplicaEvent): Promise<void> {
     const next = this.queue.then(async () => {
@@ -69,13 +74,16 @@ export class TerminalReplica {
     if (establishes) {
       if (!e.snapshot || !e.size)
         throw new Error("Snapshot requires bytes and dimensions");
-      const terminal = await this.factory.restore({
-        engineBuild: e.engineBuildId ?? this.factory.buildId,
-        formatVersion:
-          e.snapshotFormatVersion ?? this.factory.snapshotFormatVersion,
-        size: e.size,
-        bytes: e.snapshot,
-      });
+      const terminal = await this.factory.restore(
+        {
+          engineBuild: e.engineBuildId ?? this.factory.buildId,
+          formatVersion:
+            e.snapshotFormatVersion ?? this.factory.snapshotFormatVersion,
+          size: e.size,
+          bytes: e.snapshot,
+        },
+        { theme: this.theme },
+      );
       if (this.closed) {
         terminal.dispose();
         return;

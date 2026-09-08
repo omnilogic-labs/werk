@@ -1,9 +1,23 @@
 import type { Abi } from "../src/abi.js";
 import type { Cell, TerminalHandle } from "../src/types.js";
-import { dark } from "@werk/palette";
+import { defaultRoles } from "@werk/palette";
 // Independent per-cell ABI reader: intentionally avoids the packed-row decoder.
 export function readCells(terminal: TerminalHandle): Cell[][] {
-  const { a, h } = terminal as unknown as { a: Abi; h: number };
+  const { a, h, engineAnsi, themeAnsi } = terminal as unknown as {
+    a: Abi;
+    h: number;
+    engineAnsi: Uint32Array;
+    themeAnsi: Uint32Array;
+  };
+  // What this oracle checks is the packed-row decoder, not which sixteen colours
+  // a replica paints in. So it takes the same two tables the engine took and
+  // applies the same rule — an entry still at the engine's own default becomes
+  // werk's — rather than re-deriving a policy that is not under test here.
+  const themed = (colour: number): number => {
+    for (let i = 0; i < 16; i++)
+      if (colour === engineAnsi[i]) return themeAnsi[i]!;
+    return colour;
+  };
   const grid = terminal.size;
   const state = a.handle("ghostty_render_state_new");
   const iter = a.handle("ghostty_render_state_row_iterator_new");
@@ -57,8 +71,12 @@ export function readCells(terminal: TerminalHandle): Cell[][] {
                   a.bytes()[p + 2]!
               : fallback;
           };
-          const fg = colour("FG_COLOR", dark.terminal.foreground.rgb),
-            bg = colour("BG_COLOR", dark.terminal.background.rgb);
+          const fg = themed(
+              colour("FG_COLOR", defaultRoles.terminal.foreground.rgb),
+            ),
+            bg = themed(
+              colour("BG_COLOR", defaultRoles.terminal.background.rgb),
+            );
           get("GRAPHEMES_LEN");
           const n = a.read(p, "u32");
           const text = n

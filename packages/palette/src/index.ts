@@ -2,27 +2,33 @@
  * The colours werk uses, and what it uses them for.
  *
  * The palette is [Catppuccin](https://github.com/catppuccin/catppuccin). This
- * module holds the two flavours werk names — Latte and Mocha — and, above them,
- * a set of *roles*: `error`, `heading`, `border`, `terminal.background` and the
- * rest. Everywhere werk puts colour on a screen it asks for a role, so the
- * question "what colour is an error" is answered once, here.
+ * module holds its four flavours — Latte, Frappé, Macchiato and Mocha — and,
+ * above them, a set of *roles*: `error`, `heading`, `border`,
+ * `terminal.background` and the rest. Everywhere werk puts colour on a screen it
+ * asks for a role, so the question "what colour is an error" is answered once,
+ * here.
  *
- * ## Slots, and why a role carries one
+ * ## A flavour and an accent
  *
- * Catppuccin is a set of 24-bit colours, but it also publishes the other half
- * of the story: which of its colours sits in each of the sixteen ANSI slots a
- * terminal theme defines. Green is slot 2, teal is slot 6, red is 1, yellow is
- * 3. A terminal wearing Catppuccin has already been told that, so a program
- * that writes SGR 32 on such a terminal gets Catppuccin's green — the exact
- * hex below — without saying so, and a reader wearing something else gets the
- * green they chose.
+ * Catppuccin's model is a flavour plus an accent. The flavour decides the
+ * ground and the twelve-step ramp of greys above it; the accent is one of the
+ * fourteen chromatic colours, and it is what marks the thing being attended to.
+ * `roles(flavour, accent)` composes the two. The accent reaches `accent`,
+ * `borderActive` and `heading`, and reaches nothing that carries meaning: an
+ * error is red and a success is green whatever accent is chosen, which is what
+ * every Catppuccin port does and what keeps the output legible when somebody
+ * picks red as their accent.
  *
- * So a `Swatch` carries `hex` for the surfaces that own their own pixels, and
- * `ansi` for the surfaces that are guests on someone's terminal. Only a colour
- * that Catppuccin's own mapping places in a slot has one, and the slot is
- * derived from that mapping rather than typed by hand, so a role can never
- * claim a slot its colour does not hold. `AnsiSwatch` is the type that demands
- * one: a role typed that way cannot be given lavender, which has no slot.
+ * ## Slots, for a terminal that has only sixteen colours
+ *
+ * A `Swatch` carries `hex` for a surface that owns its own pixels and `rgb` for
+ * the renderer, which are the two forms most consumers want. `ansi` is the
+ * third: the slot Catppuccin's own terminal mapping gives a colour, looked up in
+ * its flavour's sixteen rather than typed by hand, so a colour Catppuccin does
+ * not place in the sixteen cannot acquire a slot by a typo.
+ *
+ * Only six of the fourteen accents have one, so `fallbackSlot` covers the rest.
+ * That table is werk's, not Catppuccin's: see `PROVENANCE.md`.
  *
  * ## Where the values came from
  *
@@ -31,8 +37,8 @@
  * against that package, so the copy cannot drift quietly. See `PROVENANCE.md`.
  */
 
-/** The flavours werk names. Catppuccin publishes four; these are the two ends. */
-export type FlavourName = "latte" | "mocha";
+/** Catppuccin's four flavours, lightest first. */
+export type FlavourName = "latte" | "frappe" | "macchiato" | "mocha";
 
 /** Catppuccin's twenty-six colour names, in the order the palette publishes them. */
 export type ColourName =
@@ -62,6 +68,50 @@ export type ColourName =
   | "base"
   | "mantle"
   | "crust";
+
+/**
+ * The fourteen colours Catppuccin marks as accents.
+ *
+ * They are the analogous half of a flavour: every colour in the rainbow. The
+ * other twelve are the monochromatic ramp from `text` down to `crust`, which is
+ * what a flavour builds its surfaces out of. Upstream flags the fourteen in
+ * `palette.json` and the same fourteen are accents in all four flavours.
+ */
+export type AccentName = Extract<
+  ColourName,
+  | "rosewater"
+  | "flamingo"
+  | "pink"
+  | "mauve"
+  | "red"
+  | "maroon"
+  | "peach"
+  | "yellow"
+  | "green"
+  | "teal"
+  | "sky"
+  | "sapphire"
+  | "blue"
+  | "lavender"
+>;
+
+/** Every accent, in the order the palette publishes them. */
+export const ACCENTS: readonly AccentName[] = [
+  "rosewater",
+  "flamingo",
+  "pink",
+  "mauve",
+  "red",
+  "maroon",
+  "peach",
+  "yellow",
+  "green",
+  "teal",
+  "sky",
+  "sapphire",
+  "blue",
+  "lavender",
+];
 
 /** One of the sixteen colours a terminal theme defines: 0-7 normal, 8-15 bright. */
 export type AnsiSlot =
@@ -98,9 +148,58 @@ export interface Swatch {
   readonly ansi?: AnsiSlot;
 }
 
-/** A colour a terminal theme can remap, and so one werk may write as a slot. */
-export interface AnsiSwatch extends Swatch {
-  readonly ansi: AnsiSlot;
+/**
+ * The slot to write a colour as on a terminal that has only sixteen.
+ *
+ * **This table is werk's, not Catppuccin's.** Catppuccin places six of the
+ * fourteen accents in the sixteen — red, green, yellow and blue at 1 to 4, pink
+ * at 5 because magenta is Pink rather than Mauve, and teal at 6 because cyan is
+ * Teal rather than Sky — and says nothing at all about the other eight. Peach
+ * and Rosewater it puts at 16 and 17, which are outside the sixteen a `3x` SGR
+ * parameter can name.
+ *
+ * The eight werk assigns go to the nearest slot by hue, so that a reader on a
+ * sixteen-colour terminal still sees the accent as a colour of its own rather
+ * than as whichever grey a nearest-colour search lands on. That search is the
+ * thing being avoided: chalk downsamples Mocha's green to white and its red,
+ * yellow and blue all to bright white, which loses every distinction the roles
+ * exist to make.
+ *
+ * The twelve greys of the monochromatic ramp get nothing. werk writes no role
+ * from them at a depth where this table is consulted.
+ */
+export function fallbackSlot(name: ColourName): AnsiSlot | undefined {
+  switch (name) {
+    // Catppuccin's own mapping.
+    case "red":
+      return 1;
+    case "green":
+      return 2;
+    case "yellow":
+      return 3;
+    case "blue":
+      return 4;
+    case "pink":
+      return 5;
+    case "teal":
+      return 6;
+    // werk's, by nearest hue.
+    case "maroon":
+    case "flamingo":
+      return 1;
+    case "peach":
+      return 3;
+    case "sky":
+    case "sapphire":
+      return 6;
+    case "lavender":
+      return 4;
+    case "mauve":
+    case "rosewater":
+      return 5;
+    default:
+      return undefined;
+  }
 }
 
 export interface Flavour {
@@ -120,6 +219,11 @@ export interface Flavour {
  * selection — and werk's own reading where it does not.
  */
 export interface Roles {
+  /** Which flavour and accent these roles were composed from. */
+  readonly flavour: FlavourName;
+  /** The chosen accent, so a consumer can ask for it without knowing its name. */
+  readonly accent: Swatch;
+
   /** The ground a page sits on. */
   readonly background: Swatch;
   /** A pane behind the ground: a strip, a sidebar. */
@@ -134,7 +238,7 @@ export interface Roles {
   readonly border: Swatch;
   /** The line around something that is not the subject right now. */
   readonly borderInactive: Swatch;
-  /** The line around the thing that is. */
+  /** The line around the thing that is. The accent. */
   readonly borderActive: Swatch;
 
   /** Body copy, and a headline. */
@@ -150,19 +254,19 @@ export interface Roles {
   /** Behind selected text. Catppuccin asks for 20-30% opacity over the ground. */
   readonly selection: Swatch;
 
-  /** It worked. */
-  readonly success: AnsiSwatch;
-  /** It might not have. */
-  readonly warning: AnsiSwatch;
-  /** It did not. */
-  readonly error: AnsiSwatch;
+  /** It worked. Green, whatever the accent is. */
+  readonly success: Swatch;
+  /** It might not have. Yellow, whatever the accent is. */
+  readonly warning: Swatch;
+  /** It did not. Red, whatever the accent is. */
+  readonly error: Swatch;
 
-  /** A section heading on a help page. */
-  readonly heading: AnsiSwatch;
+  /** A section heading on a help page. The accent. */
+  readonly heading: Swatch;
   /** Something the reader can type back verbatim. */
-  readonly literal: AnsiSwatch;
+  readonly literal: Swatch;
   /** A name the reader substitutes something of their own for. */
-  readonly placeholder: AnsiSwatch;
+  readonly placeholder: Swatch;
 
   /**
    * The replica's own defaults: the colours a child program's output is painted
@@ -249,6 +353,108 @@ const latte = flavour(
   ],
 );
 
+const frappe = flavour(
+  "frappe",
+  true,
+  {
+    rosewater: "#f2d5cf",
+    flamingo: "#eebebe",
+    pink: "#f4b8e4",
+    mauve: "#ca9ee6",
+    red: "#e78284",
+    maroon: "#ea999c",
+    peach: "#ef9f76",
+    yellow: "#e5c890",
+    green: "#a6d189",
+    teal: "#81c8be",
+    sky: "#99d1db",
+    sapphire: "#85c1dc",
+    blue: "#8caaee",
+    lavender: "#babbf1",
+    text: "#c6d0f5",
+    subtext1: "#b5bfe2",
+    subtext0: "#a5adce",
+    overlay2: "#949cbb",
+    overlay1: "#838ba7",
+    overlay0: "#737994",
+    surface2: "#626880",
+    surface1: "#51576d",
+    surface0: "#414559",
+    base: "#303446",
+    mantle: "#292c3c",
+    crust: "#232634",
+  },
+  [
+    "#51576d",
+    "#e78284",
+    "#a6d189",
+    "#e5c890",
+    "#8caaee",
+    "#f4b8e4",
+    "#81c8be",
+    "#a5adce",
+    "#626880",
+    "#e67172",
+    "#8ec772",
+    "#d9ba73",
+    "#7b9ef0",
+    "#f2a4db",
+    "#5abfb5",
+    "#b5bfe2",
+  ],
+);
+
+const macchiato = flavour(
+  "macchiato",
+  true,
+  {
+    rosewater: "#f4dbd6",
+    flamingo: "#f0c6c6",
+    pink: "#f5bde6",
+    mauve: "#c6a0f6",
+    red: "#ed8796",
+    maroon: "#ee99a0",
+    peach: "#f5a97f",
+    yellow: "#eed49f",
+    green: "#a6da95",
+    teal: "#8bd5ca",
+    sky: "#91d7e3",
+    sapphire: "#7dc4e4",
+    blue: "#8aadf4",
+    lavender: "#b7bdf8",
+    text: "#cad3f5",
+    subtext1: "#b8c0e0",
+    subtext0: "#a5adcb",
+    overlay2: "#939ab7",
+    overlay1: "#8087a2",
+    overlay0: "#6e738d",
+    surface2: "#5b6078",
+    surface1: "#494d64",
+    surface0: "#363a4f",
+    base: "#24273a",
+    mantle: "#1e2030",
+    crust: "#181926",
+  },
+  [
+    "#494d64",
+    "#ed8796",
+    "#a6da95",
+    "#eed49f",
+    "#8aadf4",
+    "#f5bde6",
+    "#8bd5ca",
+    "#a5adcb",
+    "#5b6078",
+    "#ec7486",
+    "#8ccf7f",
+    "#e1c682",
+    "#78a1f6",
+    "#f2a9dd",
+    "#63cbc0",
+    "#b8c0e0",
+  ],
+);
+
 const mocha = flavour(
   "mocha",
   true,
@@ -302,21 +508,34 @@ const mocha = flavour(
 
 export const flavours: Readonly<Record<FlavourName, Flavour>> = {
   latte,
+  frappe,
+  macchiato,
   mocha,
 };
 
-/** Narrow a swatch to one werk may write as an ANSI slot, or refuse to. */
-function withSlot(swatch: Swatch): AnsiSwatch {
-  if (swatch.ansi === undefined)
-    throw new Error(`${swatch.name} has no ANSI slot`);
-  return swatch as AnsiSwatch;
-}
+/** werk's conventional default accent, and Catppuccin's across every port. */
+export const DEFAULT_ACCENT: AccentName = "mauve";
+/** The flavour werk wears when nothing has said otherwise. */
+export const DEFAULT_FLAVOUR: FlavourName = "mocha";
 
-/** What each colour of a flavour is for. */
-export function roles(name: FlavourName): Roles {
+/**
+ * What each colour of a flavour is for, with one accent chosen.
+ *
+ * The accent reaches `accent`, `borderActive` and `heading`. It reaches nothing
+ * that carries meaning: `success`, `warning` and `error` are green, yellow and
+ * red whatever is chosen, which is what every Catppuccin port does. An accent
+ * that could turn an error green would be a theme that lies.
+ */
+export function roles(
+  name: FlavourName = DEFAULT_FLAVOUR,
+  accent: AccentName = DEFAULT_ACCENT,
+): Roles {
   const f = flavours[name];
   const c = f.colours;
   return {
+    flavour: name,
+    accent: c[accent],
+
     background: c.base,
     backgroundSecondary: c.mantle,
     backgroundDeep: c.crust,
@@ -324,7 +543,7 @@ export function roles(name: FlavourName): Roles {
     surfaceHover: c.surface1,
     border: c.surface2,
     borderInactive: c.overlay0,
-    borderActive: c.lavender,
+    borderActive: c[accent],
 
     text: c.text,
     textSubtle: c.subtext0,
@@ -333,13 +552,13 @@ export function roles(name: FlavourName): Roles {
     cursor: c.rosewater,
     selection: c.overlay2,
 
-    success: withSlot(c.green),
-    warning: withSlot(c.yellow),
-    error: withSlot(c.red),
+    success: c.green,
+    warning: c.yellow,
+    error: c.red,
 
-    heading: withSlot(c.green),
-    literal: withSlot(c.teal),
-    placeholder: withSlot(c.teal),
+    heading: c[accent],
+    literal: c.teal,
+    placeholder: c.teal,
 
     terminal: {
       foreground: c.text,
@@ -349,10 +568,14 @@ export function roles(name: FlavourName): Roles {
   };
 }
 
-/** Mocha: werk's colours where the ground is dark. */
-export const dark: Roles = roles("mocha");
-/** Latte: werk's colours where the ground is light. */
-export const light: Roles = roles("latte");
+/**
+ * The roles a consumer gets when it has not been told which to wear.
+ *
+ * A default argument rather than a second exported flavour: a module-level
+ * `dark` and `light` beside each other is how a flavour ends up fixed at build
+ * time, which is the thing this package exists not to do.
+ */
+export const defaultRoles: Roles = roles();
 
 /** `background` → `--werk-background`, `backgroundSecondary` → `--werk-background-secondary`. */
 const kebab = (name: string): string =>
@@ -363,17 +586,26 @@ const kebab = (name: string): string =>
  *
  * `terminal` becomes `--werk-terminal-foreground` and `--werk-terminal-background`;
  * its sixteen are not variables, because a page that needs them is decoding SGR
- * and wants the array.
+ * and wants the array. `flavour` is a name rather than a colour and becomes
+ * `--werk-flavour`, so a page can read back which one it is wearing.
+ *
+ * `selector` is what the declarations are hung on. A page that offers both a
+ * light and a dark ground emits the rule twice, once under `:root` and once
+ * inside a `prefers-color-scheme` block.
  */
-export function cssVariables(r: Roles, prefix = "--werk-"): string {
-  const declarations: string[] = [];
+export function cssVariables(
+  r: Roles,
+  prefix = "--werk-",
+  selector = ":root",
+): string {
+  const declarations: string[] = [`${prefix}flavour:${r.flavour}`];
   for (const [name, value] of Object.entries(r)) {
-    if (name === "terminal") continue;
+    if (name === "terminal" || name === "flavour") continue;
     declarations.push(`${prefix}${kebab(name)}:${(value as Swatch).hex}`);
   }
   declarations.push(
     `${prefix}terminal-foreground:${r.terminal.foreground.hex}`,
     `${prefix}terminal-background:${r.terminal.background.hex}`,
   );
-  return `:root{${declarations.join(";")}}`;
+  return `${selector}{${declarations.join(";")}}`;
 }

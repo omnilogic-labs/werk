@@ -1,3 +1,4 @@
+import type { Roles } from "@werk/palette";
 export interface Size {
   cols: number;
   rows: number;
@@ -5,6 +6,12 @@ export interface Size {
 export interface TerminalOptions {
   /** Page-memory budget: 0 disables history; 4,294,967,295 means unlimited. */
   scrollbackBytes?: number;
+  /**
+   * The colours this replica paints in: the two a child's output starts with,
+   * and the sixteen it gets when it asks for one by index. Defaults to werk's
+   * own default flavour.
+   */
+  theme?: Roles;
 }
 export interface Scrollback {
   /** null means the snapshot or engine has no explicit byte limit. */
@@ -42,6 +49,11 @@ export interface Renderer {
 }
 export interface RendererHost {
   mount: unknown;
+  /**
+   * The colours the surface starts painted in, before a cell says otherwise.
+   * A renderer that owns its own pixels needs the ground as well as the cells.
+   */
+  theme?: Roles;
 }
 export type RendererFactory = (host: RendererHost) => Promise<Renderer>;
 export interface TerminalCapabilities {

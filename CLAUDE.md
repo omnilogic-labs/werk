@@ -15,8 +15,8 @@ and the transport-injected client. `@werk/session-daemon` owns PTYs, persistence
 and local daemon startup. `@werk/terminal-beamterm` proves the renderer seam beside
 the bundled DOM renderer. `@werk/workspace` puts creating a workspace behind an
 interface and makes local git worktrees behind it; it is under development and
-expected to change shape. `@werk/palette` is Catppuccin mapped to werk's uses,
-and is the one place any colour is named. `packages/werk` is the session CLI and
+expected to change shape. `@werk/palette` is Catppuccin's four flavours
+mapped to werk's uses, and is the one place any colour is named. `packages/werk` is the session CLI and
 `examples/session-web` is the local browser consumer.
 
 See [docs/session-library.md](docs/session-library.md) for build, validation and

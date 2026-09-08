@@ -3,7 +3,8 @@
  * a picture, not a replica: there is no engine, no snapshot and no WASM here,
  * only SGR parsing and escaping, so a page can hold many tiles cheaply.
  */
-import { dark } from "@werk/palette";
+import { type Roles } from "@werk/palette";
+import { pageTheme } from "./theme.js";
 
 type Style = {
   fg?: string;
@@ -15,7 +16,8 @@ type Style = {
   inverse: boolean;
 };
 /** The sixteen a child's SGR 30-37 and 90-97 name, as werk's palette paints them. */
-const base = dark.terminal.ansi;
+const theme: Roles = pageTheme();
+const base = theme.terminal.ansi;
 const hex = (n: number) => n.toString(16).padStart(2, "0");
 function indexed(index: number): string {
   if (index < 16) return base[index]!;
@@ -81,10 +83,10 @@ function apply(style: Style, parameters: string): Style {
 }
 function css(style: Style): string {
   const fg = style.inverse
-    ? (style.bg ?? dark.terminal.background.hex)
+    ? (style.bg ?? theme.terminal.background.hex)
     : style.fg;
   const bg = style.inverse
-    ? (style.fg ?? dark.terminal.foreground.hex)
+    ? (style.fg ?? theme.terminal.foreground.hex)
     : style.bg;
   const rules = [
     fg && `color:${fg}`,

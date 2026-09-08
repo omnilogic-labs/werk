@@ -415,45 +415,54 @@ question 20 before adding a flag. That is a lean about the order to take them
 in, not about the answer. Nobody has hit the failure in use yet, which is the
 evidence this question is short of.
 
-### 23. Does werk's own output pin its colours, or borrow the reader's?
+### 23. How much of a terminal's own choices should werk's theme override?
 
 The palette is Catppuccin, behind `@werk/palette`, and everywhere werk puts
-colour on a screen asks that library for a use rather than for a colour. Two of
-the three surfaces have no question to answer: the replica's default foreground
-and background, and the browser page, own their own pixels and take the hex.
+colour on a screen asks that library for a use rather than for a colour. All four
+flavours ship, one is selectable, and `auto` asks the terminal what colour its
+background is before choosing between a light flavour and a dark one.
 
-The CLI's own output is the one that does, because it is a guest on a terminal
-somebody else themed. Catppuccin publishes both halves — its colours, and which
-of them sits in each of the sixteen slots a terminal theme defines — so there are
-two ways to wear it.
+Two things about that are settled and one is not.
 
-- **Write the slot.** SGR 32 for green, 36 for teal. A reader whose terminal
-  already wears Catppuccin sees the palette exactly, and a reader wearing
-  anything else sees the contrast they chose. No truecolour is written, so the
-  three depths the gate can report render identical bytes.
-- **Write the hex.** Every reader sees the same colours whatever their terminal
-  is set to, at the price of overriding a choice they made, and the output then
-  differs by depth because a 16-colour terminal cannot be given a triple.
+**What werk writes is settled by depth.** At truecolour it writes the flavour's
+own hex, at 256 colours the nearest point in the cube, and on a sixteen-colour
+terminal the slot, so the hue survives where the flavour cannot. Catppuccin has
+no position on any of this: its ports require 24-bit colour and several name the
+terminals they will not work on, so the degradation is werk's own and the eight
+accents Catppuccin places in no slot are given one by werk. `docs/cli.md` says
+what each depth produces.
 
-**Lean: write the slot**, which is what it does today. The reasoning is that a
-reader who set their terminal's contrast deliberately is the reader most likely
-to notice it being overridden, and the palette's own terminal mapping means a
-Catppuccin user loses nothing by it. Upstream publishes no guidance either way:
-the ports that hard-code hex are theming applications that own their whole
-window, which a CLI writing to someone's shell does not. Nobody has asked to see
-Catppuccin in werk's output on a terminal that is not themed for it, which is the
-evidence this question is short of. Changing the answer is a change inside
-`packages/werk/src/runtime/style.ts` and the help test that reads the roles.
+**Overriding a child's colours is settled by asking first.** The replica paints
+a child's first sixteen colours from the flavour, but only the entries the child
+has left as the engine gave them, so a program that sets its own with `OSC 4`
+keeps what it asked for. Before this, a page could show Catppuccin chrome around
+a terminal painted in the engine's own theme, which is two themes on one screen
+and the thing worth avoiding.
 
-Two smaller things hang off it.
+**What is not settled is how far to take it.**
 
-- **Which flavour.** Mocha is what `dark` resolves to and Latte is exported
-  beside it, unused. Catppuccin names no canonical flavour and its ports differ,
-  so this is a pick rather than a finding. Whether the browser page should follow
-  `prefers-color-scheme` into Latte is open; the generated `palette.css` makes it
-  a small change.
-- **The replica's sixteen.** A child program's SGR 31 is painted with whatever
-  the ghostty engine holds in its own palette, which werk reads out rather than
-  sets. Seeding it with Catppuccin's ANSI mapping would make a child's colours
-  match werk's, and would also override a choice the child's own environment may
-  be making. Nobody has looked at what that costs.
+- **Whether asking the terminal is worth its cost.** A terminal that answers
+  neither the colour query nor the device attributes request behind it costs
+  150 ms once, and the 150 ms is a guess rather than a measurement. The
+  alternative is to make the question opt-in and default to a dark flavour, which
+  costs nothing and gets it wrong on a light terminal for anyone who has not
+  configured one. **Lean: keep asking**, because a reader who never configures
+  anything is the one the question is for, and pinning a flavour already skips
+  it. Nobody has run werk on a terminal that answers neither, which is the
+  evidence this is short of.
+- **How much the accent should reach.** It reaches a heading and an active
+  border, and never anything that carries meaning. Ports that support accents at
+  all mostly move a single token, so two is already more than most; but a CLI has
+  almost no chrome, so two may also be too few for the accent to be worth
+  choosing. Nobody has picked an accent in anger yet.
+- **Whether an operating system's own appearance setting should be consulted**
+  when the terminal will not answer. macOS, Windows and the freedesktop portal
+  all publish one, and they describe the desktop rather than the terminal, so
+  they are a proxy that is right most of the time and wrong for anyone running a
+  light terminal on a dark desktop. `bat` offers it on macOS only and behind an
+  explicit opt-in, which is evidence that the proxy is worth having and not worth
+  trusting silently.
+- **Whether werk's replica should answer the colour query itself.** It answers
+  the device attributes request and not the colour one, so a program running
+  inside werk cannot learn the background werk is painting it on — which is the
+  same question this one asks, one level down, with werk on the other side of it.

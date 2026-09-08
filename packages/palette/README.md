@@ -3,19 +3,39 @@
 The colours werk uses, and what it uses them for. One place, so that anywhere
 werk puts colour on a screen asks for a role rather than naming a colour.
 
-The palette is [Catppuccin](https://github.com/catppuccin/catppuccin), in two
-flavours: Mocha where the ground is dark and Latte where it is light.
-[PROVENANCE.md](PROVENANCE.md) says where the values came from and how the copy
-is kept honest.
+The palette is [Catppuccin](https://github.com/catppuccin/catppuccin), in all
+four of its flavours. [PROVENANCE.md](PROVENANCE.md) says where the values came
+from, which of them are werk's rather than Catppuccin's, and how the copy is
+kept honest.
 
 ```ts
-import { dark, cssVariables } from "@werk/palette";
+import { roles, cssVariables } from "@werk/palette";
 
-dark.error.hex; // "#f38ba8"
-dark.error.ansi; // 1
-dark.terminal.background.rgb; // 0x1e1e2e
-cssVariables(dark); // ":root{--werk-background:#1e1e2e;…}"
+const theme = roles("mocha", "mauve");
+theme.error.hex; // "#f38ba8"
+theme.error.ansi; // 1
+theme.accent.hex; // "#cba6f7"
+theme.terminal.background.rgb; // 0x1e1e2e
+cssVariables(theme); // ":root{--werk-flavour:mocha;…}"
 ```
+
+## A flavour and an accent
+
+Catppuccin's model is a flavour plus an accent, and `roles(flavour, accent)`
+composes the two. The flavour is Latte, Frappé, Macchiato or Mocha, and it
+decides the ground and the twelve-step ramp of greys above it. The accent is one
+of the fourteen chromatic colours, and it marks the thing being attended to.
+
+Nothing here decides which to wear. There is no `dark` and no `light` export,
+because a flavour fixed when the module loads is a flavour nothing can choose;
+`defaultRoles` is Mocha with a mauve accent and exists to be a default argument.
+Who picks, and how, belongs to the consumer: the CLI resolves it from its
+configuration and, where it can, from the terminal's own background.
+
+The accent reaches `accent`, `borderActive` and `heading`. It reaches nothing
+that carries meaning, so an error is red and a success is green whatever accent
+is chosen. That is what every Catppuccin port does, and it is what keeps the
+output readable when somebody picks red.
 
 ## Roles
 
@@ -31,21 +51,19 @@ Overlay 2 is a selection — and werk's reading where it does not.
 A `Swatch` carries the same colour three ways, and which one a surface reads
 says something about that surface.
 
-| Field  | For                                                      |
-| ------ | -------------------------------------------------------- |
-| `hex`  | A page that owns its own pixels                          |
-| `rgb`  | The replica, which carries colour as a packed integer    |
-| `ansi` | A guest on somebody else's terminal, where it has a slot |
+| Field  | For                                                   |
+| ------ | ----------------------------------------------------- |
+| `hex`  | A page that owns its own pixels                       |
+| `rgb`  | The replica, which carries colour as a packed integer |
+| `ansi` | A terminal with sixteen colours, where it has a slot  |
 
-Catppuccin publishes both halves: the colours, and which of them sits in each of
-the sixteen slots a terminal theme defines. Green is slot 2, teal is 6, red is
-1, yellow is 3. So a terminal already wearing Catppuccin has been told what
-green means, and a program writing SGR 32 on it gets exactly the green below
-without pinning it — while a reader wearing something else keeps the green they
-chose. That is why werk's own output goes out as slots and the surfaces with no
-theme to inherit go out as hex.
+The first two are what most consumers want. The third is for the case where werk
+is a guest: a terminal that cannot render 24-bit colour can still be told a hue,
+and Catppuccin publishes which of its colours sits in each of the sixteen a
+terminal theme defines. The slot is looked up in the flavour's own sixteen rather
+than typed by hand, so a colour Catppuccin does not place there cannot acquire
+one by a typo, and Latte disagrees with the three dark flavours about the black
+and white ends of the ramp.
 
-`AnsiSwatch` is the type that demands a slot. A role typed that way cannot be
-given lavender, which has none. The slot itself is looked up in the flavour's
-own sixteen rather than typed by hand, and the two flavours disagree about which
-greys sit in the black and white slots, so the lookup follows each of them.
+Only six of the fourteen accents have a slot upstream, so `fallbackSlot` covers
+the rest. That table is werk's own and PROVENANCE.md says why.

@@ -11,12 +11,28 @@
  * `werk config` prints beside it. Nothing else enumerates the keys.
  */
 import os from "node:os";
+import {
+  ACCENTS,
+  DEFAULT_ACCENT,
+  flavours,
+  type AccentName,
+  type FlavourName,
+} from "@werk/palette";
 import { defaultSessionRuntimeDir, type LogLevel } from "@werk/session-daemon";
 import { defaultStateDir } from "../runtime/context.js";
 import { UsageError } from "../runtime/exit.js";
 
 /** What to do about colour when the terminal has not already settled it. */
 export type ColourPreference = "auto" | "always" | "never";
+
+/**
+ * Which Catppuccin flavour to wear, or `auto` to ask the terminal.
+ *
+ * `auto` resolves through `flavourLight` and `flavourDark` rather than to a
+ * fixed pair, so someone who prefers Frappé to Mocha on a dark ground keeps the
+ * detection and changes what it lands on.
+ */
+export type FlavourPreference = FlavourName | "auto";
 
 export interface WerkConfig {
   /** How much the daemon writes to its log. */
@@ -28,6 +44,14 @@ export interface WerkConfig {
   /** Bytes of output a new session asks to keep. The daemon caps this. */
   scrollbackBytes: number;
   colour: ColourPreference;
+  /** The flavour werk wears, or `auto` to suit the terminal's own ground. */
+  flavour: FlavourPreference;
+  /** What `auto` resolves to on a dark ground. */
+  flavourDark: FlavourName;
+  /** What `auto` resolves to on a light ground. */
+  flavourLight: FlavourName;
+  /** Which of Catppuccin's fourteen accents marks the thing being attended to. */
+  accent: AccentName;
 }
 export type ConfigKey = keyof WerkConfig;
 export type ConfigValue = WerkConfig[ConfigKey];
@@ -42,6 +66,11 @@ export interface ConfigField<K extends ConfigKey> {
 
 const LOG_LEVELS = ["error", "warn", "info", "debug"] as const;
 const COLOURS = ["auto", "always", "never"] as const;
+const FLAVOURS = Object.keys(flavours) as readonly FlavourName[];
+const FLAVOUR_PREFERENCES = [
+  "auto",
+  ...FLAVOURS,
+] as readonly FlavourPreference[];
 
 function oneOf<T extends string>(key: string, allowed: readonly T[]) {
   return (raw: unknown): T => {
@@ -92,6 +121,26 @@ export const FIELDS: { readonly [K in ConfigKey]: ConfigField<K> } = {
     describe: "colour preference (auto, always, never)",
     parse: oneOf<ColourPreference>("colour", COLOURS),
   },
+  flavour: {
+    env: "WERK_FLAVOUR",
+    describe: "Catppuccin flavour, or auto to suit the terminal",
+    parse: oneOf<FlavourPreference>("flavour", FLAVOUR_PREFERENCES),
+  },
+  flavourDark: {
+    env: "WERK_FLAVOUR_DARK",
+    describe: "what auto wears on a dark terminal",
+    parse: oneOf<FlavourName>("flavourDark", FLAVOURS),
+  },
+  flavourLight: {
+    env: "WERK_FLAVOUR_LIGHT",
+    describe: "what auto wears on a light terminal",
+    parse: oneOf<FlavourName>("flavourLight", FLAVOURS),
+  },
+  accent: {
+    env: "WERK_ACCENT",
+    describe: "which Catppuccin accent marks the active thing",
+    parse: oneOf<AccentName>("accent", ACCENTS),
+  },
 };
 export const CONFIG_KEYS = Object.keys(FIELDS) as readonly ConfigKey[];
 
@@ -118,6 +167,12 @@ export function builtInDefaults(
     // this would only ever be refused.
     scrollbackBytes: 10_000_000,
     colour: "auto",
+    // Mocha and mauve are Catppuccin's conventional defaults, and dark is what
+    // every tool that probes a terminal falls back to when it learns nothing.
+    flavour: "auto",
+    flavourDark: "mocha",
+    flavourLight: "latte",
+    accent: DEFAULT_ACCENT,
   };
 }
 

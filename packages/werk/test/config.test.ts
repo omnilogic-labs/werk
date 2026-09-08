@@ -50,13 +50,15 @@ const layer = (
   name: ConfigLayer["name"],
   values: ConfigLayer["values"],
 ): ConfigLayer => ({ name, values });
+// Every key, because `mergeLayers` refuses a merge that leaves one unset. Read
+// from `builtInDefaults` rather than restated, so a key added to the schema
+// arrives here without this file having to be edited to let the merge succeed.
 const full = (logLevel: "info" | "debug" = "info"): ConfigLayer =>
   layer("defaults", {
+    ...builtInDefaults({}, "/home/nobody"),
     logLevel,
     runtimeDir: "/run/default",
     stateDir: "/state/default",
-    scrollbackBytes: 10_000_000,
-    colour: "auto",
   });
 
 test("the precedence order is defaults, remote, user, project, env, flags", () => {

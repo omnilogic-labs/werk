@@ -68,6 +68,8 @@ after every edit to it stops being read.
 | `--log-level <LEVEL>`  | Daemon log level: `error`, `warn`, `info`, `debug` |
 | `--no-input`           | Fail instead of prompting                          |
 | `-y`, `--yes`          | Answer yes to every confirmation                   |
+| `--flavour <NAME>`     | Catppuccin flavour, or `auto` to suit the terminal |
+| `--accent <NAME>`      | Which Catppuccin accent marks the active thing     |
 | `--color`              | Always use colour                                  |
 | `--no-color`           | Never use colour                                   |
 | `-V`, `--version`      | Print the version and exit                         |
@@ -296,9 +298,9 @@ so `NOT_A_REPOSITORY` and `BRANCH_EXISTS` reach a script as themselves.
 
 ## Colour
 
-Colour is decided once, from the environment and the raw argv, before parsing
-begins — help is printed during the parse, so the decision has to exist by then.
-The same gate governs help, command output and error messages.
+Colour is decided once, before parsing begins — help is printed during the
+parse, so the decision has to exist by then. The same gate governs help, command
+output and error messages.
 
 In order:
 
@@ -307,8 +309,11 @@ In order:
    between themselves.
 2. `TERM=dumb` → off, even under `FORCE_COLOR`. A terminal saying it cannot
    render escapes is taken at its word.
-3. `FORCE_COLOR` set → on unless it is empty, `0` or `false`.
-4. Otherwise, on when stdout is a terminal.
+3. The `colour` setting: `never` → off, `always` → on, `auto` → carry on. It
+   sits below the two above so that `WERK_COLOUR=always` cannot talk over a
+   reader who set `NO_COLOR` or a terminal that says it is dumb.
+4. `FORCE_COLOR` set → on unless it is empty, `0` or `false`.
+5. Otherwise, on when stdout is a terminal.
 
 `--no-color` and `--color` are read from the raw argv and override the
 environment; `--no-color` wins over `--color`. Only tokens before `--` count:
@@ -325,22 +330,68 @@ heading, a literal you can type, a name you substitute, a success, a warning, an
 error — and `packages/werk/src/runtime/style.ts` turns the answer into escapes.
 It is where chalk is constructed, and the only place it is.
 
-The palette is Catppuccin, which publishes both its colours and which of them
-sits in each of the sixteen slots a terminal theme defines: green is slot 2, teal
-6, red 1, yellow 3. werk's own output is a guest on somebody else's terminal, so
-it writes the slot rather than the colour. A reader whose terminal already wears
-Catppuccin is shown the palette exactly; a reader wearing anything else is shown
-the contrast they chose. Nothing writes a 256-colour index or a truecolour
-triple, so the three depths above produce identical bytes and the depth a page is
-rendered at changes nothing about it.
+The palette is Catppuccin, which is a set of 24-bit colours, so wearing it means
+writing them. At truecolour werk writes the role's own hex and every reader sees
+the flavour that was chosen, whatever their terminal is themed as. At 256
+colours the same hex is mapped onto the colour cube, which stays close enough to
+keep every role distinct.
 
-Whether that is the right trade is open — pinning the hex would give every reader
-the same colours at the price of their own theme. See open question 23 in
-[product-specification.md](product-specification.md).
+Sixteen colours is the depth that needs a rule of its own, and the rule is
+werk's. Catppuccin does not degrade: its ports require truecolour and several
+name the terminals they will not work on, so there is nothing upstream to
+follow. Left to a nearest-colour search, a dark flavour's green comes out white
+and its yellow, red and blue all come out bright white, and five roles collapse
+into one. So at this depth werk writes the slot instead. Catppuccin publishes
+which of its colours sits in each of the sixteen a terminal theme defines —
+green is 2, teal 6, red 1, yellow 3 — and werk fills in the eight accents it
+places nowhere. A reader with sixteen colours gets their own terminal's red for
+an error and their own green for a success: the hue survives even though the
+flavour cannot.
 
-The surfaces that own their own pixels take the same roles as hex instead: the
-replica's default foreground and background, and the browser page, which is
-handed a `palette.css` of custom properties generated at build time.
+`muted` and `emphasis` are weight rather than colour, SGR 2 and SGR 1, so no
+flavour reaches them.
+
+### Which flavour, and which accent
+
+Catppuccin's model is a flavour plus an accent, and werk carries all four
+flavours: Latte, Frappé, Macchiato and Mocha. The accent is one of Catppuccin's
+fourteen chromatic colours and marks the thing being attended to — a heading, an
+active border. It never reaches a colour that carries meaning, so an error is red
+and a success is green whatever accent is set.
+
+`flavour` defaults to `auto`, which means werk asks the terminal what colour its
+background is and wears `flavourLight` or `flavourDark` accordingly. Naming a
+flavour instead skips the question entirely.
+
+The question is `OSC 11`, sent with a device attributes request immediately
+behind it. Terminals answer escape sequences in order, so a device attributes
+reply arriving with no colour in front of it says this terminal does not answer
+the question, and werk stops rather than waiting. A terminal that answers neither
+costs 150 ms, once, and then werk wears the dark flavour. That timeout is a
+judgement rather than a measurement.
+
+werk does not ask when there is nothing to wear or nowhere to ask: colour is off,
+stdout is not a terminal, `TERM` is unset or `dumb`, `CI` is set, or a session is
+attached and a child holds the terminal. GNU Screen is excluded because it
+relays the query, so the sentinel comes back before any answer could. tmux is
+not, because it answers the question itself.
+
+When werk cannot learn the ground it wears the dark flavour. That is what the
+tools looked at do — `delta`, `helix`, Neovim, `termenv` and
+`terminal-colorsaurus` all fall back to dark — rather than a rule anyone
+published, and it is a guess about which way round is less annoying to be wrong
+about.
+
+### The surfaces that own their own pixels
+
+The replica and the browser page take the same roles as hex rather than as
+escapes, because nobody else's theme is underneath them. The replica paints a
+child's output in the flavour's own foreground and background, and paints the
+child's first sixteen colours from the flavour too — but only the ones the child
+has left alone, so a program that sets its own colours with `OSC 4` keeps them.
+The browser page is handed a `palette.css` generated at build time carrying both
+a dark flavour and a light one, and picks between them with
+`prefers-color-scheme`.
 
 ## Configuration
 
@@ -384,6 +435,10 @@ rule rather than a list, so a new setting gets its variable for free.
 | `stateDir`        | `WERK_STATE_DIR`        | Where checkpoints, logs and the daemon record live |
 | `scrollbackBytes` | `WERK_SCROLLBACK_BYTES` | Bytes of output a new session keeps                |
 | `colour`          | `WERK_COLOUR`           | `auto`, `always` or `never`                        |
+| `flavour`         | `WERK_FLAVOUR`          | `auto` or a Catppuccin flavour                     |
+| `flavourDark`     | `WERK_FLAVOUR_DARK`     | What `auto` wears on a dark terminal               |
+| `flavourLight`    | `WERK_FLAVOUR_LIGHT`    | What `auto` wears on a light terminal              |
+| `accent`          | `WERK_ACCENT`           | Which Catppuccin accent marks the active thing     |
 
 An empty variable is treated as unset, so `WERK_LOG_LEVEL= werk list` gets the
 layer below rather than a parse error. A key werk does not know is ignored
@@ -396,14 +451,23 @@ that does not exist yet reads back later as a decision somebody took.
 
 Every command acts on the resolved configuration, so a `runtimeDir` set in
 `~/.werk/config.toml` is the directory `werk info` reports and the one
-`werk attach <TAB>` looks in. The colour gate is the exception: it is settled
-from the environment and the argv before the layers are read, because help is
-printed during parsing and has to be styled before an action could have loaded
-anything.
+`werk attach <TAB>` looks in.
 
-Tab completion reads the layers too, on a budget of its own: it abandons them
-after 50 ms and falls back to the flags, so a slow layer costs a less accurate
-completion rather than a shell that has stopped responding.
+The layers are read once, before parsing begins, rather than by each command.
+Commander prints a help page during the parse, so a `flavour` set in a file has
+to be known before then or it would style a command's output and not its help.
+That costs `werk --help` about ten milliseconds it did not pay before, nearly all
+of it asking git for the repository root; any command that acted on
+configuration was already paying it.
+
+`--color` and `--no-color` are the exception and are read from the argv alone.
+They take no value and say nothing a layer could hold.
+
+Tab completion is the other exception. It never reads the layers before parsing,
+because a shell is blocked on it for every TAB. It reads them inside its own
+action instead, on a budget: it abandons them after 50 ms and falls back to the
+flags, so a slow layer costs a less accurate completion rather than a shell that
+has stopped responding.
 
 Whether `~/.werk` is the right home for the user layer is not settled, and
 neither is how a person configures hosts and providers once those exist — that

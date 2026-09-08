@@ -22,6 +22,7 @@ import { loadWerkConfig } from "../config/load.js";
 const CONFIG_BUDGET_MS = 50;
 import { NOTHING, writeReply } from "../completion/protocol.js";
 import { createContext, type GlobalFlags } from "../runtime/context.js";
+import { roles } from "@werk/palette";
 import { childCommand, withContext } from "./shared.js";
 import { defineCommand } from "./define.js";
 
@@ -123,7 +124,11 @@ export function buildComplete(): Command {
             timer = setTimeout(() => resolve(undefined), CONFIG_BUDGET_MS);
           }),
         ]).finally(() => clearTimeout(timer));
-        const ctx = createContext(flags, "", 0, config);
+        const ctx = createContext(
+          flags,
+          { entry: "", level: 0, theme: roles() },
+          config,
+        );
         const reply = await completionFor(
           self.parent ?? self,
           typed,

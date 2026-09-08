@@ -5,3 +5,5 @@
 - [Platform-code survey findings](platform-code-survey-findings.md) — how mature projects sequester platform code, the firm negatives, and Bun facts verified on this machine
 - [session-daemon platform risk](session-daemon-platform-risk.md) — platformCapabilities is wire-visible; exactly three tests cannot run on a Linux dev box
 - [Push and run real CI](push-and-run-real-ci.md) — push your branch and dispatch a matrix run for platform changes; a green Linux run proves nothing about macOS or Windows
+- [Adopt the theme, not the palette](feedback-adopt-the-theme-not-the-palette.md) — if output is unchanged on an unthemed host, the adoption has not happened
+- [chalk downsamples pastels to white](reference-chalk-downsamples-to-white.md) — at colour level 1 hex() answers SGR 37/97; write the ANSI slot yourself
