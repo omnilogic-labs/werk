@@ -49,7 +49,9 @@ integrate)
   if ! git merge --squash "$slug" >&2; then
     echo "conflict integrating $slug onto $base" >&2
     git diff --name-only --diff-filter=U >&2
-    git merge --abort >&2 || true
+    # A squash merge never writes MERGE_HEAD, so `git merge --abort` fails here and
+    # would leave the checkout conflicted, blocking the next integration.
+    git merge --abort 2>/dev/null || git reset --merge >&2 2>/dev/null || git reset --hard HEAD >&2
     exit 3
   fi
   git commit -q -m "$message"

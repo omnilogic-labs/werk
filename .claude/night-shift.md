@@ -97,6 +97,11 @@ bun run format:check
 package's tests do not run until it is added to that script**, and `scripts/`
 is not in it at all.
 
+A unit's footprint is checked against its merge base, not against the tip:
+`git diff $(git merge-base main HEAD) HEAD`. `main` moves under a live branch, so
+`git diff main` renders another lane's landed files as deletions on yours and
+fails a criterion that nothing did wrong.
+
 `bun.lock` regenerates on any `bun install`. If it conflicts at integration,
 take the base's copy and re-run `bun install` rather than merging it by hand.
 
