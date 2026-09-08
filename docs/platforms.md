@@ -50,6 +50,22 @@ So the tiering says where effort goes, and the workflow implements none of it.
 Someone reading the board sees three equal failures and has to know the tiering
 to weigh them.
 
+## What the Windows lane is failing on
+
+The Windows lane does not answer a refused request. Every assertion in
+`packages/session-daemon/test/daemon.test.ts` that expects a rejection —
+`PERMISSION_DENIED`, `LIMIT`, `CONFLICT` — gets
+`Request timed out; remote outcome is unknown` instead of the error the daemon
+raised, while Linux and macOS answer the same requests in under a millisecond.
+The daemon queues an error reply through the same `queue` call as a successful
+one, so what is different about the error path on a Windows named pipe is not
+yet known and nobody has looked.
+
+It is the first failure the lane reaches, so it bails the whole suite and the
+lane grades almost nothing on Windows. Anything blocked behind it is skipped
+with `test.skipIf(process.platform === "win32")` and a note saying why, rather
+than left to hide the tests after it.
+
 ## Reading a lane that fails
 
 Each reading below is a lean, and no mechanism enforces any of them.
