@@ -67,6 +67,16 @@ export * from "./local.js";
 export * from "./log.js";
 export * from "./supervise.js";
 export * from "./diagnostics.js";
+// The lock is a general "one of these at a time on this machine" and not only a
+// daemon's. The CLI takes one while it creates an ssh forward, for the same
+// reason the daemon takes one while it binds: two of them racing produces two
+// answers where the point is to have one.
+export {
+  acquireDaemonLock,
+  probeLockMechanism,
+  type LockMechanism,
+  type LockRelease,
+} from "./platform/lock.js";
 export interface DaemonConfig {
   log?: Logger;
   logLevel?: LogLevel;

@@ -253,7 +253,8 @@ export function buildCreate(): Command {
           // register promises.
           const detached = opts.detach === true || ctx.json;
           const window = windowSize(opts);
-          const client = await connectDaemon(ctx);
+          const daemon = await connectDaemon(ctx);
+          const { client } = daemon;
           try {
             const info = await client.create({
               argv: [...argv],
@@ -297,7 +298,7 @@ export function buildCreate(): Command {
             ctx.writeError(renderCreated(info, ctx, workspace, false) + "\n");
             await attachSession(ctx, client, info.id, {});
           } finally {
-            await client.close();
+            await daemon.close();
           }
         },
       ),

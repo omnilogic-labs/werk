@@ -9,6 +9,7 @@
 import { SessionError, type ErrorCode } from "@werk/session";
 import { WorkspaceError, type WorkspaceErrorCode } from "@werk/workspace";
 import { ConfigError, type ConfigErrorCode } from "../config/errors.js";
+import { HostError, type HostErrorCode } from "../host/types.js";
 
 export const EXIT_OK = 0;
 export const EXIT_FAILURE = 1;
@@ -100,6 +101,23 @@ const BY_CONFIG_CODE: Record<ConfigErrorCode, number> = {
 };
 
 /**
+ * A machine werk could not reach or could not put itself on.
+ *
+ * No new statuses. Every one of these is either "what werk was told is wrong" —
+ * a name that does not resolve, a key that is not accepted, a machine werk has
+ * no binary for, all of which need somebody to change something — or "the
+ * daemon is not answering", which is what a caller retrying a remote command
+ * already reads exit 7 as.
+ */
+const BY_HOST_CODE: Record<HostErrorCode, number> = {
+  HOST_UNREACHABLE: EXIT_USAGE,
+  HOST_AUTH_FAILED: EXIT_USAGE,
+  HOST_UNSUPPORTED: EXIT_USAGE,
+  HOST_BOOTSTRAP_FAILED: EXIT_FAILURE,
+  HOST_DAEMON_MISSING: 7,
+};
+
+/**
  * Commander's own parse failures — an unknown command, a bad `--intent` — are
  * the same class of mistake as a `UsageError` and get the same status. Left to
  * itself commander exits 1, which would make "you typed it wrong" indist-
@@ -138,6 +156,8 @@ export function exitCodeFor(error: unknown): number {
     return BY_WORKSPACE_CODE[error.code] ?? EXIT_FAILURE;
   if (error instanceof ConfigError)
     return BY_CONFIG_CODE[error.code] ?? EXIT_FAILURE;
+  if (error instanceof HostError)
+    return BY_HOST_CODE[error.code] ?? EXIT_FAILURE;
   return EXIT_FAILURE;
 }
 
@@ -164,7 +184,8 @@ export function errorPayload(error: unknown): {
     ? "USAGE"
     : error instanceof SessionError ||
         error instanceof WorkspaceError ||
-        error instanceof ConfigError
+        error instanceof ConfigError ||
+        error instanceof HostError
       ? error.code
       : error instanceof UsageError
         ? "USAGE"

@@ -98,6 +98,13 @@ export const EXCEPTIONS: Exception[] = [
     disposition: "stays",
   },
   {
+    path: "packages/werk/src/host/install.ts",
+    allowed: 1,
+    reason:
+      "Names the bun target this binary was built for, which is the one platform question that has no other way of being asked. Both arguments are defaulted and the mapping is exercised for every platform from a test on any of them.",
+    disposition: "stays",
+  },
+  {
     path: "scripts/check-artefacts.ts",
     allowed: 2,
     reason:
@@ -115,8 +122,7 @@ export const EXCEPTIONS: Exception[] = [
     path: "packages/workspace/src/ssh.ts",
     allowed: 3,
     reason:
-      "Every path built here is on the far machine, which is posix whatever this one is. Unconditional rather than a branch, and using the host's separator would be the bug.",
-    disposition: "stays",
+      "Every path built here is on the far machine, which is posix whatever this one is. Unconditional rather than a branch, and using the host's separator would be the bug.",    disposition: "stays",
   },
   {
     path: "scripts/session-soak.ts",

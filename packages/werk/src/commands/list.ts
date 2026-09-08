@@ -87,7 +87,8 @@ export function buildList(): Command {
           ctx,
           opts: { label: Record<string, string>; state?: string },
         ) => {
-          const client = await connectDaemon(ctx);
+          const daemon = await connectDaemon(ctx);
+          const { client } = daemon;
           try {
             const sessions = await client.list({
               labels: opts.label,
@@ -117,7 +118,7 @@ export function buildList(): Command {
               5,
             );
           } finally {
-            await client.close();
+            await daemon.close();
           }
         },
       ),

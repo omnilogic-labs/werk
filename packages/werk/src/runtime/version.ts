@@ -17,6 +17,20 @@
 import pkg from "../../package.json";
 
 declare const WERK_BUILD: string;
+declare const WERK_COMPILED: boolean;
+
+/**
+ * Whether this werk is the compiled binary or bun running the source.
+ *
+ * It decides two things that have nothing else to read: how the CLI re-invokes
+ * itself as a daemon, and whether it can send itself to another machine. A
+ * compiled werk holds no source and no bun, so it has only itself to send; an
+ * interpreted one has to build something first. Read through a `typeof` guard
+ * because the define exists only on the compiled side.
+ */
+export function compiledWerk(): boolean {
+  return typeof WERK_COMPILED !== "undefined" && WERK_COMPILED;
+}
 
 /**
  * How a build is named, given what git said. Separate from reading it so

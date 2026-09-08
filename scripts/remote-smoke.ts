@@ -28,6 +28,10 @@ import { openLocalTransport } from "../packages/session-daemon/dist/index.js";
 // The compatibility surface itself, rather than a second copy of its rule here:
 // this check is only worth anything if it is the one the transport applies.
 import { notPrivateToOwner } from "../packages/session-daemon/dist/platform/index.js";
+import { openForward } from "../packages/werk/src/host/forward.js";
+import { openHostSession } from "../packages/werk/src/host/session.js";
+import { spawnRunner } from "../packages/werk/src/host/ssh.js";
+import { HostError } from "../packages/werk/src/host/types.js";
 
 export type Options = {
   host?: string;
@@ -49,6 +53,7 @@ Checks, in order:
   survive   whether a daemon outlives the ssh that started it
   forward   what \`ssh -L\` hands the client-side socket checks
   latency   keystroke round trip through a -N forward and through a -tt one
+  transport the CLI's own remote path, end to end: probe, install, forward
 
 Options:
   --host <name>     the ssh destination, as ssh itself would take it
@@ -150,6 +155,17 @@ function sshPty(host: string, command: string, timeoutMs = 60_000): RunResult {
     stderr: (result.stderr ?? "").replaceAll("\r", "").trim(),
   };
 }
+
+/** `unix /run/werk/daemon.sock`, or `tcp 127.0.0.1:49731`. */
+const describe = (endpoint: {
+  kind: string;
+  path?: string;
+  host?: string;
+  port?: number;
+}) =>
+  endpoint.kind === "unix"
+    ? `unix ${endpoint.path}`
+    : `tcp ${endpoint.host}:${endpoint.port}`;
 
 const quantile = (samples: number[], p: number) =>
   samples.slice().sort((a, b) => a - b)[
@@ -329,6 +345,9 @@ async function main(): Promise<number> {
   const localDir = `/tmp/werk-smoke-${tag}`;
   const forwards: { kill: () => void }[] = [];
   let binary = options.binary;
+  let transport: { close(): Promise<void> } | undefined;
+  /** The binary the transport check installed, so the teardown can remove it. */
+  let installed: string | undefined;
 
   try {
     // The forwarded sockets land here, and `openLocalTransport` refuses a
@@ -636,6 +655,81 @@ async function main(): Promise<number> {
     }
     record("latency", true, `${options.rounds} samples per figure, in ms`);
 
+    // 6. The path the CLI itself takes, rather than a reconstruction of it.
+    //    Everything above measures a property of the pair of machines; this
+    //    runs `packages/werk/src/host/` against the same box and reports what
+    //    it decided. It uses the far side's ordinary directories on purpose —
+    //    guessing them is the thing the transport is built not to do — so the
+    //    teardown kills what it started.
+    const transportRuntime = path.join(localDir, "transport");
+    await fs.mkdir(transportRuntime, { recursive: true });
+    await fs.chmod(transportRuntime, 0o700);
+    const session = openHostSession({
+      name: "smoke",
+      host: { kind: "ssh", sshHost: host },
+      runtimeDir: transportRuntime,
+      stateDir: path.join(localDir, "transport-state"),
+      entry: path.join(here, "packages/werk/src/main.ts"),
+    });
+    transport = session;
+    try {
+      const ready = await session.ready();
+      installed = ready.installed.binary;
+      record(
+        "transport: probe",
+        true,
+        `${ready.facts.uname} ${ready.facts.arch} ${ready.facts.libc}, ` +
+          `home ${ready.facts.home}, rsync ${ready.facts.rsync}, ` +
+          `claude ${ready.facts.claudeConfig ?? "not configured"}`,
+      );
+      record("transport: target", true, ready.target.target);
+      record("transport: install", true, ready.installed.reason);
+      record(
+        "transport: remote endpoint",
+        true,
+        `${describe(ready.report.endpoint)}, runtime ${ready.report.runtimeDir}`,
+      );
+      const client = await connectSessionClient({
+        transport: await openLocalTransport(ready.forward.endpoint),
+        requestTimeoutMs: 10_000,
+      });
+      const info = await client.daemonInfo();
+      await client.close();
+      record(
+        "transport: daemon reached",
+        true,
+        `${describe(ready.forward.endpoint)} answered as ${info.version}`,
+      );
+    } catch (error) {
+      record(
+        "transport",
+        false,
+        error instanceof HostError
+          ? `${error.code}: ${error.message.split("\n")[0]}`
+          : String(error),
+      );
+    }
+
+    // The fault ExitOnForwardFailure cannot catch, through the real code
+    // rather than through a reconstruction of it.
+    let missingCode = "came up, which it should not have";
+    try {
+      await openForward({
+        sshHost: host,
+        runtimeDir: transportRuntime,
+        remote: { kind: "unix", path: `${remoteDir}/rt-auto/absent.sock` },
+        runner: spawnRunner(),
+        timeoutMs: 4000,
+      });
+    } catch (error) {
+      missingCode = error instanceof HostError ? error.code : String(error);
+    }
+    record(
+      "transport: missing socket named",
+      missingCode === "HOST_DAEMON_MISSING",
+      missingCode,
+    );
+
     const failed = checks.filter((check) => !check.ok);
     console.log(
       `\n${checks.length - failed.length}/${checks.length} checks passed`,
@@ -645,7 +739,18 @@ async function main(): Promise<number> {
     // `pkill -f` reads its pattern as a regular expression and matches every
     // command line including the shell running this one, which holds the
     // pattern verbatim. Bracketing the first character keeps it off itself.
-    const teardown = `pkill -f '[${remoteDir[0]}]${remoteDir.slice(1)}/werk'; sleep 1; rm -rf ${remoteDir}`;
+    await transport?.close().catch(() => {});
+    // The transport check installs a binary under the far side's own
+    // `~/.local/share/werk/bin` and may have started a daemon from it, neither
+    // of which is under `remoteDir`, so both are named here.
+    const installedTeardown =
+      installed === undefined
+        ? ""
+        : `pkill -f '[${installed[0]}]${installed.slice(1)} daemon serve'; ` +
+          // The far side is POSIX, so the directory is the path up to the
+          // last slash; `path.dirname` here would be this machine's rules.
+          `sleep 1; rm -rf ${shellQuote(installed.slice(0, installed.lastIndexOf("/")))}; `;
+    const teardown = `${installedTeardown}pkill -f '[${remoteDir[0]}]${remoteDir.slice(1)}/werk'; sleep 1; rm -rf ${remoteDir}`;
     if (options.keep) {
       console.log(`\nKept ${localDir} here and ${remoteDir} on ${host}.`);
       console.log(`Tear it down with: ssh ${host} ${shellQuote(teardown)}`);

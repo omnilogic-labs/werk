@@ -45,7 +45,8 @@ export async function withSession<T>(
 ): Promise<T> {
   if (given === undefined && !canPrompt(ctx))
     throw new UsageError("name a session; there is no terminal to pick one in");
-  const client = await connectDaemon(ctx);
+  const daemon = await connectDaemon(ctx);
+  const { client } = daemon;
   try {
     const id =
       given === undefined
@@ -56,7 +57,7 @@ export async function withSession<T>(
           );
     return await work(client, id, given === undefined);
   } finally {
-    await client.close();
+    await daemon.close();
   }
 }
 

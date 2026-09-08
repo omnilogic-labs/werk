@@ -1,5 +1,6 @@
 /**
- * Getting a client, with and without permission to start a daemon.
+ * Getting a client, with and without permission to start a daemon, and on this
+ * machine or another one.
  *
  * Every command before this took the same route: `ensureSessionDaemon`, which
  * starts a detached daemon when none answers. That is right for `werk list` and
@@ -7,6 +8,22 @@
  * process, and it must never block the shell waiting for one to come up. So the
  * two intents are separate functions rather than a flag, and the completion path
  * can only reach the one that cannot spawn.
+ *
+ * ## What a remote daemon costs this file
+ *
+ * One line. `connectDaemon` gets an endpoint and then dials it, and the only
+ * difference between a daemon here and a daemon on another machine is where the
+ * endpoint comes from: `ensureSessionDaemon` for a local one, a `HostSession`
+ * for a remote one. Everything after that — `openLocalTransport`, the
+ * credential, `connectSessionClient` — is the same code on the same shapes,
+ * because a forward's local end is an ordinary local endpoint.
+ *
+ * The kind is never assumed. `HostSession.endpoint()` hands back whatever the
+ * far side reported with the address rewritten to this end of the forward, so a
+ * daemon on Windows reporting loopback TCP with a credential arrives here as a
+ * `tcp` endpoint carrying that credential and is dialled without a branch. What
+ * that would take is a change to the shape of the forward, in `host/forward.ts`,
+ * and nothing here.
  */
 import fs from "node:fs/promises";
 import { connectSessionClient, type SessionClient } from "@werk/session";
@@ -17,8 +34,9 @@ import {
   resolveSessionDaemonPaths,
   type LocalEndpoint,
 } from "@werk/session-daemon";
-
-declare const WERK_COMPILED: boolean;
+import { openHostSession, type HostSession } from "../host/session.js";
+import type { SshHost } from "../config/hosts.js";
+import { compiledWerk } from "./version.js";
 
 export interface DaemonPaths {
   runtimeDir: string;
@@ -26,6 +44,14 @@ export interface DaemonPaths {
   logLevel?: string;
   /** Absolute path of the entry module; see {@link daemonCommand}. */
   entry: string;
+  /**
+   * The machine to reach, when it is not this one.
+   *
+   * Optional and unset by everything today: naming a host on the command line
+   * is being built beside this. The seam is here so that wiring it is a matter
+   * of filling this in rather than of teaching every command what a machine is.
+   */
+  host?: { name: string; host: SshHost; target?: string };
 }
 
 /**
@@ -36,28 +62,67 @@ export interface DaemonPaths {
  * entry module rather than whichever file asked.
  */
 export function daemonCommand(entry: string): string[] {
-  const compiled = typeof WERK_COMPILED !== "undefined" && WERK_COMPILED;
-  return compiled
+  return compiledWerk()
     ? [process.execPath, "daemon", "serve"]
     : [process.execPath, entry, "daemon", "serve"];
+}
+
+/**
+ * A client, and whatever has to be let go of when the caller is done with it.
+ *
+ * A remote connection is holding an `ssh -N` open, and that has to die with the
+ * command that made it — a leaked forward is a much worse failure than a slow
+ * `werk list`. So callers close the connection rather than the client, and the
+ * local case simply has nothing else to close.
+ */
+export interface DaemonConnection {
+  readonly client: SessionClient;
+  /** The machine, when the daemon is on one. */
+  readonly host?: HostSession;
+  close(): Promise<void>;
 }
 
 /** Connect, starting a daemon if none is running. */
 export async function connectDaemon(
   paths: DaemonPaths,
-): Promise<SessionClient> {
-  const daemon = await ensureSessionDaemon({
-    runtimeDir: paths.runtimeDir,
-    stateDir: paths.stateDir,
-    daemonCommand: daemonCommand(paths.entry),
-    logLevel: parseLogLevel(paths.logLevel),
-  });
-  return connectSessionClient({
-    transport: await openLocalTransport(daemon.endpoint),
-    credential:
-      daemon.endpoint.kind === "tcp" ? daemon.endpoint.credential : undefined,
+): Promise<DaemonConnection> {
+  const target = paths.host;
+  const host = target
+    ? openHostSession({
+        name: target.name,
+        host: target.host,
+        runtimeDir: paths.runtimeDir,
+        stateDir: paths.stateDir,
+        entry: paths.entry,
+        ...(target.target === undefined ? {} : { target: target.target }),
+      })
+    : undefined;
+  const endpoint: LocalEndpoint = host
+    ? await host.endpoint()
+    : (
+        await ensureSessionDaemon({
+          runtimeDir: paths.runtimeDir,
+          stateDir: paths.stateDir,
+          daemonCommand: daemonCommand(paths.entry),
+          logLevel: parseLogLevel(paths.logLevel),
+        })
+      ).endpoint;
+  const client = await connectSessionClient({
+    transport: await openLocalTransport(endpoint),
+    credential: endpoint.kind === "tcp" ? endpoint.credential : undefined,
     requestTimeoutMs: 5000,
   });
+  return {
+    client,
+    ...(host ? { host } : {}),
+    async close() {
+      try {
+        await client.close();
+      } finally {
+        await host?.close();
+      }
+    },
+  };
 }
 
 /**
@@ -65,6 +130,11 @@ export async function connectDaemon(
  * return undefined for every reason it might not be there. Nothing here throws:
  * a completion that raised would put an error message where the shell expects
  * candidates.
+ *
+ * **Local only, and it stays that way.** This is the function tab completion
+ * reaches, and the same rule that forbids it from spawning a daemon forbids it
+ * from opening an ssh connection: pressing TAB must not start a process, and it
+ * must not put a network round trip between a keystroke and a candidate list.
  *
  * The endpoint comes back with the client because reaching a daemon is the only
  * proof that the record on disk describes a daemon at all, and `werk daemon
