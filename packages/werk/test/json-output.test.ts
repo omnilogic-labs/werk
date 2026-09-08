@@ -128,6 +128,18 @@ test(
   TIMEOUT,
 );
 test(
+  "setup answers with what the machine's setup came to",
+  async () => {
+    // Nothing in the sandbox names a `[setup.<name>]` block, so there is
+    // nothing to run and the record says so rather than being absent.
+    expect(await runJson("setup")).toEqual({
+      host: "local",
+      setup: { state: "none" },
+    });
+  },
+  TIMEOUT,
+);
+test(
   "daemon endpoint answers with something a client could dial",
   async () => {
     const report = (await runJson("daemon", "endpoint")) as {
@@ -269,6 +281,7 @@ const EXERCISED = [
   // A conversation, and still one value on stdout: the prompts it would draw
   // paint on stderr, and this run answers every one of them with a flag.
   "werk config setup",
+  "werk setup",
 ];
 
 /** Every command that runs something, i.e. every node with no subcommands. */

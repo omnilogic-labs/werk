@@ -99,6 +99,7 @@ test("the tree still holds the commands werk documents", () => {
     "werk kill",
     "werk remove",
     "werk watch",
+    "werk setup",
     "werk info",
     "werk doctor",
     "werk config",

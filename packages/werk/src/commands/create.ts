@@ -18,6 +18,8 @@ import { Command, InvalidArgumentError } from "@commander-js/extra-typings";
 import type { SessionInfo } from "@werk/session";
 import {
   formatWorkspaceReference,
+  repositoryIdentity,
+  runGit,
   workspaceReference,
   WorkspaceError,
   type CreateWorkspaceOptions,
@@ -31,9 +33,16 @@ import { attachSession } from "./attach.js";
 import { collectLabel } from "./list.js";
 import { result } from "../runtime/output.js";
 import { connectDaemon } from "../runtime/daemon.js";
-import { createProgress } from "../runtime/progress.js";
+import { createProgress, type ProgressReporter } from "../runtime/progress.js";
 import { CancelledError } from "../runtime/exit.js";
 import { reachHost, workspaceMakerFor } from "../host/place.js";
+import {
+  runHostSetup,
+  runWorkspaceSetup,
+  type SetupOutcome,
+} from "../host/setup.js";
+import { gitToplevel } from "../config/load.js";
+import type { Host } from "../config/hosts.js";
 import { reportedSize, type WerkContext } from "../runtime/context.js";
 import { canPrompt, text, type PromptOptions } from "../runtime/interactive.js";
 import { workspaceNames } from "../workspace-name.js";
@@ -121,6 +130,63 @@ export async function describeWork(
     },
     options,
   );
+}
+
+/** Both setups a `create` runs, as the record reports them. */
+export interface SetupRun {
+  /** The machine's own block, from `[hosts.<name>].setup`. */
+  readonly host: SetupOutcome;
+  /** The repository's, from `workspaceSetup`. */
+  readonly workspace: SetupOutcome;
+}
+
+/**
+ * Start something now and read its answer later.
+ *
+ * A promise started beside another and awaited after it has a window in which
+ * nothing is holding its rejection, and an unobserved rejection is a
+ * process-level warning about the wrong failure. Turning both outcomes into a
+ * thunk closes that window at the moment the work starts: what is awaited later
+ * is a promise that always resolves, and the throw happens where the caller
+ * asks for the value.
+ */
+export function settled<T>(work: Promise<T>): Promise<() => T> {
+  return work.then(
+    (value) => () => value,
+    (error: unknown) => () => {
+      throw error;
+    },
+  );
+}
+
+/**
+ * The repository's own setup, run in the workspace that was just made.
+ *
+ * The repository identity is read — and written, the first time — only when
+ * something actually names a `workspaceSetup`. `werk.repo-id` is the one line
+ * werk puts in a person's git configuration, and a `create` that has no setup
+ * to run has no business adding it.
+ */
+async function workspaceSetupFor(
+  ctx: WerkContext,
+  place: { name: string; host: Host },
+  workspace: Workspace,
+  options: { here: string; progress: ProgressReporter },
+): Promise<SetupOutcome> {
+  if (ctx.workspaceSetup === undefined) return { state: "none" };
+  const toplevel = gitToplevel(options.here);
+  // The maker has already refused anything that is not a repository, so this is
+  // the belt to that brace rather than a case anybody reaches.
+  if (toplevel === undefined) return { state: "none" };
+  return await runWorkspaceSetup({
+    ctx,
+    name: place.name,
+    host: place.host,
+    directory: workspace.directory,
+    repository: path.basename(toplevel),
+    identity: await repositoryIdentity(runGit, toplevel),
+    progress: options.progress,
+  });
 }
 
 /** How many names a generated one is allowed to be before `create` gives up. */
@@ -328,12 +394,12 @@ export function buildCreate(): Command {
           // host starts here, and the probe it kicks off overlaps the workspace
           // below.
           const place = await reachHost(ctx);
+          const progress = createProgress(ctx, place.name);
           // A local create is instant, so nothing is said about it. The maker
-          // reports its stages either way; this only decides who listens.
-          const progress =
-            place.session === undefined
-              ? undefined
-              : createProgress(ctx, place.name);
+          // reports its stages either way; this only decides who listens. A
+          // setup is not instant on any machine, so it reports through the same
+          // reporter whichever machine it runs on.
+          const staged = place.session === undefined ? undefined : progress;
           // Ctrl-C reaches the maker as an abort rather than killing the
           // process where it stands, so a maker that got as far as a branch and
           // a worktree on another machine gets to take them back.
@@ -350,12 +416,27 @@ export function buildCreate(): Command {
           const window = windowSize(opts);
           let daemon;
           let workspace: Workspace;
+          let setup: SetupRun;
           try {
             // Asked here rather than before the machine was reached, so a
             // mistyped `--host` is reported before somebody types a sentence,
             // and inside the `try` so that a cancelled question closes the
             // connection that reaching one opened.
             const description = await describeWork(ctx, opts);
+            // Started beside the push rather than before it. Getting the
+            // machine ready and sending the history have nothing to say to each
+            // other, and on a cold machine over a slow link each of them is the
+            // other's wait. Settled into a thunk straight away, because a
+            // rejection nobody is holding yet is a process-level warning about
+            // the wrong thing.
+            const settingUp = settled(
+              runHostSetup({
+                ctx,
+                name: place.name,
+                host: place.host,
+                progress,
+              }),
+            );
             // Before the daemon, deliberately: a workspace that cannot be made
             // is a failure that should not have started a daemon on its way to
             // being reported. Nothing removes the worktree if the session then
@@ -367,16 +448,26 @@ export function buildCreate(): Command {
               { kind: "local-checkout", path: here },
               {
                 signal: cancelling.signal,
-                ...(progress ? { onProgress: progress.onProgress } : {}),
+                ...(staged ? { onProgress: staged.onProgress } : {}),
               },
             );
+            // Awaited before the workspace's own setup, which may want whatever
+            // the machine's put there.
+            const host = (await settingUp)();
+            setup = {
+              host,
+              workspace: await workspaceSetupFor(ctx, place, workspace, {
+                here,
+                progress,
+              }),
+            };
             // The connection is under the spinner too. On a machine werk has
             // not been to, this is the install and the daemon start, which is
             // the longest silence there is.
-            progress?.say(`reaching the daemon on ${place.name}`);
+            staged?.say(`reaching the daemon on ${place.name}`);
             daemon = await connectDaemon(ctx, place.session);
           } catch (error) {
-            progress?.stop();
+            progress.stop();
             await place.close().catch(() => {});
             throw error;
           } finally {
@@ -408,10 +499,10 @@ export function buildCreate(): Command {
             });
             // Before anything is printed, and well before an attachment takes
             // the alternate screen.
-            progress?.stop();
+            progress.stop();
             if (detached)
               return result(
-                { ...info, workspace: workspaceRecord(workspace) },
+                { ...info, workspace: workspaceRecord(workspace), setup },
                 (c) => renderCreated(info, c, workspace, true),
               );
             // The summary is status rather than session output, so it goes to
@@ -422,7 +513,7 @@ export function buildCreate(): Command {
             ctx.writeError(renderCreated(info, ctx, workspace, false) + "\n");
             await attachSession(ctx, client, info.id, {}, place);
           } finally {
-            progress?.stop();
+            progress.stop();
             await daemon.close();
             await place.close().catch(() => {});
           }
