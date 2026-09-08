@@ -133,6 +133,35 @@ not failing already. [docs/platforms.md](docs/platforms.md) weighs a failure on
 each platform. Which lanes a change must run, and whether a documentation-only
 change needs one, are leans rather than rulings, so say which lanes you ran.
 
+### The runners are how you debug a platform you do not have
+
+**Never write that a platform cannot be tested, investigated or graded from
+here.** It is not true. `gh` and `bun scripts/ci-run.ts` reach a Linux, a macOS
+and a Windows machine on demand, against any ref `origin` holds, in about two
+minutes. A lane that exists and was not run is a lane nobody ran.
+
+That covers proving a change, which the section above is about. It equally
+covers finding out why something fails on a platform this machine is not.
+Diagnosis on a runner is the same gesture as verification on one: put what
+answers the question on a branch, push it, dispatch the lane, read what came
+back.
+
+So a defect that only appears on one platform is investigated the same way as
+any other. Write the probe that distinguishes the possibilities — a test that
+reports what it saw, a log line, a narrowed case, a one-file suite the lane runs
+instead of the whole thing — commit it to a branch nobody will merge, and
+dispatch. Read the log with `gh run view <id> --log`. Iterate on the branch
+until the cause is in hand, then throw the branch away and fix the real thing.
+
+A run costs a couple of minutes and nothing else, so the cost of a probe is
+never the reason to skip it. Guessing at a fix for a platform you have not
+observed, and saying the guess is unverified, is the thing this replaces.
+
+The one honest version of a limit names the runner you tried and what it did.
+"the Windows lane bails before it reaches this test, and the workflow has no
+option to run one file" is a finding. "I cannot test Windows from this machine"
+is not.
+
 ### Prose style
 
 British spelling, plain sentences, no filler. Tables where a table is genuinely
