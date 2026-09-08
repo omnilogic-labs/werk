@@ -48,42 +48,40 @@ detail, and detail is expected to churn, sometimes twice in a day.
 ## Prove it on a runner, then land it
 
 werk runs on Linux, macOS and Windows, and draws a terminal in a browser. **The
-machine you are on covers at most one of those.** Find out what yours actually
-covers rather than assuming, and say which checks that leaves ungraded:
+machine you are on covers at most one of those**, and a green local suite is
+evidence about that one machine.
 
-- **The other two platforms.** Whichever you are not on, you cannot observe. `#30`
-  and `#31` are open failures on macOS and Windows.
-- **The browser lane.** `bun run test:browser` needs Playwright to have a browser
-  for your host. Run it once and see. It has been seen refusing to install one on
-  a host newer than the pinned release knows about, in which case the lane is
-  unavailable to you and installing a newer browser does not help, because the
-  pinned Playwright will not use it.
+Every other platform is one dispatch away, so none of them is out of reach:
 
-So a green local suite is evidence about your platform and nothing else. The loop
-that produces the rest is: commit, publish your own branch, dispatch a run
-against it, read what the runners say, fix, dispatch again. `docs/ci.md` explains
-it and `scripts/ci-run.ts` does it. GitHub runs any ref `origin` already holds,
-with no merge and no pull request.
+```
+bun scripts/ci-run.ts all --ref <your branch>      every lane but soak
+bun scripts/ci-run.ts macos --ref <your branch>    one lane by name
+```
 
-**Publish your own branch freely.** Integration is serialised
-and happens after the evidence exists, not before it. A regression reached `main`
-in exactly the gap this closes: a browser assertion pinned a colour the palette no
-longer painted, the unit that broke it could not run that lane on its machine and
+Lanes are `linux`, `macos`, `windows`, `musl`, `browser`, and `soak`, which is
+asked for by name because it is long. GitHub runs any ref `origin` already
+holds, with no merge and no pull request, so publish your branch and dispatch
+against it. `docs/ci.md` has the rest and `scripts/ci-run.ts --help` has the
+flags.
+
+So the loop is: commit, publish your own branch, dispatch a run, read what the
+runners say, fix, dispatch again. Integration is serialised and happens after
+the evidence exists, not before it. A regression reached `main` in exactly the
+gap this closes: a browser assertion pinned a colour the palette no longer
+painted, the unit that broke it could not run that lane on its machine and
 substituted a walk of the page, and only CI saw it.
 
-`UNVERIFIED` is for what no runner can reach, and almost nothing qualifies.
-macOS, Windows, musl and the browser are each one dispatch away:
-`bun scripts/ci-run.ts macos --ref <your branch>`, and `all` runs every lane but
-soak, which is asked for by name. A grade that says a platform could not be
-observed, when a lane for that platform exists and was not run, is a lane nobody
-ran rather than a limit anybody hit.
+`#30` and `#31` are open failures on macOS and Windows, so a run is measured
+against that baseline rather than against green.
 
-The local browser lane is the one real gap: Playwright refuses to install a
-browser for a host newer than its pinned release knows about, so `bun run
-test:browser` may not run here. The `browser` lane on a runner still does.
-
-When something genuinely cannot be verified, mark it `UNVERIFIED` and say what
-the grade therefore does not assert. Do not pass it on inspection.
+**`UNVERIFIED` is for what no runner can reach.** A platform whose lane exists
+and was not run is a lane nobody ran, not a limit anybody hit. The one real gap
+is local: `bun run test:browser` needs Playwright to have a browser for your
+host, and it has been seen refusing to install one on a host newer than its
+pinned release knows about, where installing a newer browser does not help. The
+`browser` lane on a runner is unaffected. When something genuinely cannot be
+verified, mark it `UNVERIFIED` and say what the grade therefore does not assert.
+Do not pass it on inspection.
 
 ## The toolchain, and the order it goes in
 
