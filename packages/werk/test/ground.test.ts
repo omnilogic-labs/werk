@@ -6,6 +6,14 @@
  * one that says nothing at all, and one that answers something unparseable. The
  * three terminators in the wild each get their own case.
  *
+ * A real terminal sends the colour and the sentinel as two writes, so a reply
+ * here is a list of chunks and the fake delivers them one at a time. It stops
+ * delivering when the read is stopped and keeps what was left, which is how a
+ * reply werk provoked and did not read is visible as a leak rather than as
+ * nothing at all. That is the bytes that were being typed into whatever ran
+ * next: a shell, a prompt, or the session `attach` was about to hand the
+ * keyboard to.
+ *
  * However the exchange ends, it has to leave the input as it found it: raw mode
  * off and the read stopped. Both are asserted across every ending, because the
  * cost of missing either is paid by every command rather than by this one.
@@ -14,6 +22,9 @@ import { expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { detectGround, type GroundInput } from "../src/runtime/ground.js";
 
+/** What a terminal says back: nothing, one write, or a write at a time. */
+type Answer = string | string[] | undefined;
+
 /**
  * A terminal under test: what it was sent, and what it says back.
  *
@@ -21,16 +32,25 @@ import { detectGround, type GroundInput } from "../src/runtime/ground.js";
  * exit. It holds the number of `data` listeners still attached at each pause,
  * so a stop that left the exchange's own listener behind is visible rather than
  * counted as a pass.
+ *
+ * `unread` is what the terminal still had to say when the read stopped. On a
+ * real terminal those bytes sit in the input buffer for the next reader, so
+ * anything left here is what somebody would find themselves typing.
  */
-function fake(reply?: string | ((query: string) => string | undefined)) {
+function fake(reply?: Answer | ((query: string) => Answer)) {
   const emitter = new EventEmitter();
   const raw: boolean[] = [];
   const sent: string[] = [];
   const stopped: number[] = [];
+  let pending: string[] = [];
+  let paused = false;
   const input: GroundInput = {
     on: (event, listener) => emitter.on(event, listener),
     off: (event, listener) => emitter.off(event, listener),
-    pause: () => stopped.push(emitter.listenerCount("data")),
+    pause: () => {
+      paused = true;
+      stopped.push(emitter.listenerCount("data"));
+    },
   };
   const io = {
     input,
@@ -38,16 +58,23 @@ function fake(reply?: string | ((query: string) => string | undefined)) {
       write(text: string) {
         sent.push(text);
         const answer = typeof reply === "function" ? reply(text) : reply;
-        // Asynchronously, the way a terminal would.
-        if (answer !== undefined)
-          queueMicrotask(() => emitter.emit("data", Buffer.from(answer)));
+        if (answer === undefined) return true;
+        pending = typeof answer === "string" ? [answer] : [...answer];
+        // Asynchronously and a write at a time, the way a terminal would, and
+        // never after the read has stopped.
+        const say = () => {
+          if (paused || pending.length === 0) return;
+          emitter.emit("data", Buffer.from(pending.shift()!, "latin1"));
+          if (pending.length > 0) setTimeout(say, 1);
+        };
+        queueMicrotask(say);
         return true;
       },
     },
     setRawMode: (on: boolean) => void raw.push(on),
     timeoutMs: 40,
   };
-  return { io, raw, sent, stopped };
+  return { io, raw, sent, stopped, unread: () => pending };
 }
 
 const LIGHT = "rgb:eeee/f1f1/f5f5";
@@ -55,6 +82,11 @@ const DARK = "rgb:1e1e/1e1e/2e2e";
 const ST = "\x1b\\";
 const BEL = "\x07";
 const DA1 = "\x1b[?62;22c";
+/** What a terminal that answers both questions says, as it says it. */
+const answers = (colour: string, terminator = ST) => [
+  `\x1b]11;${colour}${terminator}`,
+  DA1,
+];
 
 test("the query carries the colour question and the sentinel behind it", async () => {
   const { io, sent } = fake();
@@ -64,8 +96,8 @@ test("the query carries the colour question and the sentinel behind it", async (
 });
 
 test("a light ground and a dark ground each come back as themselves", async () => {
-  expect(await detectGround(fake(`\x1b]11;${LIGHT}${ST}`).io)).toBe("light");
-  expect(await detectGround(fake(`\x1b]11;${DARK}${ST}`).io)).toBe("dark");
+  expect(await detectGround(fake(answers(LIGHT)).io)).toBe("light");
+  expect(await detectGround(fake(answers(DARK)).io)).toBe("dark");
 });
 
 test("all three terminators in the wild are read", async () => {
@@ -73,16 +105,14 @@ test("all three terminators in the wild are read", async () => {
   // with a bare ESC.
   for (const terminator of [ST, BEL, "\x1b"])
     expect(
-      await detectGround(fake(`\x1b]11;${DARK}${terminator}`).io),
+      await detectGround(fake(answers(DARK, terminator)).io),
       JSON.stringify(terminator),
     ).toBe("dark");
 });
 
 test("an eight-bit answer and a bare hex triple are read too", async () => {
-  expect(await detectGround(fake(`\x1b]11;rgb:ef/f1/f5${ST}`).io)).toBe(
-    "light",
-  );
-  expect(await detectGround(fake(`\x1b]11;#1e1e2e${ST}`).io)).toBe("dark");
+  expect(await detectGround(fake(answers("rgb:ef/f1/f5")).io)).toBe("light");
+  expect(await detectGround(fake(answers("#1e1e2e")).io)).toBe("dark");
 });
 
 test("the sentinel alone means the terminal does not answer, and returns at once", async () => {
@@ -94,11 +124,13 @@ test("the sentinel alone means the terminal does not answer, and returns at once
   expect(performance.now() - started).toBeLessThan(30);
 });
 
-test("a colour arriving before the sentinel is still the answer", async () => {
-  // The real ordering: the terminal answers both, colour first.
-  expect(await detectGround(fake(`\x1b]11;${DARK}${ST}${DA1}`).io)).toBe(
-    "dark",
-  );
+test("the colour is taken and the exchange still runs to the sentinel", async () => {
+  // The real ordering, and the real timing: two writes, colour first. Stopping
+  // at the colour leaves the sentinel to be read by whatever reads stdin next,
+  // which for `attach` means it is typed into the session.
+  const terminal = fake(answers(DARK));
+  expect(await detectGround(terminal.io)).toBe("dark");
+  expect(terminal.unread()).toEqual([]);
 });
 
 test("a terminal that says nothing gives up at the timeout", async () => {
@@ -107,20 +139,28 @@ test("a terminal that says nothing gives up at the timeout", async () => {
   expect(performance.now() - started).toBeGreaterThanOrEqual(30);
 });
 
+test("a colour with no sentinel behind it costs the timeout", async () => {
+  // The one terminal that pays for reading to the sentinel: it answers the
+  // question and not the device attributes request. It still gets its flavour.
+  const started = performance.now();
+  expect(await detectGround(fake(`\x1b]11;${DARK}${ST}`).io)).toBe("dark");
+  expect(performance.now() - started).toBeGreaterThanOrEqual(30);
+});
+
 test("an answer that cannot be read is no answer rather than a failure", async () => {
-  expect(await detectGround(fake(`\x1b]11;rgb:zz/zz/zz${ST}${DA1}`).io)).toBe(
+  expect(await detectGround(fake([`\x1b]11;rgb:zz/zz/zz${ST}`, DA1]).io)).toBe(
     undefined,
   );
-  expect(await detectGround(fake(`garbage${DA1}`).io)).toBeUndefined();
+  expect(await detectGround(fake(["garbage", DA1]).io)).toBeUndefined();
 });
 
 /** Every way the exchange can end: answered, refused, timed out, unreadable. */
-const ENDINGS: (string | undefined)[] = [
-  `\x1b]11;${LIGHT}${ST}`,
-  `\x1b]11;${DARK}${BEL}`,
+const ENDINGS: Answer[] = [
+  answers(LIGHT),
+  answers(DARK, BEL),
   DA1,
   undefined,
-  `\x1b]11;rgb:zz/zz/zz${ST}${DA1}`,
+  [`\x1b]11;rgb:zz/zz/zz${ST}`, DA1],
 ];
 
 test("raw mode is put back however the exchange ends", async () => {

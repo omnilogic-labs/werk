@@ -10,13 +10,22 @@
  * ## The exchange
  *
  * werk writes `OSC 11 ; ?` and then, immediately behind it, a primary device
- * attributes request. A terminal processes escape sequences in order, so if the
- * device attributes reply comes back with no colour reply in front of it, this
- * terminal does not answer `OSC 11` and there is nothing to wait for. That is
- * what makes a short timeout defensible: the common failure answers instantly
- * rather than running the clock out. Almost every terminal answers device
- * attributes, including werk's own replica, which answers `ESC [ ? 62 ; 22 c`
- * and nothing else.
+ * attributes request. A terminal processes escape sequences in order, so the
+ * attributes reply comes back behind the colour reply when there is one and on
+ * its own when there is not.
+ *
+ * The attributes reply is therefore the end of the exchange either way, and the
+ * colour is only the payload that may or may not arrive in front of it. Almost
+ * every terminal answers device attributes, including werk's own replica, which
+ * answers `ESC [ ? 62 ; 22 c` and nothing else, so a terminal that does not
+ * answer the colour question is found out in one round trip rather than at the
+ * timeout.
+ *
+ * Reading to the sentinel rather than stopping at the colour is also what keeps
+ * the answer off the next reader's input. werk asked the question, so the whole
+ * answer is werk's to take off the stream; a reply left behind is read by
+ * whatever reads stdin next, and for `attach` that means it is forwarded to the
+ * session and arrives in the child as keystrokes.
  *
  * The reply is `OSC 11 ; rgb:RRRR/GGGG/BBBB` with sixteen bits a channel, and
  * three different terminators are in the wild: macOS Terminal always ends with
@@ -32,6 +41,10 @@
  * against a startup that is otherwise about 30 ms, and long enough to survive a
  * round trip over ssh. If it turns out to be short, the evidence will be a
  * terminal that answers late rather than a number anybody has measured.
+ *
+ * The timeout is the one hole this cannot close. A reply that arrives after it
+ * has fired is read by whoever reads next, because there is nobody left to take
+ * it off the stream.
  *
  * ## Putting the input back
  *
@@ -50,13 +63,14 @@
  * ignored. Every command pays for this, because the probe runs before the
  * command line is parsed.
  *
+ *
  * Pausing is safe for whatever reads next. `attach` resumes the stream itself
  * after attaching its own handler, and a prompt goes through readline, which
  * resumes the stream when it is constructed.
  */
 import { type Ground, groundFromRgb } from "./theme.js";
 
-/** The query, and the sentinel that tells werk the query went unanswered. */
+/** The query, and the sentinel that ends the exchange. */
 const QUERY = "\x1b]11;?\x1b\\\x1b[c";
 /** A primary device attributes reply: `ESC [ ? … c`. */
 const ATTRIBUTES = /\x1b\[\?[0-9;]*c/;
@@ -66,7 +80,6 @@ const ATTRIBUTES = /\x1b\[\?[0-9;]*c/;
  */
 const REPLY =
   /\x1b\]11;(?:rgb:)?#?([0-9a-fA-F]{1,4})\/?([0-9a-fA-F]{1,4})\/?([0-9a-fA-F]{1,4})/;
-
 /** Scale a channel of any width to eight bits. `ff` and `ffff` are both white. */
 function channel(digits: string): number {
   const value = Number.parseInt(digits, 16);
@@ -112,11 +125,13 @@ function settle(action: () => void): void {
 export function detectGround(io: GroundIO): Promise<Ground | undefined> {
   const timeoutMs = io.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   return new Promise<Ground | undefined>((resolve) => {
-    let seen = "";
+    let read = Buffer.alloc(0);
+    let ground: Ground | undefined;
+    let answered = false;
     let done = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    const finish = (ground: Ground | undefined): void => {
+    const finish = (): void => {
       if (done) return;
       done = true;
       if (timer !== undefined) clearTimeout(timer);
@@ -131,24 +146,30 @@ export function detectGround(io: GroundIO): Promise<Ground | undefined> {
     };
 
     function onData(chunk: Buffer | string): void {
-      seen += chunk.toString();
+      read = Buffer.concat([
+        read,
+        typeof chunk === "string" ? Buffer.from(chunk) : chunk,
+      ]);
+      // latin-1 so that one character is one byte: the sequences being looked
+      // for are ASCII, and what is cut out of the text is cut out of the bytes.
+      const seen = read.toString("latin1");
       try {
-        const reply = REPLY.exec(seen);
-        if (reply) {
-          finish(
-            groundFromRgb(
+        if (!answered) {
+          const reply = REPLY.exec(seen);
+          if (reply) {
+            answered = true;
+            ground = groundFromRgb(
               channel(reply[1]!),
               channel(reply[2]!),
               channel(reply[3]!),
-            ),
-          );
-          return;
+            );
+          }
         }
-        // The sentinel arrived with no colour in front of it, so this terminal
-        // does not answer the question. Stop rather than wait out the clock.
-        if (ATTRIBUTES.test(seen)) finish(undefined);
+        // The sentinel means the terminal has said everything it is going to.
+        if (ATTRIBUTES.test(seen)) finish();
       } catch {
-        finish(undefined);
+        ground = undefined;
+        finish();
       }
     }
 
@@ -157,10 +178,10 @@ export function detectGround(io: GroundIO): Promise<Ground | undefined> {
       io.input.on("data", onData);
       io.output.write(QUERY);
     } catch {
-      finish(undefined);
+      finish();
       return;
     }
-    timer = setTimeout(() => finish(undefined), timeoutMs);
+    timer = setTimeout(finish, timeoutMs);
     // A pending read must not be the reason the process stays alive.
     timer.unref?.();
   });

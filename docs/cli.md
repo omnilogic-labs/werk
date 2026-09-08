@@ -443,11 +443,22 @@ background is and wears `flavourLight` or `flavourDark` accordingly. Naming a
 flavour instead skips the question entirely.
 
 The question is `OSC 11`, sent with a device attributes request immediately
-behind it. Terminals answer escape sequences in order, so a device attributes
-reply arriving with no colour in front of it says this terminal does not answer
-the question, and werk stops rather than waiting. A terminal that answers neither
-costs 150 ms, once, and then werk wears the dark flavour. That timeout is a
-judgement rather than a measurement.
+behind it. Terminals answer escape sequences in order, so the device attributes
+reply is the end of the exchange either way: behind the colour when there is one,
+and on its own when this terminal does not answer the question. werk reads to it
+and then stops.
+
+Reading to the sentinel rather than stopping at the colour is what keeps the
+answer off the next reader's input. werk asked, so the whole answer is werk's to
+take off the stream — a reply left behind is read by whatever reads stdin next,
+and under `attach` that is the session, where it arrives in the child as
+keystrokes.
+
+A terminal that answers neither sequence costs 150 ms, once, and then werk wears
+the dark flavour. So does one that answers the colour and not the sentinel,
+which is a set that looks empty. That timeout is a judgement rather than a
+measurement, and it is the one hole this cannot close: a reply arriving after it
+has fired has nobody left to take it.
 
 werk does not ask when there is nothing to wear or nowhere to ask: colour is off,
 stdout is not a terminal, `TERM` is unset or `dumb`, `CI` is set, or a session is
