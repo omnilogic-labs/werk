@@ -4,7 +4,8 @@
  * A stream has no end to render, so this writes as it goes and returns nothing.
  * It writes JSON lines whether or not `--json` was asked for: the events are the
  * daemon's own vocabulary, the shape is what anything reading a pipe already
- * parses, and a second, prettier rendering would be a second thing to keep true.
+ * parses, and a second rendering for a person to read would be a second thing to
+ * keep correct.
  */
 import { Command } from "@commander-js/extra-typings";
 import type { DaemonEvent } from "@werk/session";
@@ -17,10 +18,10 @@ export function buildWatch(): Command {
     name: "watch",
     summary: "Print daemon events as JSON lines until interrupted",
     description:
-      "Follow what the daemon is doing as it happens. Events are written as " +
-      "JSON lines whether or not --json was asked for, because the events are " +
-      "the daemon's own vocabulary and a second rendering would be a second " +
-      "thing to keep true.",
+      "Follow what the daemon is doing as it happens. Every event is printed " +
+      "as one JSON line, with or without --json. There is no separate " +
+      "rendering for a person to read, because a second description of the " +
+      "same events would be a second thing to keep correct.",
     examples: [
       { run: "werk watch" },
       { run: "werk watch | jq 'select(.type == \"exited\")'" },

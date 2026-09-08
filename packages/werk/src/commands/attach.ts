@@ -264,24 +264,27 @@ export function buildAttach(): Command {
   // and returns the same object, so the chain need not carry the type back.
   const attach: Command = defineCommand({
     name: "attach",
-    summary: "Attach to a session; Ctrl-] detaches",
+    summary: "Go back to a running session; Ctrl-] detaches",
     description:
-      "Go back to a running session and take its screen and keyboard. " +
-      "Detaching leaves the session running; a session that has already " +
-      "finished paints its saved screen and returns, reporting the outcome.",
+      "Go back to a running session and take over its screen and keyboard. " +
+      "Detaching leaves the session running. A session that has already " +
+      "finished paints its saved screen, reports how it ended, and returns.",
     examples: [
       { run: "werk attach 8f2c1b04e9d1" },
       {
         run: "werk attach 8f2c1b04e9d1 --read-only",
         note: "watch, do not type",
       },
-      { run: "werk attach 8f2c1b04e9d1 --claim-size", note: "take the grid" },
+      {
+        run: "werk attach 8f2c1b04e9d1 --claim-size",
+        note: "resize the session to this window",
+      },
       { run: "werk attach", note: "pick from a list" },
     ],
     notes: "Ctrl-] detaches and leaves the session running.",
     requires: [
       {
-        need: "--follow and --claim-size ask for opposite things",
+        need: "pass --follow or --claim-size, not both: one leaves the session size alone and the other takes it",
         met: (command) => {
           const opts = command.opts() as {
             follow?: boolean;
@@ -295,8 +298,11 @@ export function buildAttach(): Command {
   attach
     .addArgument(sessionArgument())
     .option("--read-only", "watch without asking for input")
-    .option("--follow", "decline the session grid and clip to this window")
-    .option("--claim-size", "take the session grid from whoever holds it")
+    .option(
+      "--follow",
+      "leave the session size alone and clip the session grid to this window",
+    )
+    .option("--claim-size", "take the session size from whoever holds it")
     .option(
       "--cols <N>",
       "assume this window width instead of the terminal's",

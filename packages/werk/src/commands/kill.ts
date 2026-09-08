@@ -40,22 +40,29 @@ export function buildKill(): Command {
     name: "kill",
     summary: "Ask a session's process to stop",
     description:
-      "Ask a session's process to stop. The three intents are the daemon's " +
-      "vocabulary rather than signal names: what each means on a platform is " +
-      "the daemon's business, and a daemon advertises which it supports.",
+      "Ask a session's process to stop. --intent says how hard to ask. The " +
+      "three intents are not signal names: each daemon decides what they mean " +
+      "on its own platform, and reports which of the three it supports.",
     examples: [
       { run: "werk kill 8f2c1b04e9d1" },
-      { run: "werk kill 8f2c1b04e9d1 --intent interrupt", note: "ask nicely" },
-      { run: "werk kill 8f2c1b04e9d1 --intent force", note: "stop asking" },
+      {
+        run: "werk kill 8f2c1b04e9d1 --intent interrupt",
+        note: "the gentlest of the three",
+      },
+      {
+        run: "werk kill 8f2c1b04e9d1 --intent force",
+        note: "the hardest of the three",
+      },
       { run: "werk kill", note: "pick from a list" },
     ],
     notes:
-      "The record stays until it is removed; kill stops the process, not the session.",
+      "Killing stops the process. The session's record stays until " +
+      "`werk remove` takes it away.",
   });
   kill
     .addArgument(sessionArgument())
     .addOption(
-      new Option("--intent <INTENT>", "how hard to ask")
+      new Option("--intent <INTENT>", "how hard to ask; gentlest first")
         .choices(INTENTS)
         .default("terminate"),
     )

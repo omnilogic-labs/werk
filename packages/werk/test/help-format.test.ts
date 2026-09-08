@@ -14,6 +14,7 @@
 import { expect, test } from "bun:test";
 import type { Command } from "@commander-js/extra-typings";
 import { buildProgram } from "../src/app.js";
+import { JSON_FOOTER } from "../src/runtime/help.js";
 
 /** Every node of the tree, hidden commands included, as a person types it. */
 function walk(
@@ -87,7 +88,9 @@ function block(page: string, heading: string): string[] {
   return end === -1 ? rest : rest.slice(0, end);
 }
 
-const FOOTER = "Every command takes --json for machine-readable output.";
+// Read off the module that writes it, so rewording the sentence does not have
+// to be mirrored here.
+const FOOTER = JSON_FOOTER;
 
 test("every page shows its sections in the same order", () => {
   for (const [path, page] of pages()) {

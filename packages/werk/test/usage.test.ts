@@ -83,8 +83,14 @@ test("a rule that only shows up after the parse is answered the same way", async
     "--follow",
     "--claim-size",
   ]);
-  expect(text).toContain("error: ");
-  expect(text).toContain("opposite things");
+  // Read off the error lines rather than the whole page: the options table
+  // below names both flags too, so a page-wide match would pass on anything.
+  const problems = text
+    .split("\n")
+    .filter((line) => line.startsWith("error: "));
+  expect(problems.length).toBe(1);
+  expect(problems[0]).toContain("--follow");
+  expect(problems[0]).toContain("--claim-size");
   expect(text).toContain("Usage: werk attach");
   expect(code).toBe(EXIT_USAGE);
 });

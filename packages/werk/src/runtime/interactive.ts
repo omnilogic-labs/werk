@@ -124,7 +124,7 @@ export async function selectSession(
   options: PromptOptions = {},
 ): Promise<string> {
   if (!canPrompt(ctx))
-    throw new UsageError("a session is required when there is no terminal");
+    throw new UsageError("name a session; there is no terminal to pick one in");
   if (sessions.length === 0)
     throw new UsageError(
       "there are no sessions to choose from; `werk create` starts one",
@@ -157,7 +157,7 @@ export async function confirm(
   if (ctx.yes) return true;
   if (!canPrompt(ctx))
     throw new UsageError(
-      `${message} — there is no terminal to ask in; pass --yes`,
+      `${message} There is no terminal to ask in, so pass --yes.`,
     );
   return await answered<boolean>(
     (signal) =>

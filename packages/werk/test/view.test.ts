@@ -123,11 +123,11 @@ test("a wide cell straddling the right edge is dropped rather than half painted"
 test("the chrome names both grids while they differ and keeps the hint once they match", () => {
   const h = harness({ cols: 120, rows: 40 });
   h.view.paint(frame({ cols: 160, rows: 50 }));
-  expect(h.last()).toContain("session 160x50 · view 120x39");
+  expect(h.last()).toContain("session 160x50 · space 120x39");
   // Thirty-nine rows is the whole window less the chrome, so this grid matches.
   h.view.paint(frame({ cols: 120, rows: 39 }));
   expect(h.last()).not.toContain("session 120x39");
-  expect(h.last()).not.toContain("view 120x39");
+  expect(h.last()).not.toContain("space 120x39");
   expect(h.last()).toContain("Ctrl-] detaches");
   // The chrome keeps the fortieth row whether or not the grids agree.
   expect(painted(h.last()).get(40)).toBe(0);
@@ -155,7 +155,7 @@ test("a window change repaints the known grid without a new frame", () => {
   h.resize({ cols: 60, rows: 10 });
   h.view.refresh();
   expect(h.last()).toContain("\x1b[2J");
-  expect(h.last()).toContain("session 160x50 · view 60x9");
+  expect(h.last()).toContain("session 160x50 · space 60x9");
   const rows = painted(h.last());
   expect([...rows.keys()].filter((y) => y <= 9).length).toBe(9);
   for (const [y, count] of rows) if (y <= 9) expect(count).toBe(60);
@@ -163,7 +163,7 @@ test("a window change repaints the known grid without a new frame", () => {
   h.resize({ cols: 40, rows: 10 });
   h.view.refresh();
   expect(h.last()).toContain("Ctrl-] detaches");
-  expect(h.last()).not.toContain("view 40x9");
+  expect(h.last()).not.toContain("space 40x9");
 });
 test("a session grid smaller than the window is painted top left and padded", () => {
   const h = harness({ cols: 120, rows: 40 });
@@ -171,7 +171,7 @@ test("a session grid smaller than the window is painted top left and padded", ()
   const rows = painted(h.last());
   expect([...rows.keys()].filter((y) => y <= 24)).toHaveLength(24);
   expect(h.last()).toContain("\x1b[0m\x1b[K");
-  expect(h.last()).toContain("session 80x24 · view 120x39");
+  expect(h.last()).toContain("session 80x24 · space 120x39");
 });
 test("the cursor is homed inside the window and hidden outside it", () => {
   const inside = harness({ cols: 120, rows: 40 });
@@ -188,7 +188,7 @@ test("the cursor is homed inside the window and hidden outside it", () => {
 test("holding the size drops the grid sizes while a resize is in flight, and keeps the hint", () => {
   const h = harness({ cols: 120, rows: 40 }, state({ holdsSize: true }));
   h.view.paint(frame({ cols: 160, rows: 50 }));
-  expect(h.last()).not.toContain("view 120x39");
+  expect(h.last()).not.toContain("space 120x39");
   expect(h.last()).not.toContain("session 160x50");
   expect(h.last()).toContain("Ctrl-] detaches");
   // The chrome costs its row whoever holds the size.
@@ -197,22 +197,22 @@ test("holding the size drops the grid sizes while a resize is in flight, and kee
   expect(rows.get(40)).toBe(0);
   h.set({ holdsSize: false });
   h.view.refresh();
-  expect(h.last()).toContain("session 160x50 · view 120x39");
+  expect(h.last()).toContain("session 160x50 · space 120x39");
 });
 test("the chrome says which session this is, how to leave, and why the grid is not this attachment's to set", () => {
   const session = { cols: 160, rows: 50 },
     area = { cols: 120, rows: 39 },
     named = (o: Partial<ViewState> = {}) => state({ name: "demo", ...o });
   expect(statusText(session, area, named())).toBe(
-    "demo · Ctrl-] detaches · session 160x50 · view 120x39 · --claim-size to take it",
+    "demo · Ctrl-] detaches · session 160x50 · space 120x39 · --claim-size to take it",
   );
   // No name yet, so the line opens on the hint rather than on an empty part.
   expect(statusText(session, area, state())).toBe(
-    "Ctrl-] detaches · session 160x50 · view 120x39 · --claim-size to take it",
+    "Ctrl-] detaches · session 160x50 · space 120x39 · --claim-size to take it",
   );
   // A read-only attachment asked for no input, so it is not offered the size.
   expect(statusText(session, area, named({ writable: false }))).toBe(
-    "demo · Ctrl-] detaches · read-only · session 160x50 · view 120x39",
+    "demo · Ctrl-] detaches · read-only · session 160x50 · space 120x39",
   );
   expect(statusText(session, area, named({ follow: true }))).toEndWith(
     "· following",

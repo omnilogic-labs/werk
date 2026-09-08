@@ -4,8 +4,9 @@
  * `werk completion <shell>` prints a script to install once. That script then
  * calls the hidden `werk complete` on every TAB, which answers in cobra's
  * `__complete` protocol. Splitting it that way is what lets a candidate be
- * looked up rather than baked in — the shell asks werk what a live session is
- * called, so the answer is right without the script being regenerated.
+ * looked up rather than written into the script: the shell asks werk what a
+ * live session is called, so the answer is right without the script being
+ * generated again.
  *
  * `complete` is hidden because it is not for people: it is a wire format.
  */
@@ -41,9 +42,9 @@ export function buildCompletion(): Command {
     name: "completion",
     summary: "Print a shell completion script",
     description:
-      "Print the script a shell installs once. That script then asks werk on " +
-      "every TAB, so a candidate is looked up rather than baked in and the " +
-      "answers stay right without the script being regenerated.",
+      "Print the script a shell installs once. From then on the shell asks " +
+      "werk on every TAB, so the candidates come from the running command " +
+      "tree and stay right without the script being generated again.",
     examples: Object.values(SCRIPTS).map((script) => ({
       run: script.install,
     })) as [{ run: string }, ...{ run: string }[]],
@@ -52,8 +53,10 @@ export function buildCompletion(): Command {
     command.addCommand(
       defineCommand({
         name: shell,
-        summary: `Completion script for ${shell}`,
-        description: `Print the ${shell} completion script.`,
+        summary: `Print the ${shell} completion script`,
+        description:
+          `Print the completion script for ${shell}. Install it once; from ` +
+          `then on the shell asks werk for candidates on every TAB.`,
         examples: [
           { run: script.install, note: "install it" },
           { run: `werk completion ${shell}`, note: "print it" },
@@ -84,13 +87,13 @@ export function buildComplete(): Command {
   return (
     defineCommand({
       name: "complete",
-      summary: "Emit completion candidates for a partly typed command line",
+      summary: "Answer a shell with the candidates for a partly typed line",
       description:
-        "The machine side of completion: the installed shell script calls " +
-        "this on every TAB and it answers in cobra's __complete protocol. " +
+        "The machine side of completion. The installed shell script calls " +
+        "this on every TAB, and it answers in cobra's __complete protocol. " +
         "It is a wire format rather than something a person types.",
       usage: "-- <words...>",
-      examples: [{ run: "werk complete -- werk attach ''" }],
+      examples: [{ run: "werk complete -- attach ''" }],
     })
       // The words are another command line, so none of it is werk's to reject:
       // whatever the user has typed so far is data to be described, not parsed.

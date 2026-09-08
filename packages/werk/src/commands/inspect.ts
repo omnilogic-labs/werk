@@ -131,7 +131,7 @@ async function inspect(ctx: WerkContext, doctor: boolean) {
 export function buildInfo(): Command {
   return defineCommand({
     name: "info",
-    summary: "Print the resolved paths and what the daemon reports",
+    summary: "Print where werk keeps things and what the daemon says",
     description:
       "Where werk keeps things, and what a daemon that is already listening " +
       "says about itself.",
@@ -140,21 +140,25 @@ export function buildInfo(): Command {
       { run: "werk info --json | jq -r .lockMechanism" },
     ],
     notes:
-      "Read-only: it reports a daemon that is listening and never starts one.",
+      "info only reads. It reports a daemon that is already listening and " +
+      "never starts one.",
   }).action(withContext((ctx) => inspect(ctx, false)));
 }
 export function buildDoctor(): Command {
   return defineCommand({
     name: "doctor",
-    summary: "Check the local daemon's health and show the log tail",
+    summary: "Check the local daemon and print the end of its log",
     description:
-      "info plus the checks that cost something — a lock probe, a free-space " +
-      "call, a terminfo lookup — and the tail of the daemon log. This is the " +
-      "one to paste into a bug report.",
+      "Everything `werk info` prints, plus the checks that cost something: a " +
+      "lock probe, a free-space call and a terminfo lookup. It ends with the " +
+      "last lines of the daemon log. This is the one to paste into a bug " +
+      "report.",
     examples: [
       { run: "werk doctor" },
       { run: "werk doctor --json > report.json" },
     ],
-    notes: "Read-only: it takes no lock it does not immediately release.",
+    notes:
+      "doctor only reads. The lock it probes is released as soon as it has " +
+      "the answer.",
   }).action(withContext((ctx) => inspect(ctx, true)));
 }

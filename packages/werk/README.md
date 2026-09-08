@@ -34,21 +34,28 @@ live output; use `logs` for retained text.
 
 At most one attachment sets the session grid, and it need not be this one. A
 writable attach takes the size when nobody holds it and then resizes the session
-to the local window. `--read-only` requests no input grant and leaves the size
+to the local window less the row of chrome described below. `--read-only`
+requests no input grant and leaves the size
 where it is. `--follow` declines the size even with input. `--claim-size` takes
 it from whoever holds it, and attaches without it rather than failing when the
 daemon's policy refuses the takeover; the two flags contradict each other and
 cannot be combined.
 
+The bottom local row is werk's rather than the session's. It always names the
+session, the key that detaches, and whether the attachment is read-only, and a
+window too narrow for all of that keeps the name and the key. The session grid
+is therefore the window less one row, which is also the size a size-holding
+attachment asks for; only a window one row tall gives the row up, having nothing
+left to frame.
+
 While this attachment does not set the grid the two can differ, so the view
-clips: rows and columns outside the window are not painted, a wide glyph
+clips: rows and columns outside the area are not painted, a wide glyph
 straddling the right edge is dropped, a smaller grid is painted top left, the
-cursor is hidden while it sits outside the window, and the screen is cleared
-whenever either grid changes so that no cell of the larger one lingers. The
-bottom local row carries a status line for as long as the grids differ, giving
-both sizes, whether the attachment is read-only and what would take the size; it
-goes away as soon as they match. Nobody need hold the size at all, and a session
-whose holder has left keeps the grid it had until something takes it.
+cursor is hidden while it sits outside the area, and the screen is cleared
+whenever either grid changes so that no cell of the larger one lingers. For as
+long as they differ the bottom row also gives both sizes and what would take the
+size. Nobody need hold the size at all, and a session whose holder has left
+keeps the grid it had until something takes it.
 
 Input is pipelined rather than round-trip bound: the CLI keeps sending until 32
 input requests or 64 KiB are unacknowledged, pauses stdin at that bound, and

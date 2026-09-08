@@ -2,9 +2,9 @@
  * What werk thinks it has been told, and who told it.
  *
  * A value on its own is not much use when six layers can supply it, so every
- * subcommand here carries the layer as well as the value. `list` is the one that
- * matters: it is how someone finds out that the repository's `.werk/config.toml`
- * is quietly beating the log level they exported.
+ * subcommand here carries the layer as well as the value. `list` is the one
+ * that matters: it is how someone finds out which layer won a key, such as an
+ * exported `WERK_LOG_LEVEL` overriding the repository's `.werk/config.toml`.
  */
 import { existsSync } from "node:fs";
 import { Argument, type Command } from "@commander-js/extra-typings";
@@ -49,10 +49,11 @@ const LAYER_LABEL: Record<LayerName, string> = {
 export function buildConfig(): Command {
   const config = defineCommand({
     name: "config",
-    summary: "Show the resolved configuration and where it came from",
+    summary: "Show every setting werk is using, and where it came from",
     description:
       "What werk thinks it has been told, and who told it. Six layers can " +
-      "supply a value, so every subcommand here carries the layer beside it.",
+      "supply a value, so every subcommand here names the layer a value came " +
+      "from.",
     examples: [
       { run: "werk config list", note: "every setting and its layer" },
       { run: "werk config get runtimeDir" },
@@ -62,11 +63,12 @@ export function buildConfig(): Command {
 
   const list = defineCommand({
     name: "list",
-    summary: "Every setting, its value, and the layer it came from",
+    summary: "Print every setting, its value, and where it came from",
     description:
-      "Every setting werk has, its resolved value, and which of the six " +
-      "layers supplied it. This is how a repository config file quietly " +
-      "beating an exported variable becomes visible.",
+      "Every setting werk has, the value in force, and which of the six " +
+      "layers supplied it. Use it to see which layer won: an exported WERK_ " +
+      "variable beats a config file in the repository, and a command-line " +
+      "flag beats both.",
     examples: [
       { run: "werk config list" },
       {
@@ -100,10 +102,10 @@ export function buildConfig(): Command {
 
   const get = defineCommand({
     name: "get",
-    summary: "One setting's value",
+    summary: "Print one setting's value",
     description:
-      "Print one setting's resolved value. A person piping this wants the " +
-      "value alone, so the layer it came from stays in the machine shape.",
+      "Print the value in force for one setting, and nothing else, so it can " +
+      "be piped into another command. --json adds the layer it came from.",
     examples: [
       { run: "werk config get runtimeDir" },
       { run: "werk config get scrollbackBytes --json | jq .layer" },
@@ -128,11 +130,12 @@ export function buildConfig(): Command {
 
   const sources = defineCommand({
     name: "sources",
-    summary: "Every layer werk consults, lowest precedence first",
+    summary: "Print every layer werk consults, weakest first",
     description:
-      "Every layer werk consults, lowest precedence first, and whether it is " +
-      "in use. Why a layer is empty is the useful half: a file that is not " +
-      "there reads very differently from one that lost every key.",
+      "The six layers, weakest first, and what each of them is doing. An " +
+      "empty layer says why it is empty: a config file that does not exist is " +
+      "a different problem from one that exists and was overridden on every " +
+      "key.",
     examples: [
       { run: "werk config sources" },
       { run: "werk config sources --json" },
@@ -188,10 +191,11 @@ export function buildConfig(): Command {
 
   const paths = defineCommand({
     name: "path",
-    summary: "The config files werk reads, whether or not they exist",
+    summary: "Print the config files werk reads",
     description:
-      "The config files werk reads, whether or not they exist, so there is " +
-      "somewhere to create one.",
+      "Where a config file would be read from, whether or not one is there, " +
+      "so there is somewhere to create one. The user file always has a path; " +
+      "the project file only exists inside a repository.",
     examples: [
       { run: "werk config path" },
       { run: "$EDITOR \"$(werk config path --json | jq -r '.[0].path')\"" },

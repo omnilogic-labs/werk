@@ -293,12 +293,15 @@ viewer, and input and resize on a record with no live process are refused as
 `attach --read-only` requests no input permission and leaves the session grid
 alone; `attach --follow` declines the grid even with input, and
 `attach --claim-size` takes it from whoever holds it, attaching without it when
-the daemon refuses. `--follow` and `--claim-size` cannot be combined. Whenever
+the daemon refuses. `--follow` and `--claim-size` cannot be combined. The CLI
+spends the bottom local row on a status line of its own, naming the session, the
+key that detaches and whether the attachment is read-only; the session grid gets
+the window less that row, and only a window one row tall gives it up. Whenever
 the attachment is not the one setting the grid, the CLI clips the session grid
-to the local window, clears on any change of either, and spends the bottom row
-on a status line naming both sizes for as long as they differ. Input is
-pipelined: stdin pauses once 32 unacknowledged input requests or 64 KiB are in
-flight and resumes as that window drains.
+to that area, clears on any change of either grid, and the status line also
+names both sizes and what would take the size for as long as they differ. Input
+is pipelined: stdin pauses once 32 unacknowledged input requests or 64 KiB are
+in flight and resumes as that window drains.
 
 `logs --history` reads retained history; it is not a complete durable output
 log. `info` prints the resolved paths, the lock mechanism, the recorded daemon

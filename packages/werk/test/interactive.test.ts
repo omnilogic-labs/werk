@@ -246,7 +246,7 @@ for (const command of ["attach", "kill", "logs", "remove"])
     );
     expect(outcome.timedOut).toBe(false);
     expect(outcome.code).toBe(2);
-    expect(outcome.stderr).toMatch(/session is required/);
+    expect(outcome.stderr).toMatch(/name a session/);
     // Refusing happens before anything connects, so no daemon was started to
     // serve a command that was never going to run.
     expect(await fs.readdir(dir)).toEqual([]);

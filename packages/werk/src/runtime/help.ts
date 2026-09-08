@@ -158,11 +158,19 @@ function suppressEmptyDefault(text: string, option: Option): string {
 const LONG_ONLY_LEAD = "    ";
 
 /**
- * The footer, which `app.ts` registers once on the root so it reaches every page
- * in the tree.
+ * The last line of every page.
  *
  * `--json` is a fact about the command someone is about to run rather than about
- * werk in general, so it belongs at the foot of that command's own page.
+ * werk in general, so it belongs at the foot of that command's own page. It is
+ * exported so `help-format.test.ts` can assert that the line is there without
+ * pinning the words, which move with the product.
+ */
+export const JSON_FOOTER =
+  "Every command accepts --json; those that return a result print it as JSON.";
+
+/**
+ * The footer, which `app.ts` registers once on the root so it reaches every page
+ * in the tree.
  */
 export function helpFooter(command: Command): string {
   const lines: string[] = [];
@@ -170,7 +178,7 @@ export function helpFooter(command: Command): string {
     lines.push(
       `Run '${[...ancestry(command), command.name()].join(" ")} <COMMAND> --help' for more on a command.`,
     );
-  lines.push("Every command takes --json for machine-readable output.");
+  lines.push(JSON_FOOTER);
   return `\n${lines.join("\n")}`;
 }
 

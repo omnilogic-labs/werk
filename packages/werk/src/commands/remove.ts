@@ -15,10 +15,10 @@ export function buildRemove(): Command {
   const remove: Command = defineCommand({
     name: "remove",
     aliases: ["rm"],
-    summary: "Remove a retained session record",
+    summary: "Forget a session that has stopped",
     description:
-      "Forget a session. The record and its saved screen go; the process is " +
-      "expected to have stopped already.",
+      "Forget a session. werk deletes its record and its saved screen. The " +
+      "process is expected to have stopped already.",
     examples: [
       { run: "werk remove 8f2c1b04e9d1" },
       { run: "werk remove", note: "pick from a list" },

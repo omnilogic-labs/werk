@@ -18,7 +18,7 @@ import { result } from "../runtime/output.js";
 export function buildLogs(): Command {
   const logs: Command = defineCommand({
     name: "logs",
-    summary: "Print a session's retained screen, or its history",
+    summary: "Print what a session has on screen, or what it has kept",
     description:
       "Read what a session has on screen now, or what it has kept. The value " +
       "is text, so --json gives back a JSON string carrying the same bytes.",
@@ -28,11 +28,15 @@ export function buildLogs(): Command {
       { run: "werk logs", note: "pick from a list" },
     ],
     notes:
-      "History is the daemon's scrollback budget, not a complete output log.",
+      "History is whatever fits in the daemon's scrollback budget. It is not " +
+      "a complete log of everything the session printed.",
   });
   logs
     .addArgument(sessionArgument())
-    .option("--history", "read the retained history rather than the screen")
+    .option(
+      "--history",
+      "print the kept history rather than the current screen",
+    )
     .action(
       withContext(async (ctx, opts: { history?: boolean }, given?: string) => {
         return await withSession(

@@ -225,7 +225,7 @@ test("following and claiming the size are refused together, before connecting", 
     buildAttach().parseAsync(["s1", "--follow", "--claim-size"], {
       from: "user",
     }),
-  ).rejects.toThrow("--follow and --claim-size ask for opposite things");
+  ).rejects.toThrow(/--follow.*--claim-size/);
 });
 test("kill offers exactly the intents the protocol has", () => {
   const intent = buildKill().options.find((o) => o.long === "--intent");

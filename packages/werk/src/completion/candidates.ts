@@ -265,11 +265,14 @@ function commandCandidates(
 ): Candidate[] {
   const candidates: Candidate[] = [];
   for (const child of command.createHelp().visibleCommands(command)) {
-    candidates.push({ value: child.name(), description: child.description() });
+    // The one-line summary, not the paragraph: a completion menu has one row
+    // per candidate, and `description()` is the whole page-opening explanation.
+    const summary = child.summary() || child.description();
+    candidates.push({ value: child.name(), description: summary });
     if (partial !== "")
       for (const alias of child.aliases())
         if (alias.startsWith(partial))
-          candidates.push({ value: alias, description: child.description() });
+          candidates.push({ value: alias, description: summary });
   }
   return candidates;
 }

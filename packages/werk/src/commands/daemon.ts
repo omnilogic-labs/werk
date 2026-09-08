@@ -70,7 +70,7 @@ async function serve(ctx: WerkContext): Promise<void> {
 export function buildDaemon(): Command {
   const daemon = defineCommand({
     name: "daemon",
-    summary: "Run and inspect the session daemon",
+    summary: "Run the session daemon yourself",
     description:
       "The daemon that owns the PTYs. The CLI starts one for you when a " +
       "command needs it, so this is here for an operator who would rather " +
@@ -80,10 +80,10 @@ export function buildDaemon(): Command {
   daemon.addCommand(
     defineCommand({
       name: "serve",
-      summary: "Serve the daemon in this process until it is signalled",
+      summary: "Run the daemon in this process until it is signalled",
       description:
-        "Serve the daemon in this process, in the foreground, until it is " +
-        "signalled. This is what systemd or launchd is pointed at.",
+        "Runs in the foreground and does not return until it is signalled. " +
+        "This is what systemd or launchd is pointed at.",
       examples: [
         { run: "werk daemon serve" },
         { run: "werk daemon serve --log-level debug" },

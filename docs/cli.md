@@ -16,20 +16,20 @@ the rest.
 
 ## The command tree
 
-| Command                 | What it does                                                     |
-| ----------------------- | ---------------------------------------------------------------- |
-| `create -- COMMAND ...` | Start a session running a command, in a new workspace            |
-| `list` (`ls`)           | List sessions                                                    |
-| `attach [session]`      | Attach to a session; Ctrl-] detaches                             |
-| `logs [session]`        | Print a session's retained screen, or its history                |
-| `kill [session]`        | Ask a session's process to stop                                  |
-| `remove` (`rm`)         | Remove a retained session record                                 |
-| `watch`                 | Print daemon events as JSON lines until interrupted              |
-| `info`                  | Print the resolved paths and what the daemon reports             |
-| `doctor`                | Check the local daemon's health and show the log tail            |
-| `config`                | `list`, `get <key>`, `sources`, `path`                           |
-| `completion`            | `bash`, `zsh`, `fish` — print a shell completion script          |
-| `daemon`                | `serve` — serve the daemon in this process until it is signalled |
+| Command                 | What it does                                                  |
+| ----------------------- | ------------------------------------------------------------- |
+| `create -- COMMAND ...` | Start a session running a command, in a new workspace         |
+| `list` (`ls`)           | List sessions                                                 |
+| `attach [session]`      | Go back to a running session; Ctrl-] detaches                 |
+| `logs [session]`        | Print what a session has on screen, or what it has kept       |
+| `kill [session]`        | Ask a session's process to stop                               |
+| `remove` (`rm`)         | Forget a session that has stopped                             |
+| `watch`                 | Print daemon events as JSON lines until interrupted           |
+| `info`                  | Print where werk keeps things and what the daemon says        |
+| `doctor`                | Check the local daemon and print the end of its log           |
+| `config`                | `list`, `get <key>`, `sources`, `path`                        |
+| `completion`            | `bash`, `zsh`, `fish`: print a shell completion script        |
+| `daemon`                | `serve`: run the daemon in this process until it is signalled |
 
 One more is accepted and not listed. `complete` answers the shell completion
 protocol and is a wire format rather than something a person types.
@@ -37,8 +37,15 @@ protocol and is a wire format rather than something a person types.
 Help drills down: `werk --help` lists the commands, `werk config --help` lists
 that command's subcommands, and `werk config get --help` describes one leaf.
 Every node repeats the global flags under a **Global Options** heading, because
-they are accepted after a command name as well as before it. Every command ends
-its help with worked examples.
+they are accepted after a command name as well as before it. Every command's
+page carries worked examples, between its description and its arguments.
+
+Summaries and descriptions are written to different grammars, which is what
+makes a help page read evenly. A command's summary is an imperative sentence
+starting with a capital and carrying no full stop, because it stands on its own
+line in the parent's command list and again in a shell completion menu. An
+option's or an argument's description is a lowercase fragment with no full stop,
+because it is read as a continuation of the flag beside it.
 
 A command is built from a spec rather than a chain of calls — see
 `packages/werk/src/commands/define.ts`. The spec carries the one-line summary
@@ -55,14 +62,14 @@ after every edit to it stops being read.
 
 | Flag                   | Effect                                             |
 | ---------------------- | -------------------------------------------------- |
-| `--json`               | Emit machine-readable JSON instead of text         |
+| `--json`               | Print JSON instead of text                         |
 | `--runtime-dir <PATH>` | Where the daemon socket and endpoint live          |
 | `--state-dir <PATH>`   | Where checkpoints, logs and the daemon record live |
 | `--log-level <LEVEL>`  | Daemon log level: `error`, `warn`, `info`, `debug` |
-| `--no-input`           | Never prompt; fail instead of asking               |
-| `-y`, `--yes`          | Answer yes to confirmations                        |
-| `--color`              | Force colour output                                |
-| `--no-color`           | Disable colour output                              |
+| `--no-input`           | Fail instead of prompting                          |
+| `-y`, `--yes`          | Answer yes to every confirmation                   |
+| `--color`              | Always use colour                                  |
+| `--no-color`           | Never use colour                                   |
 | `-V`, `--version`      | Print the version and exit                         |
 
 These are lifted to the front of the argv before parsing, so they mean the same
@@ -268,16 +275,16 @@ truecolour), then from a `TERM` ending in `-256color`, and otherwise 16 colours.
 `werk config` shows what werk thinks it has been told and who told it.
 
 ```sh
-werk config list      # every setting, its value, and the layer it came from
+werk config list      # Print every setting, its value, and where it came from
 werk config get logLevel
-werk config sources   # every layer, and why an empty one is empty
-werk config path      # the files werk reads, whether or not they exist
+werk config sources   # Print every layer werk consults, weakest first
+werk config path      # Print the config files werk reads
 ```
 
 ### The layers
 
-Six, lowest precedence first. A later layer overrides an earlier one key by key,
-and `config list` reports the winning layer for each key separately — a layered
+Six, weakest first. A later layer overrides an earlier one key by key, and
+`config list` reports the winning layer for each key separately — a layered
 configuration nobody can interrogate is worse than a flat one.
 
 | Layer          | Where it comes from                                |

@@ -98,3 +98,15 @@ different shape and move everything that meets it.
 British spelling, plain sentences, no filler. Tables where a table is genuinely
 clearer than a list. Prettier formats markdown on defaults — run `bun run
 format` before committing.
+
+Everything a person reads is prose held to the same standard: the strings the
+CLI prints, the documents in `docs/`, the README files, commit messages and pull
+request descriptions. Use the `plain-writing` skill on all of it. Read it before
+writing, follow it, and run its revision pass over the draft. Where it and this
+section disagree, this section wins.
+
+The skill will not always be available. It is not part of this repository. It
+may be linked into `~/.claude/skills`, where it can be invoked by name; it may
+be somewhere on disk to be read as files; it may not be on the machine at all.
+When it is missing, write to this section instead and say in your report that
+the skill was not available. No work waits on it.

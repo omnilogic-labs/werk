@@ -119,38 +119,36 @@ export function buildCreate(): Command {
     name: "create",
     summary: "Start a session running a command",
     description:
-      "Start a command under the daemon and leave it running, in a workspace " +
-      "of its own: a git worktree of the repository you are standing in, on a " +
-      "new branch. The command comes after --, and werk does not parse it, so " +
-      "the child keeps its own flags. Nothing is attached to: the session " +
-      "outlives the terminal that started it and `werk attach` goes back to it.",
+      "Start a command under the daemon and leave it running. It gets a " +
+      "workspace of its own: a git worktree of the repository you are standing " +
+      "in, on a new branch. Put the command after --. werk does not parse " +
+      "anything after that, so the child keeps its own flags. create does not " +
+      "attach, so the session outlives the terminal that started it and " +
+      "`werk attach` goes back to it.",
     usage: "[options] -- COMMAND [ARGS...]",
     examples: [
       {
         run: "werk create -- /bin/sh",
-        note: "a shell in a workspace, both named for you",
+        note: "a shell in a new workspace; werk names the session and the workspace",
       },
       { run: "werk create --name demo --label project=werk -- claude" },
       { run: "werk create --scrollback 2000000 -- npm run dev" },
       {
         run: "werk create --workspace fix-login -- claude",
-        note: "name the workspace, and the branch, yourself",
+        note: "choose the workspace name, which is also the branch name",
       },
     ],
     requires: [
       {
-        need: "create needs a command to run, after --",
+        need: "name the command to run after --, as in `werk create -- claude`",
         met: () => childCommand().length > 0,
       },
     ],
   })
-    .option(
-      "--name <NAME>",
-      "name the session instead of taking a generated one",
-    )
+    .option("--name <NAME>", "name the session; werk generates one otherwise")
     .option(
       "--label <KEY=VALUE>",
-      "attach a label, repeatable",
+      "attach a label; repeat the flag for more",
       collectLabel,
       {},
     )
@@ -158,13 +156,13 @@ export function buildCreate(): Command {
     .option("--rows <N>", "starting rows", wholeNumber("--rows"))
     .option(
       "--scrollback <BYTES>",
-      "page-memory budget for scrollback; above the daemon's cap fails",
+      "how many bytes of scrollback to keep; the daemon rejects a value over its limit",
       wholeNumber("--scrollback", " of bytes"),
     )
     .option("--cwd <PATH>", "which checkout to branch the workspace from")
     .option(
       "--workspace <NAME>",
-      "name the workspace instead of taking a generated one",
+      "name the workspace and its branch; werk generates one otherwise",
     )
     .action(
       withContext(

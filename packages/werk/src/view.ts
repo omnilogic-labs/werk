@@ -1,12 +1,11 @@
 /**
  * Painting a session grid into a local window that need not match it.
  *
- * werk frames the terminal it renders with one row of chrome on the bottom of
- * the local window: which session this is, and the key that ends the
- * attachment. That row is werk's, so the session grid gets the window minus it,
- * and an attachment that sets the grid asks for that smaller size rather than
- * the whole window. Only a window with a single row keeps it, because a
- * one row terminal has nothing left to frame.
+ * werk spends the bottom row of the local window on one row of chrome: which
+ * session this is, and the key that ends the attachment. That row is werk's, so
+ * the session grid gets the window less one row, and an attachment that sets the
+ * grid asks for that smaller size rather than for the whole window. A window one
+ * row tall gives the chrome up, because it has nothing left to frame.
  *
  * An attachment that does not hold the size sees whatever grid the holder set,
  * or the grid the session was created at when nobody holds it at all. The view
@@ -121,7 +120,7 @@ export function statusText(
     // One part, so a narrow window can never show a grid with nothing to
     // compare it to.
     parts.push(
-      `session ${session.cols}x${session.rows} · view ${area.cols}x${area.rows}`,
+      `session ${session.cols}x${session.rows} · space ${area.cols}x${area.rows}`,
     );
     // A read-only attachment asked for no input, so `--claim-size` is not
     // something it could act on and the size policy is not its business.

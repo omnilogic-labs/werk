@@ -97,7 +97,7 @@ export function buildProgram(
         run: "werk create --name demo -- claude",
         note: "start a session running claude",
       },
-      { run: "werk list", note: "what is running" },
+      { run: "werk list", note: "see what is running" },
       { run: "werk attach demo", note: `go back to it (${DETACH_HINT})` },
     ],
   });

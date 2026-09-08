@@ -33,7 +33,7 @@ export interface GlobalFlagSpec {
 export const GLOBAL_FLAGS: readonly GlobalFlagSpec[] = [
   {
     flags: "--json",
-    description: "emit machine-readable JSON instead of text",
+    description: "print JSON instead of text",
     takesValue: false,
   },
   {
@@ -53,18 +53,18 @@ export const GLOBAL_FLAGS: readonly GlobalFlagSpec[] = [
   },
   {
     flags: "--no-input",
-    description: "never prompt; fail instead of asking",
+    description: "fail instead of prompting",
     takesValue: false,
   },
   {
     flags: "-y, --yes",
-    description: "answer yes to confirmations",
+    description: "answer yes to every confirmation",
     takesValue: false,
   },
-  { flags: "--color", description: "force colour output", takesValue: false },
+  { flags: "--color", description: "always use colour", takesValue: false },
   {
     flags: "--no-color",
-    description: "disable colour output",
+    description: "never use colour",
     takesValue: false,
   },
 ];
