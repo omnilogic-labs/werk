@@ -20,7 +20,7 @@ today. This document has what a failure on each platform is probably worth.
 | Tier   | Platform | Lanes that run it                                   |
 | ------ | -------- | --------------------------------------------------- |
 | first  | Linux    | `native (ubuntu-latest)`, `musl`, `browser`, `soak` |
-| second | macOS    | `native (macos-15-intel)`                           |
+| second | macOS    | `native (macos-latest)`                             |
 | third  | Windows  | `native (windows-latest)`                           |
 
 Linux is the only platform with evidence beyond one lane, and the extra lanes
