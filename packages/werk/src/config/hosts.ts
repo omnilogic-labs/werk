@@ -85,16 +85,19 @@ const ARTICLE: Record<HostKind, string> = { local: "a", ssh: "an" };
 
 /**
  * One field of a host block, in the shape `FIELDS` uses for a setting, so there
- * is one way to describe a field in this codebase. There is no `env` here: the
- * environment rule is one variable per scalar key, and a collection of tables
- * has no spelling in it.
+ * is one way to describe a field in this codebase.
+ *
+ * The type parameter is what the field produces, the way `ConfigField<K>` in
+ * `schema.ts` is parameterised by `WerkConfig[K]`. Most fields produce a
+ * string, which is why that is the default and why no existing field had to say
+ * so.
  */
-export interface HostField {
+export interface HostField<T = string> {
   readonly describe: string;
   /** A host has no defaults, so a required field that is absent is refused. */
   readonly required: boolean;
   /** Raw as a file gave it; throws when it is not usable. */
-  parse(raw: unknown, key: string): string;
+  parse(raw: unknown, key: string): T;
 }
 
 function text(what: string) {
@@ -128,9 +131,17 @@ const provider: HostField = {
   parse: text("a name"),
 };
 
-type FieldsFor<K extends HostKind> = Readonly<
-  Record<Exclude<keyof Extract<Host, { kind: K }>, "kind">, HostField>
->;
+/**
+ * A mapped type rather than a `Record`, so each key's parser is tied to what
+ * that key holds: a field for `workspaceRoot` produces a string and one for a
+ * key holding a table produces a table, and neither can be given the other's
+ * parser by mistake.
+ */
+type FieldsFor<K extends HostKind> = {
+  readonly [P in Exclude<keyof Extract<Host, { kind: K }>, "kind">]: HostField<
+    NonNullable<Extract<Host, { kind: K }>[P]>
+  >;
+};
 
 /** Every key each kind of host takes, apart from `kind`, which selects the table. */
 export const HOST_FIELDS: { readonly [K in HostKind]: FieldsFor<K> } = {
@@ -210,7 +221,7 @@ function readHost(name: string, raw: unknown): Host {
       "HOST_INVALID",
       `kind must be one of ${HOST_KINDS.join(", ")}`,
     );
-  const fields: Readonly<Record<string, HostField>> =
+  const fields: Readonly<Record<string, HostField<unknown>>> =
     HOST_FIELDS[kind as HostKind];
   const takes = ["kind", ...Object.keys(fields)].join(", ");
   const a = ARTICLE[kind as HostKind];
