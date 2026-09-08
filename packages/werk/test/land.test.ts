@@ -49,6 +49,16 @@ const EXITS_AT_ONCE = [process.execPath, "-e", ""];
  */
 const INTERACTIVE = { CI: undefined } as const;
 
+/**
+ * Whether `script` gives a child a terminal on the arguments `spawnWerk` uses.
+ *
+ * util-linux takes `script -qec "<cmd>" /dev/null` and BSD, which is what macOS
+ * has, takes different ones. The three tests below that need werk to believe
+ * there is somebody at a terminal — an editor to open, a question to ask — skip
+ * where that invocation does not work, rather than the platforms being named.
+ */
+const PTY = await ptyAvailable();
+
 const box = await sandbox("wkl");
 afterAll(box.dispose);
 await writeFile(join(box.configDir, "config.toml"), 'agent = ""\n');
@@ -402,6 +412,7 @@ test(
 test(
   "the editor gets the drafted message, and what it leaves is used",
   async () => {
+    if (!PTY) return;
     const repo = await repository();
     await workspace(repo, "edited", { "e.txt": "e\n" }, "drafted subject");
     const landed = await runWerk({
@@ -432,6 +443,7 @@ test(
 test(
   "--no-edit keeps the draft without opening anything",
   async () => {
+    if (!PTY) return;
     const repo = await repository();
     await workspace(repo, "unedited", { "u.txt": "u\n" }, "kept as drafted");
     const landed = await runWerk({
@@ -563,7 +575,7 @@ test(
 test(
   "with nobody having chosen an agent, a terminal is asked once and the answer is kept",
   async () => {
-    if (!(await ptyAvailable())) return;
+    if (!PTY) return;
     const repo = await repository();
     await workspace(repo, "asked", { "q.txt": "q\n" }, "asked about an agent");
     // Its own config directory, so the file starts with nothing said about an
@@ -597,6 +609,24 @@ test(
       'agent = ""',
     );
     expect(await subjectOf(repo)).toBe("asked about an agent");
+  },
+  TIMEOUT,
+);
+
+test(
+  "--host is refused, because landing does not act on another machine",
+  async () => {
+    const repo = await repository();
+    await workspace(repo, "not-over-there");
+    const failed = await runWerk({
+      sandbox: box,
+      cwd: repo,
+      args: ["--host", "beast", "land", "not-over-there"],
+      timeoutMs: TIMEOUT,
+    });
+    expect(failed.code).toBe(2);
+    expect(failed.stderr).toContain("does not act on beast");
+    expect(await subjectOf(repo)).toBe("init");
   },
   TIMEOUT,
 );

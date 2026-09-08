@@ -380,7 +380,9 @@ the commits, the files, what is uncommitted and what is in the way. Under
 
 The message comes from one of three places, in this order:
 
-1. `--message TEXT`, which skips both of the others.
+1. `--message TEXT`, which skips both of the others, and the editor with them.
+   It does not stop an agent you have already configured from resolving a
+   conflict; it stops werk asking you for one you have not.
 2. The agent named by the `agent` setting, run one-shot with the prompt on its
    stdin and the diff in it.
 3. The workspace's own commits: the oldest subject, then a list of all of them.

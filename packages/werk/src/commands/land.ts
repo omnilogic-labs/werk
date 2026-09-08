@@ -80,10 +80,14 @@ async function chooseWorkspace(
     options: records.map((record): Choice<string> => ({
       value: record.name,
       label: record.name,
-      hint:
+      // The machine is named when it is not this one, because that is the row
+      // that will refuse: landing does not reach another machine yet.
+      hint: [
         record.parent === undefined
           ? "made on a detached HEAD"
           : `from ${record.parent}`,
+        ...(record.host === undefined ? [] : [`on ${record.host}`]),
+      ].join(", "),
     })),
   });
 }
@@ -249,7 +253,7 @@ export function buildLand(): Command {
       },
       {
         run: 'werk land fix-login -m "fix the login redirect"',
-        note: "your own message; no agent and no editor",
+        note: "your own message; no editor opens",
       },
     ],
     notes:
@@ -262,7 +266,7 @@ export function buildLand(): Command {
     .argument("[WORKSPACE]", "the workspace to land")
     .option(
       "-m, --message <TEXT>",
-      "the commit message; skips the agent and the editor",
+      "the commit message; no agent writes one and no editor opens",
     )
     .option("--no-edit", "use the drafted message without opening an editor")
     .option("--dry-run", "say what would land and change nothing")
@@ -279,6 +283,14 @@ export function buildLand(): Command {
           if (ctx.landRoute !== "parent")
             throw new UsageError(
               `landRoute is ${ctx.landRoute}, and werk can only land straight onto the parent; set landRoute to parent`,
+            );
+          // Every other command acts on the machine `--host` names. This one
+          // reads a branch out of the repository the caller is standing in, so
+          // there is no machine for the flag to choose, and accepting it
+          // silently would look like it had done something over there.
+          if (ctx.requestedHost !== undefined)
+            throw new UsageError(
+              `landing reads the workspace's branch out of the repository you are standing in, so it does not act on ${ctx.requestedHost}; run it without --host`,
             );
           const here = process.cwd();
           const toplevel = gitToplevel(here);
@@ -340,8 +352,13 @@ export function buildLand(): Command {
               `${survey.uncommitted} ${survey.uncommitted === 1 ? "file is" : "files are"} changed in ${name} and not committed, and will not land. Land the committed work?`,
             );
 
+          // `--message` says where the commit message comes from, not whether
+          // an agent may touch anything: one already configured still resolves
+          // a conflict. What it skips is being asked which agent to use,
+          // because somebody supplying their own message has not asked werk
+          // for one.
           const agent =
-            opts.message === undefined ? await resolveAgent(ctx) : "";
+            opts.message === undefined ? await resolveAgent(ctx) : ctx.agent;
           const command = agentCommand(agent);
           const progress = createProgress(ctx, "this machine");
           const cancelling = new AbortController();
