@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { SessionError, type ErrorCode } from "@werk/session";
 import { WorkspaceError, type WorkspaceErrorCode } from "@werk/workspace";
+import { HostError, type HostErrorCode } from "../src/host/types.js";
 import {
   CancelledError,
   UsageError,
@@ -118,4 +119,30 @@ test("the machine shape carries the workspace code and what git said", () => {
   const failed = new WorkspaceError("GIT_FAILED", "add failed", "fatal: told");
   expect(failed.detail).toBe("fatal: told");
   expect(errorPayload(failed).error.message).toBe("add failed: fatal: told");
+});
+
+/**
+ * The two tables name overlapping facts, and a caller cannot tell which layer
+ * noticed one: an unreachable machine fails in the probe when the workspace
+ * root has to be asked for, and in the transfer when a host block named one.
+ * Answering differently down the two paths would make the same machine look
+ * like a typing mistake or a timeout depending on how its block was written.
+ */
+test("a host error means the same thing whichever layer raised it", () => {
+  const pairs: readonly (readonly [HostErrorCode, WorkspaceErrorCode])[] = [
+    ["HOST_UNREACHABLE", "HOST_UNREACHABLE"],
+    ["HOST_AUTH_FAILED", "HOST_AUTH_DENIED"],
+    ["HOST_UNSUPPORTED", "HOST_UNSUPPORTED"],
+    ["HOST_BOOTSTRAP_FAILED", "HOST_BOOTSTRAP_FAILED"],
+  ];
+  for (const [host, workspace] of pairs)
+    expect(
+      exitCodeFor(new HostError(host, "asleep")),
+      `${host} and ${workspace} disagree`,
+    ).toBe(exitCodeFor(new WorkspaceError(workspace, "asleep")));
+});
+
+test("a machine that is asleep is not a usage mistake", () => {
+  expect(exitCodeFor(new HostError("HOST_UNREACHABLE", "asleep"))).toBe(7);
+  expect(exitCodeFor(new HostError("HOST_AUTH_FAILED", "refused"))).toBe(4);
 });

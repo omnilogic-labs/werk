@@ -103,16 +103,25 @@ const BY_CONFIG_CODE: Record<ConfigErrorCode, number> = {
 /**
  * A machine werk could not reach or could not put itself on.
  *
- * No new statuses. Every one of these is either "what werk was told is wrong" —
- * a name that does not resolve, a key that is not accepted, a machine werk has
- * no binary for, all of which need somebody to change something — or "the
- * daemon is not answering", which is what a caller retrying a remote command
- * already reads exit 7 as.
+ * No new statuses, and every row that names the same fact as one in
+ * `BY_WORKSPACE_CODE` carries the same status as it. The two tables are
+ * separate because the errors are raised by different layers, but a caller
+ * cannot tell which layer noticed: reaching a machine that is asleep fails in
+ * the probe when the workspace root has to be asked for, and in the transfer
+ * when the configuration already named one. Answering 2 down one path and 7
+ * down the other would make the same machine look like a typing mistake or a
+ * timeout depending on how a host block happened to be written.
+ *
+ * So none of these is a usage status. Nobody mistyped anything: the name
+ * resolved, the block parsed, and the machine is asleep, or refused werk, or is
+ * one werk has no binary for.
  */
 const BY_HOST_CODE: Record<HostErrorCode, number> = {
-  HOST_UNREACHABLE: EXIT_USAGE,
-  HOST_AUTH_FAILED: EXIT_USAGE,
-  HOST_UNSUPPORTED: EXIT_USAGE,
+  // The status that already means "nothing answered".
+  HOST_UNREACHABLE: 7,
+  // The same status a daemon uses for PERMISSION_DENIED: werk was not let in.
+  HOST_AUTH_FAILED: 4,
+  HOST_UNSUPPORTED: EXIT_FAILURE,
   HOST_BOOTSTRAP_FAILED: EXIT_FAILURE,
   HOST_DAEMON_MISSING: 7,
 };

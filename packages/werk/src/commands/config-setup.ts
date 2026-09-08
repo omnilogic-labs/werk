@@ -569,9 +569,10 @@ async function runProbe(
   if (probe === noProbe) {
     if (talk.talking)
       note(
-        `werk cannot reach a machine over ssh yet, so it did not ask ` +
-          `${destination} anything. Nothing about the machine would be stored ` +
-          `either way.`,
+        `setup does not ask a machine anything yet, so it did not ask ` +
+          `${destination}. werk does reach a machine over ssh — that is what ` +
+          `\`werk create --host\` does — and wiring it here is work nobody has ` +
+          `done. Nothing about the machine would be stored either way.`,
         "the probe",
         talk.on,
       );
