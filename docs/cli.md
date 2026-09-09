@@ -1135,8 +1135,8 @@ werk completion fish > ~/.config/fish/completions/werk.fish
 ```
 
 The script then calls the hidden `werk complete` on every TAB, so candidates are
-looked up rather than baked in: `werk attach flap<TAB>` asks the running daemon
-and answers `flappy-flippers`. `--label <TAB>` asks it for the label keys in use
+looked up rather than baked in: `werk attach flap<TAB>` asks the daemon on this
+machine and answers `flappy-flippers`. `--label <TAB>` asks it for the label keys in use
 the same way. Commands, aliases, flags, choice lists and positionals all come off
 the live commander tree the parser uses, so there is no second description of
 werk's shape to drift.
@@ -1146,14 +1146,27 @@ The wire format is cobra's `__complete` protocol: one
 `gh`, `docker` and `kubectl` all speak it, so the shell halves are a known
 quantity and carapace can bridge werk for free.
 
-Three properties hold and are tested:
+Four properties hold and are tested:
 
 - It never starts a daemon. Pressing TAB must not launch a background process,
   so the only route to a client is one that connects to a daemon already
   listening and returns nothing when there is none.
+- It never reaches another machine. Opening an ssh connection is far outside the
+  budget below and could prompt, so which machine the line acts on is settled
+  from the configuration alone.
 - It never takes longer than 150 ms. Connection and query share that budget, and
   running out is an empty list rather than an error.
 - It offers nothing after `--`, where the words belong to another program.
+
+What is offered is exactly what the command would accept, because `aliasOf`
+derives both: the candidates here and the aliases `resolveSession` matches a
+typed word against. One consequence is that a line acting on an ssh host, by
+`--host` or by `defaultHost`, gets no session candidates at all. Its sessions
+live on a daemon over there, and this machine's sessions are not a near answer:
+`werk attach` would resolve the typed name over there and refuse every name from
+here. How completion should learn what is running on another machine without
+reaching for it is
+[question 31](open-questions.md#31-how-does-completion-know-what-is-running-elsewhere).
 
 Nothing on this path throws: every failure is the empty reply, because an error
 message where a shell expects candidates would be offered to the user as one.

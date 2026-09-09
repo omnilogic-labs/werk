@@ -239,6 +239,17 @@ test("with no daemon there are no candidates, quickly, and nothing is started", 
   expect(existsSync(scratchDir.stateDir)).toBe(false);
   expect(await readdir(scratchDir.base)).toEqual([]);
 });
+test("a machine that is not this one is completed with nothing, not with this one's sessions", async () => {
+  // `reference` is set for an ssh host, and the daemon holding its sessions is
+  // over ssh where a TAB may not go. The local daemon is the wrong answer
+  // rather than a near one: `werk attach` would resolve the name over there and
+  // refuse every name from here.
+  const scratchDir = await scratch();
+  const remote = { ...scratchDir, reference: "beast" };
+  expect(await sessionCandidates("", remote)).toEqual([]);
+  expect(await labelCandidates("", remote)).toEqual([]);
+  expect(existsSync(scratchDir.runtimeDir)).toBe(false);
+});
 test("the label provider is as quiet as the session one", async () => {
   const scratchDir = await scratch();
   expect(await labelCandidates("", scratchDir)).toEqual([]);

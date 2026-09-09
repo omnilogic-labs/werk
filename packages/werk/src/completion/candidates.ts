@@ -18,9 +18,8 @@ import type {
   CommandUnknownOpts,
   Option,
 } from "@commander-js/extra-typings";
-import path from "node:path";
 import type { SessionInfo } from "@werk/session";
-import { workspaceAt } from "@werk/workspace";
+import { aliasOf } from "../session-alias.js";
 import { connectExistingDaemon } from "../runtime/daemon.js";
 import { summariseHost } from "../config/hosts.js";
 import {
@@ -62,6 +61,14 @@ async function withinBudget<T>(work: Promise<T>, fallback: T): Promise<T> {
 export async function liveSessions(
   ctx: CompletionContext,
 ): Promise<readonly SessionInfo[]> {
+  // Sessions on another machine are not offered, because they cannot be
+  // reached: the daemon holding them is over ssh, and a TAB may not open one.
+  // The local daemon's sessions are not the answer either — the command would
+  // resolve the typed name against the machine `--host` or `defaultHost`
+  // settles on, and refuse every name from this one. An empty list is the only
+  // honest reply until completion has a way to find out what is running over
+  // there without reaching for it.
+  if (ctx.reference !== undefined) return [];
   const lookup = (async () => {
     // No entry path: nothing on this route can spawn, so there is nothing for a
     // child process to be told to run.
@@ -88,24 +95,27 @@ export async function liveSessions(
  * Live sessions, by name, by workspace and by id.
  *
  * Everything `resolveSession` accepts is offered, or completion would suggest
- * a word the command then refuses, and refuse a word it never suggested. The
- * name and the workspace are short and are always offered. Ids are long and
+ * a word the command then refuses, and refuse a word it never suggested. That
+ * holds structurally rather than by inspection: `aliasOf` derives what is
+ * offered here and what `resolveSession` matches against, so one edit moves
+ * both.
+ *
+ * The name and the workspace are short and are always offered. Ids are long and
  * would double the length of every list, so they only appear once the caller
  * has typed something an id starts with — which is what happens when a
  * `werk list` id is pasted back.
  */
 export const sessionCandidates: CandidateProvider = async (partial, ctx) => {
   const sessions = await liveSessions(ctx);
-  const root = path.join(ctx.stateDir, "workspaces");
   const candidates: Candidate[] = [];
   for (const session of sessions) {
     const description = `${session.state} · ${session.argv.join(" ")}`;
-    if (session.name) candidates.push({ value: session.name, description });
-    const workspace = workspaceAt(root, session.cwd)?.name;
+    const alias = aliasOf(session, ctx.root, ctx.reference);
+    if (alias.name) candidates.push({ value: alias.name, description });
     // Offered only when it says something the name did not; a workspace named
     // after its session would otherwise be two identical rows.
-    if (workspace && workspace !== session.name)
-      candidates.push({ value: workspace, description });
+    if (alias.workspace && alias.workspace !== alias.name)
+      candidates.push({ value: alias.workspace, description });
   }
   if (partial !== "")
     for (const session of sessions)

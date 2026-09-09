@@ -25,7 +25,7 @@ import { buildKill, renderTermination } from "../src/commands/kill.js";
 import { renderOpen, waitTimeoutMs } from "../src/commands/edit.js";
 import { renderInspection, type Inspection } from "../src/commands/inspect.js";
 import { describeEndpoint, renderEndpoint } from "../src/commands/daemon.js";
-import { aliasesOf, resolveSession } from "../src/commands/session-argument.js";
+import { aliasesOf, resolveSession } from "../src/session-alias.js";
 import { listResult, sourcesResult } from "../src/commands/config.js";
 import { builtInDefaults, CONFIG_KEYS } from "../src/config/schema.js";
 import type { MergedConfig } from "../src/config/load.js";
@@ -485,6 +485,27 @@ test("aliases carry the workspace a session was started in", () => {
   ).toEqual([
     { id: "a1", name: "claude", workspace: "fix-login-a3f2b1c9" },
     { id: "a2", name: "claude", workspace: undefined },
+  ]);
+});
+test("a machine's own path grammar is not used on another machine's paths", () => {
+  // A posix root under a Windows client splits on the wrong separator, so the
+  // host is what says which grammar to read the strings with.
+  const info = (id: string, cwd: string) =>
+    ({ id, name: "claude", cwd }) as unknown as SessionInfo;
+  expect(
+    aliasesOf(
+      [info("a1", "/srv/werk/workspaces/werk-1234abcd/fix-login-a3f2b1c9")],
+      "/srv/werk/workspaces",
+      "beast",
+    ),
+  ).toEqual([{ id: "a1", name: "claude", workspace: "fix-login-a3f2b1c9" }]);
+});
+test("no root is no workspace, rather than one resolved against this process", () => {
+  // An empty root would resolve to the working directory, which can land on a
+  // two-part relative path and name a workspace that does not exist.
+  const info = { id: "a1", name: "claude", cwd: "anything" } as SessionInfo;
+  expect(aliasesOf([info], undefined)).toEqual([
+    { id: "a1", name: "claude", workspace: undefined },
   ]);
 });
 test("a session that is not there says so", () => {

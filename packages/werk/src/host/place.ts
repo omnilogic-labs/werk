@@ -67,6 +67,20 @@ export interface HostPlace {
 }
 
 /**
+ * A machine, named but not reached.
+ *
+ * `root` is absent where {@link HostPlace}'s is mandatory: the machine has not
+ * been asked, so an ssh host that has not written its `workspaceRoot` down has
+ * no answer yet.
+ */
+export interface ConfiguredPlace {
+  readonly name: string;
+  readonly host: Host;
+  readonly root?: string;
+  readonly reference?: string;
+}
+
+/**
  * Resolve which machine, open it if it is not this one, and find out where
  * workspaces go on it.
  *
@@ -83,6 +97,42 @@ export interface ReachOptions {
    * file against a scripted session and open no connection at all.
    */
   readonly open?: (options: HostSessionOptions) => HostSession;
+}
+
+/**
+ * Where a command would act, worked out from the configuration alone.
+ *
+ * {@link reachHost} answers the same question by opening the machine, which is
+ * more than tab completion may spend: a TAB must not ssh anywhere and must not
+ * start anything. This answers from the blocks in force instead, so it costs
+ * nothing and can be wrong only in the one way the configuration is silent
+ * about — an ssh host that has not said where its workspaces go has no root
+ * here, because werk cannot know a path on a machine it has not looked at.
+ *
+ * The `reference` is settled either way, because which machine a name refers to
+ * is a question the configuration answers on its own. A caller with a reference
+ * and no root knows the paths it has are not readable from here, which is the
+ * honest answer rather than the local root under another machine's name.
+ *
+ * Nothing here throws. An unreadable or unknown host is no answer at all, since
+ * the callers are completion providers, and a shell blocked on a TAB is owed a
+ * short empty reply rather than a diagnosis.
+ */
+export function placeFromConfig(ctx: WerkContext): ConfiguredPlace | undefined {
+  let resolved;
+  try {
+    resolved = hostFor(ctx);
+  } catch {
+    return undefined;
+  }
+  const { name, host } = resolved;
+  const root = workspaceRootFor(name, host, ctx.stateDir);
+  return {
+    name,
+    host,
+    ...(root === undefined ? {} : { root }),
+    ...(host.kind === "ssh" ? { reference: name } : {}),
+  };
 }
 
 export async function reachHost(

@@ -541,3 +541,37 @@ details out has already accepted a copy that can go stale. That is an argument,
 not a lean, and nobody has taken one. The two can also be combined, with the
 alias as the normal case and explicit fields for a host ssh knows nothing about,
 at the cost of two shapes of host entry to explain.
+
+## 31. How does completion know what is running elsewhere?
+
+`werk attach <TAB>` offers nothing when the line acts on an ssh host. The
+sessions are on a daemon over there, and completion may not open an ssh
+connection to ask it: the budget is 150 ms, and a TAB that hangs on a passphrase
+prompt is worse than a TAB that offers nothing. Offering this machine's sessions
+instead was tried and is wrong, because `werk attach` resolves the typed name on
+the host it acts on and refuses every name from here.
+
+So somebody working against a remote `defaultHost` completes commands, flags and
+host names, and types session names out in full. The options for fixing it:
+
+- **Cache what `list` last saw, per host.** Every `werk list` already fetches
+  exactly the right answer, so writing it down costs nothing and completion
+  reads a file. It is stale by however long since the last `list`, and offers a
+  session that has since exited. Whether a stale candidate is worse than no
+  candidate is not obvious: a wrong name fails at `attach` with a clear message.
+- **Let completion ssh, under a budget of its own.** Truthful and always
+  current, and it makes a keystroke open a network connection. `ControlMaster`
+  would make the second one fast, but the first still pays, and a host needing a
+  passphrase pays every time.
+- **Keep a record of sessions per host on this machine, written as they are
+  made.** The same shape as
+  [question 19](#19-where-does-the-record-of-a-workspace-live) for workspaces,
+  and it inherits that question's problems: a second machine's record knows
+  nothing, and nothing reconciles it when a session dies over there.
+- **Leave it.** Names are short and a person who made the session knows what it
+  is called.
+
+The lean is towards the cache, because `list` is the command a person runs
+before they attach, so the record would usually have been written seconds
+earlier. Nobody has taken that, and it wants question 19 answered first, since
+the two records would be the same record.

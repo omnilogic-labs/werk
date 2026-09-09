@@ -21,6 +21,19 @@ export interface CompletionContext {
    * completion that fell back to the flags alone, not a machine with no hosts.
    */
   hosts?: Readonly<Record<string, Host>>;
+  /**
+   * Where workspaces go on the machine this line would act on, when the
+   * configuration says. `placeFromConfig` settles it without reaching anything,
+   * so an ssh host that has not written its `workspaceRoot` down leaves it
+   * absent rather than making a TAB ssh for it.
+   */
+  root?: string;
+  /**
+   * The machine those paths are on, absent for this one. It decides the path
+   * grammar `workspaceAt` reads them with, so it travels with `root` or not at
+   * all.
+   */
+  reference?: string;
 }
 export type CandidateProvider = (
   partial: string,

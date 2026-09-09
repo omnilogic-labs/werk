@@ -11,7 +11,7 @@ import {
   Option,
 } from "@commander-js/extra-typings";
 import type { SessionInfo, SessionState } from "@werk/session";
-import { workspaceAt } from "@werk/workspace";
+import { aliasOf } from "../session-alias.js";
 import { withContext } from "./shared.js";
 import { defineCommand } from "./define.js";
 import { tableResult } from "../runtime/output.js";
@@ -114,7 +114,7 @@ export function buildList(): Command {
               sessions.map((s) => [
                 s.id.slice(0, 12),
                 s.name,
-                workspaceAt(place.root, s.cwd, place.reference)?.name ?? "",
+                aliasOf(s, place.root, place.reference).workspace ?? "",
                 stateText(s, paint),
                 age(s.createdAt),
                 s.argv.join(" "),

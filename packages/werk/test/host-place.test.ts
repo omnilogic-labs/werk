@@ -10,6 +10,7 @@
  * a repository in to prove nothing extra.
  */
 import { expect, test } from "bun:test";
+import path from "node:path";
 import { createStyles } from "../src/runtime/style.js";
 import { defaultRoles } from "@werk/palette";
 import type {
@@ -21,7 +22,11 @@ import type {
 } from "@werk/workspace";
 import type { WerkContext } from "../src/runtime/context.js";
 import { builtInHosts, type Host } from "../src/config/hosts.js";
-import { reachHost, workspaceMakerFor } from "../src/host/place.js";
+import {
+  placeFromConfig,
+  reachHost,
+  workspaceMakerFor,
+} from "../src/host/place.js";
 import type { HostSession } from "../src/host/session.js";
 import type { ProbeAnswer } from "../src/host/probe.js";
 import { createProgress, progressLine } from "../src/runtime/progress.js";
@@ -283,4 +288,48 @@ test("only a stage that has begun is worth a line, and the maker's own words sur
       "beast",
     ),
   ).toBe("sending the history to beast (sending 84 MiB)");
+});
+
+/* ------------------------------------------ the place, without reaching it */
+
+test("the configuration alone settles the local root, and names no machine", () => {
+  expect(placeFromConfig(context())).toEqual({
+    name: "local",
+    host: builtInHosts()["local"]!,
+    root: path.join("/state/werk", "workspaces"),
+  });
+});
+test("an ssh host is named even though where its workspaces go is unknown", () => {
+  // The reference is what stops a caller reading `beast`'s paths against this
+  // machine's root; the missing root is what stops it inventing one.
+  expect(
+    placeFromConfig(
+      context({ hosts: { ...builtInHosts(), beast }, defaultHost: "beast" }),
+    ),
+  ).toEqual({ name: "beast", host: beast, reference: "beast" });
+});
+test("an ssh host that wrote its workspace root down needs no probe for it", () => {
+  expect(
+    placeFromConfig(
+      context({ hosts: { ...builtInHosts(), rooted }, defaultHost: "rooted" }),
+    ),
+  ).toEqual({
+    name: "rooted",
+    host: rooted,
+    root: "/srv/werk/workspaces",
+    reference: "rooted",
+  });
+});
+test("a host nobody defined is no answer, rather than a thrown one", () => {
+  // Completion is the caller, and a shell blocked on a TAB is owed an empty
+  // reply rather than a diagnosis it would offer as a candidate.
+  expect(placeFromConfig(context({ defaultHost: "absent" }))).toBeUndefined();
+});
+test("--host is what settles the machine, over the default", () => {
+  const ctx = context({
+    hosts: { ...builtInHosts(), rooted },
+    defaultHost: "local",
+    requestedHost: "rooted",
+  });
+  expect(placeFromConfig(ctx)?.name).toBe("rooted");
 });

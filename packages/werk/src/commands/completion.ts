@@ -25,6 +25,7 @@ import { result } from "../runtime/output.js";
 import { loadWerkConfig } from "../config/load.js";
 import { NOTHING, writeReply } from "../completion/protocol.js";
 import { createContext, type GlobalFlags } from "../runtime/context.js";
+import { placeFromConfig } from "../host/place.js";
 import { roles } from "@werk/palette";
 import { childCommand, withContext } from "./shared.js";
 import { defineCommand } from "./define.js";
@@ -135,11 +136,20 @@ export function buildComplete(): Command {
           { entry: "", level: 0, theme: roles() },
           config,
         );
-        const reply = await completionFor(
-          self.parent ?? self,
-          typed,
-          ctx,
-        ).catch(() => NOTHING);
+        // Which machine the line would act on, and where workspaces go on it,
+        // settled from those same layers. `reachHost` answers this by opening
+        // the machine, which a TAB may not do, so the configuration answers it
+        // instead and an ssh host that never wrote its `workspaceRoot` down
+        // leaves the workspace aliases out rather than reading another
+        // machine's paths against this one's root.
+        const place = placeFromConfig(ctx);
+        const reply = await completionFor(self.parent ?? self, typed, {
+          ...ctx,
+          ...(place?.root === undefined ? {} : { root: place.root }),
+          ...(place?.reference === undefined
+            ? {}
+            : { reference: place.reference }),
+        }).catch(() => NOTHING);
         writeReply(reply, ctx.write);
       })
   );
