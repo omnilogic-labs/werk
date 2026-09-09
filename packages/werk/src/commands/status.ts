@@ -42,6 +42,7 @@ import {
 import { result, section, tableResult } from "../runtime/output.js";
 import { connectDaemon } from "../runtime/daemon.js";
 import { reachHost, type HostPlace } from "../host/place.js";
+import { hostFor } from "../config/hosts.js";
 import { UsageError } from "../runtime/exit.js";
 import type { WerkContext } from "../runtime/context.js";
 
@@ -184,29 +185,31 @@ export function buildStatus(): Command {
     )
     .action(
       withContext(async (ctx, opts: { attention: boolean }, given?: string) => {
-        const place = await reachHost(ctx);
-        if (place.session !== undefined) {
-          await place.close().catch(() => {});
+        // Refused before the machine is reached rather than after: reaching an
+        // ssh host installs werk over there and starts a daemon, and none of
+        // that is work this command was ever going to use.
+        const named = hostFor(ctx);
+        if (named.host.kind === "ssh")
           throw new UsageError(
             `a mapper reads the machine werk is running on, so status cannot ` +
-              `answer for ${place.name} yet`,
+              `answer for ${named.name} yet`,
           );
-        }
+        const place = await reachHost(ctx);
         const daemon = await connectDaemon(ctx, place.session);
         const { client } = daemon;
         try {
           const all = await client.list({});
-          const wanted =
+          // Resolved once, and before the filter, so that naming a session
+          // nothing answers to fails with that rather than with an empty table.
+          const asked =
             given === undefined
-              ? all
-              : all.filter(
-                  (s) =>
-                    s.id ===
-                    resolveSession(
-                      aliasesOf(all, place.root, place.reference),
-                      given,
-                    ),
+              ? undefined
+              : resolveSession(
+                  aliasesOf(all, place.root, place.reference),
+                  given,
                 );
+          const wanted =
+            asked === undefined ? all : all.filter((s) => s.id === asked);
           const access = localReadAccess();
           // The mappers are asked at once. They only read, they hold nothing,
           // and one that throws is already reported as no reading, so nothing
