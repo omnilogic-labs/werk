@@ -16,7 +16,7 @@ what to do when it is not installed.
 
 ## What this repo is right now
 
-A Bun workspace of eight private packages: six libraries, and two consumers
+A Bun workspace of nine private packages: seven libraries, and two consumers
 that use them.
 
 | package                   | what it does                                                                                                                                                                                                              |
@@ -26,6 +26,7 @@ that use them.
 | `@werk/session-daemon`    | Owns PTYs, persistence, and starting the local daemon.                                                                                                                                                                    |
 | `@werk/terminal-beamterm` | A second implementation of `RendererFactory`, painting onto a WebGL2 canvas instead of DOM rows. It shows that a different renderer can be substituted for the bundled one.                                               |
 | `@werk/workspace`         | Defines `WorkspaceMaker`, the interface for creating a workspace. One implementation makes a git worktree on this machine; another makes one over ssh. Under development and expected to change shape.                    |
+| `@werk/mapper`            | Says what a running process is doing, read out of the program's own files rather than off the screen. The interface is `Mapper` in `packages/mapper/src/types.ts`; `claude` is the one implementation.                    |
 | `@werk/palette`           | Catppuccin's four flavours mapped to werk's uses. The one place any colour is named.                                                                                                                                      |
 | `packages/werk`           | The session CLI, named `@werk/cli` in the workspace.                                                                                                                                                                      |
 | `examples/session-web`    | The local browser consumer.                                                                                                                                                                                               |

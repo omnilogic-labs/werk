@@ -276,6 +276,30 @@ test(
   TIMEOUT,
 );
 test(
+  "status answers with an array, and with one record when a session is named",
+  async () => {
+    const all = (await runJson("status")) as { id: string; mapper?: string }[];
+    expect(all).toBeArray();
+    expect(all).toHaveLength(1);
+    const one = (await runJson("status", session)) as {
+      id: string;
+      state: string;
+      mapper?: string;
+      status?: unknown;
+    };
+    expect(one.id).toBe(session);
+    expect(one.state).toBe("running");
+    // The session runs bun, which no mapper claims, so both the mapper and the
+    // reading are absent rather than present and empty.
+    expect(one.mapper).toBeUndefined();
+    expect(one.status).toBeUndefined();
+    // Nothing here is waiting on a person, so the filtered form is empty and is
+    // still an array.
+    expect(await runJson("status", "--attention")).toEqual([]);
+  },
+  TIMEOUT,
+);
+test(
   "kill and remove answer with what they did",
   async () => {
     expect(await runJson("kill", session)).toBeObject();
@@ -317,6 +341,7 @@ const EXERCISED = [
   "werk create",
   "werk land",
   "werk list",
+  "werk status",
   "werk logs",
   "werk kill",
   "werk remove",

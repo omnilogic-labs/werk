@@ -95,6 +95,7 @@ test("the tree still holds the commands werk documents", () => {
     "werk create",
     "werk land",
     "werk list",
+    "werk status",
     "werk attach",
     "werk logs",
     "werk edit",

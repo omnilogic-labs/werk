@@ -5,6 +5,7 @@ const packages = [
   "terminal-beamterm",
   "session-daemon",
   "workspace",
+  "mapper",
   "werk",
 ];
 for (const name of packages) {

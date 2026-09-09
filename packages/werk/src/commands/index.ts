@@ -14,6 +14,7 @@ import type { Command } from "@commander-js/extra-typings";
 import { buildCreate } from "./create.js";
 import { buildLand } from "./land.js";
 import { buildList } from "./list.js";
+import { buildStatus } from "./status.js";
 import { buildAttach } from "./attach.js";
 import { buildLogs } from "./logs.js";
 import { buildEdit } from "./edit.js";
@@ -30,6 +31,7 @@ export const COMMANDS: readonly (() => Command)[] = [
   buildCreate,
   buildLand,
   buildList,
+  buildStatus,
   buildAttach,
   buildLogs,
   buildEdit,

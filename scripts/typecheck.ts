@@ -5,6 +5,7 @@ for (const name of [
   "terminal-beamterm",
   "session-daemon",
   "workspace",
+  "mapper",
   "werk",
 ]) {
   const child = Bun.spawn(

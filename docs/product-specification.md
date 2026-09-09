@@ -32,7 +32,7 @@ commit `42d3475` and any of them can still be read, for example with
 | **provider**          | Something that creates and manages hosts, such as incus, Kubernetes, Docker or a cloud VM API.    | Nothing makes hosts. See [question 1](open-questions.md#1-what-do-we-call-a-machine-and-what-do-we-call-the-thing-that-makes-machines).     |
 | **parent**            | The branch a workspace was created from, and the branch its changes go back to.                   | `create` writes down both the checkout and the branch a workspace was branched from.                                                        |
 | **land**              | Get the changes made in a workspace onto its parent branch.                                       | `werk land` does it for a workspace on this machine, as a squash. The route is meant to be configurable; see [Landing](product/landing.md). |
-| **mapper**            | A component that reports what a running process is doing, using more than its terminal output.    | Nothing reports this yet.                                                                                                                   |
+| **mapper**            | A component that reports what a running process is doing, using more than its terminal output.    | `@werk/mapper` holds the interface and a `claude` implementation; `werk status` asks. See [Mappers](product/mappers.md).                    |
 | **daemon**            | The long-lived process on a host that owns the terminal processes. Shorthand `werkd`.             | One runs, started by `werk daemon serve`. The binary is `werk`.                                                                             |
 | **portal**            | The thing a company installs to configure hosts, workspaces, terminals and agents for its people. | Nothing of it exists.                                                                                                                       |
 | **transcript**        | The record of what happened in a terminal process, readable after the process has ended.          | Does not exist yet.                                                                                                                         |
@@ -91,9 +91,9 @@ these documents exists yet.
   `exited`, `failed` or `lost`.
 - A viewer of a session is an **attachment**, carrying a principal and separate
   read and input permissions. Several attachments can watch one session.
-- The CLI (`packages/werk`) has `create`, `land`, `list`, `attach`, `logs`,
-  `kill`, `remove`, `watch`, `info`, `doctor`, `config`, `completion` and
-  `daemon serve`. Detach is `Ctrl-]`. See [cli.md](cli.md).
+- The CLI (`packages/werk`) has `create`, `land`, `list`, `status`, `attach`,
+  `logs`, `kill`, `remove`, `watch`, `info`, `doctor`, `config`, `completion`
+  and `daemon serve`. Detach is `Ctrl-]`. See [cli.md](cli.md).
 - `create` makes a **workspace** and starts the command in it: a git worktree on
   a branch of its own, branched from the checkout the caller is standing in.
   `--host` puts it on another machine instead, as a mirror of the repository
@@ -111,6 +111,11 @@ these documents exists yet.
   daemon there, starting it, and forwarding its Unix socket, so the same client
   and the same protocol serve both machines. Linux hosts only, one machine per
   command, and no view across machines. See [hosts.md](hosts.md).
+- A **mapper** says what the process in a session is doing, read out of the
+  program's own files rather than off the screen. `@werk/mapper` is the
+  interface and `claude` is the one implementation; `werk status` asks for one
+  session or for all of them. It reads the machine werk is running on only. See
+  [Mappers](product/mappers.md).
 - Reattach restores the real screen, decoded from a checkpoint by the libghostty
   WASM engine. `examples/session-web` does the same in a browser.
 - Checkpoints are written per session to the state directory. Records of ended

@@ -28,6 +28,7 @@ alone, and what each dependency is for.
 | `create -- COMMAND ...`                                                      | Start a session running a command, in a new workspace, and attach to it       |
 | `land [workspace]`                                                           | Put a workspace's changes onto the branch you are standing on                 |
 | `list` (`ls`)                                                                | List sessions                                                                 |
+| `status [session]`                                                           | Say what each session's process is actually doing                             |
 | `attach [session]`                                                           | Go back to a running session; Ctrl-] detaches                                 |
 | `logs [session]`                                                             | Print what a session has on screen, or what it has kept                       |
 | `edit <path>`                                                                | From inside a session, open a file where the person is sitting                |
@@ -77,6 +78,8 @@ is never asked, so nothing scripted meets it.
 `--host` names a `[hosts.<name>]` block, and `defaultHost` answers when nothing
 does. `create`, `list`, `attach`, `logs`, `kill` and `remove` all act on that
 one machine, and `config setup` writes the block for the name it is given.
+`status` refuses it: a mapper reads the filesystem of the machine werk is
+running on, and there is no reader for another one yet.
 A name nothing defines fails with the names that are defined, because that
 failure is nearly always a typo.
 
@@ -598,7 +601,7 @@ carried in the session record, so `werk list --json` shows them, and
 
 ## Choosing a session
 
-`attach`, `logs`, `kill` and `remove` take an optional `[session]`, which is an
+`attach`, `logs`, `kill`, `remove` and `status` take an optional `[session]`, which is an
 id, a name, the workspace the session is running in, or an unambiguous prefix
 of any of them — so the completion offered, the name `create` printed and the
 `WORKSPACE` column of `werk list` all work as typed. The workspace carries a
@@ -621,6 +624,36 @@ usage error raised before anything connects, so `werk attach </dev/null` fails
 in milliseconds rather than starting a daemon on its way to failing. That
 guard matters more than it looks: no JavaScript prompt library settles on a
 closed stdin, so an unguarded prompt wedges a pipeline instead of failing it.
+
+## What a session is doing
+
+`werk list` says what exists and whether its process is alive. That is as much
+as werk can say without knowing anything about the program: an agent that has
+been sitting on a question for twenty minutes and one halfway through a build
+are both `running`. `werk status` asks a **mapper** instead, which reads the
+program's own account of itself. [Mappers](product/mappers.md) covers the
+interface and what reads what.
+
+With no session it answers for everything the daemon holds, as a table; with one
+it answers for that session, as a record with everything the mapper read behind
+it. `--attention` cuts either down to the sessions where nothing will happen
+until a person does something.
+
+| Activity  | What it means                                                       |
+| --------- | ------------------------------------------------------------------- |
+| `working` | It is doing something. The line beside it says what.                |
+| `waiting` | Something is on screen and nothing moves until you answer it.       |
+| `idle`    | It has finished its turn and has not been asked for anything since. |
+| `ended`   | The process is gone. The line says what it was doing when it went.  |
+| `unknown` | A mapper knows the program and could not tell.                      |
+
+`waiting` and `idle` are both "it wants you", which is what `--attention`
+filters on and what `needsAttention` says in `--json`. A session running a
+program no mapper knows is still listed, with what the daemon knows and nothing
+more.
+
+A mapper reads the filesystem of the machine werk is running on, so `--host` is
+refused rather than answered about the wrong machine.
 
 ## Two output modes
 

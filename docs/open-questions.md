@@ -151,9 +151,12 @@ narrower than it looks: what a mapper returns is shown to whoever asked for the
 status, and that can be someone the terminal was shared with. So the line to
 draw is what mapper output may contain, not whether secrets are nearby.
 
-If mappers run in the client, those reads cross the network rather than staying
-on the host, which makes the read interface the place the line gets drawn and
-makes drawing it deliberately more important.
+Mappers run in the client today and read the machine the client is on, so
+nothing crosses a network yet. The moment one reads a process on another machine
+those reads leave the host, which makes `ReadAccess` the place the line gets
+drawn and makes drawing it deliberately more important.
+[Mappers](product/mappers.md#where-a-mapper-should-run) lays out the three
+placements and picks none of them.
 
 Being stateless helps: a mapper holds nothing between calls, so there is no
 store of anything it read to protect.
