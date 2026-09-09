@@ -1,0 +1,10 @@
+# Configuration that travels with this repository. `werk config sources` shows
+# it as the project layer: above ~/.werk/config.toml and below the environment.
+workspaceSetup = "bootstrap"
+
+# A worktree werk has just made has no node_modules, and packages/terminal-beamterm
+# imports @werk/terminal from dist/, so a typecheck there fails until a build has
+# run. Both are quick, and running them here is what makes a new workspace usable
+# the moment the session starts.
+[setup.bootstrap]
+run = ["bun install", "bun run build"]
