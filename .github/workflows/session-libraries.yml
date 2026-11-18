@@ -46,7 +46,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -64,7 +64,7 @@ jobs:
         env:
           SOAK_SECONDS: "60"
           SOAK_REPORT: soak.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: soak-${{ matrix.os }}
@@ -89,7 +89,7 @@ jobs:
           apk add --no-cache bash git coreutils procps libstdc++ libgcc \
             musl-utils ncurses ncurses-terminfo-base jq curl unzip
           cat /etc/alpine-release
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # setup-bun picks the glibc build on Alpine; replace it with the musl zip
       # when the one it installed cannot run.
       - uses: oven-sh/setup-bun@v2
@@ -132,7 +132,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -148,7 +148,7 @@ jobs:
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 1500
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -159,7 +159,7 @@ jobs:
           SOAK_SECONDS: ${{ inputs.soak_seconds }}
           SOAK_REPORT: soak.json
           SOAK_BASELINE: docs/session-library/linux-x64-baseline.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: extended-soak
