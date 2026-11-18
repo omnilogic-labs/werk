@@ -19,6 +19,6 @@
     "test:soak": "bun scripts/session-soak.ts"
   },
   "devDependencies": {
-    "prettier": "^3.9.6"
+    "prettier": "^3.10.1"
   }
 }

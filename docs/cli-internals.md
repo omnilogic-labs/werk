@@ -48,12 +48,11 @@ exactly; the versions below are what those ranges resolve to.
 
 | Package                       | Version    | Licence | Why                                                           |
 | ----------------------------- | ---------- | ------- | ------------------------------------------------------------- |
-| `commander`                   | 15.0.0     | MIT     | The command tree, parsing and help                            |
-| `@commander-js/extra-typings` | 15.0.0     | MIT     | Types the options and positionals a command declares          |
-| `@clack/prompts`              | 1.8.0      | MIT     | The searchable session picker and confirmations               |
-| `chalk`                       | 6.0.0      | MIT     | Styling, with the colour level supplied rather than detected  |
-| `c12`                         | 4.0.0-rc.1 | MIT     | Reads config files in several formats, and resolves `extends` |
-| `chokidar`                    | 5.0.0      | MIT     | Never called; see below                                       |
+| `commander`                   | 15.1.0     | MIT     | The command tree, parsing and help                            |
+| `@commander-js/extra-typings` | 15.1.0     | MIT     | Types the options and positionals a command declares          |
+| `@clack/prompts`              | 1.9.0      | MIT     | The searchable session picker and confirmations               |
+| `chalk`                       | 6.0.1      | MIT     | Styling, with the colour level supplied rather than detected  |
+| `c12`                         | 4.0.0-rc.4 | MIT     | Reads config files in several formats, and resolves `extends` |
 
 ### commander
 
@@ -131,16 +130,8 @@ werk's 8.2 ms floor. Tab completion must never pay that, and neither should a
 caller who only wants the pure merge, so the cost lands when a command actually
 reads a config file.
 
-The version is pinned exactly rather than by a range because 4.0.0-rc.1 is a
-prerelease. v4 is what moves `jiti`, `giget`, `dotenv` and `chokidar` out of
+The version is pinned exactly rather than by a range because 4.0.0-rc.4 is a
+prerelease. v4 is what moves `jiti`, `giget` and `dotenv` out of
 hard dependencies and into optional peers, which is the difference between bundling a config reader and
 bundling a config reader plus a TypeScript loader and a git-fetching
 downloader.
-
-### chokidar
-
-`chokidar` is a direct dependency **only** so the build works, and werk never
-calls it. c12 v4 declares it an optional peer and does `await import("chokidar")`
-inside `watchConfig`; Bun's bundler resolves that dynamic import at build time
-whether or not the code path is reachable. Removing the dependency because
-nothing imports it breaks the build.
