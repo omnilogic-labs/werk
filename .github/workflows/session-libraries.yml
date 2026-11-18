@@ -22,7 +22,7 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}-${{ inputs.lanes }}
   cancel-in-progress: true
 env:
-  BUN_VERSION: "1.3.14"
+  BUN_VERSION: "1.4.4"
 # Windows steps run under Git Bash rather than pwsh, so one `run:` body is
 # correct on all three platforms. The Alpine container has no bash until its
 # first step installs one, which is why that step names `sh` explicitly.

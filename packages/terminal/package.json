@@ -34,7 +34,7 @@
     "@wterm/dom": "0.4.1"
   },
   "devDependencies": {
-    "bun-types": "1.3.14",
+    "bun-types": "1.4.4",
     "typescript": "^5.9.3"
   }
 }
