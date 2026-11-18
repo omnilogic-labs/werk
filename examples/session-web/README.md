@@ -53,7 +53,8 @@ endpoint file private.
 
 - `index.html`, `style.css`, `palette.css`, `client.js` and its chunks: the page.
 - `server.js` and `bridge.js`: the bridge.
-- `terminal.wasm`, and `beamterm_renderer_bg.wasm` for the optional renderer.
+- `terminal.wasm` (libghostty-vt 1.0.1, the small build), and
+  `beamterm_renderer_bg.wasm` for the optional renderer.
 - `terminal.PROVENANCE.md` and `terminal.LICENSE`.
 - `beamterm.PROVENANCE.md` and `LICENSE.beamterm`.
 - `LICENSE.wterm-dom`.

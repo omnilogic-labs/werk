@@ -1,7 +1,8 @@
 # @werk/terminal
 
 Interpret terminal output and rebuild the resulting screen anywhere. The package
-carries a pinned Ghostty WASM build, a snapshot format for a screen, and a
+carries a pinned Ghostty WASM build (libghostty-vt 1.0.1, the small build; see
+`assets/PROVENANCE.md`), a snapshot format for a screen, and a
 **replica**: a client-side copy of a session's screen, rebuilt from snapshot
 bytes and attachment events, with no process behind it.
 

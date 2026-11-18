@@ -1,13 +1,13 @@
 # Defects in the pinned terminal engine
 
 Behaviour of the pinned Ghostty WASM build that werk works around. The build is
-`ghostty-vt-small.wasm` from ghostty commit
-`3c1ef5b32fc5ea6b93d28493fabf193f595139cf`, which is
-`packages/terminal/assets/terminal.wasm` here.
+the official libghostty-vt 1.0.1 small build, `ghostty-vt-1.0.1-small.wasm`,
+which is `packages/terminal/assets/terminal.wasm` here.
 
 ## An appended grapheme does not dirty its row
 
-The pinned engine build has a defect. A combining mark or a zero width joiner
+The pinned engine build has a defect. It is present in libghostty-vt 1.0.1, and
+was present in the development build werk pinned before it. A combining mark or a zero width joiner
 that attaches to a cell already holding a codepoint changes that cell: its
 content tag becomes `CODEPOINT_GRAPHEME` and its grapheme list grows. But
 `ghostty_render_state_update` leaves the global dirty state at
