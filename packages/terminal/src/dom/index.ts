@@ -33,7 +33,7 @@ export const createWtermRenderer: RendererFactory = async ({
     `color:${theme.terminal.foreground.hex};background:${theme.terminal.background.hex}`;
   const style = document.createElement("style");
   style.textContent =
-    ".werk-terminal .term-row{height:1.2em;white-space:pre}.werk-terminal .term-cell{display:inline-block;width:1ch}.werk-terminal .term-wide{display:inline-block;width:2ch}.werk-terminal .term-cursor{outline:1px solid currentColor}.werk-terminal .term-bold{font-weight:bold}.werk-terminal .term-italic{font-style:italic}.werk-terminal .term-underline{text-decoration:underline}";
+    ".werk-terminal .term-row{height:1.2em;white-space:pre}.werk-terminal .term-cell{display:inline-block;width:1ch}.werk-terminal .term-wide{display:inline-block;width:2ch}.werk-terminal .term-cursor{color:var(--term-cell-fg,inherit);background:var(--term-cell-bg,transparent);outline:1px solid currentColor}.werk-terminal .term-bold{font-weight:bold}.werk-terminal .term-italic{font-style:italic}.werk-terminal .term-underline{text-decoration:underline}";
   const rows = document.createElement("div");
   container.append(style, rows);
   mount.append(container);

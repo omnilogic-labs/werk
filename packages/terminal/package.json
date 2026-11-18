@@ -30,8 +30,8 @@
   },
   "dependencies": {
     "@werk/palette": "workspace:*",
-    "@wterm/core": "0.4.1",
-    "@wterm/dom": "0.4.1"
+    "@wterm/core": "0.6.0",
+    "@wterm/dom": "0.6.0"
   },
   "devDependencies": {
     "bun-types": "1.4.4",

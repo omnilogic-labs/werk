@@ -180,7 +180,7 @@ has no DOM, runtime or session dependency, so a renderer can paint into
 anything.
 
 `@werk/terminal/dom` exports `createWtermRenderer`, backed by pinned Apache-2.0
-`@wterm/dom` and `@wterm/core` 0.4.1. Both include their upstream licences.
+`@wterm/dom` and `@wterm/core` 0.6.0. Both include their upstream licences.
 `createWtermRenderer({ mount, theme })` takes an `HTMLElement` to mount into and
 an optional `Roles` object from `@werk/palette`; omitting `theme` paints in
 werk's default flavour, Mocha with a mauve accent.

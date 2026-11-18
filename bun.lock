@@ -57,8 +57,8 @@
       "version": "0.0.0",
       "dependencies": {
         "@werk/palette": "workspace:*",
-        "@wterm/core": "0.4.1",
-        "@wterm/dom": "0.4.1",
+        "@wterm/core": "0.6.0",
+        "@wterm/dom": "0.6.0",
       },
       "devDependencies": {
         "bun-types": "1.4.4",
@@ -137,9 +137,9 @@
 
     "@werk/workspace": ["@werk/workspace@workspace:packages/workspace"],
 
-    "@wterm/core": ["@wterm/core@0.4.1", "", {}, "sha512-YypeqYJPrx98MoQODPnj/QVKqCQoO8d9f0oosaQ4GfFukvR3Q09U2LTRGLgVmAjPWa0D6MQHQNcMQJBsPn6i+g=="],
+    "@wterm/core": ["@wterm/core@0.6.0", "", {}, "sha512-5sKuBbMAILn1PyC5AJvTfVo+80nEAoPY+YyN0SYg3KkCV/DyUqdDzFIZQYuJN1ijTWZ/XQLh7hsmZRQtb59IYw=="],
 
-    "@wterm/dom": ["@wterm/dom@0.4.1", "", { "dependencies": { "@wterm/core": "0.4.1" } }, "sha512-N1DxEgj042z7QkO8sTgnXsBkO5vN5kTqVFWmPl8/unyuJj0ZJns0biwsvT07VpJD/WaTdX8I/Zpeu/25WR/rHQ=="],
+    "@wterm/dom": ["@wterm/dom@0.6.0", "", { "dependencies": { "@wterm/core": "0.6.0" } }, "sha512-c638pHIx3nN0fXP8B/nERAEjBc3GsSbJmW1TN+/WaDLOU97Y/IYw35bargP6e8y8Paq0sF1AnWB9HgKIZR4QBw=="],
 
     "bun-types": ["bun-types@1.4.4", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-yjrJh5oGX7mMPKGd19YXyIjmEuj4G4zNC30bs7PM9Az7NQ3ndF3j6hbeRdvJTRQEhJ/FYQwW0a2moweEi2hMxQ=="],
 
