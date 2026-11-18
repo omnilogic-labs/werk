@@ -298,3 +298,20 @@ test("screen formatting preserves styles and graphemes without consuming frame d
   expect(() => t.formatScreen("plain")).toThrow("disposed");
   expect(() => t.cursor()).toThrow("disposed");
 });
+test("a combining mark written after an update repaints its row", async () => {
+  // ghostty does not mark a row dirty when a grapheme gains a codepoint (see
+  // docs/terminal-engine-defects.md); the frame must repaint the row anyway.
+  const f = await loadTerminalEngine();
+  const t = await f.create({ cols: 8, rows: 2 });
+  try {
+    t.write(bytes("e"));
+    expect(t.frame().changed[0]!.cells[0]!.text).toBe("e");
+    expect(t.frame().changed).toHaveLength(0);
+    t.write(bytes("́"));
+    const changed = t.frame().changed;
+    expect(changed.map((row) => row.y)).toContain(0);
+    expect(changed.find((row) => row.y === 0)!.cells[0]!.text).toBe("é");
+  } finally {
+    t.dispose();
+  }
+});

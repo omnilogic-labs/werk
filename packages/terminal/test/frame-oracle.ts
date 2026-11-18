@@ -57,7 +57,7 @@ export function readCells(terminal: TerminalHandle): Cell[][] {
           const wide = Number((raw >> BigInt(bits.bits.wide.lsb)) & 3n);
           a.write(p, "GhosttyStyle", {});
           get("STYLE");
-          const st = a.read(p, "GhosttyStyle");
+          const st = a.read(p, "GhosttyStyle").flags;
           const colour = (key: string, fallback: number) => {
             const code = a.call(
               "ghostty_render_state_row_cells_get",
@@ -81,12 +81,15 @@ export function readCells(terminal: TerminalHandle): Cell[][] {
           const n = a.read(p, "u32");
           const text = n
             ? a.temporary(n * 4, (q) => {
-                a.check(
-                  "ghostty_render_state_row_cells_get",
-                  cells,
-                  a.enum("GhosttyRenderStateRowCellsData", "GRAPHEMES_BUF"),
-                  q,
-                );
+                a.object("GhosttyCodepointBuffer", (buf) => {
+                  a.write(buf, "GhosttyCodepointBuffer", { ptr: q, cap: n });
+                  a.check(
+                    "ghostty_render_state_row_cells_get",
+                    cells,
+                    a.enum("GhosttyRenderStateRowCellsData", "GRAPHEMES_BUF"),
+                    buf,
+                  );
+                });
                 return Array.from({ length: n }, (_, i) =>
                   String.fromCodePoint(a.read(q + i * 4, "u32")),
                 ).join("");

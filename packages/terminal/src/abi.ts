@@ -5,10 +5,12 @@ type Description = {
   type?: string;
   underlying?: string;
   values?: Record<string, number>;
+  bits?: Record<string, { lsb: number; width: number; type: string }>;
   fields?: Record<
     string,
     {
       offset: number;
+      size?: number;
       type: string;
       tag?: string;
       arms?: Record<string, string>;
@@ -98,6 +100,15 @@ export class Abi {
     const t = this.types[type];
     if (t?.kind === "enum") return this.read(p, t.underlying!);
     if (t?.kind === "alias") return this.read(p, t.type!);
+    if (t?.kind === "packed" && t.bits) {
+      const word = Number(this.read(p, t.underlying!));
+      const r: Record<string, unknown> = {};
+      for (const [k, b] of Object.entries(t.bits)) {
+        const n = Math.floor(word / 2 ** b.lsb) % 2 ** b.width;
+        r[k] = b.type === "bool" ? n !== 0 : n;
+      }
+      return r;
+    }
     if (t?.fields) {
       const r: Record<string, unknown> = {};
       for (const [k, f] of Object.entries(t.fields)) {

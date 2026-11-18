@@ -14,7 +14,7 @@ import {
   type Selection,
   type InputModes,
 } from "./types.js";
-export const ENGINE_BUILD = "ghostty-3c1ef5b32fc5ea6b93d28493fabf193f595139cf";
+export const ENGINE_BUILD = "ghostty-vt-1.0.1";
 export const SNAPSHOT_FORMAT_VERSION = 1;
 // What a child's output is painted in before it asks for anything else, and
 // what its first sixteen indexed colours are. All of it is werk's, so all of it
@@ -192,11 +192,15 @@ interface Layout {
   fgValue: number;
   bgTag: number;
   bgValue: number;
-  bold: number;
-  italic: number;
-  inverse: number;
-  strikethrough: number;
-  underline: number;
+  colourTagSize: number;
+  flags: number;
+  flagsSize: number;
+  bold: BitField;
+  italic: BitField;
+  inverse: BitField;
+  strikethrough: BitField;
+  underline: BitField;
+  underlineNone: number;
   colourPalette: number;
   colourRgb: number;
   colorsSize: number;
@@ -213,6 +217,10 @@ interface Layout {
   kStyle: number;
   kGraphemesLen: number;
   kGraphemesBuf: number;
+  cpBufSize: number;
+  cpBufPtr: number;
+  cpBufCap: number;
+  cpBufLen: number;
 }
 function layout(a: Abi): Layout {
   const cell = a.types.GhosttyCell as any;
@@ -224,8 +232,16 @@ function layout(a: Abi): Layout {
   });
   const style = a.types.GhosttyStyle!;
   const sc = a.types.GhosttyStyleColor!;
+  // The style's attributes are one packed integer; bits are found by name.
+  const flags = a.types[style.fields!.flags!.type]!;
+  const flag = (name: string): BitField => {
+    const f = flags.bits?.[name];
+    if (!f) throw new Error(`Unknown ABI style flag ${name}`);
+    return { lsb: f.lsb, width: f.width };
+  };
   const colors = a.types.GhosttyRenderStateColors!;
   const view = a.types.GhosttyCellsView!;
+  const cpBuf = a.types.GhosttyCodepointBuffer!;
   return {
     contentTag: cell.bits.content_tag,
     codepoint: rel("CODEPOINT", "codepoint"),
@@ -244,11 +260,15 @@ function layout(a: Abi): Layout {
     fgValue: style.fields!.fg_color!.offset + sc.fields!.value!.offset,
     bgTag: style.fields!.bg_color!.offset + sc.fields!.tag!.offset,
     bgValue: style.fields!.bg_color!.offset + sc.fields!.value!.offset,
-    bold: style.fields!.bold!.offset,
-    italic: style.fields!.italic!.offset,
-    inverse: style.fields!.inverse!.offset,
-    strikethrough: style.fields!.strikethrough!.offset,
-    underline: style.fields!.underline!.offset,
+    colourTagSize: sc.fields!.tag!.size ?? 4,
+    flags: style.fields!.flags!.offset,
+    flagsSize: flags.size,
+    bold: flag("bold"),
+    italic: flag("italic"),
+    inverse: flag("inverse"),
+    strikethrough: flag("strikethrough"),
+    underline: flag("underline"),
+    underlineNone: a.enum(flags.bits!.underline!.type, "NONE"),
     colourPalette: a.enum("GhosttyStyleColorTag", "PALETTE"),
     colourRgb: a.enum("GhosttyStyleColorTag", "RGB"),
     colorsSize: colors.size,
@@ -265,6 +285,10 @@ function layout(a: Abi): Layout {
     kStyle: a.enum("GhosttyRenderStateRowCellsData", "STYLE"),
     kGraphemesLen: a.enum("GhosttyRenderStateRowCellsData", "GRAPHEMES_LEN"),
     kGraphemesBuf: a.enum("GhosttyRenderStateRowCellsData", "GRAPHEMES_BUF"),
+    cpBufSize: cpBuf.size,
+    cpBufPtr: cpBuf.fields!.ptr!.offset,
+    cpBufCap: cpBuf.fields!.cap!.offset,
+    cpBufLen: cpBuf.fields!.len!.offset,
   };
 }
 interface Style {
@@ -501,23 +525,37 @@ class Terminal implements TerminalHandle {
   }
   private format(selection: number, emit: "PLAIN" | "VT" | "HTML" = "PLAIN") {
     const a = this.a;
-    return a.object("GhosttyFormatterTerminalOptions", (p) => {
-      a.write(p, "GhosttyFormatterTerminalOptions", {
-        emit,
-        trim: true,
-        unwrap: false,
-        selection,
-        extra: { screen: {} },
+    const f = a.handle("ghostty_formatter_terminal_new", this.h);
+    try {
+      a.temporary(4, (q) => {
+        const set = (option: string, type: string, value: unknown) => {
+          a.write(q, type, value);
+          a.check(
+            "ghostty_formatter_set",
+            f,
+            a.enum("GhosttyFormatterOption", option),
+            q,
+          );
+        };
+        set("EMIT", "GhosttyFormatterFormat", emit);
+        set("TRIM", "bool", true);
+        set("UNWRAP", "bool", false);
+        // No extras: VT output carries only the text and its styles, as before.
+        set("EXTRAS", "GhosttyFormatterExtras", 0);
       });
-      const f = a.handle("ghostty_formatter_terminal_new", this.h, p);
-      try {
-        return new TextDecoder().decode(
-          this.allocated("ghostty_formatter_format_alloc", f),
+      if (selection)
+        a.check(
+          "ghostty_formatter_set",
+          f,
+          a.enum("GhosttyFormatterOption", "SELECTION"),
+          selection,
         );
-      } finally {
-        a.call("ghostty_formatter_free", f);
-      }
-    });
+      return new TextDecoder().decode(
+        this.allocated("ghostty_formatter_format_alloc", f),
+      );
+    } finally {
+      a.call("ghostty_formatter_free", f);
+    }
   }
   inputModes(): InputModes {
     this.live();
@@ -701,10 +739,10 @@ class Terminal implements TerminalHandle {
     const full = this.forceFull || dirty === L.dirtyFull;
     const partial = !full && dirty === L.dirtyPartial;
     const rows = this.grid.rows;
-    // A grapheme append does not dirty its row on the pinned build, and the
-    // persistent state only re-copies dirty rows. After a write, the cursor
-    // row and the row above must therefore come from a fresh render state
-    // unless the dirty walk already delivered them.
+    // A grapheme append does not dirty its row (still true on libghostty-vt
+    // 1.0.1), and the persistent state only re-copies dirty rows. After a
+    // write, the cursor row and the row above must therefore come from a fresh
+    // render state unless the dirty walk already delivered them.
     const need = new Set<number>();
     if (this.wrote && !full) {
       if (cursor.y > 0) need.add(cursor.y - 1);
@@ -851,12 +889,19 @@ class Terminal implements TerminalHandle {
           this.scratch,
         );
         const n = a.u32(this.scratch);
-        const q = this.ensureScratch(n * 4 + 256) + 256;
+        // The codepoints land at q; the buffer descriptor that points at them
+        // follows.
+        const q = this.ensureScratch(n * 4 + 256 + L.cpBufSize) + 256,
+          buf = q + n * 4;
+        v = a.view();
+        v.setUint32(buf + L.cpBufPtr, q, true);
+        v.setUint32(buf + L.cpBufCap, n, true);
+        v.setUint32(buf + L.cpBufLen, 0, true);
         a.check(
           "ghostty_render_state_row_cells_get",
           this.cellsHandle,
           L.kGraphemesBuf,
-          q,
+          buf,
         );
         v = a.view();
         const parts: number[] = [];
@@ -929,20 +974,28 @@ class Terminal implements TerminalHandle {
     v = a.view();
     const b = a.bytes();
     const colour = (tagAt: number, valueAt: number, none: number) => {
-      const tag = v.getInt32(tagAt, true);
+      const tag =
+        L.colourTagSize === 1 ? v.getUint8(tagAt) : v.getInt32(tagAt, true);
       if (tag === L.colourPalette) return this.palette[b[valueAt]!]!;
       if (tag === L.colourRgb)
         return (b[valueAt]! << 16) | (b[valueAt + 1]! << 8) | b[valueAt + 2]!;
       return none;
     };
+    const flags =
+      L.flagsSize === 4
+        ? v.getUint32(p + L.flags, true)
+        : L.flagsSize === 1
+          ? v.getUint8(p + L.flags)
+          : v.getUint16(p + L.flags, true);
+    const flag = (f: BitField) => bits(flags, 0, f);
     return {
       fg: colour(p + L.fgTag, p + L.fgValue, this.defaultFg),
       bg: colour(p + L.bgTag, p + L.bgValue, -1),
-      bold: !!b[p + L.bold],
-      italic: !!b[p + L.italic],
-      underline: v.getInt32(p + L.underline, true) !== 0,
-      inverse: !!b[p + L.inverse],
-      strikethrough: !!b[p + L.strikethrough],
+      bold: flag(L.bold) !== 0,
+      italic: flag(L.italic) !== 0,
+      underline: flag(L.underline) !== L.underlineNone,
+      inverse: flag(L.inverse) !== 0,
+      strikethrough: flag(L.strikethrough) !== 0,
     };
   }
   private freeRenderState() {
