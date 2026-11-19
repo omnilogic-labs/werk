@@ -149,6 +149,12 @@ be tolerated somewhere, tolerate it on Windows first.** That holds until there
 is real investment in cross-platform usability and testing. It is not a claim
 that Windows does not matter.
 
+**Windows is client-only (owner ruling, 2026-11-18).** No daemon, supervisor or
+`local` host runs on Windows: the CLI refuses them and names the ssh hosts to
+use instead. Test the client on Windows and fix its failures there; daemon and
+host tests run on Linux and macOS only, and a test of something Windows does not
+need to do is deleted rather than kept green.
+
 [docs/platforms.md](docs/platforms.md) says what a failing lane costs on each
 platform, and whether any of it should be enforced in CI; both are leans there
 rather than rulings. The epic at
