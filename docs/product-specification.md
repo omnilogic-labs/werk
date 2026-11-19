@@ -117,8 +117,7 @@ these documents exists yet.
   sessions survive a daemon restart, up to 512 of them. Live processes do not:
   killing the daemon abruptly leaves a `lost` record with its last screen and no
   process.
-- Everything is TypeScript. `bun:ffi` is used for `flock` and for Windows job
-  objects, and PTYs come from Bun's own spawn support rather than a native
+- Everything is TypeScript. `bun:ffi` is used for `flock`, and PTYs come from Bun's own spawn support rather than a native
   addon. Terminal interpretation is libghostty compiled to WASM and shipped as
   an asset, `packages/terminal/assets/terminal.wasm`: the official
   libghostty-vt 1.0.1 small build. Where else WASM would earn
@@ -154,10 +153,10 @@ end, so the daemon on the host binds an ordinary unix socket exactly as the
 local one does, and the client speaks the same protocol to a remote daemon as to
 a local one. There is then no remote protocol and no second transport. This is
 the same trick `DOCKER_HOST` over ssh uses, so the ground is well trodden.
-Windows is the known gap: Win32-OpenSSH forwards unix sockets in neither
-direction, so a
-Windows client's forward has to land on a loopback TCP port and the daemon it
-reaches has to be listening on one.
+Windows is the known gap. The daemon runs on Linux and macOS, and on Windows
+werk is only a client, but Win32-OpenSSH forwards unix sockets in neither
+direction, so a Windows client's forward probably has to land on a loopback TCP
+port on the Windows side. That forward is not built yet.
 
 **Code reaches a host through the client.** The client pushes from the local
 checkout to the workspace it made, rather than the two hosts talking to each

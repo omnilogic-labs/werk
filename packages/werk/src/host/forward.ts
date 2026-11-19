@@ -191,11 +191,12 @@ export interface ForwardOptions {
 export async function openForward(options: ForwardOptions): Promise<Forward> {
   const { sshHost, remote } = options;
   if (remote.kind !== "unix")
-    // Reachable only against a daemon on Windows, which reports loopback TCP
-    // with a credential. Forwarding that means `-L <local port>:127.0.0.1:<its
-    // port>` and handing back a `tcp` endpoint carrying the far side's
-    // credential, which needs a free local port picked here — ssh will not
-    // report the one it chose for `-L 0:`. Nothing has needed it yet.
+    // Every daemon reports a Unix socket, so only a far side that reported
+    // something else reaches this. A forward that ends on a loopback port, as
+    // one from Windows probably would, means `-L <local port>:<remote>` and
+    // handing back a `tcp` endpoint with a credential, which needs a free
+    // local port picked here — ssh will not report the one it chose for
+    // `-L 0:`. Nothing has needed it yet.
     throw new HostError(
       "HOST_UNSUPPORTED",
       sshHost,

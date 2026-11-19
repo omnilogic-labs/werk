@@ -31,8 +31,6 @@ const daemon = await serveSessionDaemon({
 // `$runtimeDir/endpoint.json` for clients to find.
 const client = await connectSessionClient({
   transport: await openLocalTransport(daemon.endpoint),
-  credential:
-    daemon.endpoint.kind === "tcp" ? daemon.endpoint.credential : undefined,
 });
 
 const session = await client.create({
@@ -55,7 +53,7 @@ await daemon.close(); // kills owned processes and saves their screens
 | `ensureSessionDaemon({ runtimeDir, stateDir, daemonCommand, startupTimeoutMs?, logLevel? })` | Find a running daemon or start one, and return its endpoint and version                                              |
 | `openLocalTransport(endpoint, timeoutMs?)`                                                   | Connect to a `LocalEndpoint` and return a `Transport` for `connectSessionClient`                                     |
 | `resolveSessionDaemonPaths({ runtimeDir, stateDir })`                                        | The socket, endpoint, lock, fallback lock and record paths. Read-only                                                |
-| `defaultSessionRuntimeDir(env?, platform?, uid?)`                                            | `/tmp/werk-UID` on POSIX, `%LOCALAPPDATA%\werk\run` on Windows                                                       |
+| `defaultSessionRuntimeDir(env?, platform?, uid?, temporary?)`                                | `/tmp/werk-UID` on POSIX, `werk` under the user's temporary directory on Windows                                     |
 | `inspectSessionDaemon({ runtimeDir, stateDir, doctor? })`                                    | The read-only diagnosis behind `werk info` and `werk doctor`                                                         |
 | `createLogger({ file, level, maxBytes, keep })`                                              | A rotating `Logger`                                                                                                  |
 | `parseLogLevel(value?)`                                                                      | Validate `error`, `warn`, `info` or `debug`                                                                          |
@@ -106,14 +104,16 @@ interface DaemonConfig {
 ## Paths, locking and recovery
 
 `defaultSessionRuntimeDir()` honours `WERK_RUNTIME_DIR`, otherwise returning
-`/tmp/werk-UID` on POSIX or `%LOCALAPPDATA%\werk\run` on Windows. The CLI's
-`--runtime-dir` takes precedence. `XDG_RUNTIME_DIR` and `TMPDIR` do not select
+`/tmp/werk-UID` on POSIX. On Windows it returns `werk` under the user's
+temporary directory: no daemon runs there, but the client keeps the local end
+of a forward and its lock in a runtime directory. The CLI's `--runtime-dir`
+takes precedence. `XDG_RUNTIME_DIR` and `TMPDIR` do not select
 the default: their cleanup can remove the endpoint while a detached session is
 still running. Library callers pass explicit runtime and state paths.
 
 Before startup, the client checks the Unix socket's 103-byte path limit and
-requires an existing POSIX runtime directory to be owned by the current user
-with mode `0700`. It refuses symlink directories, untrusted endpoint records,
+requires an existing runtime directory to be owned by the current user with mode
+`0700`. It refuses symlink directories, untrusted endpoint records,
 and Unix sockets with another owner or public permissions.
 
 `serveSessionDaemon` locks `$stateDir/daemon.lock`, so at most one daemon runs
@@ -128,7 +128,6 @@ possible again, and the record below is what keeps them apart.
 
 | Platform                            | Mechanism                                                  | What it guarantees                                                      | How it can fail                                                                       |
 | ----------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Windows                             | Kernel file handle                                         | Exclusive across crashes                                                | Not observed                                                                          |
 | Linux or macOS with a loadable libc | `flock` through `bun:ffi`                                  | Exclusive across crashes, bounded by the lock file's ownership and mode | A filesystem that cannot grant a `flock`, which the probe detects and works around    |
 | Linux with no loadable libc         | An abstract unix socket named from a hash of the lock path | One daemon per network namespace                                        | Two namespaces sharing a state directory; any process in the namespace can bind first |
 | macOS with no loadable libc         | None                                                       | Nothing; startup fails                                                  | `Cannot load libc to lock the daemon`                                                 |
@@ -164,9 +163,7 @@ record says it did, it sends `SIGUSR1`, waits for the endpoint to come back and
 never spawns a second daemon. If the endpoint does not come back it reports
 `Daemon <pid> is alive but its endpoint is missing`.
 
-The start time comes from `/proc/<pid>` on Linux and from `ps` on macOS. Windows
-reports none, so there the pid and the boot identifier are the whole guard and
-the `SIGUSR1` request is never sent.
+The start time comes from `/proc/<pid>` on Linux and from `ps` on macOS.
 
 ### Recovering the endpoint
 
@@ -176,20 +173,21 @@ runtime directory, the socket, `endpoint.json` and the lock file. Running
 sessions and established connections are unaffected, and losing the endpoint
 never ends the daemon, because it owns live PTYs.
 
-Windows has no `SIGUSR1`, so there the periodic check carries the recovery on
-its own. The value `serveSessionDaemon` returns carries `supervise()` for a
-consumer that wants to run one check itself.
+The value `serveSessionDaemon` returns carries `supervise()` for a consumer that
+wants to run one check itself.
 
 The socket is bound under a private temporary name and renamed into place, so a
 client reading the endpoint record never finds one that is still
-world-accessible. On POSIX the daemon also holds a shared `flock` on the runtime
+world-accessible. The daemon also holds a shared `flock` on the runtime
 directory and touches its files hourly; tmpfiles.d(5) states that the aging
 algorithm skips a directory on which a lock is already taken.
 
-Windows local endpoints bind only to 127.0.0.1 and require a random per-start
-credential, which `ensureSessionDaemon` supplies automatically. Direct clients
-must pass the TCP endpoint's credential to `connectSessionClient`. Runtime and
-state directories receive a current-user-only Windows ACL.
+The daemon itself always reports a Unix socket. `LocalEndpoint` also has a `tcp`
+kind, a loopback port with a credential, which `openLocalTransport` dials and
+whose credential a client passes to `connectSessionClient`. Nothing produces one
+yet: it is the shape a forward from a client that cannot forward Unix sockets,
+such as one on Windows, would probably hand back, and a consumer that listens
+on such a port authenticates the credential through `DaemonConfig.authenticate`.
 
 ## Authority
 
@@ -383,20 +381,17 @@ daemon that died on an over-long socket path says so.
 
 ## Platform support
 
-Native Linux and macOS use Bun PTYs, foreground Ctrl-C, and descendant process
-and job-control group termination. Linux and macOS report cached process-tree
-summaries. Windows x64 uses Bun 1.3.14 inline ConPTY, Ctrl-C, and a Job Object
-with kill-on-close ownership; both terminate and force end the job. Windows
-ARM64 hosting is explicitly unsupported because the required Bun FFI is
-unavailable. Capabilities expose those differences.
+The daemon runs on Linux and macOS, using Bun PTYs, foreground Ctrl-C, and
+descendant process and job-control group termination, and reporting cached
+process-tree summaries. On Windows werk runs only as a client, so
+`createSessionDaemon` and `serveSessionDaemon` refuse to start there before
+they create anything.
 
 ## What this package does not guarantee
 
-Windows job adoption follows Bun spawn synchronously, but Bun's terminal API does
-not expose suspended creation: a very fast child can start a descendant before
-adoption. On macOS, a descendant that has already reparented cannot always be
-attributed to its original shell. These are process-tree containment limits, not
-security isolation guarantees.
+On macOS, a descendant that has already reparented cannot always be attributed
+to its original shell. That is a process-tree containment limit, not a security
+isolation guarantee.
 
 Explicit daemon shutdown ends owned processes. This package does not promise
 survival across daemon replacement, complete output retention, or a CPU or OOM
@@ -404,10 +399,9 @@ isolation boundary.
 
 ## Environment
 
-Local startup uses `/` as the daemon's working directory, the home directory on
-Windows, and passes only `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `LANG`,
-`TMPDIR`, `XDG_RUNTIME_DIR`, `XDG_STATE_HOME`, `WERK_*` configuration and Windows
-system and profile variables.
+Local startup uses `/` as the daemon's working directory and passes only `PATH`,
+`HOME`, `USER`, `LOGNAME`, `SHELL`, `LANG`, `TMPDIR`, `XDG_RUNTIME_DIR`,
+`XDG_STATE_HOME` and `WERK_*` configuration.
 
 Session requests carrying `env` use the minimal base and the caller's values,
 with werk's terminal identity applied last. Requests without `env` inherit the
@@ -418,7 +412,7 @@ daemon's environment with its `WERK_*`, `LINES` and `COLUMNS` removed. See
 
 Run `bun test packages/session-daemon/test` from the workspace for native and
 hardening checks. Native fixtures cover PTY input, resize and exit, exclusive
-ownership, detached descendant termination, POSIX foreground interruption, and
-Windows job cleanup after abrupt owner death and TCP credential refusal. Linux
-execution is verified locally; Windows and macOS require their native CI
-runners.
+ownership, detached descendant termination and POSIX foreground interruption, and
+`local.test.ts` dials a `tcp` endpoint and checks that a wrong credential is
+refused. Linux execution is verified locally; macOS requires its native CI
+runner. The Windows CI lane does not run this package's tests.

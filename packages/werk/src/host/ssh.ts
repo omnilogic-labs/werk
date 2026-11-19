@@ -163,10 +163,12 @@ export function sshExecArgv(
 /**
  * What the local end of a forward is, and therefore what shape of `-L` it takes.
  *
- * Two shapes because the far side gets to choose: a daemon on a Unix-socket
- * machine reports a socket, and one on Windows reports loopback TCP with a
- * credential. `session.ts` hands over whatever the far side reported, so
- * supporting the second is a change to this file rather than to the client.
+ * Two shapes. A daemon reports a Unix socket, which forwards to a socket here
+ * wherever ssh can make one. A client that cannot, as on Windows, where
+ * Win32-OpenSSH does not forward Unix sockets, probably wants the far socket on
+ * a loopback port here instead, with a credential, because any local user can
+ * reach a loopback port. `session.ts` hands over whatever the forward produced,
+ * so supporting the second is a change to this file rather than to the client.
  */
 export type ForwardShape =
   | { readonly kind: "unix"; readonly local: string; readonly remote: string }

@@ -30,7 +30,7 @@ import { aliasesOf, resolveSession } from "../src/commands/session-argument.js";
 import { listResult, sourcesResult } from "../src/commands/config.js";
 import { builtInDefaults, CONFIG_KEYS } from "../src/config/schema.js";
 import type { MergedConfig } from "../src/config/load.js";
-import { bareEnvironment, localHostTest } from "./support/platform.js";
+import { localHostTest } from "./support/platform.js";
 
 /** A context with no terminal and no colour, so a rendering is plain text. */
 function context(overrides: Partial<WerkContext> = {}): WerkContext {
@@ -532,7 +532,7 @@ localHostTest(
  * environment or a repository anywhere near it.
  */
 const merged = (over: Partial<MergedConfig> = {}): MergedConfig => ({
-  config: builtInDefaults(bareEnvironment(), "/home/nobody", "linux"),
+  config: builtInDefaults({}, "/home/nobody", "linux"),
   from: Object.fromEntries(
     CONFIG_KEYS.map((key) => [key, "defaults"]),
   ) as MergedConfig["from"],
@@ -583,7 +583,7 @@ test("on Windows config list has no local host and no default host", () => {
   const ctx = context();
   const shown = listResult(
     merged({
-      config: builtInDefaults(bareEnvironment(), "/home/nobody", "win32"),
+      config: builtInDefaults({}, "/home/nobody", "win32"),
       hosts: {
         ...builtInHosts("win32"),
         "agent-sandboxes": { kind: "ssh", sshHost: "agent-sandboxes" },

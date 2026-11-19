@@ -43,6 +43,7 @@ import {
   spawnPty,
   platformCapabilities,
   makePrivate,
+  refuseDaemonPlatform,
   socketPathTooLong,
 } from "./platform/index.js";
 import {
@@ -242,7 +243,7 @@ type Connection = {
   streamControlCount: number;
 };
 const owner = (): Principal => ({
-  id: `uid:${process.getuid?.() ?? process.env.USERNAME ?? "local"}`,
+  id: `uid:${process.getuid?.() ?? "local"}`,
 });
 /**
  * The rule every grid the daemon is given has to meet. Exported so a client can
@@ -341,6 +342,7 @@ export function uniqueSessionName(
   for (let n = 2; ; n++) if (!names.has(`${leaf}-${n}`)) return `${leaf}-${n}`;
 }
 export async function createSessionDaemon(config: DaemonConfig) {
+  refuseDaemonPlatform();
   const log = config.log ?? silentLogger;
   const limits = {
     sessions: 128,
@@ -391,9 +393,7 @@ export async function createSessionDaemon(config: DaemonConfig) {
       snapshotFormatVersion: config.engineFactory.snapshotFormatVersion,
     },
     capabilities: {
-      termination: platformCapabilities.pty
-        ? ["interrupt", "terminate", "force"]
-        : [],
+      termination: ["interrupt", "terminate", "force"],
       snapshots: config.engineFactory.capabilities.snapshot,
       scrollbackMaxBytes: limits.scrollbackMaxBytes,
       // What a client waiting on `openPath` has to outlast, so it can set its
@@ -2128,6 +2128,7 @@ export async function createSessionDaemon(config: DaemonConfig) {
   };
 }
 export async function serveSessionDaemon(config: DaemonConfig) {
+  refuseDaemonPlatform();
   const paths = resolveSessionDaemonPaths(config);
   const suppliedLog = config.log;
   const log =
@@ -2185,20 +2186,7 @@ export async function serveSessionDaemon(config: DaemonConfig) {
     let server: net.Server | undefined;
     let supervisor: ReturnType<typeof startDaemonSupervisor> | undefined;
     try {
-      const credential =
-        process.platform === "win32" ? randomUUID() + randomUUID() : undefined;
-      daemon = await createSessionDaemon(
-        credential
-          ? {
-              ...config,
-              authenticate: async (supplied) => {
-                if (supplied !== credential)
-                  throw new Error("Invalid local credential");
-                return owner();
-              },
-            }
-          : config,
-      );
+      daemon = await createSessionDaemon(config);
       const accept = (socket: net.Socket) =>
         daemon!.accept(socketTransport(socket), owner());
       // Listening again on the same path is how the daemon recovers a removed socket; the
@@ -2213,31 +2201,18 @@ export async function serveSessionDaemon(config: DaemonConfig) {
         // Bind under a private name and rename it into place: a client that reads the
         // endpoint record never finds a socket that is still world-accessible, and a client
         // holding the old record sees either the previous socket or this one.
-        const temporary = credential
-          ? ""
-          : `${paths.socket}.${process.pid}.new`;
-        if (temporary) await fs.rm(temporary, { force: true });
+        const temporary = `${paths.socket}.${process.pid}.new`;
+        await fs.rm(temporary, { force: true });
         await new Promise<void>((resolve, reject) => {
           next.once("error", reject);
-          if (credential) next.listen(0, "127.0.0.1", resolve);
-          else next.listen(temporary, resolve);
+          next.listen(temporary, resolve);
         });
-        if (temporary) {
-          await fs.chmod(temporary, 0o600);
-          await fs.rename(temporary, paths.socket);
-        }
+        await fs.chmod(temporary, 0o600);
+        await fs.rename(temporary, paths.socket);
         server = next;
       };
-      let endpoint: LocalEndpoint = { kind: "unix", path: paths.socket };
+      const endpoint: LocalEndpoint = { kind: "unix", path: paths.socket };
       const writeEndpoint = async () => {
-        if (credential)
-          endpoint = {
-            kind: "tcp",
-            host: "127.0.0.1",
-            port: (server!.address() as net.AddressInfo).port,
-            credential,
-          };
-        else endpoint = { kind: "unix", path: paths.socket };
         await fs.writeFile(paths.endpoint, JSON.stringify(endpoint), {
           mode: 0o600,
         });
@@ -2259,8 +2234,7 @@ export async function serveSessionDaemon(config: DaemonConfig) {
       supervisor = startDaemonSupervisor({
         paths,
         log,
-        socketBound: !credential,
-        socketInode: credential ? null : (await fs.stat(paths.socket)).ino,
+        socketInode: (await fs.stat(paths.socket)).ino,
         relisten: listen,
         writeEndpoint,
         lockFile,

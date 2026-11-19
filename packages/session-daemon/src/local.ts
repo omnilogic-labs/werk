@@ -16,20 +16,24 @@ import type { Transport } from "@werk/session/protocol";
 export type LocalEndpoint =
   | { kind: "unix"; path: string }
   | { kind: "tcp"; host: "127.0.0.1"; port: number; credential: string };
+/**
+ * Where the daemon's socket and endpoint record live, and where a client puts
+ * the sockets it forwards from another machine.
+ *
+ * No daemon runs on Windows, but the client there still takes a runtime
+ * directory: the code that forwards a far daemon to this machine keeps its
+ * local end and its lock under one. The user's own temporary directory is the
+ * place for it, because Windows gives every user one and it needs nothing
+ * from the environment that might be missing.
+ */
 export function defaultSessionRuntimeDir(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
   uid: number = process.getuid?.() ?? 0,
+  temporary: string = os.tmpdir(),
 ): string {
   if (env.WERK_RUNTIME_DIR) return env.WERK_RUNTIME_DIR;
-  if (platform === "win32") {
-    const local = env.LOCALAPPDATA;
-    if (!local)
-      throw new Error(
-        "LOCALAPPDATA is required for the default runtime directory",
-      );
-    return path.win32.join(local, "werk", "run");
-  }
+  if (platform === "win32") return path.win32.join(temporary, "werk");
   return `/tmp/werk-${uid}`;
 }
 class UnsafeLocalPathError extends Error {}
@@ -55,14 +59,10 @@ export async function validateRuntimeDirectory(
     throw new UnsafeLocalPathError(
       "Runtime path must be a directory, not a symbolic link",
     );
-  if (process.platform !== "win32") {
-    if (stat.uid !== process.getuid!())
-      throw new UnsafeLocalPathError(
-        "Runtime directory belongs to another user",
-      );
-    if ((stat.mode & 0o777) !== 0o700)
-      throw new UnsafeLocalPathError("Runtime directory must have mode 0700");
-  }
+  if (stat.uid !== process.getuid?.())
+    throw new UnsafeLocalPathError("Runtime directory belongs to another user");
+  if ((stat.mode & 0o777) !== 0o700)
+    throw new UnsafeLocalPathError("Runtime directory must have mode 0700");
 }
 export function resolveSessionDaemonPaths(options: {
   runtimeDir: string;
@@ -281,7 +281,7 @@ export async function ensureSessionDaemon(options: {
       detached: true,
       stdio: ["ignore", "ignore", "ignore"],
       env: daemonEnvironment(),
-      cwd: process.platform === "win32" ? os.homedir() : "/",
+      cwd: "/",
     },
   );
   child.unref();

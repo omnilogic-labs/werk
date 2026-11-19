@@ -2,11 +2,7 @@ import fs from "node:fs/promises";
 import { closeSync, openSync, readFileSync } from "node:fs";
 import os from "node:os";
 import { holdSharedDirectoryLock } from "./platform/lock.js";
-import {
-  forgetPrivate,
-  makePrivate,
-  processStartedAt,
-} from "./platform/index.js";
+import { makePrivate, processStartedAt } from "./platform/index.js";
 import type { Logger } from "./log.js";
 
 /**
@@ -143,7 +139,6 @@ export async function ensurePrivateDirectory(directory: string) {
   const stat = await fs.stat(directory);
   if (process.getuid && stat.uid !== process.getuid())
     throw new Error(`Directory ${directory} belongs to another user`);
-  if (created) forgetPrivate(directory);
   await makePrivate(directory);
   return created;
 }
@@ -155,8 +150,6 @@ export interface SupervisorOptions {
     endpoint: string;
   };
   log: Logger;
-  /** False when the endpoint is a loopback port rather than a socket file (Windows). */
-  socketBound: boolean;
   /** The inode of the socket the daemon bound, captured by the caller after listening. */
   socketInode: number | null;
   /** Listens a fresh server on `paths.socket` and leaves it serving. */
@@ -220,30 +213,20 @@ export function startDaemonSupervisor(
       directoryLock?.();
       directoryLock = holdSharedDirectoryLock(paths.runtimeDir);
     }
-    if (options.socketBound) {
-      const current = await inode(paths.socket);
-      if (current === null || current !== socketInode) {
-        log.write("info", "endpoint.lost", {
-          path: paths.socket,
-          reason: current === null ? "socket-missing" : "inode-changed",
-        });
-        await options.relisten();
-        await options.writeEndpoint();
-        socketInode = await inode(paths.socket);
-        log.write("info", "endpoint.recreated", {
-          path: paths.endpoint,
-          socket: paths.socket,
-        });
-      } else if (!(await fs.stat(paths.endpoint).catch(() => null))) {
-        log.write("info", "endpoint.lost", {
-          path: paths.endpoint,
-          reason: "endpoint-missing",
-        });
-        await options.writeEndpoint();
-        log.write("info", "endpoint.recreated", { path: paths.endpoint });
-      }
+    const current = await inode(paths.socket);
+    if (current === null || current !== socketInode) {
+      log.write("info", "endpoint.lost", {
+        path: paths.socket,
+        reason: current === null ? "socket-missing" : "inode-changed",
+      });
+      await options.relisten();
+      await options.writeEndpoint();
+      socketInode = await inode(paths.socket);
+      log.write("info", "endpoint.recreated", {
+        path: paths.endpoint,
+        socket: paths.socket,
+      });
     } else if (!(await fs.stat(paths.endpoint).catch(() => null))) {
-      // A loopback endpoint has no socket file, so the record is the only thing to defend.
       log.write("info", "endpoint.lost", {
         path: paths.endpoint,
         reason: "endpoint-missing",
@@ -282,13 +265,11 @@ export function startDaemonSupervisor(
 
   const timer = setInterval(() => void check(), intervalMs);
   timer.unref?.();
-  // SIGUSR1 is tmux's "recreate your socket" request. Windows has no such signal.
+  // SIGUSR1 is tmux's "recreate your socket" request.
   const onSignal = () => void check();
-  if (process.platform !== "win32") {
-    try {
-      process.on("SIGUSR1", onSignal);
-    } catch {}
-  }
+  try {
+    process.on("SIGUSR1", onSignal);
+  } catch {}
 
   return {
     async check() {
@@ -298,11 +279,9 @@ export function startDaemonSupervisor(
       if (stopped) return;
       stopped = true;
       clearInterval(timer);
-      if (process.platform !== "win32") {
-        try {
-          process.off("SIGUSR1", onSignal);
-        } catch {}
-      }
+      try {
+        process.off("SIGUSR1", onSignal);
+      } catch {}
       directoryLock?.();
       directoryLock = null;
     },

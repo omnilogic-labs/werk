@@ -43,15 +43,3 @@ export const clientOnlyTest = test.skipIf(!clientOnly);
 
 /** Where a short-lived temporary directory goes. */
 export const shortTempRoot = clientOnly ? tmpdir() : "/tmp";
-
-/**
- * The emptiest environment this platform really runs werk with.
- *
- * A test that hands werk an empty environment means "nothing the user set". On
- * Windows the system always sets `LOCALAPPDATA`, and werk's defaults read it,
- * so the empty environment there carries that one variable.
- */
-export function bareEnvironment(): Record<string, string> {
-  const local = process.env.LOCALAPPDATA;
-  return clientOnly && local !== undefined ? { LOCALAPPDATA: local } : {};
-}

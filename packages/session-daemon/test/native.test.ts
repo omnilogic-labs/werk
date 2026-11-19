@@ -3,7 +3,6 @@ import { spawnPty, platformCapabilities } from "../src/platform/index.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { acquireDaemonLock } from "../src/platform/lock.js";
 
 async function until(check: () => boolean | Promise<boolean>, ms = 5000) {
@@ -25,16 +24,13 @@ function running(pid: number) {
   } catch {
     return false;
   }
-  if (process.platform !== "win32") {
-    const result = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(pid)], {
-      stdout: "pipe",
-    });
-    return (
-      result.exitCode === 0 &&
-      !new TextDecoder().decode(result.stdout).trim().startsWith("Z")
-    );
-  }
-  return true;
+  const result = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(pid)], {
+    stdout: "pipe",
+  });
+  return (
+    result.exitCode === 0 &&
+    !new TextDecoder().decode(result.stdout).trim().startsWith("Z")
+  );
 }
 
 test("native PTY hosts input, resize, and process exit", async () => {
@@ -95,9 +91,7 @@ test("force ends a live child and its detached descendant", async () => {
     descendant = Number(output.match(/DESCENDANT=(\d+)/)![1]);
     expect(running(descendant)).toBe(true);
     const result = child.terminate("force");
-    expect(result.delivery).toBe(
-      process.platform === "win32" ? "job-object" : "process-tree-signal",
-    );
+    expect(result.delivery).toBe("process-tree-signal");
     await child.exited;
     await until(() => !running(descendant));
   } finally {
@@ -106,112 +100,32 @@ test("force ends a live child and its detached descendant", async () => {
   }
 });
 
-test.skipIf(process.platform === "win32")(
-  "PTY interrupt reaches a shell's separate foreground job",
-  async () => {
-    let output = "",
-      foreground = 0;
-    const child = spawnPty(
-      ["/bin/sh", "-i"],
-      process.cwd(),
-      environment,
-      { cols: 80, rows: 24 },
-      (data) => {
-        output += new TextDecoder().decode(data);
-      },
+test("PTY interrupt reaches a shell's separate foreground job", async () => {
+  let output = "",
+    foreground = 0;
+  const child = spawnPty(
+    ["/bin/sh", "-i"],
+    process.cwd(),
+    environment,
+    { cols: 80, rows: 24 },
+    (data) => {
+      output += new TextDecoder().decode(data);
+    },
+  );
+  try {
+    child.write(
+      new TextEncoder().encode("sh -c 'echo FOREGROUND=$$; exec sleep 1000'\n"),
     );
-    try {
-      child.write(
-        new TextEncoder().encode(
-          "sh -c 'echo FOREGROUND=$$; exec sleep 1000'\n",
-        ),
-      );
-      await until(() => /FOREGROUND=\d+/.test(output));
-      foreground = Number(output.match(/FOREGROUND=(\d+)/)![1]);
-      expect(running(foreground)).toBe(true);
-      expect(child.terminate("interrupt").delivery).toBe("pty-control-c");
-      await until(() => !running(foreground));
-      expect(running(child.pid)).toBe(true);
-    } finally {
-      child.terminate("force");
-      await child.exited;
-      child.close();
-      if (foreground && running(foreground))
-        process.kill(foreground, "SIGKILL");
-    }
-  },
-);
-
-test.skipIf(process.platform !== "win32")(
-  "Windows kernel job cleans descendants after abrupt owner death",
-  async () => {
-    const owner = Bun.spawn(
-      [
-        process.execPath,
-        fileURLToPath(new URL("./fixtures/windows-owner.ts", import.meta.url)),
-      ],
-      { stdout: "pipe", stderr: "inherit" },
-    );
-    let output = "",
-      descendant = 0;
-    const reading = (async () => {
-      for await (const bytes of owner.stdout) {
-        output += new TextDecoder().decode(bytes);
-      }
-    })();
-    try {
-      await until(() => /OWNED_DESCENDANT=\d+/.test(output));
-      descendant = Number(output.match(/OWNED_DESCENDANT=(\d+)/)![1]);
-      expect(running(descendant)).toBe(true);
-      owner.kill();
-      await owner.exited;
-      await until(() => !running(descendant));
-    } finally {
-      owner.kill();
-      await reading;
-      if (descendant && running(descendant))
-        process.kill(descendant, "SIGKILL");
-    }
-  },
-);
-
-test.skipIf(process.platform !== "win32")(
-  "Windows endpoint requires its per-start credential",
-  async () => {
-    const { serveSessionDaemon, openLocalTransport } =
-      await import("../src/index.js");
-    const { connectSessionClient } = await import("@werk/session");
-    const { loadTerminalEngine } = await import("@werk/terminal");
-    const dir = await mkdtemp(join(tmpdir(), "werk-native-auth-"));
-    const daemon = await serveSessionDaemon({
-      runtimeDir: join(dir, "run"),
-      stateDir: join(dir, "state"),
-      version: "test",
-      engineFactory: await loadTerminalEngine(),
-    });
-    try {
-      expect(daemon.endpoint.kind).toBe("tcp");
-      if (daemon.endpoint.kind !== "tcp")
-        throw new Error("Expected TCP endpoint");
-      await expect(
-        connectSessionClient({
-          transport: await openLocalTransport(daemon.endpoint),
-          credential: "wrong",
-          requestTimeoutMs: 1000,
-        }),
-      ).rejects.toThrow();
-      const client = await connectSessionClient({
-        transport: await openLocalTransport(daemon.endpoint),
-        credential: daemon.endpoint.credential,
-      });
-      try {
-        expect((await client.daemonInfo()).id).toBe(daemon.info.id);
-      } finally {
-        await client.close();
-      }
-    } finally {
-      await daemon.close();
-      await rm(dir, { recursive: true, force: true });
-    }
-  },
-);
+    await until(() => /FOREGROUND=\d+/.test(output));
+    foreground = Number(output.match(/FOREGROUND=(\d+)/)![1]);
+    expect(running(foreground)).toBe(true);
+    expect(child.terminate("interrupt").delivery).toBe("pty-control-c");
+    await until(() => !running(foreground));
+    expect(running(child.pid)).toBe(true);
+  } finally {
+    child.terminate("force");
+    await child.exited;
+    child.close();
+    if (foreground && running(foreground)) process.kill(foreground, "SIGKILL");
+  }
+});

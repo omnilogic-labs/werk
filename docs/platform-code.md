@@ -5,17 +5,19 @@ Everything else that branches on the platform is declared in the `EXCEPTIONS`
 list in
 [`scripts/check-platform-code.ts`](../scripts/check-platform-code.ts), and
 `bun scripts/check-platform-code.ts` fails on a branch that is in neither. So
-"what makes the Windows code the Windows code?" is answered by looking at two
-places rather than by reading everything.
+"what makes the macOS code the macOS code?" is answered by looking at two places
+rather than by reading everything.
 
 This is a first shape and we should expect to change it.
 
 ## The two places
 
 **`packages/session-daemon/src/platform/` holds the implementations.**
-`win32.ts` is the Windows one, `posix.ts` is the Unix one, and `lock.ts` and
-`index.ts` are the entry points that pick between them. Everything that talks to a
-kernel job object, a `flock`, a process group or a PowerShell ACL is in there.
+`posix.ts` holds what differs between Linux and macOS, `rules.ts` holds the
+platform questions written as pure functions, and `lock.ts` and `index.ts` are
+the entry points. Everything that talks to a `flock`, an abstract socket or a
+process group is in there, and so is the check that refuses to start a daemon
+on Windows, where werk runs only as a client.
 
 **`EXCEPTIONS` in `scripts/check-platform-code.ts` lists the branching that is
 still somewhere else.** Each entry names a file, how
@@ -24,11 +26,10 @@ means to keep them: `stays` for a branch that looks like it belongs where it is,
 `wants-moving` for one that reads as debt.
 
 Reading those two together is meant to be the whole answer. Neither is enough on
-its own, which is worth saying because it is not obvious: `win32.ts` never
-mentions `process.platform` at all, because the whole file is already the Windows
-answer and nothing in it needs to ask. A scanner looking for branching would say
-that file is clean. The directory holds implementations; the list holds
-decisions. The question needs both.
+its own, which is worth saying because it is not obvious: a file that is all one
+platform's answer never needs to mention `process.platform`, so a scanner looking
+for branching would say it is clean. The directory holds implementations; the
+list holds decisions. The question needs both.
 
 ## Why a list rather than a marker
 
@@ -66,16 +67,15 @@ Windows, where a path-separator mistake is exactly how a walk goes quiet.
 These are already in the codebase and seem to be working, and the shape above is
 mostly an attempt to name them.
 
-**Take the platform as a parameter, and default it.** `daemonEnvironment(source,
-windows)`, `libcCandidates(platform, arch)`, `defaultSessionRuntimeDir(env,
-platform, uid)` and the predicates in `platform/rules.ts` all read the platform
-only as a default. The Windows answer is then reachable from a Linux machine,
-which is the only way most of it gets exercised at all — the tests for those run
-both branches everywhere.
+**Take the platform as a parameter, and default it.** `libcCandidates(platform,
+arch)`, `defaultSessionRuntimeDir(env, platform, uid, temporary)`,
+`refuseDaemonPlatform(platform)` and the CLI's `clientOnly(platform)` all read
+the platform only as a default, and the predicates in `platform/rules.ts` take
+the uid the same way. Every answer is then reachable from a Linux machine, which
+is the only way most of them get exercised at all — the tests for those run
+every branch everywhere.
 
-**Decide once, then branch on the decision.** `serveSessionDaemon` works out a
-loopback credential from the platform in one place; everything after that asks
-whether there is a credential, not what the platform is. `relock` asks whether
+**Decide once, then branch on the decision.** `relock` asks whether
 the lock it holds is a `flock`, which is a fact about the mechanism rather than
 about the operating system. This tends to read better than the platform test it
 replaces, because the thing being asked about is the thing that matters.
@@ -90,7 +90,7 @@ list of operating systems that can.
 `index.ts` and `lock.ts` are the two modules imported from outside the
 directory. `rules.ts` is reached through `index.ts`, which re-exports
 `socketPathTooLong` and `notPrivateToOwner`; only its own test imports it
-directly. `posix.ts` and `win32.ts` are never imported from outside at all.
+directly. `posix.ts` is never imported from outside at all.
 Keeping the per-platform files behind those entry points is what lets a caller
 stay unaware of which one it got, and it is cheap to check by grepping for the
 import path.

@@ -25,14 +25,13 @@ import { DAEMON_OWNED } from "../src/environment.js";
 import { mergeLayers, type ConfigLayer } from "../src/config/load.js";
 import { builtInDefaults } from "../src/config/schema.js";
 import { exitCodeFor, errorPayload } from "../src/runtime/exit.js";
-import { bareEnvironment } from "./support/platform.js";
 
 /** A defaults layer with every setting in it, plus whatever hosts are wanted. */
 const defaults = (
   hosts: Record<string, Host> = builtInHosts("linux"),
 ): ConfigLayer => ({
   name: "defaults",
-  values: builtInDefaults(bareEnvironment(), "/home/nobody", "linux"),
+  values: builtInDefaults({}, "/home/nobody", "linux"),
   hosts,
 });
 const layer = (
@@ -515,7 +514,7 @@ test("only Windows runs werk as a client only", () => {
 test("on Windows there is no local host and no default host", () => {
   expect(builtInHosts("win32")).toEqual({});
   expect(defaultHostFor("win32")).toBeUndefined();
-  const values = builtInDefaults(bareEnvironment(), "/home/nobody", "win32");
+  const values = builtInDefaults({}, "/home/nobody", "win32");
   expect(values.defaultHost).toBeUndefined();
   const merged = mergeLayers([
     { name: "defaults", values, hosts: builtInHosts("win32") },

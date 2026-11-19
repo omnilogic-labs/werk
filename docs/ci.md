@@ -89,15 +89,30 @@ on Windows only:
 
 - `json-output.test.ts`: `list`, `create`, `land`, `info` and `doctor`,
   `daemon endpoint`, `logs`, and `kill` and `remove`, which all reach the
-  daemon. `setup`, `completion` and every `config` subcommand still run.
+  daemon.
 - `land.test.ts`: every case that makes its workspace with `werk create`. The
   two refusals that need no session still run.
-- `workspace.test.ts`: every case that creates a session. The three refusals
-  that start no daemon still run.
+- `workspace.test.ts`: every case that creates a session.
 
-`packages/session-daemon/test/native.test.ts` holds tests that run only on
-Windows, for the Windows job object and endpoint. Leaving the daemon package out
-of the lane means they do not run anywhere.
+A test that acts on the `local` host is marked `localHostTest` from the same
+file, which also skips on Windows only. The CLI refuses `local` there, so these
+cannot pass, and the refusal itself is what Windows tests instead, in
+`client-only.test.ts`:
+
+- `json-output.test.ts`: `setup`, which reports the local machine's setup.
+  `completion` and every `config` subcommand still run.
+- `workspace.test.ts`: the three refusals that start no daemon (outside a
+  repository, a taken branch or bad name, and a repository with no commits),
+  because each is reached by acting on `local`. Nothing in that file runs on
+  Windows.
+- `commands.test.ts`: where a local workspace goes.
+- `host-place.test.ts`: the two cases that place a workspace on a local host.
+- `tty.test.ts`: the list table, which lists the local host.
+
+`client-only.test.ts` runs only on Windows. It checks the refusal through the
+real binary, that `werk config` lists no local host and no default host, and
+that `werk config get runtimeDir` answers with nothing in the environment to
+build a default from.
 
 ## Step order
 

@@ -98,25 +98,22 @@ test("liveness separates a live daemon from a record left by a reboot", async ()
   );
 });
 
-test.skipIf(process.platform === "win32")(
-  "a pid reused within one boot is not mistaken for the recorded daemon",
-  () => {
-    // Every platform that has this guard must report a start time for it to read. A
-    // platform whose reader answers null fails here rather than skipping in silence.
-    expect(Number.isFinite(processStartedAt(process.pid))).toBe(true);
-    const record = {
-      pid: process.pid,
-      bootId: currentBootId(),
-      // The record claims a process that started an hour before this one did.
-      startedAt: processStartedAt(process.pid)! - 3600_000,
-      runtimeDir: "/tmp/werk-1",
-      stateDir: "/tmp/werk-state",
-      endpoint: null,
-      version: "0.1.0",
-    };
-    expect(recordedDaemonLiveness(record).reason).toBe("pid-reused");
-  },
-);
+test("a pid reused within one boot is not mistaken for the recorded daemon", () => {
+  // Every platform that has this guard must report a start time for it to read. A
+  // platform whose reader answers null fails here rather than skipping in silence.
+  expect(Number.isFinite(processStartedAt(process.pid))).toBe(true);
+  const record = {
+    pid: process.pid,
+    bootId: currentBootId(),
+    // The record claims a process that started an hour before this one did.
+    startedAt: processStartedAt(process.pid)! - 3600_000,
+    runtimeDir: "/tmp/werk-1",
+    stateDir: "/tmp/werk-state",
+    endpoint: null,
+    version: "0.1.0",
+  };
+  expect(recordedDaemonLiveness(record).reason).toBe("pid-reused");
+});
 
 test("the line ps prints for a process start is read as an instant in UTC", () => {
   expect(parseProcessStartLine("Tue Sep  8 05:26:49 2026")).toBe(
@@ -265,97 +262,88 @@ test("the daemon touches its files so an age-based cleaner sees them as recent",
   }
 });
 
-test.skipIf(process.platform === "win32")(
-  "SIGUSR1 rebuilds the endpoint without waiting for the interval",
-  async () => {
-    const dir = await directory();
-    const daemon = await serve(dir);
-    const paths = resolveSessionDaemonPaths({
-      runtimeDir: path.join(dir, "run"),
-      stateDir: path.join(dir, "state"),
-    });
-    try {
-      await fs.rm(paths.runtimeDir, { recursive: true, force: true });
-      process.kill(process.pid, "SIGUSR1");
-      await until(() => exists(paths.socket));
-      await until(() => exists(paths.endpoint));
-    } finally {
-      await daemon.close();
-    }
-  },
-);
+test("SIGUSR1 rebuilds the endpoint without waiting for the interval", async () => {
+  const dir = await directory();
+  const daemon = await serve(dir);
+  const paths = resolveSessionDaemonPaths({
+    runtimeDir: path.join(dir, "run"),
+    stateDir: path.join(dir, "state"),
+  });
+  try {
+    await fs.rm(paths.runtimeDir, { recursive: true, force: true });
+    process.kill(process.pid, "SIGUSR1");
+    await until(() => exists(paths.socket));
+    await until(() => exists(paths.endpoint));
+  } finally {
+    await daemon.close();
+  }
+});
 
-test.skipIf(process.platform === "win32")(
-  "a client waits for a live daemon rather than spawning a second one",
-  async () => {
-    const dir = await directory();
-    const daemon = await serve(dir);
-    const paths = resolveSessionDaemonPaths({
-      runtimeDir: path.join(dir, "run"),
-      stateDir: path.join(dir, "state"),
+test("a client waits for a live daemon rather than spawning a second one", async () => {
+  const dir = await directory();
+  const daemon = await serve(dir);
+  const paths = resolveSessionDaemonPaths({
+    runtimeDir: path.join(dir, "run"),
+    stateDir: path.join(dir, "state"),
+  });
+  const marker = path.join(dir, "spawned");
+  try {
+    await fs.rm(paths.runtimeDir, { recursive: true, force: true });
+    const found = await ensureSessionDaemon({
+      runtimeDir: paths.runtimeDir,
+      stateDir: paths.stateDir,
+      startupTimeoutMs: 5000,
+      daemonCommand: [
+        process.execPath,
+        "-e",
+        `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x")`,
+      ],
     });
-    const marker = path.join(dir, "spawned");
-    try {
-      await fs.rm(paths.runtimeDir, { recursive: true, force: true });
-      const found = await ensureSessionDaemon({
-        runtimeDir: paths.runtimeDir,
-        stateDir: paths.stateDir,
-        startupTimeoutMs: 5000,
-        daemonCommand: [
-          process.execPath,
-          "-e",
-          `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x")`,
-        ],
-      });
-      expect(found.endpoint).toEqual(daemon.endpoint as never);
-      expect(await exists(marker)).toBe(false);
-      const record = (await readDaemonRecord(paths.record))!;
-      expect(record.pid).toBe(process.pid);
-    } finally {
-      await daemon.close();
-    }
-  },
-);
+    expect(found.endpoint).toEqual(daemon.endpoint as never);
+    expect(await exists(marker)).toBe(false);
+    const record = (await readDaemonRecord(paths.record))!;
+    expect(record.pid).toBe(process.pid);
+  } finally {
+    await daemon.close();
+  }
+});
 
-test.skipIf(process.platform === "win32")(
-  "a client that finds no live record still starts a daemon",
-  async () => {
-    const dir = await directory();
-    const paths = resolveSessionDaemonPaths({
-      runtimeDir: path.join(dir, "run"),
-      stateDir: path.join(dir, "state"),
-    });
-    await fs.mkdir(paths.stateDir, { recursive: true, mode: 0o700 });
-    // A record from a previous boot must not hold a client back.
-    await fs.writeFile(
-      paths.record,
-      JSON.stringify({
-        pid: process.pid,
-        bootId: "0000-a-previous-boot",
-        startedAt: Date.now(),
-        runtimeDir: paths.runtimeDir,
-        stateDir: paths.stateDir,
-        endpoint: null,
-        version: "0.1.0",
-      }),
-      { mode: 0o600 },
-    );
-    const marker = path.join(dir, "spawned");
-    await expect(
-      ensureSessionDaemon({
-        runtimeDir: paths.runtimeDir,
-        stateDir: paths.stateDir,
-        startupTimeoutMs: 300,
-        daemonCommand: [
-          process.execPath,
-          "-e",
-          `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x")`,
-        ],
-      }),
-    ).rejects.toThrow("startup deadline");
-    expect(await exists(marker)).toBe(true);
-  },
-);
+test("a client that finds no live record still starts a daemon", async () => {
+  const dir = await directory();
+  const paths = resolveSessionDaemonPaths({
+    runtimeDir: path.join(dir, "run"),
+    stateDir: path.join(dir, "state"),
+  });
+  await fs.mkdir(paths.stateDir, { recursive: true, mode: 0o700 });
+  // A record from a previous boot must not hold a client back.
+  await fs.writeFile(
+    paths.record,
+    JSON.stringify({
+      pid: process.pid,
+      bootId: "0000-a-previous-boot",
+      startedAt: Date.now(),
+      runtimeDir: paths.runtimeDir,
+      stateDir: paths.stateDir,
+      endpoint: null,
+      version: "0.1.0",
+    }),
+    { mode: 0o600 },
+  );
+  const marker = path.join(dir, "spawned");
+  await expect(
+    ensureSessionDaemon({
+      runtimeDir: paths.runtimeDir,
+      stateDir: paths.stateDir,
+      startupTimeoutMs: 300,
+      daemonCommand: [
+        process.execPath,
+        "-e",
+        `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x")`,
+      ],
+    }),
+  ).rejects.toThrow("startup deadline");
+  expect(await exists(marker)).toBe(true);
+});
 
 test.skipIf(process.platform !== "linux")(
   "the runtime directory is held under a shared lock while the daemon runs",

@@ -709,11 +709,10 @@ setup wizard does not offer `local` as a default there, and removing the host
 That leaves reaching another machine, and Windows works in neither direction
 yet.
 
-**A Windows host** is refused twice over. werk builds only Linux targets, so a
-machine reporting anything else is refused with `HOST_UNSUPPORTED` before a
-binary is sent. Even with a binary there, a daemon on Windows reports loopback
-TCP with a credential rather than a Unix socket, and the forward refuses
-anything that is not a Unix socket.
+**A Windows host** is refused. werk builds only Linux targets, so a machine
+reporting anything else is refused with `HOST_UNSUPPORTED` before a binary is
+sent, and the daemon runs only on Linux and macOS: on Windows it refuses to
+start.
 
 **A Windows client** cannot open the local end. Win32-OpenSSH does not support
 Unix-domain socket forwarding, so `-L <local socket>:<remote socket>` has no
@@ -721,11 +720,14 @@ meaning there and a Windows client would need a loopback TCP landing on this
 side. Nobody has run that against werk, because there is no Windows client path
 to run.
 
-The shape of the fix is written down and none of it is built: forward
-`-L <local port>:127.0.0.1:<remote port>`, hand back a `tcp` endpoint carrying
-the far side's credential, and pick a free local port on this side, because ssh
-will not report the one it chose for `-L 0:`. The endpoint type already has both
-shapes, so it is a change to the forwarding file rather than to the client.
+The probable shape of the fix is written down and none of it is built: forward
+`-L <local port>:<remote socket>`, a form OpenSSH accepts with a Unix socket at
+the far end (nobody has tried it with Win32-OpenSSH), hand back a `tcp` endpoint, and pick a free local port on this
+side, because ssh will not report the one it chose for `-L 0:`. A loopback port
+is reachable by any local user, so the endpoint probably wants a credential that
+whatever listens on the port checks. The endpoint type, the client's credential
+dialling and the daemon's `authenticate` hook already exist, so it is mostly a
+change to the forwarding file rather than to the client.
 
 [platforms.md](platforms.md) has the tiering this sits under.
 

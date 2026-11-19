@@ -174,8 +174,8 @@ export function psStartedAt(pid: number): number | null {
 
 /**
  * When a pid started, which is what catches a pid reused within one boot. Linux carries it
- * as the ctime of `/proc/<pid>`, and Darwin reports it through ps. Windows has neither, so
- * there the boot identifier and the ownership check are the whole guard.
+ * as the ctime of `/proc/<pid>`, and Darwin reports it through ps. Anywhere else it is
+ * null, and the boot identifier and the ownership check are the whole guard.
  */
 export function processStartedAt(pid: number): number | null {
   if (process.platform === "linux") {

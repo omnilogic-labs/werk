@@ -15,10 +15,9 @@ import {
   type ThemeConfig,
 } from "../src/runtime/theme.js";
 import { builtInDefaults } from "../src/config/schema.js";
-import { bareEnvironment } from "./support/platform.js";
 
 const config = (over: Partial<ThemeConfig> = {}): ThemeConfig => {
-  const base = builtInDefaults(bareEnvironment(), "/home/nobody");
+  const base = builtInDefaults({}, "/home/nobody");
   return {
     flavour: base.flavour,
     flavourDark: base.flavourDark,

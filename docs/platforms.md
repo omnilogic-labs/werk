@@ -51,8 +51,9 @@ session host, only the client. So `native (windows-latest)` runs the tests of
 the CLI's parsing, help, config, themes and output, of the workspace and ssh
 code that builds commands for another machine, and of the session protocol and
 client, and leaves out every test that starts, ensures or talks to a local
-daemon. [ci.md](ci.md#what-the-windows-lane-runs) lists what is left out and
-how.
+daemon. werk carries no code for running a daemon on Windows, and the daemon
+refuses to start there. [ci.md](ci.md#what-the-windows-lane-runs) lists what is
+left out and how.
 
 That is a statement about what Windows needs rather than a failure the lane is
 allowed to have: what the lane does run has to pass.

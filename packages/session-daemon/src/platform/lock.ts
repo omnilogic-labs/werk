@@ -2,9 +2,8 @@ import { openSync, closeSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { dlopen, FFIType } from "bun:ffi";
-import { acquireWindowsLock } from "./win32.js";
 
-export type LockMechanism = "windows-handle" | "flock" | "abstract-socket";
+export type LockMechanism = "flock" | "abstract-socket";
 /** Releases the lock; carries the mechanism that is holding it so callers can log it. */
 export type LockRelease = (() => void) & { mechanism: LockMechanism };
 
@@ -55,7 +54,6 @@ function abstractSocketName(file: string) {
 
 /** Reports the mechanism that would hold the lock, without creating or taking anything. */
 export function probeLockMechanism(): LockMechanism | "unavailable" {
-  if (process.platform === "win32") return "windows-handle";
   const library = openFlock(libcCandidates());
   if (library) {
     library.close();
@@ -88,12 +86,11 @@ export function lockableDirectory(directory: string): boolean {
  * A shared `flock` on a directory fd, held for the daemon's lifetime. tmpfiles.d(5) says the
  * aging algorithm skips a directory that is already locked, so this is how the runtime
  * directory asks a cleaner to leave it alone. Returns null where no lock can be taken
- * (Windows, or a Linux box with no loadable libc), which is not an error.
+ * (a Linux box with no loadable libc), which is not an error.
  */
 export function holdSharedDirectoryLock(
   directory: string,
 ): (() => void) | null {
-  if (process.platform === "win32") return null;
   const library = openFlock(libcCandidates());
   if (!library) return null;
   let fd: number;
@@ -122,8 +119,6 @@ export function acquireDaemonLock(
   file: string,
   options: { libcCandidates?: string[] } = {},
 ): LockRelease {
-  if (process.platform === "win32")
-    return release(acquireWindowsLock(file), "windows-handle");
   const library = openFlock(options.libcCandidates ?? libcCandidates());
   if (!library) {
     if (process.platform !== "linux")

@@ -31,7 +31,6 @@ import { builtInDefaults } from "../src/config/schema.js";
 import { builtInHosts, type Host } from "../src/config/hosts.js";
 import type { ConfigEdit } from "../src/config/toml-edit.js";
 import { noProbe, type HostProbe } from "../src/host/probe.js";
-import { bareEnvironment } from "./support/platform.js";
 
 function context(overrides: Partial<WerkContext> = {}): WerkContext {
   return {
@@ -60,7 +59,7 @@ function configured(hosts: Record<string, Host> = {}): MergedConfig {
     {
       name: "defaults",
       origin: "built in",
-      values: builtInDefaults(bareEnvironment(), "/home/tester", "linux"),
+      values: builtInDefaults({}, "/home/tester", "linux"),
       hosts: builtInHosts("linux"),
     },
     {
@@ -483,7 +482,7 @@ test("the menu removes a host, and takes a default pointing at it with it", asyn
       {
         name: "defaults",
         origin: "built in",
-        values: builtInDefaults(bareEnvironment(), "/home/tester", "linux"),
+        values: builtInDefaults({}, "/home/tester", "linux"),
         hosts: builtInHosts("linux"),
       },
       {
@@ -543,7 +542,7 @@ function onWindows(defaultHost?: string): MergedConfig {
     {
       name: "defaults",
       origin: "built in",
-      values: builtInDefaults(bareEnvironment(), "/home/tester", "win32"),
+      values: builtInDefaults({}, "/home/tester", "win32"),
       hosts: builtInHosts("win32"),
     },
     {

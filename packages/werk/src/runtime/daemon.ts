@@ -20,10 +20,10 @@
  *
  * The kind is never assumed. `HostSession.endpoint()` hands back whatever the
  * far side reported with the address rewritten to this end of the forward, so a
- * daemon on Windows reporting loopback TCP with a credential arrives here as a
- * `tcp` endpoint carrying that credential and is dialled without a branch. What
- * that would take is a change to the shape of the forward, in `host/forward.ts`,
- * and nothing here.
+ * forward that ends on a loopback port, as one on Windows probably would,
+ * arrives here as a `tcp` endpoint carrying its credential and is dialled
+ * without a branch. What that would take is a change to the shape of the
+ * forward, in `host/forward.ts`, and nothing here.
  */
 import fs from "node:fs/promises";
 import { connectSessionClient, type SessionClient } from "@werk/session";

@@ -94,7 +94,7 @@ describe("the walk", () => {
     expect(normalise("packages\\session-daemon\\src\\local.ts")).toBe(
       "packages/session-daemon/src/local.ts",
     );
-    expect(isExempt(`${SEQUESTERED}win32.ts`)).toBe(true);
+    expect(isExempt(`${SEQUESTERED}posix.ts`)).toBe(true);
     expect(isExempt("packages/session-daemon/test/local.test.ts")).toBe(true);
     expect(isExempt("packages/session-daemon/src/local.ts")).toBe(false);
   });

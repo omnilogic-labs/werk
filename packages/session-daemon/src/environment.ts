@@ -1,16 +1,6 @@
 import { SessionError } from "@werk/session";
 
 const baseKeys = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG"];
-const windowsKeys = [
-  "SYSTEMROOT",
-  "COMSPEC",
-  "PATHEXT",
-  "TEMP",
-  "TMP",
-  "USERPROFILE",
-  "APPDATA",
-  "LOCALAPPDATA",
-];
 type Environment = Record<string, string | undefined>;
 
 function select(source: Environment, allowed: (key: string) => boolean) {
@@ -21,33 +11,25 @@ function select(source: Environment, allowed: (key: string) => boolean) {
   ) as Record<string, string>;
 }
 
-function minimal(source: Environment, windows: boolean) {
-  const keys = new Set([...baseKeys, ...(windows ? windowsKeys : [])]);
-  return select(source, (key) => keys.has(windows ? key.toUpperCase() : key));
+function minimal(source: Environment) {
+  const keys = new Set(baseKeys);
+  return select(source, (key) => keys.has(key));
 }
 
-/** Resolve duplicate Windows names so caller and owned values win consistently. */
-function merge(windows: boolean, ...sources: Environment[]) {
+/** Later sources win, so caller and owned values override the base. */
+function merge(...sources: Environment[]) {
   const result: Record<string, string> = Object.create(null);
   for (const source of sources)
     for (const [key, value] of Object.entries(source))
-      if (value !== undefined)
-        result[windows ? key.toUpperCase() : key] = value;
+      if (value !== undefined) result[key] = value;
   return result;
 }
 
-export function daemonEnvironment(
-  source: Environment = process.env,
-  windows = process.platform === "win32",
-) {
+export function daemonEnvironment(source: Environment = process.env) {
   const extra = new Set(["TMPDIR", "XDG_RUNTIME_DIR", "XDG_STATE_HOME"]);
   return merge(
-    windows,
-    minimal(source, windows),
-    select(source, (key) => {
-      const name = windows ? key.toUpperCase() : key;
-      return extra.has(name) || name.startsWith("WERK_");
-    }),
+    minimal(source),
+    select(source, (key) => extra.has(key) || key.startsWith("WERK_")),
   );
 }
 
@@ -79,14 +61,13 @@ export function sessionEnvironment(
   daemonId: string,
   version: string,
   source: Environment = process.env,
-  windows = process.platform === "win32",
 ) {
-  const base = select(source, (key) => {
-    const name = windows ? key.toUpperCase() : key;
-    return !name.startsWith("WERK_") && name !== "LINES" && name !== "COLUMNS";
-  });
+  const base = select(
+    source,
+    (key) => !key.startsWith("WERK_") && key !== "LINES" && key !== "COLUMNS",
+  );
   return onPath(
-    merge(windows, base, env ?? {}, {
+    merge(base, env ?? {}, {
       TERM: "xterm-256color",
       COLORTERM: "truecolor",
       TERM_PROGRAM: "werk",
@@ -95,7 +76,6 @@ export function sessionEnvironment(
       WERK_DAEMON: daemonId,
     }),
     source.WERK_BIN_DIR,
-    windows,
   );
 }
 
@@ -122,10 +102,9 @@ export function sessionEnvironment(
 function onPath(
   env: Record<string, string>,
   dir: string | undefined,
-  windows: boolean,
 ): Record<string, string> {
   if (dir === undefined || dir === "") return env;
-  const separator = windows ? ";" : ":";
+  const separator = ":";
   const path = env.PATH;
   if (path === undefined || path === "") return { ...env, PATH: dir };
   // Idempotent, so a daemon that restarts a session does not grow its `PATH`.

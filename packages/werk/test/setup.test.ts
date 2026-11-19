@@ -18,7 +18,6 @@ import {
 import { mergeLayers, type ConfigLayer } from "../src/config/load.js";
 import { builtInDefaults } from "../src/config/schema.js";
 import { exitCodeFor } from "../src/runtime/exit.js";
-import { bareEnvironment } from "./support/platform.js";
 
 const block = (raw: unknown) => () => parseSetup("boxes", raw);
 
@@ -172,7 +171,7 @@ test("a setup block is replaced whole, never merged field by field", () => {
   const { setups, setupFrom, shadowed } = mergeLayers([
     {
       name: "defaults",
-      values: builtInDefaults(bareEnvironment(), "/home/nobody"),
+      values: builtInDefaults({}, "/home/nobody"),
     } satisfies ConfigLayer,
     {
       name: "user",
@@ -192,7 +191,7 @@ test("a setup problem rides the merge naming its table and its layer", () => {
   const { problems } = mergeLayers([
     {
       name: "defaults",
-      values: builtInDefaults(bareEnvironment(), "/home/nobody"),
+      values: builtInDefaults({}, "/home/nobody"),
     },
     {
       name: "user",

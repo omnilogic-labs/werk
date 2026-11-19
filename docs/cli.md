@@ -1199,8 +1199,9 @@ pointing systemd or launchd at werk cannot discover a hidden command.
 
 `werk daemon endpoint` is the pair to it: `info` says where werk keeps things,
 and `endpoint` says what is listening, in the form something else could dial. It
-prints the endpoint record — `{"kind":"unix","path":…}` or
-`{"kind":"tcp","host":"127.0.0.1","port":…,"credential":…}` — the runtime and
+prints the endpoint record — `{"kind":"unix","path":…}`, or
+`{"kind":"tcp","host":"127.0.0.1","port":…,"credential":…}` for an endpoint on a
+loopback port, a shape the daemon itself never reports — the runtime and
 state directories, the pid, the version the daemon reports and the build of the
 werk that asked. Under `--json` the record is complete enough to connect with,
 so a TCP endpoint's credential is in it; the human block leaves the credential
@@ -1230,8 +1231,9 @@ the one it would send. Answering that needs one identity rather than two. Treat
 the comparison as a hint rather than a guarantee — nothing here is signed, and
 two trees with the same SHA can differ in what was never committed.
 
-The runtime directory defaults to `/tmp/werk-UID` on POSIX and
-`%LOCALAPPDATA%\werk\run` on Windows. A Unix socket path is capped at 103 bytes,
+The runtime directory defaults to `/tmp/werk-UID` on POSIX, and to `werk` under
+the user's temporary directory on Windows, where no daemon runs but a forward
+from another machine would keep its local end there. A Unix socket path is capped at 103 bytes,
 so a deeply nested `--runtime-dir` fails to bind — short paths under `/tmp` are
 what the tests use.
 

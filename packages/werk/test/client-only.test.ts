@@ -8,6 +8,7 @@
  * and see what a person there sees.
  */
 import { afterAll, expect } from "bun:test";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { clientOnlyTest } from "./support/platform.js";
 import { runWerk, sandbox } from "./support/run.js";
@@ -121,6 +122,37 @@ clientOnlyTest(
     const row = rows.find((entry) => entry.key === "defaultHost");
     expect(row).toBeDefined();
     expect(row?.value).toBeUndefined();
+  },
+  TIMEOUT,
+);
+
+clientOnlyTest(
+  "the runtime directory has a default with nothing in the environment to build it from",
+  async () => {
+    // The sandbox sets WERK_RUNTIME_DIR and passes --runtime-dir, either of
+    // which would answer before the default is asked. Every app data variable
+    // Windows sets is removed too, so the default cannot lean on one.
+    const appData = Object.fromEntries(
+      Object.keys(process.env)
+        .filter((key) => /appdata/i.test(key))
+        .map((key) => [key, undefined]),
+    );
+    const configDir = join(box.root, `c${made++}`);
+    const ran = await runWerk({
+      sandbox: box,
+      dirFlags: false,
+      args: ["config", "get", "runtimeDir"],
+      env: {
+        WERK_CONFIG_DIR: configDir,
+        ...appData,
+        WERK_RUNTIME_DIR: undefined,
+        NO_COLOR: "1",
+      },
+      timeoutMs: TIMEOUT,
+    });
+    expect(ran.code, ran.stderr).toBe(0);
+    expect(ran.stdout.trim()).toBe(join(tmpdir(), "werk"));
+    console.log(`werk config get runtimeDir on Windows says: ${ran.stdout}`);
   },
   TIMEOUT,
 );

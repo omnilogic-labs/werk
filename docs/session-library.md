@@ -121,11 +121,12 @@ terminal display fidelity still depends on that terminal's fonts and supported
 attributes.
 
 The artefact test uses a portable Bun child and executes its native PTY
-lifecycle checks on Linux, macOS and Windows x64. It kills the copied daemon
-abruptly after a running-state checkpoint, then verifies a `lost` record and its
-saved screen. The native CI matrix also runs screen and process lifecycle tests
-on each OS. Local Linux evidence does not establish native macOS or Windows
-success; those results require the corresponding CI runners.
+lifecycle checks on Linux and macOS. It kills the copied daemon abruptly after a
+running-state checkpoint, then verifies a `lost` record and its saved screen.
+The native CI matrix also runs screen and process lifecycle tests on both. On
+Windows, where werk runs only as a client, the artefact test stops before its
+daemon half. Local Linux evidence does not establish native macOS success; that
+result requires the macOS CI runner.
 
 ## Sessions, attachments and permissions
 

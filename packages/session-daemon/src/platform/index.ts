@@ -1,36 +1,31 @@
 import fs from "node:fs/promises";
 import type { Size } from "@werk/session";
 import { posixSummary, signalPosixTree } from "./posix.js";
-import { createWindowsTree, privateWindowsDirectory } from "./win32.js";
 
 export { socketPathTooLong, notPrivateToOwner } from "./rules.js";
 export { processStartedAt } from "./posix.js";
 
-// A directory this process has already restricted. The POSIX mode costs one
-// syscall and is set every time it is asked for; the Windows ACL costs a
-// PowerShell process, which is far too much to spend on a five-second timer.
-const restricted = new Set<string>();
-
-/**
- * Restrict a directory to the current user. Windows has no mode to set, so the
- * per-user ACL does the work the POSIX bits do everywhere else, and is applied
- * once for as long as the directory it was applied to survives.
- */
+/** Restrict a directory to the current user. */
 export async function makePrivate(directory: string) {
-  if (process.platform !== "win32") return await fs.chmod(directory, 0o700);
-  if (restricted.has(directory)) return;
-  await privateWindowsDirectory(directory);
-  restricted.add(directory);
+  await fs.chmod(directory, 0o700);
 }
 
-/** A directory made afresh is no longer the one that was restricted. */
-export function forgetPrivate(directory: string) {
-  restricted.delete(directory);
+/**
+ * The daemon runs on Linux and macOS. On Windows werk runs only as a client, so
+ * nothing there may start one, and this says so before anything is created.
+ */
+export function refuseDaemonPlatform(
+  platform: NodeJS.Platform = process.platform,
+) {
+  if (platform === "win32")
+    throw new Error(
+      "The werk session daemon runs on Linux and macOS. On Windows werk runs only as a client.",
+    );
 }
 
 export const platformCapabilities = {
-  pty: process.platform !== "win32" || process.arch === "x64",
-  processGroups: process.platform !== "win32",
+  pty: true,
+  processGroups: true,
   processTreeSummary:
     process.platform === "linux" || process.platform === "darwin",
 };
@@ -41,36 +36,17 @@ export function spawnPty(
   size: Size,
   output: (bytes: Uint8Array) => void,
 ) {
-  if (!platformCapabilities.pty)
-    throw new Error(
-      "Windows ARM64 PTY ownership is unsupported: Bun FFI requires x64",
-    );
-  const tree = process.platform === "win32" ? createWindowsTree() : undefined;
-  let child: ReturnType<typeof Bun.spawn>;
-  try {
-    // Inline terminal creation is supported by Bun 1.3.14 on Windows (ConPTY).
-    child = Bun.spawn(argv, {
-      cwd,
-      env,
-      terminal: {
-        cols: size.cols,
-        rows: size.rows,
-        data(_terminal, bytes) {
-          output(new Uint8Array(bytes));
-        },
+  const child = Bun.spawn(argv, {
+    cwd,
+    env,
+    terminal: {
+      cols: size.cols,
+      rows: size.rows,
+      data(_terminal, bytes) {
+        output(new Uint8Array(bytes));
       },
-    });
-    try {
-      tree?.adopt(child.pid);
-    } catch (error) {
-      child.kill();
-      child.terminal?.close();
-      throw error;
-    }
-  } catch (error) {
-    tree?.close();
-    throw error;
-  }
+    },
+  });
   let inspectedAt = 0;
   let summary = { foreground: argv[0], children: 0 };
   return {
@@ -99,14 +75,12 @@ export function spawnPty(
         child.terminal!.write(new Uint8Array([3]));
         return { delivery: "pty-control-c" };
       }
-      if (tree) return tree.terminate();
       return signalPosixTree(
         child.pid,
         intent === "force" ? "SIGKILL" : "SIGTERM",
       );
     },
     close() {
-      tree?.close();
       child.terminal?.close();
     },
   };

@@ -19,7 +19,6 @@ import {
   type ConfigSource,
 } from "../src/config/sources.js";
 import { ConfigError } from "../src/config/errors.js";
-import { bareEnvironment } from "./support/platform.js";
 
 const temporary: string[] = [];
 /**
@@ -56,7 +55,7 @@ const layer = (
 // arrives here without this file having to be edited to let the merge succeed.
 const full = (logLevel: "info" | "debug" = "info"): ConfigLayer =>
   layer("defaults", {
-    ...builtInDefaults(bareEnvironment(), "/home/nobody"),
+    ...builtInDefaults({}, "/home/nobody"),
     logLevel,
     runtimeDir: "/run/default",
     stateDir: "/state/default",
@@ -168,7 +167,7 @@ test("a key werk does not know is ignored, not refused", () => {
 });
 test("the defaults do not claim credit for WERK_RUNTIME_DIR", () => {
   const defaults = builtInDefaults(
-    { ...bareEnvironment(), WERK_RUNTIME_DIR: "/run/env", HOME: "/home/x" },
+    { WERK_RUNTIME_DIR: "/run/env", HOME: "/home/x" },
     "/home/x",
   );
   expect(defaults.runtimeDir).not.toBe("/run/env");
@@ -244,7 +243,6 @@ test("the file layers, the environment and the flags stack up in that order", as
   );
   const { config, from } = await loadWerkConfig({
     env: {
-      ...bareEnvironment(),
       WERK_CONFIG_DIR: userDir,
       WERK_LOG_LEVEL: "error",
       HOME: home,
@@ -271,7 +269,6 @@ test("outside a repository there is no project layer", async () => {
   const outside = tmpdir();
   const { from } = await loadWerkConfig({
     env: {
-      ...bareEnvironment(),
       WERK_CONFIG_DIR: path.join(home, ".werk"),
       HOME: home,
     },

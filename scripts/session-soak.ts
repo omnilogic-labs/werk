@@ -223,7 +223,7 @@ try {
     );
   }
   // Linux only: `handles()` reads `/proc/self/fd` and returns `null` anywhere
-  // else, so the macOS and Windows legs assert nothing about descriptors. The
+  // else, so the macOS leg asserts nothing about descriptors. The
   // allowance of four is for runtime bookkeeping.
   if (initialHandles !== null && finalHandles !== null)
     assert.ok(

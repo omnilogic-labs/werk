@@ -58,23 +58,21 @@ export const SEQUESTERED = "packages/session-daemon/src/platform/";
 export const EXCEPTIONS: Exception[] = [
   {
     path: "packages/session-daemon/src/local.ts",
-    allowed: 7,
+    allowed: 4,
     reason:
-      "The runtime directory default takes its platform as a parameter and is exercised both ways. The mode-0700 and ownership rule, and the detached daemon's working directory, are each a single site on the daemon startup path.",
+      "The runtime directory default takes its platform and uid as parameters and is exercised both ways: a client on Windows still keeps one, under its own temporary directory. The ownership rule reads the current uid once.",
     disposition: "wants-moving",
   },
   {
     path: "packages/session-daemon/src/index.ts",
-    allowed: 2,
-    reason:
-      "The owner principal reads a uid, and the loopback credential is decided once here so that everything downstream branches on the credential rather than on the platform.",
+    allowed: 1,
+    reason: "The owner principal reads a uid.",
     disposition: "wants-moving",
   },
   {
     path: "packages/session-daemon/src/supervise.ts",
-    allowed: 3,
-    reason:
-      "The runtime directory's owner is compared with the current uid, and SIGUSR1 is registered and removed only where the signal exists.",
+    allowed: 1,
+    reason: "The runtime directory's owner is compared with the current uid.",
     disposition: "wants-moving",
   },
   {
@@ -84,13 +82,7 @@ export const EXCEPTIONS: Exception[] = [
       "Reports what a stat says rather than enforcing anything, so it describes a platform difference instead of deciding on one.",
     disposition: "stays",
   },
-  {
-    path: "packages/session-daemon/src/environment.ts",
-    allowed: 2,
-    reason:
-      "Both are defaulted parameters, and the tests pass the Windows value explicitly on every platform.",
-    disposition: "stays",
-  },
+
   {
     path: "packages/werk/src/environment.ts",
     allowed: 1,
