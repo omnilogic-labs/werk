@@ -301,8 +301,7 @@ login shell has everything that shell had.
 
 The daemon owns `TERM=xterm-256color`, `COLORTERM=truecolor`,
 `TERM_PROGRAM=werk`, `TERM_PROGRAM_VERSION`, `WERK_SESSION` and `WERK_DAEMON`.
-Windows variable names merge case-insensitively. Environment values are never
-stored in session metadata or checkpoints.
+Environment values are never stored in session metadata or checkpoints.
 
 Environment requests are bounded at 1,024 entries, 256 UTF-8 bytes per key,
 128 KiB per value, and 1 MiB in total including `=` and terminating NUL bytes.
