@@ -20,37 +20,19 @@ by name, which is what "Starting a run on demand" below is for.
 | `soak`    | a self-hosted Linux x64 runner                    | A run longer than a hosted job's six-hour cap                          |
 
 The `browser` lane also runs on the development machine, and it has passed
-there. Getting there is not one step. Playwright publishes Linux browser builds
-for a fixed list of releases, and this machine is Ubuntu 26.04 under WSL2; the
-newest release on that list is Ubuntu 24.04, so Playwright refuses the install
-outright before downloading anything. `KNOWN_RELEASES` in
-`scripts/browser-install.ts` holds the list.
+there. Playwright 1.65.1 supports Ubuntu 26.04, which is what this machine runs
+under WSL2, so `bun run browser:install` works with no override. That was
+checked locally and in CI. The script fetches two browsers, `chromium` and
+`chromium-headless-shell`, and waits for their executables to appear rather than
+for the installer to exit, because an installer has been seen finishing its work
+and then never exiting. Its fallback for a host Playwright refuses, which reads
+the host out of the refusal and borrows an older release of the same
+distribution, is tracked by werk#46 and is not needed here. `KNOWN_RELEASES` in
+`scripts/browser-install.ts` holds the list that fallback uses.
 
-`bun run browser:install` is the attempt to make that one step. It runs the
-plain install first and only reaches for `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE`
-once Playwright has refused, reading the host out of the refusal rather than
-naming it. It waits for the executable to appear rather than for the installer
-to exit, because the installer has been seen finishing its work and then never
-exiting. It fetches two browsers, `chromium` and `chromium-headless-shell`,
-which are the two executables it then looks for on disk. Whether it gets a
-browser here unaided has not been shown end to end yet;
-`docs/continue/cleanup.md` has the state and the manual recipe that did work.
-
-On a runner the lane needs none of that. It runs
-`bunx playwright install --with-deps chromium` in `examples/session-web` and
-sets no environment override, because `ubuntu-latest` is a release Playwright
-publishes for.
-
-Playwright resolves the browser directory from the host it detects, so a
-borrowed build probably needs `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE` set when the
-tests run as well as when the browser is installed. Nothing sets it at run time
-today: not the workflow, and not `bun run test:browser`. `browser:install`
-prints the override it used and leaves setting it to the person running the
-tests.
-
-A borrowed build is linked against the borrowed release's libraries, so a local
-pass is weaker evidence than the lane on a runner, which is where the lane's
-verdict comes from.
+On a runner the lane runs `bunx playwright install --with-deps chromium` in
+`examples/session-web` and sets no environment override, because
+`ubuntu-latest` is a release Playwright publishes for.
 
 The `native` matrix keeps `fail-fast: false`. One platform failing should not
 cancel the evidence the other two were about to produce.

@@ -1,6 +1,11 @@
 # Making the browser lane run locally
 
-Handoff from the night-shift run of 2026-09-08. The run itself is finished and
+Handoff from the night-shift run of 2026-09-08. Since then Playwright was
+upgraded to 1.65.1, which supports Ubuntu 26.04: `bun run browser:install` and
+`bun run test:browser` work here with no override, so the override steps below
+are history.
+
+Original handoff: The run itself is finished and
 landed at `c699c1d`. `main` has moved on since, so every verdict below describes
 that commit rather than the current tip. This is the one piece left open, plus
 the tickets the run filed.
@@ -38,7 +43,9 @@ distributions it publishes builds for and refuses before downloading anything:
 Error: ERROR: Playwright does not support chromium on ubuntu26.04-x64
 ```
 
-This host is Ubuntu 26.04 and `playwright@1.58.2` predates it. The refusal names
+This host is Ubuntu 26.04 and `playwright@1.58.2` predated it. Playwright 1.65.1
+supports it, so the install now works with no override; this section is the
+history of why the fallback exists. The refusal names
 the host, not the browser, so a newer browser never helps.
 `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64` gets past it. The suffix
 matters: `ubuntu24.04` on its own is refused in turn.
