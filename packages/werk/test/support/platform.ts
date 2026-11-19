@@ -31,6 +31,16 @@ export const clientOnly = process.platform === "win32";
 /** A test of daemon, supervisor, PTY or session-host behaviour. */
 export const daemonTest = test.skipIf(clientOnly);
 
+/**
+ * A test that acts on the `local` host. A client-only platform has no such
+ * host and refuses every command that would act on it, so these run on Linux
+ * and macOS, and the refusal itself is what Windows tests instead.
+ */
+export const localHostTest = test.skipIf(clientOnly);
+
+/** A test of what only a client-only platform does. */
+export const clientOnlyTest = test.skipIf(!clientOnly);
+
 /** Where a short-lived temporary directory goes. */
 export const shortTempRoot = clientOnly ? tmpdir() : "/tmp";
 

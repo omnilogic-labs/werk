@@ -158,6 +158,12 @@ not make the change cleanly, is exit 1: the machine did not do it. No new
 statuses; nothing scripting werk should have to learn a number to find out that
 a config file has a typo in it.
 
+A host this platform cannot act on is exit 1, under `HOST_UNSUPPORTED`, the code
+and status a machine werk has no binary for already gets. On Windows that is
+the machine werk is running on: werk runs only as a client there, so a command
+that would act on `local` is refused with it. Nobody mistyped anything, which is
+why it is not exit 2, and the message says what to do instead.
+
 A setup command that refused is exit 1, under `HOST_SETUP_FAILED` for a
 machine's block and `WORKSPACE_SETUP_FAILED` for a repository's. Neither is a
 usage mistake and neither is a machine that did not answer: werk reached it, and
@@ -923,6 +929,8 @@ Only settings that describe something werk already does appear in that table. A
 key invented for a feature that does not exist yet reads back later as a decision
 somebody took. `defaultHost` is what a command acts on when `--host` names none,
 which is `local` until somebody writes a host block and points it somewhere else.
+On Windows, where werk runs only as a client, it is unset until a file names a
+host.
 
 `workspaceSetup` is the one key with no value underneath it. Every other setting
 has a default, and `config list` shows it as `unset` until a file names a
@@ -1028,6 +1036,20 @@ discarded in silence. Write it as an inline table on one line: werk reads a
 like any other built-in value, so nothing special-cases the machine werk is
 running on. Workspaces on it go under `<stateDir>/workspaces`, which is where
 `werk create` already puts them.
+
+On Windows werk runs only as a client, so the defaults layer supplies no
+`local` and no `defaultHost`. A command that would act on this machine — one
+that names no host while `defaultHost` is unset, `--host local`, or a block
+with `kind = "local"` — is refused before anything starts, as are
+`werk daemon serve` and `werk daemon endpoint`:
+
+```
+$ werk list --host local
+werk: there is no local host to put work on. On Windows werk runs only as a client: sessions run on a machine you reach with ssh, and this machine is not a host. Add one with `werk config setup`, then name it with --host or make it the default.
+```
+
+When ssh hosts are already written down, the message names them in place of
+the last sentence. [hosts.md](hosts.md#the-windows-gap) has the rest.
 
 werk stores an ssh destination and nothing else about the connection. ssh_config
 already resolves the address, the user, the port, the identity, `ProxyJump`,

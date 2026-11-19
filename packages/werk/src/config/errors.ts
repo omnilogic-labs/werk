@@ -35,6 +35,12 @@ export type ConfigErrorCode =
   /** A host was named that nothing defines. */
   | "UNKNOWN_HOST"
   /**
+   * A host this platform cannot act on: the machine werk is running on, where
+   * werk runs only as a client. The same spelling `HostError` and
+   * `WorkspaceError` use for a machine werk cannot run on.
+   */
+  | "HOST_UNSUPPORTED"
+  /**
    * A config file werk cannot read: not the TOML it claims to be, or a setting
    * whose value is not one werk accepts.
    */

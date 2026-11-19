@@ -400,6 +400,11 @@ export interface LoadOptions {
   /** What was typed on the command line, if the caller has it. */
   flags?: GlobalFlags;
   source?: ConfigSource;
+  /**
+   * The platform the built-in layer describes; this one by default. A test
+   * passes `win32` to see the client-only defaults from any machine.
+   */
+  platform?: string;
 }
 
 /** Which files the layers would come from, without reading any of them. */
@@ -430,10 +435,11 @@ export async function loadWerkConfig(
     {
       name: "defaults",
       origin: "built in",
-      values: builtInDefaults(env, options.home),
+      values: builtInDefaults(env, options.home, options.platform),
       // `local` arrives as an ordinary row with an ordinary provenance, so no
       // command anywhere has to special-case the machine werk is running on.
-      hosts: builtInHosts(),
+      // Where werk runs only as a client the row is not there at all.
+      hosts: builtInHosts(options.platform),
     },
     {
       name: "remote",

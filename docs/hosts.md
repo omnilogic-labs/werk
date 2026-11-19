@@ -48,6 +48,10 @@ restated here.
 | `local` | The machine werk is running on | A git worktree under `<stateDir>/workspaces`                         |
 | `ssh`   | A machine reached with `ssh`   | A bare mirror pushed to, and a linked worktree checked out beside it |
 
+On Windows werk runs only as a client, so there is no `local` host there and
+only `ssh` hosts can be acted on. [The Windows gap](#the-windows-gap) says what
+a command that would act on this machine does instead.
+
 `--host` is a global flag, so `create`, `list`, `attach`, `logs`, `kill`,
 `remove` and `setup` all take it, and each of them acts on that one machine.
 `werk config` has `list`, `get`, `set`, `unset`, `setup`, `check`, `sources` and
@@ -107,6 +111,11 @@ ordinary provenance and nothing has to special-case the machine werk is running
 on. A file that writes its own `[hosts.local]` replaces it the way a file
 replaces any other default. `defaultHost` is `local` unless something says
 otherwise.
+
+On Windows the defaults layer supplies no `local` row and no `defaultHost`,
+because werk runs only as a client there. `werk config list` shows no
+`hosts.local`, `--host` completion does not offer it, and `defaultHost` is
+unset until a file names an ssh host.
 
 The layers a host can come from, and their precedence, are the same six layers
 every setting uses: see [cli.md](cli.md#the-layers). Only the two file layers
@@ -679,7 +688,26 @@ source is exactly the person who has just changed it.
 
 ### The Windows gap
 
-Windows works in neither direction.
+On Windows werk runs only as a client. The owner's ruling is that Windows needs
+no local daemon, supervisor, PTY or session host, and that the CLI there hides
+and refuses `local`. So the defaults layer supplies no `local` host and no
+`defaultHost`, and every way of acting on the machine werk is running on stops
+with `HOST_UNSUPPORTED` and exit 1 before anything starts:
+
+- a command that names no host, when no file sets `defaultHost`
+- `--host local`, or a `defaultHost` of `local`
+- a host block written with `kind = "local"`, which is refused rather than
+  started, because starting it would mean a daemon on this machine
+- `werk daemon serve` and `werk daemon endpoint`, and `werk watch` and
+  `werk edit`, which reach this machine's daemon without naming a host
+
+The message says that werk runs only as a client on Windows, names the ssh
+hosts already written down, and points at `werk config setup` to add one. The
+setup wizard does not offer `local` as a default there, and removing the host
+`defaultHost` points at unsets it rather than pointing it back at `local`.
+
+That leaves reaching another machine, and Windows works in neither direction
+yet.
 
 **A Windows host** is refused twice over. werk builds only Linux targets, so a
 machine reporting anything else is refused with `HOST_UNSUPPORTED` before a

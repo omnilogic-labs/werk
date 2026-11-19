@@ -11,6 +11,8 @@ import {
   HOST_FIELDS,
   HOST_KINDS,
   builtInHosts,
+  clientOnly,
+  defaultHostFor,
   hostFor,
   isBlockName,
   parseHost,
@@ -27,10 +29,10 @@ import { bareEnvironment } from "./support/platform.js";
 
 /** A defaults layer with every setting in it, plus whatever hosts are wanted. */
 const defaults = (
-  hosts: Record<string, Host> = builtInHosts(),
+  hosts: Record<string, Host> = builtInHosts("linux"),
 ): ConfigLayer => ({
   name: "defaults",
-  values: builtInDefaults(bareEnvironment(), "/home/nobody"),
+  values: builtInDefaults(bareEnvironment(), "/home/nobody", "linux"),
   hosts,
 });
 const layer = (
@@ -341,7 +343,8 @@ test("a host summarises as the machine and how it is reached", () => {
   );
 });
 test("local is a host werk has without being told, with an ordinary provenance", () => {
-  expect(builtInHosts()).toEqual({ local: { kind: "local" } });
+  expect(builtInHosts("linux")).toEqual({ local: { kind: "local" } });
+  expect(builtInHosts("darwin")).toEqual({ local: { kind: "local" } });
   expect(mergeLayers([defaults()]).hostFrom.local).toBe("defaults");
 });
 test("workspaces on this machine go where werk already puts them", () => {
@@ -426,6 +429,7 @@ test("the flag beats defaultHost, and defaultHost answers when nothing does", ()
     hostFor(
       selection(hosts, { defaultHost: "beast", requestedHost: "spare" }),
       "local",
+      "linux",
     ).host.kind,
   ).toBe("local");
 });
@@ -475,4 +479,137 @@ test("a host block that could not be read fails with why, and not as unknown", (
   // second, vaguer one.
   expect((raised as ConfigError).message).toContain("sshHosts");
   expect((raised as ConfigError).message).toContain(file);
+});
+
+/* ---------------------------------------- Windows, where werk is a client */
+
+/** What `hostFor` raised, so a refusal can be read rather than only matched. */
+function refusal(run: () => unknown): ConfigError {
+  try {
+    run();
+  } catch (error) {
+    expect(error).toBeInstanceOf(ConfigError);
+    return error as ConfigError;
+  }
+  throw new Error("expected a refusal and got a host");
+}
+
+/** Says Windows is client-only, and says what to do instead. */
+function expectClientOnly(raised: ConfigError) {
+  expect(raised.code).toBe("HOST_UNSUPPORTED");
+  expect(raised.message).toContain("On Windows werk runs only as a client");
+  expect(raised.message).toContain("--host");
+  expect(raised.message).toContain("`werk config setup`");
+  // The status a machine werk cannot act on already has in the host and
+  // workspace tables.
+  expect(exitCodeFor(raised)).toBe(1);
+  expect(errorPayload(raised).error.code).toBe("HOST_UNSUPPORTED");
+}
+
+test("only Windows runs werk as a client only", () => {
+  expect(clientOnly("win32")).toBe(true);
+  expect(clientOnly("linux")).toBe(false);
+  expect(clientOnly("darwin")).toBe(false);
+});
+
+test("on Windows there is no local host and no default host", () => {
+  expect(builtInHosts("win32")).toEqual({});
+  expect(defaultHostFor("win32")).toBeUndefined();
+  const values = builtInDefaults(bareEnvironment(), "/home/nobody", "win32");
+  expect(values.defaultHost).toBeUndefined();
+  const merged = mergeLayers([
+    { name: "defaults", values, hosts: builtInHosts("win32") },
+    layer("user", { beast: { kind: "ssh", sshHost: "beast" } }),
+  ]);
+  expect(Object.keys(merged.hosts)).toEqual(["beast"]);
+  expect(merged.config.defaultHost).toBeUndefined();
+  // Linux and macOS keep both.
+  expect(defaultHostFor("linux")).toBe("local");
+  expect(defaultHostFor("darwin")).toBe("local");
+});
+
+test("on Windows a command that names no host is refused, and told what to do", () => {
+  const raised = refusal(() =>
+    hostFor({ hosts: {}, hostProblems: [] }, undefined, "win32"),
+  );
+  expectClientOnly(raised);
+  expect(raised.message).toContain("nothing names a host");
+  // Nothing is written down yet, so the next step is adding a machine.
+  expect(raised.message).toContain("Add one with `werk config setup`");
+});
+
+test("on Windows --host local is refused, and the ssh hosts there are named", () => {
+  const hosts: Record<string, Host> = {
+    beast: { kind: "ssh", sshHost: "beast" },
+    spare: { kind: "ssh", sshHost: "spare" },
+  };
+  const raised = refusal(() =>
+    hostFor(
+      { hosts, hostProblems: [], defaultHost: "beast", requestedHost: "local" },
+      undefined,
+      "win32",
+    ),
+  );
+  expectClientOnly(raised);
+  expect(raised.message).toContain("no local host");
+  expect(raised.message).toContain("defined: beast, spare");
+});
+
+test("on Windows a defaultHost of local is refused like --host local", () => {
+  expectClientOnly(
+    refusal(() =>
+      hostFor(
+        { hosts: {}, hostProblems: [], defaultHost: "local" },
+        undefined,
+        "win32",
+      ),
+    ),
+  );
+});
+
+test("on Windows a block written as a local host is refused rather than started", () => {
+  const hosts: Record<string, Host> = { here: { kind: "local" } };
+  const raised = refusal(() =>
+    hostFor(
+      { hosts, hostProblems: [], defaultHost: "here" },
+      undefined,
+      "win32",
+    ),
+  );
+  expectClientOnly(raised);
+  expect(raised.message).toContain("here is a local host");
+  // A local block is not offered as somewhere to go instead.
+  expect(raised.message).not.toContain("defined: here");
+});
+
+test("on Windows an ssh host resolves exactly as it does anywhere else", () => {
+  const hosts: Record<string, Host> = {
+    beast: { kind: "ssh", sshHost: "beast" },
+  };
+  expect(
+    hostFor(
+      { hosts, hostProblems: [], defaultHost: "beast" },
+      undefined,
+      "win32",
+    ),
+  ).toEqual({ name: "beast", host: hosts.beast! });
+  expect(hostFor({ hosts, hostProblems: [] }, "beast", "win32").name).toBe(
+    "beast",
+  );
+});
+
+test("on Linux and macOS local still resolves, named or by default", () => {
+  for (const platform of ["linux", "darwin"]) {
+    const hosts = builtInHosts(platform);
+    expect(
+      hostFor(
+        { hosts, hostProblems: [], defaultHost: "local" },
+        undefined,
+        platform,
+      ),
+    ).toEqual({ name: "local", host: { kind: "local" } });
+    expect(hostFor({ hosts, hostProblems: [] }, "local", platform).name).toBe(
+      "local",
+    );
+  }
 });

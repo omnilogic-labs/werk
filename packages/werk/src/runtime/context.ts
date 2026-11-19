@@ -21,7 +21,7 @@ import {
 } from "../config/schema.js";
 import {
   builtInHosts,
-  DEFAULT_HOST,
+  defaultHostFor,
   type Host,
   type HostProblem,
 } from "../config/hosts.js";
@@ -114,8 +114,11 @@ export interface WerkContext {
   readonly hosts: Readonly<Record<string, Host>>;
   /** Every host block that could not be read, and why. */
   readonly hostProblems: readonly HostProblem[];
-  /** The host a command acts on when `--host` names none. */
-  readonly defaultHost: string;
+  /**
+   * The host a command acts on when `--host` names none. Absent where werk
+   * runs only as a client and no file names one.
+   */
+  readonly defaultHost?: string;
   /** The host `--host` named, when it named one. */
   readonly requestedHost?: string;
   /**
@@ -217,6 +220,8 @@ export function createContext(
   resolved?: ResolvedConfig,
 ): WerkContext {
   const config = resolved?.config;
+  const defaultHost =
+    config === undefined ? defaultHostFor() : config.defaultHost;
   const { entry, level, theme } = basis;
   const env = process.env;
   const stdoutTTY = process.stdout.isTTY === true;
@@ -251,7 +256,9 @@ export function createContext(
     // werk has without being told is a truthful answer for one that did.
     hosts: resolved?.hosts ?? builtInHosts(),
     hostProblems: resolved?.problems ?? [],
-    defaultHost: config?.defaultHost ?? DEFAULT_HOST,
+    // Absent where werk runs only as a client and nothing names one, which
+    // `hostFor` turns into the refusal that says so.
+    ...(defaultHost === undefined ? {} : { defaultHost }),
     editor: config?.editor ?? DEFAULT_EDITOR,
     agent: config?.agent ?? "",
     // Absent provenance is the completion path, which never lands anything.

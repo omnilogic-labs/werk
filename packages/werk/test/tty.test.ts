@@ -31,7 +31,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { shortTempRoot } from "./support/platform.js";
+import { localHostTest, shortTempRoot } from "./support/platform.js";
 import { cliEntry } from "./support/run.js";
 
 /** Long enough for a cold start and a daemon; short enough to fail a hang. */
@@ -327,7 +327,7 @@ describe.skipIf(!PTY)("with a terminal on stdin and stdout", () => {
     );
   }
 
-  test(
+  localHostTest(
     "the list table names its columns, the workspace among them",
     async () => {
       // A person gets column headings; a pipe gets rows alone, which

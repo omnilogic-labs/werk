@@ -48,7 +48,7 @@ import {
   loadWerkConfig,
   type MergedConfig,
 } from "../config/load.js";
-import { isBlockName, type Host } from "../config/hosts.js";
+import { defaultHostFor, isBlockName, type Host } from "../config/hosts.js";
 import type { ConfigKey, ConfigValue } from "../config/schema.js";
 import { applyEdit, type ConfigEdit } from "../config/toml-edit.js";
 import {
@@ -107,6 +107,11 @@ export interface SetupDeps {
   load?(): Promise<MergedConfig>;
   /** The streams the questions are asked on; the real ones by default. */
   prompt?: PromptOptions;
+  /**
+   * The platform whose built-in host the wizard offers; this one by default.
+   * Where werk runs only as a client there is no `local` to offer.
+   */
+  platform?: string;
 }
 
 interface SetupFlags {
@@ -380,7 +385,13 @@ async function describe(
       )));
 
   const settings: SettingChange[] = makeDefault
-    ? [{ key: "defaultHost", from: merged.config.defaultHost, to: name }]
+    ? [
+        {
+          key: "defaultHost",
+          from: merged.config.defaultHost ?? null,
+          to: name,
+        },
+      ]
     : [];
   const edit: ConfigEdit = {
     hosts: { [name]: host },
@@ -629,14 +640,17 @@ async function repoint(
   project: boolean,
   deps: SetupDeps,
 ): Promise<Result<SetupReport>> {
+  const builtIn = defaultHostFor(deps.platform);
   const chosen = await select<string>(
     talk.ctx,
     {
       message: "Which host should werk use when nobody names one?",
-      options: ["local", ...configured].map((name) => ({
-        value: name,
-        hint: summarise(merged.hosts[name]),
-      })),
+      options: [...(builtIn === undefined ? [] : [builtIn]), ...configured].map(
+        (name) => ({
+          value: name,
+          hint: summarise(merged.hosts[name]),
+        }),
+      ),
       initialValue: merged.config.defaultHost,
     },
     talk.on,
@@ -651,7 +665,11 @@ async function repoint(
     ...written,
     hosts: [],
     settings: [
-      { key: "defaultHost", from: merged.config.defaultHost, to: chosen },
+      {
+        key: "defaultHost",
+        from: merged.config.defaultHost ?? null,
+        to: chosen,
+      },
     ],
     probe: null,
     unchanged: false,
@@ -680,19 +698,25 @@ async function forget(
   );
   // A `defaultHost` left pointing at a block that is gone names a machine
   // nothing defines, so it goes back to `local` in the same write, and the
-  // report says so rather than letting somebody find out later.
+  // report says so rather than letting somebody find out later. Where werk
+  // runs only as a client there is no `local` to go back to, so the line is
+  // taken out instead and a command names its host until another is chosen.
   const orphaned = merged.config.defaultHost === chosen;
+  const fallback = defaultHostFor(deps.platform) ?? null;
   const settings: SettingChange[] = orphaned
-    ? [{ key: "defaultHost", from: chosen, to: "local" }]
+    ? [{ key: "defaultHost", from: chosen, to: fallback }]
     : [];
   const edit: ConfigEdit = {
     hosts: { [chosen]: null },
-    ...(orphaned ? { set: { defaultHost: "local" } } : {}),
+    ...(orphaned ? { set: { defaultHost: fallback } } : {}),
   };
   if (orphaned)
     note(
-      `${chosen} is also what werk uses when nobody names a host, so that ` +
-        `goes back to local.`,
+      `${chosen} is also what werk uses when nobody names a host, so ` +
+        (fallback === null
+          ? "that is unset, and a command names its host with --host until " +
+            "you choose another default."
+          : `that goes back to ${fallback}.`),
       "one other thing",
       talk.on,
     );

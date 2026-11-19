@@ -34,6 +34,7 @@ import {
   resolveSessionDaemonPaths,
   type LocalEndpoint,
 } from "@werk/session-daemon";
+import { clientOnly, clientOnlyRefusal, type Host } from "../config/hosts.js";
 import type { HostSession } from "../host/session.js";
 import { compiledWerk } from "./version.js";
 
@@ -43,6 +44,27 @@ export interface DaemonPaths {
   logLevel?: string;
   /** Absolute path of the entry module; see {@link daemonCommand}. */
   entry: string;
+  /** The hosts in force, so a refusal can name the ones there are. */
+  hosts?: Readonly<Record<string, Host>>;
+}
+
+/**
+ * Refuse to reach a daemon on this machine where werk runs only as a client.
+ *
+ * Most commands never get here: `hostFor` refuses `local` before anything is
+ * dialled. This is for the ones that reach this machine's daemon without
+ * resolving a host — `werk daemon`, and `werk watch` and `werk edit`, which
+ * run inside a session — so none of them starts a daemon on Windows either.
+ */
+export function refuseLocalDaemon(
+  hosts?: Readonly<Record<string, Host>>,
+  platform?: string,
+): void {
+  if (clientOnly(platform))
+    throw clientOnlyRefusal(
+      "this command needs a werk daemon on this machine, and there is none.",
+      hosts,
+    );
 }
 
 /**
@@ -91,6 +113,7 @@ export async function connectDaemon(
   host?: HostSession,
 ): Promise<DaemonConnection> {
   try {
+    if (!host) refuseLocalDaemon(paths.hosts);
     const endpoint: LocalEndpoint = host
       ? await host.endpoint()
       : (
@@ -143,6 +166,9 @@ export async function connectExistingDaemon(
   paths: DaemonPaths,
   timeoutMs = 150,
 ): Promise<{ client: SessionClient; endpoint: LocalEndpoint } | undefined> {
+  // A client-only machine keeps no daemon, so a record left on disk describes
+  // nothing worth dialling.
+  if (clientOnly()) return undefined;
   try {
     const resolved = resolveSessionDaemonPaths(paths);
     const endpoint = JSON.parse(

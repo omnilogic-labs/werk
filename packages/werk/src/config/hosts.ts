@@ -399,6 +399,23 @@ export function parseHosts(
 export const summariseHost = (host: Host): string =>
   host.kind === "ssh" ? `ssh ${host.sshHost}` : "local";
 
+/** What the machine werk is running on is called when nothing renames it. */
+export const LOCAL_HOST = "local";
+
+/**
+ * Whether werk runs only as a client on this platform, which today means
+ * Windows.
+ *
+ * On a client-only platform werk keeps no daemon, supervisor or session host on
+ * the machine it is running on: sessions run on a machine reached with ssh, and
+ * this one only talks to them. So the machine werk is running on is not a host
+ * there, and everything below that would supply or act on `local` asks this
+ * first. The platform is a defaulted parameter so a test on Linux can ask for
+ * the Windows answer.
+ */
+export const clientOnly = (platform: string = process.platform): boolean =>
+  platform === "win32";
+
 /**
  * The hosts werk has without being told anything.
  *
@@ -406,17 +423,51 @@ export const summariseHost = (host: Host): string =>
  * `defaults` layer like every built-in value, so nothing anywhere has to
  * special-case the machine werk is running on. A file that writes its own
  * `[hosts.local]` replaces it the way a file replaces any other default.
+ *
+ * A client-only platform has none: there is no machine werk has without being
+ * told, and a `local` row there would offer a host every command then refuses.
  */
-export const builtInHosts = (): Record<string, Host> => ({
-  local: { kind: "local" },
-});
+export const builtInHosts = (platform?: string): Record<string, Host> =>
+  clientOnly(platform) ? {} : { [LOCAL_HOST]: { kind: "local" } };
 
 /**
- * The host a command acts on when nobody names one. Named here rather than
+ * The host a command acts on when nobody names one: `local`, or nothing at all
+ * on a client-only platform, where there is no machine to fall back on and a
+ * command that names no host is refused by `hostFor`. Named here rather than
  * spelled again in `schema.ts`, so the built-in default and the host it points
  * at cannot drift apart.
  */
-export const DEFAULT_HOST = "local";
+export const defaultHostFor = (platform?: string): string | undefined =>
+  clientOnly(platform) ? undefined : LOCAL_HOST;
+
+/**
+ * The refusal for anything that would act on the machine werk is running on,
+ * where werk runs only as a client.
+ *
+ * `opening` says what was asked for; the rest is the same everywhere it is
+ * raised, so a person on Windows reads one explanation and one next step
+ * whichever way they arrived at it. The ssh hosts already written down are
+ * named, because the likeliest fix is to type one of them.
+ */
+export function clientOnlyRefusal(
+  opening: string,
+  hosts: Readonly<Record<string, Host>> = {},
+): ConfigError {
+  const elsewhere = Object.entries(hosts)
+    .filter(([, host]) => host.kind !== "local")
+    .map(([name]) => name)
+    .sort();
+  return new ConfigError(
+    "HOST_UNSUPPORTED",
+    `${opening} On Windows werk runs only as a client: sessions run on a ` +
+      `machine you reach with ssh, and this machine is not a host. ` +
+      (elsewhere.length === 0
+        ? "Add one with `werk config setup`, then name it with --host or make " +
+          "it the default."
+        : `Name one with --host (defined: ${elsewhere.join(", ")}), or make ` +
+          "one the default with `werk config setup`."),
+  );
+}
 
 /**
  * Where workspaces go on a host.
@@ -454,8 +505,11 @@ export function workspaceRootFor(
 export interface HostSelection {
   readonly hosts: Readonly<Record<string, Host>>;
   readonly hostProblems: readonly HostProblem[];
-  /** The host to act on when nothing names one; the `defaultHost` setting. */
-  readonly defaultHost: string;
+  /**
+   * The host to act on when nothing names one; the `defaultHost` setting.
+   * Absent on a client-only platform until a file names one.
+   */
+  readonly defaultHost?: string;
   /** The host named with `--host`, when one was. */
   readonly requestedHost?: string;
 }
@@ -475,19 +529,46 @@ export interface HostSelection {
  * a different name, and for the other to go and fix a file. `parseHosts`
  * already worked out what is wrong with the block and which file it is in, so
  * that sentence is carried through rather than restated.
+ *
+ * Where werk runs only as a client, every way of arriving at the machine werk
+ * is running on is refused with `clientOnlyRefusal` rather than reached: no
+ * host named and no `defaultHost`, `--host local`, and a block written with
+ * `kind = "local"`. The last one is refused rather than started because
+ * starting it would mean a daemon on a machine that does not run one.
  */
 export function hostFor(
   from: HostSelection,
   requested: string | undefined = from.requestedHost,
+  platform?: string,
 ): { name: string; host: Host } {
   const name = requested ?? from.defaultHost;
+  if (name === undefined)
+    throw clientOnly(platform)
+      ? clientOnlyRefusal(
+          "nothing names a host, and there is no local one to fall back on.",
+          from.hosts,
+        )
+      : new ConfigError(
+          "UNKNOWN_HOST",
+          "nothing names a host; pass --host or set defaultHost.",
+        );
   const host = from.hosts[name];
+  if (host?.kind === "local" && clientOnly(platform))
+    throw clientOnlyRefusal(
+      `${name} is a local host, and werk cannot put work on this machine.`,
+      from.hosts,
+    );
   if (host !== undefined) return { name, host };
   const problem = from.hostProblems.find((entry) => entry.name === name);
   if (problem !== undefined)
     throw new ConfigError(
       "HOST_INVALID",
       `${name} is configured but werk cannot read it: ${problem.message}`,
+    );
+  if (name === LOCAL_HOST && clientOnly(platform))
+    throw clientOnlyRefusal(
+      "there is no local host to put work on.",
+      from.hosts,
     );
   const defined = Object.keys(from.hosts).sort();
   throw new ConfigError(

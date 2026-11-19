@@ -5,7 +5,9 @@
  * invented for a feature that does not exist yet reads back later as a decision
  * somebody took, so this grows when the behaviour does and not before.
  * `defaultHost` is what a command acts on when `--host` names nothing, which is
- * `local` until somebody writes a host block and points it somewhere else.
+ * `local` until somebody writes a host block and points it somewhere else. On
+ * Windows, where werk runs only as a client, it is nothing until a file names
+ * a host.
  *
  * Nothing under `src/config/` imports a value from `src/runtime/` or
  * `src/commands/` — `load.ts` names the `GlobalFlags` type and nothing else,
@@ -29,7 +31,7 @@ import {
 } from "@werk/palette";
 import { defaultSessionRuntimeDir, type LogLevel } from "@werk/session-daemon";
 import { ConfigError } from "./errors.js";
-import { DEFAULT_HOST, isBlockName } from "./hosts.js";
+import { defaultHostFor, isBlockName } from "./hosts.js";
 import { splitCommand } from "../editor.js";
 
 /** What to do about colour when the terminal has not already settled it. */
@@ -66,9 +68,11 @@ export interface WerkConfig {
   scrollbackBytes: number;
   /**
    * The machine a command acts on when `--host` names none. It has to be a
-   * host somebody defined; `hostFor` refuses a name nothing does.
+   * host somebody defined; `hostFor` refuses a name nothing does. Absent where
+   * werk runs only as a client and no file names one, because there is no
+   * machine to fall back on there.
    */
-  defaultHost: string;
+  defaultHost?: string;
   /**
    * The `[setup.<name>]` block for a workspace that has just been made. It has
    * no value at all until a file names one, which is why it is the one key
@@ -322,10 +326,14 @@ export function defaultStateDir(
  * `defaultSessionRuntimeDir` honours it: leaving it would attribute a value the
  * caller set in the environment to werk's own defaults, and provenance is the
  * whole point of the layer stack.
+ *
+ * The platform is taken only for `defaultHost`, so a test can ask for the
+ * client-only answer from any machine.
  */
 export function builtInDefaults(
   env: NodeJS.ProcessEnv = process.env,
   home: string = os.homedir(),
+  platform?: string,
 ): WerkConfig {
   const { WERK_RUNTIME_DIR: _ignored, ...rest } = env;
   return {
@@ -336,8 +344,10 @@ export function builtInDefaults(
     // this would only ever be refused.
     scrollbackBytes: 10_000_000,
     // A `werk create` that names no host runs on this machine, so this is a
-    // description of the present rather than a plan for anything else.
-    defaultHost: DEFAULT_HOST,
+    // description of the present rather than a plan for anything else. Where
+    // werk runs only as a client it is nothing, and `werk config list` shows
+    // the row as unset.
+    defaultHost: defaultHostFor(platform),
     // Written down as nothing rather than left out, so the defaults layer is
     // the layer that answered for it and `werk config list` has a row to show.
     // Nothing runs after a workspace is made until a file names a block.

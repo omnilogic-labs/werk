@@ -8,6 +8,9 @@
  *
  * `endpoint` is the pair to it. `werk info` says where werk keeps things;
  * `endpoint` says what is listening, in the form something else could dial.
+ *
+ * Both are refused where werk runs only as a client, which is Windows: there is
+ * no daemon on that machine to serve or to describe.
  */
 import path from "node:path";
 import { Command } from "@commander-js/extra-typings";
@@ -30,12 +33,14 @@ import { result, section } from "../runtime/output.js";
 import {
   connectExistingDaemon,
   daemonCommand,
+  refuseLocalDaemon,
   type DaemonPaths,
 } from "../runtime/daemon.js";
 import { compiledWerk, werkVersion } from "../runtime/version.js";
 import type { WerkContext } from "../runtime/context.js";
 
 async function serve(ctx: WerkContext): Promise<void> {
+  refuseLocalDaemon(ctx.hosts);
   // Every session this daemon starts gets werk's own directory on its `PATH`,
   // so a program in one can run `werk edit`. Only this side knows whether the
   // running process is a werk of its own — a `bun` from source would put bun's
@@ -137,6 +142,7 @@ async function endpointReport(
   ctx: WerkContext,
   ensure: boolean,
 ): Promise<EndpointReport> {
+  refuseLocalDaemon(ctx.hosts);
   const paths: DaemonPaths = {
     runtimeDir: ctx.runtimeDir,
     stateDir: ctx.stateDir,

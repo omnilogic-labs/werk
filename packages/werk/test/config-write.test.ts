@@ -15,6 +15,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { builtInHosts, defaultHostFor } from "../src/config/hosts.js";
+import { clientOnly } from "./support/platform.js";
 import { runWerk, sandbox } from "./support/run.js";
 
 const TIMEOUT = 30000;
@@ -95,8 +97,10 @@ test(
         },
       },
     ] as never);
+    // What it replaced is the built-in default, which is `local`, or nothing
+    // at all where werk runs only as a client.
     expect(value.settings).toEqual([
-      { key: "defaultHost", from: "local", to: "beast" },
+      { key: "defaultHost", from: defaultHostFor() ?? null, to: "beast" },
     ] as never);
 
     // And what it wrote is what werk reads back, at the layer it wrote it to.
@@ -265,13 +269,18 @@ test(
       probed: boolean;
       report: { reachable: string };
     }[];
-    expect(rows.map((row) => row.host).sort()).toEqual(["beast", "local"]);
+    // `local` is there wherever the defaults layer supplies it, and Windows,
+    // where werk runs only as a client, has none to check.
+    expect(rows.map((row) => row.host).sort()).toEqual(
+      ["beast", ...Object.keys(builtInHosts())].sort(),
+    );
     // Nothing can reach an ssh host yet, which reads as "not checked" and not
     // as "unreachable".
     expect(rows.find((row) => row.host === "beast")?.probed).toBe(false);
-    expect(rows.find((row) => row.host === "local")?.report.reachable).toBe(
-      "yes",
-    );
+    if (!clientOnly)
+      expect(rows.find((row) => row.host === "local")?.report.reachable).toBe(
+        "yes",
+      );
   },
   TIMEOUT,
 );

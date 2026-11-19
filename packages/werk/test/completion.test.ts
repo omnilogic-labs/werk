@@ -16,6 +16,7 @@ import {
 } from "../src/completion/candidates.js";
 import { Directive, renderReply } from "../src/completion/protocol.js";
 import { completes } from "../src/completion/hooks.js";
+import { builtInHosts } from "../src/config/hosts.js";
 
 const SCRIPTS = path.join(import.meta.dir, "../src/completion/scripts");
 
@@ -89,6 +90,23 @@ test("--host offers the hosts in force, and reaches nothing to do it", async () 
   expect(
     values(await completionFor(tree(), ["list", "--host=be"], ctx)),
   ).toEqual(["--host=beast"]);
+});
+
+test("on Windows --host offers no local host", async () => {
+  // The hosts as the defaults layer supplies them on Windows, where werk runs
+  // only as a client, beside one somebody wrote down.
+  const ctx = {
+    ...(await scratch()),
+    hosts: {
+      ...builtInHosts("win32"),
+      beast: { kind: "ssh" as const, sshHost: "beast" },
+    },
+  };
+  expect(
+    values(await completionFor(tree(), ["list", "--host", ""], ctx)),
+  ).toEqual(["beast"]);
+  // Linux and macOS still offer it.
+  expect(Object.keys(builtInHosts("linux"))).toEqual(["local"]);
 });
 
 test("a completion that never read the layers offers no hosts rather than stale ones", async () => {

@@ -141,7 +141,8 @@ export const labelCandidates: CandidateProvider = async (partial, ctx) => {
 
 /**
  * The machines `--host` accepts, which is every `[hosts.<name>]` in force plus
- * the built-in `local`.
+ * the built-in `local` where there is one. On Windows, where werk runs only as
+ * a client, the defaults layer supplies no `local`, so none is offered.
  *
  * The one provider here that reaches nothing. The names came out of the same
  * config read `complete` already does under its own budget, so a TAB on

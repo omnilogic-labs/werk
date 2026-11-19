@@ -18,7 +18,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Command } from "@commander-js/extra-typings";
 import { buildProgram } from "../src/app.js";
-import { daemonTest } from "./support/platform.js";
+import { daemonTest, localHostTest } from "./support/platform.js";
 import { runWerk, sandbox, type Sandbox } from "./support/run.js";
 
 const TIMEOUT = 30000;
@@ -173,7 +173,7 @@ daemonTest(
   },
   TIMEOUT,
 );
-test(
+localHostTest(
   "setup answers with what the machine's setup came to",
   async () => {
     // Nothing in the sandbox names a `[setup.<name>]` block, so there is

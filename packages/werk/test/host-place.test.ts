@@ -25,6 +25,7 @@ import { reachHost, workspaceMakerFor } from "../src/host/place.js";
 import type { HostSession } from "../src/host/session.js";
 import type { ProbeAnswer } from "../src/host/probe.js";
 import { createProgress, progressLine } from "../src/runtime/progress.js";
+import { localHostTest } from "./support/platform.js";
 
 /** A context with no terminal, no colour and whatever hosts the test wants. */
 function context(overrides: Partial<WerkContext> = {}): WerkContext {
@@ -106,22 +107,28 @@ function fakeSession(
   return session;
 }
 
-test("a local host is a worktree here, under the state directory", async () => {
-  const place = await reachHost(context({ stateDir: "/state/werk" }));
-  expect(place.name).toBe("local");
-  expect(place.session).toBeUndefined();
-  // Absent, so a reference for a workspace on this machine keeps reading as it
-  // always has.
-  expect(place.reference).toBeUndefined();
-  expect(workspaceMakerFor(place).kind).toBe("local-worktree");
-});
+localHostTest(
+  "a local host is a worktree here, under the state directory",
+  async () => {
+    const place = await reachHost(context({ stateDir: "/state/werk" }));
+    expect(place.name).toBe("local");
+    expect(place.session).toBeUndefined();
+    // Absent, so a reference for a workspace on this machine keeps reading as it
+    // always has.
+    expect(place.reference).toBeUndefined();
+    expect(workspaceMakerFor(place).kind).toBe("local-worktree");
+  },
+);
 
-test("a local host block with a workspaceRoot of its own is honoured", async () => {
-  const place = await reachHost(
-    context({ hosts: { local: { kind: "local", workspaceRoot: "/w" } } }),
-  );
-  expect(place.root).toBe("/w");
-});
+localHostTest(
+  "a local host block with a workspaceRoot of its own is honoured",
+  async () => {
+    const place = await reachHost(
+      context({ hosts: { local: { kind: "local", workspaceRoot: "/w" } } }),
+    );
+    expect(place.root).toBe("/w");
+  },
+);
 
 test("an ssh host with a configured root asks the machine nothing", async () => {
   const session = fakeSession(() => ({}));

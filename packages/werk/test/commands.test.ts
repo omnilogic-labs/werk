@@ -25,11 +25,12 @@ import { buildKill, renderTermination } from "../src/commands/kill.js";
 import { renderOpen, waitTimeoutMs } from "../src/commands/edit.js";
 import { renderInspection, type Inspection } from "../src/commands/inspect.js";
 import { describeEndpoint, renderEndpoint } from "../src/commands/daemon.js";
+import { refuseLocalDaemon } from "../src/runtime/daemon.js";
 import { aliasesOf, resolveSession } from "../src/commands/session-argument.js";
 import { listResult, sourcesResult } from "../src/commands/config.js";
 import { builtInDefaults, CONFIG_KEYS } from "../src/config/schema.js";
 import type { MergedConfig } from "../src/config/load.js";
-import { bareEnvironment } from "./support/platform.js";
+import { bareEnvironment, localHostTest } from "./support/platform.js";
 
 /** A context with no terminal and no colour, so a rendering is plain text. */
 function context(overrides: Partial<WerkContext> = {}): WerkContext {
@@ -48,7 +49,7 @@ function context(overrides: Partial<WerkContext> = {}): WerkContext {
     runtimeDir: "/run/werk",
     stateDir: "/state/werk",
     entry: "/werk/main.ts",
-    hosts: builtInHosts(),
+    hosts: builtInHosts("linux"),
     hostProblems: [],
     defaultHost: "local",
     setups: {},
@@ -511,24 +512,27 @@ test("a created session says which workspace it landed in, in the one notation",
   expect(text).toContain("werk attach 8f2c1b04e9d1");
   expect(text.split("\n")).toHaveLength(4);
 });
-test("workspaces live under the state directory, not a setting of their own", async () => {
-  const here = await reachHost(context({ stateDir: "/state/werk" }));
-  expect(here.root).toBe(path.join("/state/werk", "workspaces"));
-  expect(here.session).toBeUndefined();
-  expect(here.reference).toBeUndefined();
-  // Moving the state directory moves them, which is why no config key was added.
-  expect((await reachHost(context({ stateDir: "/elsewhere" }))).root).toBe(
-    path.join("/elsewhere", "workspaces"),
-  );
-  expect(workspaceMakerFor(here).kind).toBe("local-worktree");
-});
+localHostTest(
+  "workspaces live under the state directory, not a setting of their own",
+  async () => {
+    const here = await reachHost(context({ stateDir: "/state/werk" }));
+    expect(here.root).toBe(path.join("/state/werk", "workspaces"));
+    expect(here.session).toBeUndefined();
+    expect(here.reference).toBeUndefined();
+    // Moving the state directory moves them, which is why no config key was added.
+    expect((await reachHost(context({ stateDir: "/elsewhere" }))).root).toBe(
+      path.join("/elsewhere", "workspaces"),
+    );
+    expect(workspaceMakerFor(here).kind).toBe("local-worktree");
+  },
+);
 
 /**
  * A merge werk never made, so the rendering can be driven without files, an
  * environment or a repository anywhere near it.
  */
 const merged = (over: Partial<MergedConfig> = {}): MergedConfig => ({
-  config: builtInDefaults(bareEnvironment(), "/home/nobody"),
+  config: builtInDefaults(bareEnvironment(), "/home/nobody", "linux"),
   from: Object.fromEntries(
     CONFIG_KEYS.map((key) => [key, "defaults"]),
   ) as MergedConfig["from"],
@@ -574,6 +578,43 @@ test("config list carries a host and the layer that supplied it", () => {
   // The element shape is unchanged, so the jq in the help still works.
   for (const row of shown.json)
     expect(Object.keys(row).sort()).toEqual(["key", "layer", "value"]);
+});
+test("on Windows config list has no local host and no default host", () => {
+  const ctx = context();
+  const shown = listResult(
+    merged({
+      config: builtInDefaults(bareEnvironment(), "/home/nobody", "win32"),
+      hosts: {
+        ...builtInHosts("win32"),
+        "agent-sandboxes": { kind: "ssh", sshHost: "agent-sandboxes" },
+      },
+      hostFrom: { "agent-sandboxes": "user" },
+    }),
+    ctx,
+  );
+  const text = shown.human(ctx);
+  expect(text).not.toContain("hosts.local");
+  expect(text).toContain(
+    "hosts.agent-sandboxes\tssh agent-sandboxes\tuser file",
+  );
+  expect(text).toContain("defaultHost\tunset\tdefaults");
+  expect(shown.json.map((row) => row.key)).not.toContain("hosts.local");
+});
+test("on Windows nothing reaches or starts a daemon on this machine", () => {
+  let raised: unknown;
+  try {
+    refuseLocalDaemon({ beast: { kind: "ssh", sshHost: "beast" } }, "win32");
+  } catch (error) {
+    raised = error;
+  }
+  expect((raised as { code?: string }).code).toBe("HOST_UNSUPPORTED");
+  expect((raised as Error).message).toContain(
+    "On Windows werk runs only as a client",
+  );
+  expect((raised as Error).message).toContain("defined: beast");
+  // Linux and macOS go on to reach it.
+  expect(() => refuseLocalDaemon({}, "linux")).not.toThrow();
+  expect(() => refuseLocalDaemon({}, "darwin")).not.toThrow();
 });
 test("a host block werk could not read is a row that says so", () => {
   const ctx = context();

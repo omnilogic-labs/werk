@@ -60,8 +60,8 @@ function configured(hosts: Record<string, Host> = {}): MergedConfig {
     {
       name: "defaults",
       origin: "built in",
-      values: builtInDefaults(bareEnvironment(), "/home/tester"),
-      hosts: builtInHosts(),
+      values: builtInDefaults(bareEnvironment(), "/home/tester", "linux"),
+      hosts: builtInHosts("linux"),
     },
     {
       name: "user",
@@ -483,8 +483,8 @@ test("the menu removes a host, and takes a default pointing at it with it", asyn
       {
         name: "defaults",
         origin: "built in",
-        values: builtInDefaults(bareEnvironment(), "/home/tester"),
-        hosts: builtInHosts(),
+        values: builtInDefaults(bareEnvironment(), "/home/tester", "linux"),
+        hosts: builtInHosts("linux"),
       },
       {
         name: "user",
@@ -496,7 +496,11 @@ test("the menu removes a host, and takes a default pointing at it with it", asyn
     const result = await runSetup(
       asking(),
       {},
-      deps(written, { prompt: talk.prompt, load: async () => merged }),
+      deps(written, {
+        prompt: talk.prompt,
+        load: async () => merged,
+        platform: "linux",
+      }),
     );
     expect(result.json.hosts).toEqual([
       { name: "beast", action: "removed", host: null },
@@ -526,6 +530,90 @@ test("answering no to the last question writes nothing", async () => {
       runSetup(asking(), {}, deps(written, { prompt: talk.prompt })),
     ).rejects.toThrow();
     expect(written.edit).toBeUndefined();
+  } finally {
+    talk.done();
+  }
+}, 20000);
+
+/* ------------------------------------------- Windows, where werk is a client */
+
+/** Two ssh hosts on Windows, one of them the default, and no `local`. */
+function onWindows(defaultHost?: string): MergedConfig {
+  return mergeLayers([
+    {
+      name: "defaults",
+      origin: "built in",
+      values: builtInDefaults(bareEnvironment(), "/home/tester", "win32"),
+      hosts: builtInHosts("win32"),
+    },
+    {
+      name: "user",
+      origin: "/home/tester/.werk/config.toml",
+      values: defaultHost === undefined ? {} : { defaultHost },
+      hosts: {
+        beast: { kind: "ssh", sshHost: "beast.example" },
+        spare: { kind: "ssh", sshHost: "spare.example" },
+      },
+    },
+  ]);
+}
+
+test("on Windows choosing a default offers no local host", async () => {
+  const written: { edit?: ConfigEdit } = {};
+  const talk = conversation([
+    DOWN,
+    DOWN,
+    ENTER, // "Choose which one werk uses by default"
+    ENTER, // the first row, which is local on Linux and beast here
+    ENTER, // Write it? yes
+  ]);
+  try {
+    const result = await runSetup(
+      asking(),
+      {},
+      deps(written, {
+        prompt: talk.prompt,
+        load: async () => onWindows(),
+        platform: "win32",
+      }),
+    );
+    expect(written.edit).toEqual({ set: { defaultHost: "beast" } });
+    // There was no default to replace, which the machine shape says as null.
+    expect(result.json.settings).toEqual([
+      { key: "defaultHost", from: null, to: "beast" },
+    ]);
+  } finally {
+    talk.done();
+  }
+}, 20000);
+
+test("on Windows removing the default host unsets it rather than pointing at local", async () => {
+  const written: { edit?: ConfigEdit } = {};
+  const talk = conversation([
+    DOWN,
+    DOWN,
+    DOWN,
+    ENTER, // "Remove one"
+    ENTER, // which one: beast, the first row
+    ENTER, // Remove beast from the file? yes
+  ]);
+  try {
+    const result = await runSetup(
+      asking(),
+      {},
+      deps(written, {
+        prompt: talk.prompt,
+        load: async () => onWindows("beast"),
+        platform: "win32",
+      }),
+    );
+    expect(written.edit).toEqual({
+      hosts: { beast: null },
+      set: { defaultHost: null },
+    });
+    expect(result.json.settings).toEqual([
+      { key: "defaultHost", from: "beast", to: null },
+    ]);
   } finally {
     talk.done();
   }

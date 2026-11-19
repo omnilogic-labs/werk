@@ -109,6 +109,9 @@ const BY_CONFIG_CODE: Record<ConfigErrorCode, number> = {
   HOST_NAME_INVALID: EXIT_USAGE,
   SETUP_INVALID: EXIT_USAGE,
   UNKNOWN_HOST: EXIT_USAGE,
+  // The status the same code has in the host and workspace tables, so a
+  // machine werk cannot act on exits the same way whichever layer noticed.
+  HOST_UNSUPPORTED: EXIT_FAILURE,
   CONFIG_UNREADABLE: EXIT_USAGE,
   CONFIG_WRITE_FAILED: EXIT_FAILURE,
 };

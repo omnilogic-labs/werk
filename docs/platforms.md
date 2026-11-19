@@ -57,6 +57,13 @@ how.
 That is a statement about what Windows needs rather than a failure the lane is
 allowed to have: what the lane does run has to pass.
 
+The CLI says the same thing to a person on Windows. It lists and offers no
+`local` host there, and a command that would act on this machine stops with
+`HOST_UNSUPPORTED`, saying that werk runs only as a client on Windows and
+pointing at `werk config setup` to add an ssh host. The Windows lane runs that
+refusal through the real binary in `packages/werk/test/client-only.test.ts`.
+[hosts.md](hosts.md#the-windows-gap) has the detail.
+
 ## The workflow does not weigh failures by tier
 
 The tiering says where effort goes, and the workflow does not weigh a failure by

@@ -18,7 +18,7 @@ import { mkdtemp, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { workspaceAt } from "@werk/workspace";
-import { daemonTest } from "./support/platform.js";
+import { daemonTest, localHostTest } from "./support/platform.js";
 import { runWerk, sandbox, type WerkRun } from "./support/run.js";
 
 const run = promisify(execFile);
@@ -157,7 +157,7 @@ daemonTest(
   TIMEOUT,
 );
 
-test(
+localHostTest(
   "outside a repository it is a usage failure that starts no daemon",
   async () => {
     // A sandbox of its own, with no daemon in it, so that "no daemon was left
@@ -180,7 +180,7 @@ test(
   TIMEOUT,
 );
 
-test(
+localHostTest(
   "a branch that is taken is a conflict, and a bad name is a usage failure",
   async () => {
     const source = await repository();
@@ -263,7 +263,7 @@ daemonTest(
   TIMEOUT,
 );
 
-test(
+localHostTest(
   "a repository with no commits says so rather than reporting a git failure",
   async () => {
     const empty = await mkdtemp(join(box.root, "empty-"));

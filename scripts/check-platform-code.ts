@@ -98,6 +98,13 @@ export const EXCEPTIONS: Exception[] = [
     disposition: "stays",
   },
   {
+    path: "packages/werk/src/config/hosts.ts",
+    allowed: 2,
+    reason:
+      "`clientOnly` is the one place the CLI asks whether werk runs only as a client here, which decides whether the machine it is running on is a host at all. A defaulted parameter: everything that hides or refuses `local` takes the platform through it, and the tests pass the Windows value on every platform.",
+    disposition: "stays",
+  },
+  {
     path: "packages/werk/src/runtime/editor.ts",
     allowed: 2,
     reason:
