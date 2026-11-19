@@ -119,7 +119,7 @@ these documents exists yet.
   process.
 - Everything is TypeScript. `bun:ffi` is used for `flock`, and PTYs come from Bun's own spawn support rather than a native
   addon. Terminal interpretation is libghostty compiled to WASM and shipped as
-  an asset, `packages/terminal/assets/terminal.wasm`: the official
+  an asset, `vendor/editor/packages/terminal/assets/terminal.wasm`: the official
   libghostty-vt 1.0.1 small build. Where else WASM would earn
   its place is not worked out; a real performance win, or an ecosystem with no
   good TypeScript equivalent, are probably the cases that would.

@@ -10,6 +10,13 @@ base branch last. A bare push of a feature branch starts nothing on its own: the
 branch reaches CI through its pull request, or because someone asked for a run
 by name, which is what "Starting a run on demand" below is for.
 
+Every job checks out the `vendor/editor` submodule, which holds
+`@werk/palette`, `@werk/terminal` and `@werk/session`. The editor repository is
+private, and a job's own token cannot read another private repository, so every
+lane stops at its checkout until the workflow is given a credential that can
+read editor or editor becomes readable some other way. None exists today, and
+which route to take is open. Until then the checks run locally.
+
 ## The lanes
 
 | Lane      | Runner                                            | What it is for                                                         |
@@ -123,9 +130,9 @@ has already run is the worse thing to read.
 checkout is most likely CRLF and would fail on line endings rather than on
 anything anyone wrote.
 
-`musl` runs `build` before `typecheck`, because `packages/terminal-beamterm`
-imports `@werk/terminal` from `dist/` and a typecheck from a clean tree cannot
-resolve it. The compiled lock check comes next: it is the point of the lane and
+`musl` runs `build` before `typecheck`, because `packages/werk` imports
+`@werk/session-daemon` and `@werk/workspace` from `dist/` and a typecheck from a
+clean tree cannot resolve them. The compiled lock check comes next: it is the point of the lane and
 it costs about a second.
 
 The `bun run test:soak` step on `native` asserts no performance budget. It sets

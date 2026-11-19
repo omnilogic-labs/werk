@@ -10,32 +10,38 @@ This document is the map: what the packages are, how they depend on each other,
 how to build and validate them, and how to run the two consumers. Each package
 README is the reference for its own API.
 
-| Package                   | Reference                                                             |
-| ------------------------- | --------------------------------------------------------------------- |
-| `@werk/palette`           | [packages/palette](../packages/palette/README.md)                     |
-| `@werk/terminal`          | [packages/terminal](../packages/terminal/README.md)                   |
-| `@werk/terminal-beamterm` | [packages/terminal-beamterm](../packages/terminal-beamterm/README.md) |
-| `@werk/session`           | [packages/session](../packages/session/README.md)                     |
-| `@werk/session-daemon`    | [packages/session-daemon](../packages/session-daemon/README.md)       |
-| `@werk/workspace`         | [packages/workspace](../packages/workspace/README.md)                 |
-| `@werk/cli`               | [packages/werk](../packages/werk/README.md)                           |
-| Browser example           | [examples/session-web](../examples/session-web/README.md)             |
+`@werk/palette`, `@werk/terminal` and `@werk/session` live in the editor
+repository, which werk carries as a git submodule at `vendor/editor`. Their
+READMEs and sources are there, and changes to them go to editor first; werk then
+moves the submodule pin. They export TypeScript sources rather than a `dist/`
+build.
+
+| Package                   | Reference                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------- |
+| `@werk/palette`           | [vendor/editor/packages/palette](../vendor/editor/packages/palette/README.md)   |
+| `@werk/terminal`          | [vendor/editor/packages/terminal](../vendor/editor/packages/terminal/README.md) |
+| `@werk/terminal-beamterm` | [packages/terminal-beamterm](../packages/terminal-beamterm/README.md)           |
+| `@werk/session`           | [vendor/editor/packages/session](../vendor/editor/packages/session/README.md)   |
+| `@werk/session-daemon`    | [packages/session-daemon](../packages/session-daemon/README.md)                 |
+| `@werk/workspace`         | [packages/workspace](../packages/workspace/README.md)                           |
+| `@werk/cli`               | [packages/werk](../packages/werk/README.md)                                     |
+| Browser example           | [examples/session-web](../examples/session-web/README.md)                       |
 
 ## Words used in this file
 
-| Word                   | What it means                                                                                                                                                                   |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **record**             | The daemon's on-disk file for one session, live or finished: its metadata and a snapshot of its screen                                                                          |
-| **checkpoint**         | Writing a record, and the saved snapshot inside it                                                                                                                              |
-| **replica**            | `TerminalReplica` in `packages/terminal/src/replica.ts`. A client-side copy of a session's screen, rebuilt from snapshot bytes and attachment events, with no process behind it |
-| **transport**          | A duplex byte stream with close and backpressure, and nothing more                                                                                                              |
-| **attachment**         | One client's ordered event stream onto one session, with its own identity, generation and permissions                                                                           |
-| **principal**          | Who a connection is acting as, assigned by whoever accepted the connection                                                                                                      |
-| **effect**             | A side-channel event from the terminal, such as a bell or an OSC notification                                                                                                   |
-| **preview tile**       | A small read-only text picture of a screen, refreshed on a timer                                                                                                                |
-| **free size**          | No attachment holds the session's dimensions, so `resize` is refused until one claims them                                                                                      |
-| **resync placeholder** | A marker queued in a stream's place, turned into a snapshot only when it reaches the front of the queue                                                                         |
-| **engine factory**     | `TerminalEngineFactory`: one compiled WASM module, handing out one independent WASM instance per terminal                                                                       |
+| Word                   | What it means                                                                                                                                                                                 |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **record**             | The daemon's on-disk file for one session, live or finished: its metadata and a snapshot of its screen                                                                                        |
+| **checkpoint**         | Writing a record, and the saved snapshot inside it                                                                                                                                            |
+| **replica**            | `TerminalReplica` in `vendor/editor/packages/terminal/src/replica.ts`. A client-side copy of a session's screen, rebuilt from snapshot bytes and attachment events, with no process behind it |
+| **transport**          | A duplex byte stream with close and backpressure, and nothing more                                                                                                                            |
+| **attachment**         | One client's ordered event stream onto one session, with its own identity, generation and permissions                                                                                         |
+| **principal**          | Who a connection is acting as, assigned by whoever accepted the connection                                                                                                                    |
+| **effect**             | A side-channel event from the terminal, such as a bell or an OSC notification                                                                                                                 |
+| **preview tile**       | A small read-only text picture of a screen, refreshed on a timer                                                                                                                              |
+| **free size**          | No attachment holds the session's dimensions, so `resize` is refused until one claims them                                                                                                    |
+| **resync placeholder** | A marker queued in a stream's place, turned into a snapshot only when it reaches the front of the queue                                                                                       |
+| **engine factory**     | `TerminalEngineFactory`: one compiled WASM module, handing out one independent WASM instance per terminal                                                                                     |
 
 ## How the packages depend on each other
 
@@ -79,7 +85,7 @@ Protocol version 2 is binary and framed the same way in both directions.
 `@werk/session/protocol` defines the frames, the framing and `FramedTransport`;
 `@werk/session-daemon` implements the daemon side of the same protocol. The byte
 layout and the transport obligations are in
-[packages/session](../packages/session/README.md#the-wire-protocol).
+[vendor/editor/packages/session](../vendor/editor/packages/session/README.md#the-wire-protocol).
 
 The receive allocation bound is the fact the two packages negotiate: 32 MiB
 towards a client and 1 MiB towards the daemon, each peer advertising its own cap
@@ -102,6 +108,7 @@ before relaying. Nothing does that today.
 From the repository root:
 
 ```sh
+git submodule update --init
 bun install
 bun run build
 bun run typecheck
@@ -209,7 +216,7 @@ happens on the client that opens the file.
 
 Attachment ordering, size ownership, preview tiles, scrollback budgets and the
 environment rules are in
-[packages/session](../packages/session/README.md). The daemon's queues, limits,
+[vendor/editor/packages/session](../vendor/editor/packages/session/README.md). The daemon's queues, limits,
 checkpoint rule and locking are in
 [packages/session-daemon](../packages/session-daemon/README.md).
 

@@ -1,0 +1,4 @@
+[test]
+# `vendor/editor` is the editor checkout. Its own tests run in editor; a path
+# filter such as `bun test scripts` would otherwise match its `scripts/` too.
+pathIgnorePatterns = ["vendor/**"]

@@ -46,7 +46,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
+      # `vendor/editor` holds `@werk/palette`, `@werk/terminal` and
+      # `@werk/session`. The editor repository is private and the job's
+      # token cannot read it, so this checkout fails until access exists.
       - uses: actions/checkout@v7
+        with:
+          submodules: true
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -102,6 +107,8 @@ jobs:
             musl-utils ncurses ncurses-terminfo-base jq curl unzip
           cat /etc/alpine-release
       - uses: actions/checkout@v7
+        with:
+          submodules: true
       # setup-bun picks the glibc build on Alpine; replace it with the musl zip
       # when the one it installed cannot run.
       - uses: oven-sh/setup-bun@v2
@@ -124,9 +131,9 @@ jobs:
           command -v bun; bun --version
           ldd "$(command -v bun)" || true
       - run: bun install --frozen-lockfile
-      # `build` comes before `typecheck` because `packages/terminal-beamterm`
-      # imports `@werk/terminal` from `dist/`, so a typecheck from a clean tree
-      # cannot resolve it.
+      # `build` comes before `typecheck` because `packages/werk` imports
+      # `@werk/session-daemon` and `@werk/workspace` from `dist/`, so a
+      # typecheck from a clean tree cannot resolve them.
       - run: bun run build
       # The interpreted tests below load libc through `bun:ffi` in the Bun
       # process. A compiled binary resolves it through the same system loader,
@@ -145,6 +152,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -161,6 +170,8 @@ jobs:
     timeout-minutes: 1500
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}

@@ -4,20 +4,28 @@
   "private": true,
   "workspaces": [
     "packages/*",
-    "examples/*"
+    "examples/*",
+    "vendor/editor/packages/palette",
+    "vendor/editor/packages/terminal",
+    "vendor/editor/packages/session"
   ],
   "scripts": {
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "build": "bun scripts/build.ts",
     "typecheck": "bun scripts/typecheck.ts",
-    "test": "bun test packages/palette/test packages/terminal/test packages/session/test packages/session-daemon/test packages/werk/test packages/terminal-beamterm/test packages/workspace/test",
-    "test:client": "bun test packages/palette/test packages/terminal/test packages/session/test packages/werk/test packages/terminal-beamterm/test packages/workspace/test --path-ignore-patterns='**/werk/test/{create-attach,daemon-endpoint,edit,loopback}.test.ts'",
+    "test": "bun test packages/session-daemon/test packages/werk/test packages/terminal-beamterm/test packages/workspace/test",
+    "test:client": "bun test packages/werk/test packages/terminal-beamterm/test packages/workspace/test --path-ignore-patterns='**/werk/test/{create-attach,daemon-endpoint,edit,loopback}.test.ts'",
     "test:artefacts": "bun scripts/check-artefacts.ts",
     "check:platform": "bun scripts/check-platform-code.ts",
     "browser:install": "bun scripts/browser-install.ts",
     "test:browser": "bun run build && bun run --cwd examples/session-web test",
     "test:soak": "bun scripts/session-soak.ts"
+  },
+  "dependencies": {
+    "@werk/palette": "workspace:*",
+    "@werk/session": "workspace:*",
+    "@werk/terminal": "workspace:*"
   },
   "devDependencies": {
     "prettier": "^3.10.1"

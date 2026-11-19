@@ -11,25 +11,18 @@ import {
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
-import { connectSessionClient } from "../packages/session/dist/index.js";
+import { connectSessionClient } from "@werk/session";
 import { openLocalTransport } from "../packages/session-daemon/dist/index.js";
-import { createTerminalReplica } from "../packages/terminal/dist/index.js";
-import { loadTerminalEngine } from "../packages/terminal/dist/bun/index.js";
-import { roles } from "../packages/palette/src/index.js";
+import { createTerminalReplica } from "@werk/terminal";
+import { loadTerminalEngine } from "@werk/terminal/bun";
+import { roles } from "@werk/palette";
 const repository = resolve(import.meta.dir, "..");
 // `--client` stops after the checks a client-only platform needs: the packages,
 // the browser bundle and the compiled binary answering `help`. Everything after
 // that starts a local daemon, which the Windows lane does not run;
 // `docs/ci.md` says why.
 const clientOnly = process.argv.slice(2).includes("--client");
-for (const name of [
-  "palette",
-  "terminal",
-  "terminal-beamterm",
-  "session",
-  "session-daemon",
-  "workspace",
-]) {
+for (const name of ["terminal-beamterm", "session-daemon", "workspace"]) {
   const manifest = JSON.parse(
     await readFile(join(repository, "packages", name, "package.json"), "utf8"),
   );

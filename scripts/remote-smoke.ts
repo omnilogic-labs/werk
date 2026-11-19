@@ -19,11 +19,8 @@ import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { connectSessionClient } from "../packages/session/dist/index.js";
-import type {
-  AttachmentEvent,
-  SessionClient,
-} from "../packages/session/dist/index.js";
+import { connectSessionClient } from "@werk/session";
+import type { AttachmentEvent, SessionClient } from "@werk/session";
 import { openLocalTransport } from "../packages/session-daemon/dist/index.js";
 // The compatibility surface itself, rather than a second copy of its rule here:
 // this check is only worth anything if it is the one the transport applies.
@@ -42,7 +39,7 @@ import type { SetupBlock } from "../packages/werk/src/config/setup.js";
 import type { WerkContext } from "../packages/werk/src/runtime/context.js";
 import { createStyles } from "../packages/werk/src/runtime/style.js";
 import { builtInDefaults } from "../packages/werk/src/config/schema.js";
-import { roles } from "../packages/palette/dist/index.js";
+import { roles } from "@werk/palette";
 
 export type Options = {
   host?: string;
@@ -345,7 +342,7 @@ async function main(): Promise<number> {
   const here = path.resolve(import.meta.dir, "..");
   if (
     !(await Bun.file(
-      path.join(here, "packages/session/dist/index.js"),
+      path.join(here, "packages/session-daemon/dist/index.js"),
     ).exists())
   ) {
     console.error("The built packages are missing. Run `bun run build` first.");

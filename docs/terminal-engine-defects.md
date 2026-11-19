@@ -2,7 +2,7 @@
 
 Behaviour of the pinned Ghostty WASM build that werk works around. The build is
 the official libghostty-vt 1.0.1 small build, `ghostty-vt-1.0.1-small.wasm`,
-which is `packages/terminal/assets/terminal.wasm` here.
+which is `vendor/editor/packages/terminal/assets/terminal.wasm` here.
 
 ## An appended grapheme does not dirty its row
 
@@ -33,7 +33,7 @@ omission sits in the Zig source is unknown, and the behaviour has not been
 reported to <https://github.com/ghostty-org/ghostty/issues>, which is where it
 belongs.
 
-`packages/terminal/src/engine.ts` works around it with a `wrote` flag set on
+`vendor/editor/packages/terminal/src/engine.ts` works around it with a `wrote` flag set on
 every `ghostty_terminal_vt_write`. Where a frame follows a write and the dirty
 walk did not deliver the cursor's row and the row above it, two rows because a
 write can wrap the cursor, those rows are decoded from a throwaway render state

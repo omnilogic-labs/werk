@@ -11,5 +11,6 @@
     "allowImportingTsExtensions": true,
     "moduleDetection": "force"
   },
-  "include": ["scripts"]
+  "include": ["scripts"],
+  "files": ["node_modules/@werk/terminal/src/assets.d.ts"]
 }

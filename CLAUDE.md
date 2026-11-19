@@ -17,18 +17,24 @@ what to do when it is not installed.
 ## What this repo is right now
 
 A Bun workspace of eight private packages: six libraries, and two consumers
-that use them.
+that use them. Three of the libraries, `@werk/terminal`, `@werk/session` and
+`@werk/palette`, live in the editor repository, which werk carries as a git
+submodule at `vendor/editor`, pinned to a commit on editor's `project-x`
+branch. Editor is their source of truth: change them there, then move the
+submodule pin here. werk's workspaces take only those three package directories
+from the submodule; its tests, typecheck and `prettier` leave the rest of the
+editor checkout alone.
 
-| package                   | what it does                                                                                                                                                                                                              |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@werk/terminal`          | Interprets terminal output and rebuilds the screen anywhere. Carries a pinned Ghostty WASM build, a snapshot format, and a DOM renderer. Its renderer interface is `RendererFactory` in `packages/terminal/src/types.ts`. |
-| `@werk/session`           | The session client and wire protocol. The caller supplies the `Transport`, so the same client runs over a unix socket under Bun and over a WebSocket in a browser.                                                        |
-| `@werk/session-daemon`    | Owns PTYs, persistence, and starting the local daemon.                                                                                                                                                                    |
-| `@werk/terminal-beamterm` | A second implementation of `RendererFactory`, painting onto a WebGL2 canvas instead of DOM rows. It shows that a different renderer can be substituted for the bundled one.                                               |
-| `@werk/workspace`         | Defines `WorkspaceMaker`, the interface for creating a workspace. One implementation makes a git worktree on this machine; another makes one over ssh. Under development and expected to change shape.                    |
-| `@werk/palette`           | Catppuccin's four flavours mapped to werk's uses. The one place any colour is named.                                                                                                                                      |
-| `packages/werk`           | The session CLI, named `@werk/cli` in the workspace.                                                                                                                                                                      |
-| `examples/session-web`    | The local browser consumer.                                                                                                                                                                                               |
+| package                   | what it does                                                                                                                                                                                                                            |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@werk/terminal`          | Interprets terminal output and rebuilds the screen anywhere. Carries a pinned Ghostty WASM build, a snapshot format, and a DOM renderer. Its renderer interface is `RendererFactory` in `vendor/editor/packages/terminal/src/types.ts`. |
+| `@werk/session`           | The session client and wire protocol. The caller supplies the `Transport`, so the same client runs over a unix socket under Bun and over a WebSocket in a browser.                                                                      |
+| `@werk/session-daemon`    | Owns PTYs, persistence, and starting the local daemon.                                                                                                                                                                                  |
+| `@werk/terminal-beamterm` | A second implementation of `RendererFactory`, painting onto a WebGL2 canvas instead of DOM rows. It shows that a different renderer can be substituted for the bundled one.                                                             |
+| `@werk/workspace`         | Defines `WorkspaceMaker`, the interface for creating a workspace. One implementation makes a git worktree on this machine; another makes one over ssh. Under development and expected to change shape.                                  |
+| `@werk/palette`           | Catppuccin's four flavours mapped to werk's uses. The one place any colour is named.                                                                                                                                                    |
+| `packages/werk`           | The session CLI, named `@werk/cli` in the workspace.                                                                                                                                                                                    |
+| `examples/session-web`    | The local browser consumer.                                                                                                                                                                                                             |
 
 [docs/session-library.md](docs/session-library.md) covers the session packages.
 Product direction lives in
@@ -38,6 +44,7 @@ has answered yet lives in [docs/open-questions.md](docs/open-questions.md).
 ## Commands
 
 ```
+git submodule update --init
 bun install
 bun run build
 bun run typecheck
@@ -47,9 +54,14 @@ bun run test:artefacts
 bun run format:check
 ```
 
-Run `bun run build` before `bun run typecheck`, always.
-`packages/terminal-beamterm` imports `@werk/terminal` from `dist/`, so a
-typecheck on a clean tree fails until a build has run.
+A fresh clone or worktree needs `git submodule update --init` before
+`bun install`, because the workspaces name package directories inside
+`vendor/editor`.
+
+Run `bun run build` before `bun run typecheck`, always. `packages/werk` imports
+`@werk/session-daemon` and `@werk/workspace` from `dist/`, so a typecheck on a
+clean tree fails until a build has run. The three editor packages export their
+TypeScript sources and need no build.
 
 `bun run test` names each package's test directory explicitly in
 `package.json`, so a new package's tests do not run until you add it to that

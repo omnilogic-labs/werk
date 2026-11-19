@@ -1,12 +1,4 @@
-const packages = [
-  "palette",
-  "terminal",
-  "session",
-  "terminal-beamterm",
-  "session-daemon",
-  "workspace",
-  "werk",
-];
+const packages = ["terminal-beamterm", "session-daemon", "workspace", "werk"];
 for (const name of packages) {
   const child = Bun.spawn(
     [process.execPath, "run", "--cwd", `packages/${name}`, "build"],

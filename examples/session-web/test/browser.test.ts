@@ -24,16 +24,26 @@ const rgb = (hex: string): string => {
 };
 test("built browser paints DOM, reconnects, resizes and lazily swaps to beamterm", async () => {
   const root = await mkdtemp(join(tmpdir(), "werk-browser-"));
-  // Reproduce the package file allowlists outside the checkout. In particular,
-  // neither the bridge nor its runtime dependencies can resolve source files.
+  // Reproduce what each package publishes outside the checkout, so the bridge
+  // and its runtime dependencies resolve nothing from the workspace. werk's own
+  // packages publish their `files` allowlist, which holds `dist/`. The editor
+  // packages in `vendor/editor` publish their sources and have no allowlist, so
+  // they bring the top-level directories their `exports` point into.
   const assetsDir = join(root, "web");
   await cp(join(import.meta.dir, "../dist"), assetsDir, { recursive: true });
-  for (const name of ["session", "session-daemon", "terminal"]) {
-    const source = join(import.meta.dir, "../../../packages", name);
+  for (const name of ["palette", "session", "session-daemon", "terminal"]) {
+    const source = join(import.meta.dir, "../node_modules/@werk", name);
     const target = join(root, "node_modules/@werk", name);
     await mkdir(target, { recursive: true });
     const manifest = await Bun.file(join(source, "package.json")).json();
-    for (const entry of ["package.json", ...manifest.files])
+    const published: string[] = manifest.files ?? [
+      ...new Set(
+        Object.values(manifest.exports as Record<string, string>).map(
+          (entry) => entry.split("/")[1]!,
+        ),
+      ),
+    ];
+    for (const entry of ["package.json", ...published])
       await cp(join(source, entry), join(target, entry), { recursive: true });
   }
   const { startWebBridge } = await import(join(assetsDir, "bridge.js"));

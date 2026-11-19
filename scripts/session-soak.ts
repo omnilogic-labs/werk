@@ -2,16 +2,17 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { connectSessionClient } from "../packages/session/dist/index.js";
+import { connectSessionClient } from "@werk/session";
 import {
   DEFAULT_MAX_QUEUED_BYTES,
   type Transport,
-} from "../packages/session/dist/protocol.js";
+} from "@werk/session/protocol";
 import { createSessionDaemon } from "../packages/session-daemon/dist/index.js";
-import { loadTerminalEngine } from "../packages/terminal/dist/bun/index.js";
+import { loadTerminalEngine } from "@werk/terminal/bun";
 
-// Uses package exports, which resolve to built artefacts. Delay is per frame;
-// split headers and bodies independently to exercise remote byte boundaries.
+// The daemon is the built one, so run `bun run build` first; the session and
+// terminal packages are editor's sources. Delay is per frame; split headers and
+// bodies independently to exercise remote byte boundaries.
 function pair(delay: () => number): [Transport, Transport] {
   const a = new TransformStream<Uint8Array, Uint8Array>();
   const b = new TransformStream<Uint8Array, Uint8Array>();

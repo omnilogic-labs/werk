@@ -727,7 +727,7 @@ truecolour), then from a `TERM` ending in `-256color`, and otherwise 16 colours.
 
 ### What is written
 
-What colour a thing is belongs to [`@werk/palette`](../packages/palette), which
+What colour a thing is belongs to [`@werk/palette`](../vendor/editor/packages/palette), which
 is the one place any of it is named. The CLI asks that library for a use: a heading, a
 literal you can type, a name you substitute, a success, a warning, or an error.
 `packages/werk/src/runtime/style.ts` turns the answer into escapes, and it is

@@ -4,6 +4,11 @@
   "workspaces": {
     "": {
       "name": "werk",
+      "dependencies": {
+        "@werk/palette": "workspace:*",
+        "@werk/session": "workspace:*",
+        "@werk/terminal": "workspace:*",
+      },
       "devDependencies": {
         "prettier": "^3.10.1",
       },
@@ -24,41 +29,12 @@
         "typescript": "^5.9.3",
       },
     },
-    "packages/palette": {
-      "name": "@werk/palette",
-      "version": "0.0.0",
-      "devDependencies": {
-        "@catppuccin/palette": "1.8.0",
-        "bun-types": "1.4.4",
-        "typescript": "^5.9.3",
-      },
-    },
-    "packages/session": {
-      "name": "@werk/session",
-      "version": "0.0.0",
-      "devDependencies": {
-        "typescript": "^5.9.3",
-      },
-    },
     "packages/session-daemon": {
       "name": "@werk/session-daemon",
       "version": "0.1.0",
       "dependencies": {
         "@werk/session": "workspace:*",
         "@werk/terminal": "workspace:*",
-      },
-      "devDependencies": {
-        "bun-types": "1.4.4",
-        "typescript": "^5.9.3",
-      },
-    },
-    "packages/terminal": {
-      "name": "@werk/terminal",
-      "version": "0.0.0",
-      "dependencies": {
-        "@werk/palette": "workspace:*",
-        "@wterm/core": "0.6.0",
-        "@wterm/dom": "0.6.0",
       },
       "devDependencies": {
         "bun-types": "1.4.4",
@@ -107,6 +83,26 @@
         "typescript": "^5.9.3",
       },
     },
+    "vendor/editor/packages/palette": {
+      "name": "@werk/palette",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@catppuccin/palette": "1.8.0",
+      },
+    },
+    "vendor/editor/packages/session": {
+      "name": "@werk/session",
+      "version": "0.0.0",
+    },
+    "vendor/editor/packages/terminal": {
+      "name": "@werk/terminal",
+      "version": "0.0.0",
+      "dependencies": {
+        "@werk/palette": "workspace:*",
+        "@wterm/core": "0.6.0",
+        "@wterm/dom": "0.6.0",
+      },
+    },
   },
   "packages": {
     "@beamterm/renderer": ["@beamterm/renderer@1.0.0", "", {}, "sha512-Uct8zOjj8aR/63D+fl3Hv9D01HFCMzIvAqtkZk+lgAendUMid5loccrhtQkEjqUWDUMgu54SDLhnROnUj8sCFw=="],
@@ -123,15 +119,15 @@
 
     "@werk/cli": ["@werk/cli@workspace:packages/werk"],
 
-    "@werk/palette": ["@werk/palette@workspace:packages/palette"],
+    "@werk/palette": ["@werk/palette@workspace:vendor/editor/packages/palette"],
 
-    "@werk/session": ["@werk/session@workspace:packages/session"],
+    "@werk/session": ["@werk/session@workspace:vendor/editor/packages/session"],
 
     "@werk/session-daemon": ["@werk/session-daemon@workspace:packages/session-daemon"],
 
     "@werk/session-web": ["@werk/session-web@workspace:examples/session-web"],
 
-    "@werk/terminal": ["@werk/terminal@workspace:packages/terminal"],
+    "@werk/terminal": ["@werk/terminal@workspace:vendor/editor/packages/terminal"],
 
     "@werk/terminal-beamterm": ["@werk/terminal-beamterm@workspace:packages/terminal-beamterm"],
 
