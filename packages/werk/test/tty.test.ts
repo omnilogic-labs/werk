@@ -31,6 +31,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { shortTempRoot } from "./support/platform.js";
 import { cliEntry } from "./support/run.js";
 
 /** Long enough for a cold start and a daemon; short enough to fail a hang. */
@@ -269,7 +270,7 @@ function opening(text: string): string {
 beforeAll(async () => {
   // Short, because a Unix socket path is capped near 103 bytes and the daemon
   // binds one inside the runtime directory.
-  home = await mkdtemp("/tmp/wkt-");
+  home = await mkdtemp(join(shortTempRoot, "wkt-"));
   runtimeDir = join(home, "r");
   stateDir = join(home, "s");
 });
@@ -284,7 +285,9 @@ afterAll(async () => {
   } catch {
     // No daemon was started, or it has already gone.
   }
-  await rm(home, { recursive: true, force: true });
+  // Still empty when `beforeAll` failed. A Windows run that reached `rm("")`
+  // here lost the checkout it was running from, so it is never called with it.
+  if (home !== "") await rm(home, { recursive: true, force: true });
 });
 
 /** Bare `werk` and `werk config` answer with usage, which is still an answer. */

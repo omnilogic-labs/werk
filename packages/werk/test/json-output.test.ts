@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Command } from "@commander-js/extra-typings";
 import { buildProgram } from "../src/app.js";
+import { daemonTest } from "./support/platform.js";
 import { runWerk, sandbox, type Sandbox } from "./support/run.js";
 
 const TIMEOUT = 30000;
@@ -80,14 +81,14 @@ afterAll(() => box.dispose());
 
 let session = "";
 
-test(
+daemonTest(
   "list answers with an array, and starts the daemon the rest need",
   async () => {
     expect(await runJson("list")).toEqual([]);
   },
   TIMEOUT,
 );
-test(
+daemonTest(
   "create answers with the session record",
   async () => {
     const info = (await runJson(
@@ -124,7 +125,7 @@ test(
   },
   TIMEOUT,
 );
-test(
+daemonTest(
   "land answers with the landing, and the dry run with the survey",
   async () => {
     // Its own workspace, with a commit in it, because landing needs something
@@ -164,7 +165,7 @@ test(
   },
   TIMEOUT,
 );
-test(
+daemonTest(
   "info and doctor answer with a report",
   async () => {
     expect(await runJson("info")).toBeObject();
@@ -184,7 +185,7 @@ test(
   },
   TIMEOUT,
 );
-test(
+daemonTest(
   "daemon endpoint answers with something a client could dial",
   async () => {
     const report = (await runJson("daemon", "endpoint")) as {
@@ -268,14 +269,14 @@ test(
   },
   TIMEOUT,
 );
-test(
+daemonTest(
   "logs answers with the retained screen",
   async () => {
     expect(await runJson("logs", session)).toBeString();
   },
   TIMEOUT,
 );
-test(
+daemonTest(
   "kill and remove answer with what they did",
   async () => {
     expect(await runJson("kill", session)).toBeObject();

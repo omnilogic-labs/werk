@@ -29,6 +29,7 @@ import { aliasesOf, resolveSession } from "../src/commands/session-argument.js";
 import { listResult, sourcesResult } from "../src/commands/config.js";
 import { builtInDefaults, CONFIG_KEYS } from "../src/config/schema.js";
 import type { MergedConfig } from "../src/config/load.js";
+import { bareEnvironment } from "./support/platform.js";
 
 /** A context with no terminal and no colour, so a rendering is plain text. */
 function context(overrides: Partial<WerkContext> = {}): WerkContext {
@@ -527,7 +528,7 @@ test("workspaces live under the state directory, not a setting of their own", as
  * environment or a repository anywhere near it.
  */
 const merged = (over: Partial<MergedConfig> = {}): MergedConfig => ({
-  config: builtInDefaults({}, "/home/nobody"),
+  config: builtInDefaults(bareEnvironment(), "/home/nobody"),
   from: Object.fromEntries(
     CONFIG_KEYS.map((key) => [key, "defaults"]),
   ) as MergedConfig["from"],

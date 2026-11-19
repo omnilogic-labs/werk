@@ -373,15 +373,22 @@ export async function readConfigDir(
           }
         : null,
   });
-  const { hosts, problems } = parseHosts(loaded.config, loaded._configFile);
-  const setup = parseSetups(loaded.config, loaded._configFile);
+  // c12 answers with forward slashes on every platform. The path is shown to
+  // people and compared with paths this file builds, so it takes the
+  // platform's own separators before it goes anywhere.
+  const file =
+    loaded._configFile === undefined
+      ? undefined
+      : path.normalize(loaded._configFile);
+  const { hosts, problems } = parseHosts(loaded.config, file);
+  const setup = parseSetups(loaded.config, file);
   return {
     values: coerceLayer(loaded.config),
     hosts,
     problems,
     setups: setup.setups,
     setupProblems: setup.problems,
-    file: loaded._configFile,
+    file,
   };
 }
 

@@ -23,13 +23,14 @@ import { DAEMON_OWNED } from "../src/environment.js";
 import { mergeLayers, type ConfigLayer } from "../src/config/load.js";
 import { builtInDefaults } from "../src/config/schema.js";
 import { exitCodeFor, errorPayload } from "../src/runtime/exit.js";
+import { bareEnvironment } from "./support/platform.js";
 
 /** A defaults layer with every setting in it, plus whatever hosts are wanted. */
 const defaults = (
   hosts: Record<string, Host> = builtInHosts(),
 ): ConfigLayer => ({
   name: "defaults",
-  values: builtInDefaults({}, "/home/nobody"),
+  values: builtInDefaults(bareEnvironment(), "/home/nobody"),
   hosts,
 });
 const layer = (

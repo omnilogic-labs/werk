@@ -17,6 +17,11 @@ import { createTerminalReplica } from "../packages/terminal/dist/index.js";
 import { loadTerminalEngine } from "../packages/terminal/dist/bun/index.js";
 import { roles } from "../packages/palette/src/index.js";
 const repository = resolve(import.meta.dir, "..");
+// `--client` stops after the checks a client-only platform needs: the packages,
+// the browser bundle and the compiled binary answering `help`. Everything after
+// that starts a local daemon, which the Windows lane does not run;
+// `docs/ci.md` says why.
+const clientOnly = process.argv.slice(2).includes("--client");
 for (const name of [
   "palette",
   "terminal",
@@ -201,6 +206,17 @@ async function stopDaemon() {
     }, Boolean);
     pid = undefined;
   }
+}
+if (clientOnly) {
+  try {
+    assert.match(await cli("help"), /create/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+  console.log(
+    "Compiled binary outside checkout: help passed. Daemon checks not run (--client). Browser boundaries, assets, generated colours and built declarations passed.",
+  );
+  process.exit(0);
 }
 try {
   assert.match(await cli("help"), /create/);

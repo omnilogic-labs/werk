@@ -14,7 +14,7 @@ by name, which is what "Starting a run on demand" below is for.
 
 | Lane      | Runner                                            | What it is for                                                         |
 | --------- | ------------------------------------------------- | ---------------------------------------------------------------------- |
-| `native`  | `ubuntu-latest`, `macos-latest`, `windows-latest` | The whole suite on each supported platform                             |
+| `native`  | `ubuntu-latest`, `macos-latest`, `windows-latest` | The whole suite on Linux and macOS, and the client's tests on Windows  |
 | `musl`    | Alpine 3.22 in a job container                    | `bun:ffi` and a compiled binary finding a libc where there is no glibc |
 | `browser` | `ubuntu-latest`                                   | Playwright chromium against `examples/session-web`                     |
 | `soak`    | a self-hosted Linux x64 runner                    | A run longer than a hosted job's six-hour cap                          |
@@ -58,6 +58,46 @@ cancel the evidence the other two were about to produce.
 The `soak` lane's self-hosted runner has never been provisioned, so the lane has
 never run. It is a design that is written down and costed rather than a lane
 that reports anything.
+
+### What the Windows lane runs
+
+On Windows werk is a client. The owner's ruling is that Windows does not need a
+local daemon, a supervisor, a PTY or a session host, only the client: the CLI's
+parsing, help, config and its layers and paths, themes and output, the
+workspace and ssh code that builds commands for another machine, and the
+session protocol and client. So `native (windows-latest)` runs the tests of
+that and nothing that starts, ensures or talks to a local daemon.
+
+| Step on Linux and macOS  | Step on Windows                   | What Windows leaves out                                                                                               |
+| ------------------------ | --------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `bun run test`           | `bun run test:client`             | `packages/session-daemon/test`, and `create-attach`, `daemon-endpoint`, `edit` and `loopback` in `packages/werk/test` |
+| `bun run test:artefacts` | `bun run test:artefacts --client` | Everything after the compiled binary answers `help`, all of which runs a daemon                                       |
+| `bun run test:soak`      | none                              | The whole soak, which is a daemon under load                                                                          |
+
+Three of the CLI files are left out whole because every test in them creates
+a local session or asks for the daemon's endpoint. The fourth, `loopback`,
+makes this machine the far end of an ssh connection and has werk set up
+workspaces and a daemon on it as it would on a remote host. werk's far machine
+is a POSIX one, and Windows as a host is refused before anything is sent, so on
+Windows that file tests a host werk will not use. The client's half of the same
+work, the commands it sends to the far machine, is covered by
+`packages/workspace/test/ssh.test.ts`, which runs everywhere.
+
+Files that mix the two keep their client tests on Windows and mark the rest with
+`daemonTest` from `packages/werk/test/support/platform.ts`, which skips a test
+on Windows only:
+
+- `json-output.test.ts`: `list`, `create`, `land`, `info` and `doctor`,
+  `daemon endpoint`, `logs`, and `kill` and `remove`, which all reach the
+  daemon. `setup`, `completion` and every `config` subcommand still run.
+- `land.test.ts`: every case that makes its workspace with `werk create`. The
+  two refusals that need no session still run.
+- `workspace.test.ts`: every case that creates a session. The three refusals
+  that start no daemon still run.
+
+`packages/session-daemon/test/native.test.ts` holds tests that run only on
+Windows, for the Windows job object and endpoint. Leaving the daemon package out
+of the lane means they do not run anywhere.
 
 ## Step order
 
@@ -114,15 +154,15 @@ The control-queue bound compares against `DEFAULT_MAX_QUEUED_BYTES`, about
 64 MiB, while the checked-in baseline's observed peak is 1,688 bytes, so it
 sits roughly 40,000 times above the real value and would catch a runaway rather
 than a regression. The descriptor check can fail, and does the job it was
-written for, but only on Linux: it reads `/proc/self/fd`, so the macOS and
-Windows legs assert nothing about descriptors at all.
+written for, but only on Linux: it reads `/proc/self/fd`, so the macOS leg
+asserts nothing about descriptors at all.
 
 ## Re-runs on failure
 
 Two layers, covering different failures.
 
 **Tests.** Three steps pass `--retry=2`, so a test gets three attempts before it
-counts as failed: `bun run test` on `native`, the two named daemon test files on
+counts as failed: `bun run test` on `native` (`bun run test:client` on Windows), the two named daemon test files on
 `musl`, and `bun run test:browser` on `browser`. `bun test scripts` on `native`
 passes `--bail` alone, with no retry. Two further steps read as tests and are
 not: `test:artefacts` runs `scripts/check-artefacts.ts` and `test:soak` runs
@@ -238,7 +278,7 @@ Genuinely open. Where there is a lean it is labelled as a lean.
 ### 1. What should the routine soak step assert?
 
 The 60-second `bun run test:soak` step runs on every pull request and every push
-to `main`, on all three platforms, and asserts nothing about performance. The
+to `main`, on Linux and macOS, and asserts nothing about performance. The
 options:
 
 - Set `SOAK_BASELINE` on the Linux leg of `native` against the checked-in
@@ -263,7 +303,7 @@ the `soak` lane by hand.
 Whether the two always-on checks should be tightened is part of the same
 question. The control-queue bound could compare against something near the
 observed peak rather than against the protocol limit, and the descriptor check
-could be given a way to count handles on macOS and Windows.
+could be given a way to count handles on macOS.
 
 ### 2. Should the unprovisioned `soak` lane stay listed?
 
