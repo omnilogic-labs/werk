@@ -43,19 +43,26 @@ and Win32-OpenSSH forwards Unix-domain sockets in neither direction, so a
 Windows client and a Windows host are both out of reach.
 [hosts.md](hosts.md#the-windows-gap) has the shape of what would close it.
 
-Windows has already shown that. Two runs of branch `issue-30`, at `8bd72f6` and
-at `3e7b06e`, produced two different Windows failures in
-`packages/session-daemon/test/daemon.test.ts` rather than the same one twice:
-four requests that should have been refused timed out in the first, and a
-directory that could not be made private in the second. The count of Windows
-problems is unknown, not one.
+## Windows is tested as a client
 
-## The workflow implements none of the tiering
+On Windows werk is a client, and the Windows lane tests it as one. The owner's
+ruling is that Windows does not need a local daemon, a supervisor, a PTY or a
+session host, only the client. So `native (windows-latest)` runs the tests of
+the CLI's parsing, help, config, themes and output, of the workspace and ssh
+code that builds commands for another machine, and of the session protocol and
+client, and leaves out every test that starts, ensures or talks to a local
+daemon. [ci.md](ci.md#what-the-windows-lane-runs) lists what is left out and
+how.
 
-The tiering says where effort goes, and the workflow implements none of it.
-Someone reading the board sees three equal failures and has to
-know the tiering to weigh them.
-Three facts, all readable in `.github/workflows/session-libraries.yml`:
+That is a statement about what Windows needs rather than a failure the lane is
+allowed to have: what the lane does run has to pass.
+
+## The workflow does not weigh failures by tier
+
+The tiering says where effort goes, and the workflow does not weigh a failure by
+it. Someone reading the board sees three equal failures and has to know the
+tiering to weigh them. Three facts, all readable in
+`.github/workflows/session-libraries.yml`:
 
 - The `native` matrix sets `fail-fast: false`, so each platform reports
   independently and one platform failing does not cancel the other two.

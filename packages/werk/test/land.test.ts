@@ -30,6 +30,7 @@ import {
   settle,
   spawnWerk,
 } from "./support/run.js";
+import { daemonTest } from "./support/platform.js";
 
 const run = promisify(execFile);
 const TIMEOUT = 30_000;
@@ -155,7 +156,7 @@ async function tool(name: string, body: string): Promise<string> {
   return file;
 }
 
-test(
+daemonTest(
   "create writes down which branch the workspace came from",
   async () => {
     const repo = await repository();
@@ -186,7 +187,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "the whole loop: create, commit, land",
   async () => {
     const repo = await repository();
@@ -216,7 +217,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "landing onto a branch the workspace did not come from asks first",
   async () => {
     const repo = await repository();
@@ -249,7 +250,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "a dry run says what would land and changes nothing",
   async () => {
     const repo = await repository();
@@ -274,7 +275,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "--message skips the agent and the editor",
   async () => {
     const repo = await repository();
@@ -296,7 +297,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "the configured agent writes the commit message",
   async () => {
     const repo = await repository();
@@ -319,7 +320,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "an agent that is not installed falls back to the commits",
   async () => {
     const repo = await repository();
@@ -338,7 +339,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "the agent resolves a conflict, and the landing goes through",
   async () => {
     const repo = await repository();
@@ -380,7 +381,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "a conflict with no agent leaves the checkout alone and says where the copy is",
   async () => {
     const repo = await repository();
@@ -409,7 +410,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "the editor gets the drafted message, and what it leaves is used",
   async () => {
     if (!PTY) return;
@@ -440,7 +441,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "--no-edit keeps the draft without opening anything",
   async () => {
     if (!PTY) return;
@@ -463,7 +464,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "the workspace and its branch are still there afterwards",
   async () => {
     const repo = await repository();
@@ -514,7 +515,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "a route werk cannot take is refused rather than falling back to the one it can",
   async () => {
     const repo = await repository();
@@ -533,7 +534,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "a tracked change in the checkout stops the landing before anything is made",
   async () => {
     const repo = await repository();
@@ -552,7 +553,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "uncommitted work in the workspace is named, and only committed work lands",
   async () => {
     const repo = await repository();
@@ -572,7 +573,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "with nobody having chosen an agent, a terminal is asked once and the answer is kept",
   async () => {
     if (!PTY) return;
@@ -613,7 +614,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "--host is refused, because landing does not act on another machine",
   async () => {
     const repo = await repository();

@@ -56,6 +56,9 @@ const git = (cwd: string, ...args: string[]) =>
 async function repository(label = "repo"): Promise<string> {
   const directory = await scratch(label);
   await git(directory, "init", "-q", "-b", "main", ".");
+  // Files are compared byte for byte, so a checkout must not rewrite line
+  // endings, which Git for Windows does by default.
+  await git(directory, "config", "core.autocrlf", "false");
   await writeFile(path.join(directory, "README.md"), "committed\n");
   await git(directory, "add", "README.md");
   await git(directory, "commit", "-q", "-m", "init");

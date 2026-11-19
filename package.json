@@ -12,6 +12,7 @@
     "build": "bun scripts/build.ts",
     "typecheck": "bun scripts/typecheck.ts",
     "test": "bun test packages/palette/test packages/terminal/test packages/session/test packages/session-daemon/test packages/werk/test packages/terminal-beamterm/test packages/workspace/test",
+    "test:client": "bun test packages/palette/test packages/terminal/test packages/session/test packages/werk/test packages/terminal-beamterm/test packages/workspace/test --path-ignore-patterns='**/werk/test/{create-attach,daemon-endpoint,edit,loopback}.test.ts'",
     "test:artefacts": "bun scripts/check-artefacts.ts",
     "check:platform": "bun scripts/check-platform-code.ts",
     "browser:install": "bun scripts/browser-install.ts",

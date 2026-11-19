@@ -9,6 +9,7 @@
  */
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import path from "node:path";
 import type { GitResult, GitRunner } from "../src/git.js";
 import type { RemoteRunner } from "../src/remote.js";
 import { createSshWorkspaceMaker } from "../src/ssh.js";
@@ -159,7 +160,12 @@ test("a workspace on another machine is a mirror, a push and a locked worktree",
   // Every local git call, in order, with the directory it ran in. Local checks
   // come first so a mistake the person made costs no network at all.
   expect(h.calls).toEqual([
-    { args: ["rev-parse", "--show-toplevel"], cwd: "/repo/packages/werk" },
+    // The checkout is on this machine, so it is resolved by this machine's
+    // rules: on Windows a rooted path gains the current drive.
+    {
+      args: ["rev-parse", "--show-toplevel"],
+      cwd: path.resolve("/repo/packages/werk"),
+    },
     { args: ["rev-parse", "--verify", "HEAD"], cwd: "/repo" },
     {
       args: ["symbolic-ref", "--quiet", "--short", "HEAD"],

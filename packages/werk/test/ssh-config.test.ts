@@ -11,12 +11,13 @@
 import { afterAll, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { shortTempRoot } from "./support/platform.js";
 import {
   readSshAliases,
   resolveSshDestination,
 } from "../src/config/ssh-config.js";
 
-const home = await mkdtemp("/tmp/wks-");
+const home = await mkdtemp(join(shortTempRoot, "wks-"));
 afterAll(() => rm(home, { recursive: true, force: true }));
 
 let made = 0;

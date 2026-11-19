@@ -131,5 +131,5 @@ test("the helper is what the rule is about, so it is checked too", async () => {
     expect(text).toContain(marker);
   // The sandbox root is short on purpose: a Unix socket path is capped at 103
   // bytes and the daemon binds one inside the runtime directory.
-  expect(text).toContain("mkdtemp(`/tmp/${tag}-`)");
+  expect(text).toContain("mkdtemp(join(shortTempRoot, `${tag}-`))");
 });

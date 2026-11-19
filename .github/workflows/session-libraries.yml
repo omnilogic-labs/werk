@@ -58,14 +58,26 @@ jobs:
       - run: bun run build
       - run: bun run typecheck
       - run: bun test scripts --bail
+      # Windows runs the client's tests and nothing that starts a local daemon:
+      # werk is a client there. `test:client` leaves out the daemon package and
+      # the CLI files that only drive one, `--client` stops the artefact check
+      # before its daemon half, and the soak does not run. `docs/ci.md` has the
+      # list.
       - run: bun run test --retry=2 --bail
+        if: matrix.os != 'windows-latest'
+      - run: bun run test:client --retry=2 --bail
+        if: matrix.os == 'windows-latest'
       - run: bun run test:artefacts
+        if: matrix.os != 'windows-latest'
+      - run: bun run test:artefacts --client
+        if: matrix.os == 'windows-latest'
       - run: bun run test:soak
+        if: matrix.os != 'windows-latest'
         env:
           SOAK_SECONDS: "60"
           SOAK_REPORT: soak.json
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: always() && matrix.os != 'windows-latest'
         with:
           name: soak-${{ matrix.os }}
           path: soak.json

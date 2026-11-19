@@ -19,6 +19,7 @@ import {
   type ConfigSource,
 } from "../src/config/sources.js";
 import { ConfigError } from "../src/config/errors.js";
+import { bareEnvironment } from "./support/platform.js";
 
 const temporary: string[] = [];
 /**
@@ -55,7 +56,7 @@ const layer = (
 // arrives here without this file having to be edited to let the merge succeed.
 const full = (logLevel: "info" | "debug" = "info"): ConfigLayer =>
   layer("defaults", {
-    ...builtInDefaults({}, "/home/nobody"),
+    ...builtInDefaults(bareEnvironment(), "/home/nobody"),
     logLevel,
     runtimeDir: "/run/default",
     stateDir: "/state/default",
@@ -167,21 +168,22 @@ test("a key werk does not know is ignored, not refused", () => {
 });
 test("the defaults do not claim credit for WERK_RUNTIME_DIR", () => {
   const defaults = builtInDefaults(
-    { WERK_RUNTIME_DIR: "/run/env", HOME: "/home/x" },
+    { ...bareEnvironment(), WERK_RUNTIME_DIR: "/run/env", HOME: "/home/x" },
     "/home/x",
   );
   expect(defaults.runtimeDir).not.toBe("/run/env");
 });
 
 test("WERK_CONFIG_DIR moves the user file", () => {
+  // Resolved, so on Windows a rooted path gains the current drive.
   expect(userConfigDir({ WERK_CONFIG_DIR: "/opt/werk" }, "/home/x")).toBe(
-    "/opt/werk",
+    path.resolve("/opt/werk"),
   );
   expect(userConfigDir({}, "/home/x")).toBe(path.join("/home/x", ".werk"));
 });
 test("configPaths names the user file whether or not it exists", () => {
   const paths = configPaths({ env: { WERK_CONFIG_DIR: "/opt/werk" } });
-  expect(paths.user).toBe(path.join("/opt/werk", "config.toml"));
+  expect(paths.user).toBe(path.resolve("/opt/werk", "config.toml"));
 });
 
 test("a config.toml is read and typed", async () => {
@@ -241,7 +243,12 @@ test("the file layers, the environment and the flags stack up in that order", as
     'logLevel = "debug"\nruntimeDir = "/run/project"\n',
   );
   const { config, from } = await loadWerkConfig({
-    env: { WERK_CONFIG_DIR: userDir, WERK_LOG_LEVEL: "error", HOME: home },
+    env: {
+      ...bareEnvironment(),
+      WERK_CONFIG_DIR: userDir,
+      WERK_LOG_LEVEL: "error",
+      HOME: home,
+    },
     home,
     // A subdirectory: the project layer is found by asking git for the
     // toplevel, which is the walk c12 does not do.
@@ -263,7 +270,11 @@ test("outside a repository there is no project layer", async () => {
   const home = tmpdir();
   const outside = tmpdir();
   const { from } = await loadWerkConfig({
-    env: { WERK_CONFIG_DIR: path.join(home, ".werk"), HOME: home },
+    env: {
+      ...bareEnvironment(),
+      WERK_CONFIG_DIR: path.join(home, ".werk"),
+      HOME: home,
+    },
     home,
     cwd: outside,
   });

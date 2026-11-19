@@ -18,6 +18,7 @@ import { mkdtemp, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { workspaceAt } from "@werk/workspace";
+import { daemonTest } from "./support/platform.js";
 import { runWerk, sandbox, type WerkRun } from "./support/run.js";
 
 const run = promisify(execFile);
@@ -61,7 +62,7 @@ async function werk(cwd: string, ...args: string[]): Promise<WerkRun> {
 }
 const failure = (ran: WerkRun) => JSON.parse(ran.stderr.trim()).error;
 
-test(
+daemonTest(
   "a workspace is made without being asked for, and the session runs in it",
   async () => {
     const source = await repository();
@@ -104,7 +105,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "creating twice in one repository makes two workspaces",
   async () => {
     const source = await repository();
@@ -123,7 +124,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "--workspace names it, and asking for a name twice is a conflict",
   async () => {
     const source = await repository();
@@ -209,7 +210,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "--describe names the workspace, and describing the same work twice numbers it",
   async () => {
     // The question `create` asks, answered on the command line. A description
@@ -249,7 +250,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "a description with nothing a name can be made of falls back to a made-up one",
   async () => {
     const source = await repository();
@@ -274,7 +275,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "--cwd chooses the repository to branch from",
   async () => {
     const source = await repository();
@@ -302,7 +303,7 @@ test(
   TIMEOUT,
 );
 
-test(
+daemonTest(
   "list names the workspace each session is in, in the one notation",
   async () => {
     const source = await repository();

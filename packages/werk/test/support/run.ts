@@ -16,7 +16,9 @@
  *
  * ## Short paths
  *
- * A sandbox root is `/tmp/<tag>-XXXXXX` and nothing more nested. A Unix socket
+ * A sandbox root is `<shortTempRoot>/<tag>-XXXXXX` and nothing more nested,
+ * where `shortTempRoot` is `/tmp` on Linux and macOS (`support/platform.ts` says
+ * why). A Unix socket
  * path is capped at 103 bytes, the daemon binds `<runtimeDir>/daemon.sock`, and
  * a temporary directory a few levels deeper than this fails at `bind` with
  * `EINVAL`, which names nothing.
@@ -37,6 +39,7 @@ import {
   stat,
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { shortTempRoot } from "./platform.js";
 
 /** The CLI as a developer runs it, and the CLI as it is shipped. */
 const MAIN = resolve(import.meta.dir, "../../src/main.ts");
@@ -75,7 +78,7 @@ const livingSandboxes = new Set<Sandbox>();
 /**
  * A sandbox of its own.
  *
- * `tag` becomes the `/tmp` prefix, so it is short, and one file's tag is not
+ * `tag` becomes the directory's prefix, so it is short, and one file's tag is not
  * another's: these files deliberately do not share a daemon, and a shared
  * runtime directory is how they would start.
  */
@@ -84,7 +87,7 @@ export async function sandbox(tag: string): Promise<Sandbox> {
     throw new Error(
       `${JSON.stringify(tag)} is not a sandbox tag: two to eight lowercase letters, digits or dashes, because the socket length depends on it`,
     );
-  const root = await mkdtemp(`/tmp/${tag}-`);
+  const root = await mkdtemp(join(shortTempRoot, `${tag}-`));
   const configDir = join(root, "c");
   const runtimeDir = join(root, "r");
   const stateDir = join(root, "s");
